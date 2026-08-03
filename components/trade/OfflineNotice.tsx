@@ -3,10 +3,17 @@
 import { useCanMutate } from '@/lib/offlineGuard'
 
 /**
- * Плашка для разделов, которые без интернета работают только на просмотр.
- * Их операции меняют остатки и деньги на сервере — локально их не провести.
+ * Плашка офлайн-режима для разделов торговли.
+ * mode="queue" — операции сохраняются локально и уйдут при связи (склад).
+ * mode="view" (по умолчанию) — только просмотр.
  */
-export default function OfflineNotice({ section }: { section: string }) {
+export default function OfflineNotice({
+  section,
+  mode = 'view',
+}: {
+  section: string
+  mode?: 'view' | 'queue'
+}) {
   const online = useCanMutate()
   if (online) return null
   return (
@@ -21,7 +28,9 @@ export default function OfflineNotice({ section }: { section: string }) {
         border: '1px solid var(--alert-warn-border, #5a4020)',
       }}
     >
-      Нет связи — {section} сейчас только для просмотра. Изменения станут доступны после подключения.
+      {mode === 'queue'
+        ? `Нет связи — ${section}: приход и списание сохраняются локально и отправятся при подключении.`
+        : `Нет связи — ${section} сейчас только для просмотра. Изменения станут доступны после подключения.`}
     </div>
   )
 }

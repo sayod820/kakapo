@@ -1,10 +1,13 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '@/lib/api'
-import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
+import {
+  createStockReceiptSafe,
+  deleteStockReceiptSafe,
+  updateStockReceiptSafe,
+} from '@/lib/offlineWarehouseOps'
 import { useProducts } from '@/lib/store'
 import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
@@ -646,7 +649,6 @@ export default function WarehouseReceiptsPanel({
 
   async function submit() {
     if (!USE_API) return
-    if (!guardMutation(setMsg)) return
     const items = lines
       .filter(l => l.productId && Number(l.qty) > 0)
       .map(l => ({
@@ -669,18 +671,18 @@ export default function WarehouseReceiptsPanel({
         paidNow: Number(paidNow) || 0,
         items,
       }
-      // editingId из черновика — чтобы после перезахода не создавался второй приход
       const editId = draft.editingId || editingId
       if (editId) {
-        await api.updateStockReceipt(editId, payload)
-        await Promise.all([onRefresh(), fetchProducts()])
+        const res = await updateStockReceiptSafe(editId, payload)
         resetForm()
+        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+        else setMsg('Сохранено локально · отправится при связи')
       } else {
-        const created = await api.createStockReceipt(payload)
-        await Promise.all([onRefresh(), fetchProducts()])
+        const res = await createStockReceiptSafe(payload)
         resetForm()
-        // После нового прихода — сразу выбор этикеток
-        setLabelReceipt(created)
+        setLabelReceipt(res.data)
+        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+        else setMsg('Приход сохранён · отправится при связи')
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -691,16 +693,15 @@ export default function WarehouseReceiptsPanel({
 
   async function removeReceipt(id: string) {
     if (!USE_API) return
-    if (!guardMutation()) return
     const receipt = receipts.find(r => r.id === id)
     if (!receipt) return
     if (!confirm(`Удалить приход от ${fmtDateTime(receipt.createdAtIso)}?\n\nТовар будет списан со склада, долг поставщику скорректируется.`)) return
     setDeletingId(id)
     try {
-      await api.deleteStockReceipt(id)
+      const res = await deleteStockReceiptSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      await Promise.all([onRefresh(), fetchProducts()])
+      if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить приход')
     } finally {

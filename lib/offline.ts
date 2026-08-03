@@ -18,6 +18,12 @@ export type QueueKind =
   | 'card_topup'
   | 'debt_repay'
   | 'finance_move'
+  | 'stock_receipt_create'
+  | 'stock_receipt_update'
+  | 'stock_receipt_delete'
+  | 'stock_writeoff_create'
+  | 'stock_writeoff_update'
+  | 'stock_writeoff_delete'
 
 export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   sale: 'Чек',
@@ -27,6 +33,12 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   card_topup: 'Пополнение карты',
   debt_repay: 'Погашение долга',
   finance_move: 'Движение по кассе',
+  stock_receipt_create: 'Приход',
+  stock_receipt_update: 'Изменение прихода',
+  stock_receipt_delete: 'Удаление прихода',
+  stock_writeoff_create: 'Списание',
+  stock_writeoff_update: 'Изменение списания',
+  stock_writeoff_delete: 'Удаление списания',
 }
 
 export interface PendingOp<P = any> {
@@ -550,6 +562,61 @@ async function sendOp(row: PendingOp): Promise<string> {
         reason: p.reason,
       } as any)
       return String((move as any)?.id || '')
+    }
+    case 'stock_receipt_create': {
+      const p = row.payload || {}
+      const receipt = await api.createStockReceipt({
+        clientRef: p.clientRef,
+        supplierId: p.supplierId,
+        createdBy: p.createdBy,
+        paidNow: Number(p.paidNow) || 0,
+        items: p.items || [],
+        createdAtIso: p.createdAtIso,
+      } as any)
+      return String((receipt as any)?.id || '')
+    }
+    case 'stock_receipt_update': {
+      const p = await resolveRefs(row.payload, ['id'])
+      const receipt = await api.updateStockReceipt(String(p.id), {
+        clientRef: p.clientRef,
+        supplierId: p.supplierId,
+        paidNow: Number(p.paidNow) || 0,
+        items: p.items || [],
+      } as any)
+      return String((receipt as any)?.id || '')
+    }
+    case 'stock_receipt_delete': {
+      const p = await resolveRefs(row.payload, ['id'])
+      await api.deleteStockReceipt(String(p.id), { clientRef: p.clientRef } as any)
+      return String(p.id || '')
+    }
+    case 'stock_writeoff_create': {
+      const p = row.payload || {}
+      const w = await api.createStockWriteoff({
+        clientRef: p.clientRef,
+        reason: p.reason,
+        note: p.note,
+        createdBy: p.createdBy,
+        items: p.items || [],
+        createdAtIso: p.createdAtIso,
+      } as any)
+      return String((w as any)?.id || '')
+    }
+    case 'stock_writeoff_update': {
+      const p = await resolveRefs(row.payload, ['id'])
+      const w = await api.updateStockWriteoff(String(p.id), {
+        clientRef: p.clientRef,
+        reason: p.reason,
+        note: p.note,
+        createdBy: p.createdBy,
+        items: p.items || [],
+      } as any)
+      return String((w as any)?.id || '')
+    }
+    case 'stock_writeoff_delete': {
+      const p = await resolveRefs(row.payload, ['id'])
+      await api.deleteStockWriteoff(String(p.id), { clientRef: p.clientRef } as any)
+      return String(p.id || '')
     }
     default:
       throw new Error(`Неизвестная операция: ${row.kind}`)

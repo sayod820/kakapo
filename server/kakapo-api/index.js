@@ -2382,7 +2382,18 @@ app.get('/stock/receipts', (_req, res) => {
 })
 app.post('/stock/receipts', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_receipt_create', clientRef)
+      if (known) return res.json(known)
+      const existing = (db.stockReceipts || []).find(r => r.clientRef === clientRef)
+      if (existing) return res.json(existing)
+    }
     const row = createStockReceipt(db, req.body || {})
+    if (clientRef) {
+      row.clientRef = clientRef
+      rememberOpRef('stock_receipt_create', clientRef, row)
+    }
     auditFromReq(db, req, {
       action: 'create',
       entity: 'stock',
@@ -2400,7 +2411,13 @@ app.post('/stock/receipts', (req, res) => {
 })
 app.put('/stock/receipts/:id', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_receipt_update', clientRef)
+      if (known) return res.json(known)
+    }
     const row = updateStockReceipt(db, req.params.id, req.body || {})
+    if (clientRef) rememberOpRef('stock_receipt_update', clientRef, row)
     auditFromReq(db, req, {
       action: 'update',
       entity: 'stock',
@@ -2418,7 +2435,13 @@ app.put('/stock/receipts/:id', (req, res) => {
 })
 app.delete('/stock/receipts/:id', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_receipt_delete', clientRef)
+      if (known) return res.json(known)
+    }
     const row = deleteStockReceipt(db, req.params.id)
+    if (clientRef) rememberOpRef('stock_receipt_delete', clientRef, row)
     auditFromReq(db, req, {
       action: 'delete',
       entity: 'stock',
@@ -2439,7 +2462,18 @@ app.get('/stock/writeoffs', (_req, res) => {
 })
 app.post('/stock/writeoffs', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_writeoff_create', clientRef)
+      if (known) return res.json(known)
+      const existing = (db.writeOffs || []).find(w => w.clientRef === clientRef)
+      if (existing) return res.json(existing)
+    }
     const row = createStockWriteoff(db, req.body || {})
+    if (clientRef) {
+      row.clientRef = clientRef
+      rememberOpRef('stock_writeoff_create', clientRef, row)
+    }
     auditFromReq(db, req, {
       action: 'create',
       entity: 'stock',
@@ -2457,7 +2491,13 @@ app.post('/stock/writeoffs', (req, res) => {
 })
 app.put('/stock/writeoffs/:id', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_writeoff_update', clientRef)
+      if (known) return res.json(known)
+    }
     const row = updateStockWriteoff(db, req.params.id, req.body || {})
+    if (clientRef) rememberOpRef('stock_writeoff_update', clientRef, row)
     auditFromReq(db, req, {
       action: 'update',
       entity: 'stock',
@@ -2475,7 +2515,13 @@ app.put('/stock/writeoffs/:id', (req, res) => {
 })
 app.delete('/stock/writeoffs/:id', (req, res) => {
   try {
+    const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
+    if (clientRef) {
+      const known = findOpRef('stock_writeoff_delete', clientRef)
+      if (known) return res.json(known)
+    }
     const row = deleteStockWriteoff(db, req.params.id)
+    if (clientRef) rememberOpRef('stock_writeoff_delete', clientRef, row)
     auditFromReq(db, req, {
       action: 'delete',
       entity: 'stock',

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import OfflineNotice from './OfflineNotice'
 import { USE_API } from '@/lib/config'
+import { createStockWriteoffSafe } from '@/lib/offlineWarehouseOps'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
@@ -99,12 +100,16 @@ export default function WarehouseModule({
 
   const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
     if (!USE_API) return
-    await api.createStockWriteoff({
+    const res = await createStockWriteoffSafe({
       reason: 'Просрочка',
       note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
       items: [{ productId: row.productId, qty: row.qty }],
     })
-    await Promise.all([refreshAll(), loadExpiry(expiryDays)])
+    if (!res.offline) await Promise.all([refreshAll(), loadExpiry(expiryDays)])
+    else {
+      await loadExpiry(expiryDays)
+      void refreshAll()
+    }
   }, [refreshAll, loadExpiry, expiryDays])
 
   return (
@@ -126,7 +131,7 @@ export default function WarehouseModule({
         </div>
       )}
 
-      <OfflineNotice section="склад" />
+      <OfflineNotice section="склад" mode="queue" />
 
       {apiError && (
         <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>

@@ -970,33 +970,45 @@ export const api = {
     }),
   getStockReceipts: () => request<StockReceipt[]>('/stock/receipts'),
   createStockReceipt: (data: {
+    clientRef?: string
     supplierId?: string
     createdBy?: string
     paidNow?: number
+    createdAtIso?: string
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>('/stock/receipts', { method: 'POST', body: JSON.stringify(data) }),
   updateStockReceipt: (id: string, data: {
+    clientRef?: string
     supplierId?: string
     paidNow?: number
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteStockReceipt: (id: string) =>
-    request<{ id: string }>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteStockReceipt: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/stock/receipts/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getStockWriteoffs: () => request<StockWriteoff[]>('/stock/writeoffs'),
   createStockWriteoff: (data: {
+    clientRef?: string
     reason: string
     note?: string
     createdBy?: string
+    createdAtIso?: string
     items: { productId: number; qty: number }[]
   }) => request<StockWriteoff>('/stock/writeoffs', { method: 'POST', body: JSON.stringify(data) }),
   updateStockWriteoff: (id: string, data: {
+    clientRef?: string
     reason: string
     note?: string
     createdBy?: string
     items: { productId: number; qty: number }[]
   }) => request<StockWriteoff>(`/stock/writeoffs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteStockWriteoff: (id: string) =>
-    request<{ id: string }>(`/stock/writeoffs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteStockWriteoff: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/stock/writeoffs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
   createStockRevision: (data: {
     createdBy?: string

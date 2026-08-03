@@ -377,6 +377,7 @@ export interface ProductStockLayer {
 
 export interface StockReceipt {
   id: string
+  clientRef?: string
   supplierId?: string | null
   supplierName?: string
   createdAtIso: string
@@ -399,6 +400,7 @@ export interface StockWriteoffItem {
 
 export interface StockWriteoff {
   id: string
+  clientRef?: string
   createdAtIso: string
   createdBy?: string
   reason: string

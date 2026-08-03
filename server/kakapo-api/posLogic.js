@@ -1134,7 +1134,9 @@ function buildStockReceipt(db, data = {}, meta = {}) {
 
 export function createStockReceipt(db, data = {}) {
   ensurePosCollections(db)
-  const receipt = buildStockReceipt(db, data)
+  const meta = {}
+  if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
+  const receipt = buildStockReceipt(db, data, meta)
   if ((Number(receipt.paidNow) || 0) > 0) {
     appendMoneyLedger(db, {
       type: 'purchase_pay',
@@ -1203,7 +1205,9 @@ export function listStockWriteoffs(db) {
 
 export function createStockWriteoff(db, data = {}) {
   ensurePosCollections(db)
-  return buildStockWriteoff(db, data)
+  const meta = {}
+  if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
+  return buildStockWriteoff(db, data, meta)
 }
 
 export function updateStockWriteoff(db, id, data = {}) {

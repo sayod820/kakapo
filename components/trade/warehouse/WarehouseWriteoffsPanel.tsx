@@ -1,9 +1,12 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '@/lib/api'
-import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
+import {
+  createStockWriteoffSafe,
+  deleteStockWriteoffSafe,
+  updateStockWriteoffSafe,
+} from '@/lib/offlineWarehouseOps'
 import { useProducts } from '@/lib/store'
 import type { Product, StockWriteoff } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
@@ -362,7 +365,6 @@ export default function WarehouseWriteoffsPanel({
 
   async function submit() {
     if (!USE_API) return
-    if (!guardMutation(setMsg)) return
     const finalReason = reason === 'Другое' ? customReason.trim() : reason
     if (!finalReason) {
       setMsg('Укажите причину списания')
@@ -388,12 +390,16 @@ export default function WarehouseWriteoffsPanel({
         items,
       }
       if (editingId) {
-        await api.updateStockWriteoff(editingId, payload)
+        const res = await updateStockWriteoffSafe(editingId, payload)
+        resetForm()
+        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+        else setMsg('Сохранено локально · отправится при связи')
       } else {
-        await api.createStockWriteoff(payload)
+        const res = await createStockWriteoffSafe(payload)
+        resetForm()
+        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+        else setMsg('Списание сохранено · отправится при связи')
       }
-      await Promise.all([onRefresh(), fetchProducts()])
-      resetForm()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
@@ -403,16 +409,15 @@ export default function WarehouseWriteoffsPanel({
 
   async function removeWriteoff(id: string) {
     if (!USE_API) return
-    if (!guardMutation()) return
     const writeoff = writeoffs.find(w => w.id === id)
     if (!writeoff) return
     if (!confirm(`Удалить списание от ${fmtDateTime(writeoff.createdAtIso)}?\n\nТовар вернётся на склад.`)) return
     setDeletingId(id)
     try {
-      await api.deleteStockWriteoff(id)
+      const res = await deleteStockWriteoffSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      await Promise.all([onRefresh(), fetchProducts()])
+      if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить списание')
     } finally {
