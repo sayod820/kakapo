@@ -3002,7 +3002,12 @@ app.patch('/clients/:id', (req, res) => {
   delete patch.debt
   delete patch.debtNote
   if (patch.debtEnabled === false && (Number(c.debt) || 0) > 0.001) {
-    return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+    const nextDebtProbe = debtRequested != null ? debtRequested : Number(c.debt) || 0
+    if (nextDebtProbe > 0.001) {
+      patch.debtEnabled = true
+    } else {
+      return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+    }
   }
   if (patch.bonus != null && !allowBonusDecrease) {
     const next = Number(patch.bonus) || 0
@@ -3982,7 +3987,13 @@ app.patch('/cards/:num', (req, res) => {
       }
     }
     if (body.debtEnabled === false && (Number(card.debt) || 0) > 0.001) {
-      return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+      // Если одновременно поднимаем/оставляем долг — не отклоняем, а включим раздел ниже
+      const nextDebtProbe = body.debt != null ? Number(body.debt) || 0 : Number(card.debt) || 0
+      if (nextDebtProbe > 0.001) {
+        body.debtEnabled = true
+      } else {
+        return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
+      }
     }
     if (body.bonus != null && !allowDecrease) {
       const next = Number(body.bonus) || 0
@@ -4034,6 +4045,11 @@ app.patch('/cards/:num', (req, res) => {
           syncClientFromCardRow(card)
           return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
         }
+      }
+      // Пока долг > 0 — раздел долга всегда включён (иначе следующий sync/UI его «выключит»)
+      if ((Number(card.debt) || 0) > 0.001) {
+        card.debtEnabled = true
+        if (linkedClient) linkedClient.debtEnabled = true
       }
     }
     syncClientFromCardRow(card)

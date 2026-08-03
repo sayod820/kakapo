@@ -364,6 +364,7 @@ export async function saveCardLoyalty(
   card: AdminCard,
   form: CardLoyaltyForm,
   mode: 'link' | 'edit',
+  opts?: { skipDebtHistory?: boolean },
 ) {
   const cardStore = useCardStore.getState()
   const clientStore = useClientStore.getState()
@@ -391,10 +392,16 @@ export async function saveCardLoyalty(
 
   const statusChanged = !!form.vip !== prevVip || resolvedLevel !== prevLevel
   const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
-  const resolvedDebtEnabled = assignMode === 'auto'
-    ? qualifiesForDebtSection(resolvedLevel, !!form.vip)
-    : !!form.debtEnabled
-  const debtEligible = resolvedDebtEnabled
+  const prevDebt = Math.max(0, Number(card.debt) || 0, Number(client?.debt) || 0)
+  const nextDebt = Math.max(0, Number(form.debt) || 0)
+  // Пока есть долг (или начисляем) — раздел долга нельзя выключать:
+  // иначе API отвечает 409 и баланс не сохраняется, а история уже могла записаться локально.
+  const resolvedDebtEnabled = nextDebt > 0.001
+    ? true
+    : (assignMode === 'auto'
+      ? qualifiesForDebtSection(resolvedLevel, !!form.vip)
+      : !!form.debtEnabled)
+  const debtEligible = resolvedDebtEnabled || nextDebt > 0.001
   const formLimit = Math.max(0, Number(form.debtLimit) || 0)
   const resolvedDebtLimit = formLimit > 0
     ? formLimit
@@ -418,7 +425,7 @@ export async function saveCardLoyalty(
     level: resolvedLevel,
     debtLimit: resolvedDebtLimit,
     bonus: Math.max(0, Number(form.bonus) || 0),
-    debt: Math.max(0, Number(form.debt) || 0),
+    debt: nextDebt,
     vip: !!form.vip,
     debtEnabled: resolvedDebtEnabled,
     loyaltyPeriod: currentLoyaltyPeriod(),
@@ -433,8 +440,6 @@ export async function saveCardLoyalty(
         : (form.vipUntil || endOfLoyaltyPeriodIso()),
     ...(statusChanged ? { bonusEligibleFrom: new Date().toISOString() } : {}),
   }
-
-  const prevDebt = Math.max(0, Number(card.debt) || 0)
 
   if (!client) {
     client = clientStore.addClient({
@@ -483,11 +488,7 @@ export async function saveCardLoyalty(
   } else {
     cardStore.updateCardLoyalty(cardKey, cardPatch, { skipApi: true })
     clientStore.updateClient(client.id, clientPatch, { skipApi: true })
-    if (loyalty.debt < prevDebt - 0.001) {
-      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
-    } else if (loyalty.debt > prevDebt + 0.001) {
-      recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
-    }
+    // История долга — только после успешного API (ниже), чтобы не копить «фантомные» начисления
   }
 
   markCardLoyaltySaved(cardKey, {
@@ -553,9 +554,23 @@ export async function saveCardLoyalty(
         }
         cardNum = result.cardNum
       }
+      // История после успешного сохранения на сервер
+      if (mode === 'edit' && !opts?.skipDebtHistory) {
+        if (loyalty.debt < prevDebt - 0.001) {
+          recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+        } else if (loyalty.debt > prevDebt + 0.001) {
+          recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
+        }
+      }
     } catch (e) {
       console.error('saveCardLoyalty API failed', e)
       throw e instanceof Error ? e : new Error('Не удалось сохранить на сервер. Проверьте подключение и повторите.')
+    }
+  } else if (mode === 'edit' && !opts?.skipDebtHistory) {
+    if (loyalty.debt < prevDebt - 0.001) {
+      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+    } else if (loyalty.debt > prevDebt + 0.001) {
+      recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
     }
   }
 

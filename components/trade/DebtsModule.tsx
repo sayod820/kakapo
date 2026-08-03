@@ -250,7 +250,11 @@ export default function DebtsModule() {
     return { history, settlement, creditOrders, posSales, totals }
   }, [detailClient, histTick, orders, sales])
 
-  async function saveLoyaltyForClient(client: AdminClient, patch: Partial<CardLoyaltyForm>) {
+  async function saveLoyaltyForClient(
+    client: AdminClient,
+    patch: Partial<CardLoyaltyForm>,
+    opts?: { skipDebtHistory?: boolean },
+  ) {
     let card = cardForClient(client, cards)
     if (!card) {
       const updated = await provisionLoyaltyCardForClient(client)
@@ -260,7 +264,7 @@ export default function DebtsModule() {
     if (!card) throw new Error('Не удалось получить карту лояльности')
     const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
     const base = cardLoyaltyFromCard(card, freshClient)
-    await saveCardLoyalty(card, { ...base, ...patch }, 'edit')
+    await saveCardLoyalty(card, { ...base, ...patch }, 'edit', opts)
     await refreshAll()
   }
 
@@ -284,17 +288,46 @@ export default function DebtsModule() {
       setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму' }))
       return
     }
-    const prevDebt = Number(detailClient.debt) || 0
+    const card = cardForClient(detailClient, cards)
+    const prevDebt = Math.max(
+      0,
+      Number(detailClient.debt) || 0,
+      Number(card?.debt) || 0,
+    )
     const nextDebt = inlineDebt.action === 'repay'
-      ? Math.max(0, prevDebt - amount)
-      : prevDebt + amount
+      ? Math.max(0, Math.round((prevDebt - amount) * 100) / 100)
+      : Math.round((prevDebt + amount) * 100) / 100
 
     setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      await saveLoyaltyForClient(detailClient, { debt: nextDebt })
+      await saveLoyaltyForClient(detailClient, {
+        debt: nextDebt,
+        ...(nextDebt > 0.001 ? { debtEnabled: true } : {}),
+      })
       setInlineDebt(emptyInlineDebt())
     } catch (e) {
       setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+    }
+  }
+
+  /** Подтянуть баланс, если в истории есть ручные начисления, а «Текущий долг» отстал */
+  async function syncDebtBalanceFromHistory() {
+    if (!detailClient?.phone) return
+    const history = loadDebtHistory(detailClient.phone)
+    const { unpaid } = buildDebtOrderBalances(history)
+    const unpaidSum = Math.round(unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100) / 100
+    const card = cardForClient(detailClient, cards)
+    const current = Math.max(0, Number(detailClient.debt) || 0, Number(card?.debt) || 0)
+    if (unpaidSum <= current + 0.01) {
+      setInlineDebt(prev => ({ ...prev, msg: 'Баланс уже совпадает с историей' }))
+      return
+    }
+    setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
+    try {
+      await saveLoyaltyForClient(detailClient, { debt: unpaidSum, debtEnabled: true }, { skipDebtHistory: true })
+      setInlineDebt(prev => ({ ...prev, saving: false, amount: '', msg: '' }))
+    } catch (e) {
+      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Не удалось синхронизировать' }))
     }
   }
 
@@ -469,6 +502,34 @@ export default function DebtsModule() {
                     {detailClient.card && <span> · 💳 {detailClient.card}</span>}
                   </div>
                 )}
+                {(() => {
+                  const unpaidSum = Math.round(
+                    detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
+                  ) / 100
+                  const current = Number(detailClient.debt) || 0
+                  if (unpaidSum <= current + 0.05) return null
+                  return (
+                    <div style={{
+                      marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.4,
+                      background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
+                      display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                      <span>
+                        В истории неоплачено {fmtMoney(unpaidSum)}, а текущий долг {fmtMoney(current)}.
+                        Ручные начисления не попали в баланс.
+                      </span>
+                      <button
+                        type="button"
+                        className="k-btn k-btn-g"
+                        style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                        disabled={inlineDebt.saving}
+                        onClick={() => void syncDebtBalanceFromHistory()}
+                      >
+                        {inlineDebt.saving ? '…' : `Добавить в долг ${fmtMoney(unpaidSum)}`}
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div style={{
