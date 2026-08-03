@@ -1,13 +1,16 @@
 // ════════════════════════════════════════════════
 // KAKAPO — операции кассы без интернета
-// Пробуем сервер; нет связи — кладём в очередь и сразу
-// применяем к локальным данным, чтобы касса не вставала
+// Быстрое подтверждение: ждём сервер коротко; если медленно —
+// сразу локально + очередь (как офлайн), синхронизация в фоне
 // ════════════════════════════════════════════════
-import { api, isNetworkError } from './api'
-import { newClientRef, newLocalId } from './offline'
+import { api, isNetworkError, NetworkError } from './api'
+import { isLocalId, newClientRef, newLocalId } from './offline'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { FinanceMove, PosSale, PosShift } from './types'
+
+/** Сколько ждём живой ответ сервера, прежде чем подтвердить локально */
+const CASHIER_FAST_MS = 1600
 
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
@@ -24,9 +27,36 @@ function shiftById(shiftId: string): PosShift | undefined {
 }
 
 export interface OfflineResult<T> {
-  /** true — операция ушла в очередь и ждёт связи */
+  /** true — операция ушла в очередь / подтверждена локально, сервер догонит */
   offline: boolean
   data: T
+}
+
+/**
+ * Ждём API до CASHIER_FAST_MS. Если сеть медленная или упала —
+ * сразу localApply + sync в фоне (касса не «висит»).
+ */
+async function raceCashierOp<T>(
+  apiCall: () => Promise<T>,
+  localApply: () => Promise<T> | T,
+): Promise<OfflineResult<T>> {
+  try {
+    const data = await Promise.race([
+      apiCall(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new NetworkError('Медленная связь — сохранено локально')),
+          CASHIER_FAST_MS,
+        )
+      }),
+    ])
+    return { offline: false, data }
+  } catch (e) {
+    if (!isNetworkError(e)) throw e
+    const data = await localApply()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
 }
 
 // ── Смена ──
@@ -46,11 +76,8 @@ export async function openShiftSafe(input: {
     posId: input.posId,
     note: input.note,
   }
-  try {
-    const shift = await api.openPosShift(payload)
-    return { offline: false, data: shift }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
+
+  const applyLocal = async () => {
     const localId = newLocalId('shift')
     const shift: PosShift = {
       id: localId,
@@ -70,8 +97,10 @@ export async function openShiftSafe(input: {
     }
     await useOfflineSync.getState().queueOp('shift_open', payload, { localId })
     usePosStore.setState(s => ({ shifts: [shift, ...s.shifts] }))
-    return { offline: true, data: shift }
+    return shift
   }
+
+  return raceCashierOp(() => api.openPosShift(payload), applyLocal)
 }
 
 export async function closeShiftSafe(
@@ -80,15 +109,8 @@ export async function closeShiftSafe(
 ): Promise<OfflineResult<PosShift | null>> {
   const clientRef = newClientRef()
   const payload = { clientRef, shiftId, closingCash: round2(input.closingCash), note: input.note }
-  try {
-    const shift = await api.closePosShift(shiftId, {
-      clientRef,
-      closingCash: payload.closingCash,
-      note: input.note,
-    })
-    return { offline: false, data: shift }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
+
+  const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('shift_close', payload)
     const current = shiftById(shiftId)
     const expected = current
@@ -102,8 +124,17 @@ export async function closeShiftSafe(
       expectedCash: expected,
       cashDiff: round2(payload.closingCash - expected),
     })
-    return { offline: true, data: current ? { ...current, status: 'closed' } : null }
+    return current ? { ...current, status: 'closed' as const } : null
   }
+
+  return raceCashierOp(
+    () => api.closePosShift(shiftId, {
+      clientRef,
+      closingCash: payload.closingCash,
+      note: input.note,
+    }),
+    applyLocal,
+  )
 }
 
 // ── Движение по кассе ──
@@ -122,14 +153,19 @@ export async function financeMoveSafe(input: {
 }): Promise<OfflineResult<FinanceMove | null>> {
   const clientRef = newClientRef()
   const payload = { ...input, clientRef, amount: round2(input.amount) }
-  try {
-    const move = await api.createFinanceMove(payload)
-    return { offline: false, data: move }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    if (input.supplierId) {
+
+  // Оплата поставщику — только онлайн (нужен актуальный долг)
+  if (input.supplierId) {
+    try {
+      const move = await api.createFinanceMove(payload)
+      return { offline: false, data: move }
+    } catch (e) {
+      if (!isNetworkError(e)) throw e
       throw new Error('Оплата поставщику недоступна без связи')
     }
+  }
+
+  const applyLocal = async () => {
     const localId = newLocalId('fin')
     await useOfflineSync.getState().queueOp('finance_move', payload, { localId })
     const move: FinanceMove = {
@@ -151,8 +187,10 @@ export async function financeMoveSafe(input: {
           : { cashInTotal: round2((shift.cashInTotal || 0) + payload.amount) })
       }
     }
-    return { offline: true, data: move }
+    return move
   }
+
+  return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
 }
 
 // ── Пополнение карты наличными ──
@@ -171,22 +209,9 @@ export async function cardTopupSafe(
 ): Promise<OfflineResult<null>> {
   const clientRef = newClientRef()
   const payload = { ...input, clientRef, cash: round2(input.cash), credit: round2(input.credit), num }
-  try {
-    await api.cashTopupCard(num, {
-      clientRef,
-      cash: payload.cash,
-      credit: payload.credit,
-      note: input.note,
-      cashierId: input.cashierId,
-      cashierName: input.cashierName,
-      shiftId: input.shiftId,
-      posId: input.posId,
-    })
-    return { offline: false, data: null }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
+
+  const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('card_topup', payload)
-    // деньги легли в кассу, бонусы — на карту
     const shift = input.shiftId ? shiftById(input.shiftId) : undefined
     if (shift) {
       patchShift(shift.id, { cashInTotal: round2((shift.cashInTotal || 0) + payload.cash) })
@@ -213,8 +238,25 @@ export async function cardTopupSafe(
       },
       { skipApi: true },
     )
-    return { offline: true, data: null }
+    return null
   }
+
+  return raceCashierOp(
+    async () => {
+      await api.cashTopupCard(num, {
+        clientRef,
+        cash: payload.cash,
+        credit: payload.credit,
+        note: input.note,
+        cashierId: input.cashierId,
+        cashierName: input.cashierName,
+        shiftId: input.shiftId,
+        posId: input.posId,
+      })
+      return null
+    },
+    applyLocal,
+  )
 }
 
 // ── Погашение долга ──
@@ -236,18 +278,33 @@ export async function debtRepaySafe(
   const clientRef = newClientRef()
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
   const amount = round2(input.amount)
-  const payload = { clientRef, num, amount, method, note: input.note, cashierId: input.cashierId, cashierName: input.cashierName, shiftId: input.shiftId, posId: input.posId }
-  try {
-    const res = await api.debtRepayCard(num, payload)
-    return {
-      offline: false,
-      data: { nextDebt: Number(res.nextDebt) || 0, bonusEarned: Number(res.bonusEarned) || 0 },
-    }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    if (method === 'card') {
+  const payload = {
+    clientRef,
+    num,
+    amount,
+    method,
+    note: input.note,
+    cashierId: input.cashierId,
+    cashierName: input.cashierName,
+    shiftId: input.shiftId,
+    posId: input.posId,
+  }
+
+  // Картой — только онлайн (терминал / банк)
+  if (method === 'card') {
+    try {
+      const res = await api.debtRepayCard(num, payload)
+      return {
+        offline: false,
+        data: { nextDebt: Number(res.nextDebt) || 0, bonusEarned: Number(res.bonusEarned) || 0 },
+      }
+    } catch (e) {
+      if (!isNetworkError(e)) throw e
       throw new Error('Погашение картой недоступно без связи — примите наличными')
     }
+  }
+
+  const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('debt_repay', payload)
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
     if (input.shiftId) {
@@ -260,8 +317,16 @@ export async function debtRepaySafe(
       const { useClientStore } = await import('./clientStore')
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
-    return { offline: true, data: { nextDebt, bonusEarned: 0 } }
+    return { nextDebt, bonusEarned: 0 }
   }
+
+  return raceCashierOp(
+    async () => {
+      const res = await api.debtRepayCard(num, payload)
+      return { nextDebt: Number(res.nextDebt) || 0, bonusEarned: Number(res.bonusEarned) || 0 }
+    },
+    applyLocal,
+  )
 }
 
 // ── Возврат чека ──
@@ -275,21 +340,36 @@ export async function returnSaleSafe(
   },
 ): Promise<OfflineResult<PosSale>> {
   const clientRef = newClientRef()
-  const payload = { clientRef, saleId: sale.id, note: input.note, cashierId: input.cashierId, items: input.items }
-  try {
-    const updated = await api.returnPosSale(sale.id, {
+  const payload = {
+    clientRef,
+    saleId: sale.id,
+    note: input.note,
+    cashierId: input.cashierId,
+    items: input.items,
+  }
+
+  // Локальный id чека — только очередь (на сервере ещё нет)
+  if (isLocalId(sale.id)) {
+    await useOfflineSync.getState().queueOp('sale_return', payload)
+    const returned = applyLocalReturn(sale, input.items)
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data: returned }
+  }
+
+  const applyLocal = async () => {
+    await useOfflineSync.getState().queueOp('sale_return', payload)
+    return applyLocalReturn(sale, input.items)
+  }
+
+  return raceCashierOp(
+    () => api.returnPosSale(sale.id, {
       clientRef,
       note: input.note,
       cashierId: input.cashierId,
       ...(input.items ? { items: input.items } : {}),
-    })
-    return { offline: false, data: updated }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    await useOfflineSync.getState().queueOp('sale_return', payload)
-    const returned = applyLocalReturn(sale, input.items)
-    return { offline: true, data: returned }
-  }
+    }),
+    applyLocal,
+  )
 }
 
 /** Локальный возврат: товары на склад, чек помечен возвращённым */

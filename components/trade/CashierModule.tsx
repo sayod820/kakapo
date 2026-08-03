@@ -2801,7 +2801,8 @@ export default function CashierModule({
         openingCash: cash,
         posId,
       })
-      if (!opened.offline) await refresh()
+      if (!opened.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       setCart([])
       setClient(null)
       setDiscountPct(0)
@@ -2812,7 +2813,7 @@ export default function CashierModule({
       setPosSurface('register')
       showToast(
         'Смена открыта',
-        opened.offline ? `${cashier.name} · без связи, уйдёт после подключения` : cashier.name,
+        opened.offline ? `${cashier.name} · отправится в фоне` : cashier.name,
       )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
@@ -3098,7 +3099,8 @@ export default function CashierModule({
       const cash = Number(closingCash)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
       const closed = await closeShiftSafe(activeShift.id, { closingCash: cash })
-      if (!closed.offline) await refresh()
+      if (!closed.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setPosSurface('dashboard')
@@ -3107,7 +3109,7 @@ export default function CashierModule({
       setGateCash(String(cash.toFixed(2)))
       showToast(
         'Смена закрыта',
-        closed.offline ? `В кассе ${fmtMoney(cash)} · уйдёт после подключения` : `В кассе ${fmtMoney(cash)}`,
+        closed.offline ? `В кассе ${fmtMoney(cash)} · отправится в фоне` : `В кассе ${fmtMoney(cash)}`,
       )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')
@@ -3139,7 +3141,8 @@ export default function CashierModule({
         openingCash: cash,
         posId: activeShift.posId || activePosPoint?.id,
       })
-      if (!closed.offline && !opened.offline) await refresh()
+      if (!closed.offline && !opened.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setCart([])
@@ -3153,7 +3156,7 @@ export default function CashierModule({
       showToast('Кассир сменён', `${cashier.name} · в кассе ${fmtMoney(cash)}`)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сменить кассира')
-      await refresh()
+      void refresh()
     } finally {
       setBusy(false)
     }
@@ -3218,12 +3221,13 @@ export default function CashierModule({
             ? undefined
             : 'Снятие из кассы',
       })
-      if (!moved.offline) await refresh()
+      if (!moved.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       const kindLabel = tillMoveKind === 'in' ? 'Внесено' : 'Снято'
       const supplierName = tillSupplierId
         ? suppliers.find(s => s.id === tillSupplierId)?.name
         : ''
-      const offlineNote = moved.offline ? ' · уйдёт после подключения' : ''
+      const offlineNote = moved.offline ? ' · отправится в фоне' : ''
       showToast(
         kindLabel,
         (supplierName ? `${fmtMoney(amount)} · ${supplierName}` : fmtMoney(amount)) + offlineNote,
@@ -3466,14 +3470,16 @@ export default function CashierModule({
         })
       }
       if (!res.offline) {
-        await refresh()
-        await fetchProducts()
+        // Не блокируем кассира полной перезагрузкой — обновим в фоне
+        void Promise.allSettled([refresh(), fetchProducts()])
+      } else {
+        void useOfflineSync.getState().syncNow()
       }
       setReturnQtyByIdx({})
       const retTotal = Number(updated.lastReturnTotal) || confirmTotal
       showToast(
         updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
-        `${fmtMoney(retTotal)} · товары на складе${res.offline ? ' · уйдёт после подключения' : ''}`,
+        `${fmtMoney(retTotal)} · товары на складе${res.offline ? ' · отправится в фоне' : ''}`,
       )
       setReceiptSaleId(sale.id)
     } catch (e) {
@@ -5090,13 +5096,14 @@ export default function CashierModule({
         posId: activeShift.posId || activePosPoint?.id,
       })
       if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение бонусов')
-      if (!topup.offline) await refresh()
+      if (!topup.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setTopupOpen(false)
       setTopupBuf('')
       const extra = percentBonus > 0 ? ` (деньги ${principal.toFixed(2)} + бонус ${fmtBonus(percentBonus)})` : ''
-      const offlineNote = topup.offline ? ' · уйдёт после подключения' : ''
+      const offlineNote = topup.offline ? ' · отправится в фоне' : ''
       showToast('Бонусы пополнены', `${client.name}: +${credit.toFixed(2)} ⭐${extra}${offlineNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
@@ -5157,7 +5164,8 @@ export default function CashierModule({
           recordBalanceTopup(client.phone, amount, repayBonus, 'Погашение долга наличными')
         }
       }
-      if (!repaid.offline) await refresh()
+      if (!repaid.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
       if (fresh) setClient(fresh)
       setRepayOpen(false)
@@ -5168,7 +5176,7 @@ export default function CashierModule({
         : ''
       const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
       const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
-      const offlineNote = repaid.offline ? ' · уйдёт после подключения' : ''
+      const offlineNote = repaid.offline ? ' · отправится в фоне' : ''
       showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}${offlineNote}`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
