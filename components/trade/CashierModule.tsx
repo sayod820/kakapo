@@ -139,6 +139,24 @@ type PriceLayerGroup = {
   oldest: ProductStockLayer
 }
 
+/** Цена продажи для чека: не подставляем закуп, если в карточке уже есть нормальная розница */
+function resolveCartSellPrice(opts: {
+  catalogPrice: number
+  layerRetail?: number | null
+  costPrice?: number | null
+}): number {
+  const catalog = Math.round((Number(opts.catalogPrice) || 0) * 100) / 100
+  const layerRetail = Math.round((Number(opts.layerRetail) || 0) * 100) / 100
+  const cost = Math.round((Number(opts.costPrice) || 0) * 100) / 100
+  let price = layerRetail > 0 ? layerRetail : catalog
+  // В партии ошибочно записали розницу = закуп, а в товаре цена выше → продаём по карточке
+  if (cost > 0 && price > 0 && Math.abs(price - cost) < 0.021 && catalog > price + 0.021) {
+    price = catalog
+  }
+  if (!(price > 0) && catalog > 0) price = catalog
+  return price
+}
+
 /** Партии с одной ценой продажи → один пункт; списание потом FIFO по дате внутри группы */
 function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0): PriceLayerGroup[] {
   const map = new Map<string, ProductStockLayer[]>()
@@ -3785,17 +3803,19 @@ export default function CashierModule({
       showToast('Нет остатка', 'По этой цене товар закончился')
       return
     }
-    const price = preferRetailPrice != null
-      ? preferRetailPrice
-      : (layer
-        ? (Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : Number(p.price) || 0)
-        : Number(p.price) || 0)
     // При выборе цены — не фиксируем одну партию, списание FIFO внутри цены
     const receiptId = preferRetailPrice != null ? undefined : layer?.receiptId
     const costPrice = opts?.costPrice != null
       ? opts.costPrice
       : (layer ? Number(layer.costPrice) || 0 : undefined)
     const supplierName = opts?.supplierName || layer?.supplierName || undefined
+    const price = resolveCartSellPrice({
+      catalogPrice: Number(p.price) || 0,
+      layerRetail: preferRetailPrice != null && preferRetailPrice > 0
+        ? preferRetailPrice
+        : (layer ? Number(layer.retailPrice) || 0 : 0),
+      costPrice,
+    })
 
     if (isWeighted(p) && weightKg == null) {
       const key = cartLineKey(p.id, receiptId, 0, preferRetailPrice)
@@ -6636,16 +6656,9 @@ export default function CashierModule({
                           : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
                       </span>
                       {line.preferRetailPrice != null ? (
-                        <span className="line-batch">
-                          цена {line.preferRetailPrice.toFixed(2)}
-                          {line.costPrice != null ? ` · зак. ${line.costPrice.toFixed(2)}` : ''}
-                          {' · FIFO'}
-                        </span>
-                      ) : line.receiptId ? (
-                        <span className="line-batch">
-                          партия {line.costPrice != null ? `зак. ${line.costPrice.toFixed(2)}` : ''}
-                          {line.supplierName ? ` · ${line.supplierName}` : ''}
-                        </span>
+                        <span className="line-batch">FIFO</span>
+                      ) : line.receiptId && line.supplierName ? (
+                        <span className="line-batch">{line.supplierName}</span>
                       ) : null}
                       {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
@@ -7952,9 +7965,9 @@ export default function CashierModule({
                       <span className="lpi-price">{group.retailPrice.toFixed(2)} ЅМ</span>
                       {group.isFifo ? <span className="lpi-badge">FIFO</span> : null}
                     </div>
-                    <div className="lpi-row">
+                    <div className="lpi-row muted">
                       <span>Закуп</span>
-                      <b>{group.costPrice.toFixed(2)} ЅМ</b>
+                      <span>{group.costPrice.toFixed(2)} ЅМ</span>
                     </div>
                     <div className="lpi-row">
                       <span>Остаток</span>
