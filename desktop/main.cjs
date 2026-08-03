@@ -39,6 +39,9 @@ const BOOT_LOG_PATH = () => path.join(app.getPath('userData'), 'kassa-boot.log')
 let mainWindow = null
 let printWindow = null
 let allowMainWindowClose = false
+/** Опрос версии UI с сайта — после деплоя Electron сам обновляет экран */
+let uiVersionPollTimer = null
+let lastUiVersion = ''
 
 function bootLog(msg, extra) {
   const line = `[${new Date().toISOString()}] ${msg}${extra != null ? ' ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : ''}`
@@ -47,6 +50,92 @@ function bootLog(msg, extra) {
     fs.mkdirSync(path.dirname(BOOT_LOG_PATH()), { recursive: true })
     fs.appendFileSync(BOOT_LOG_PATH(), line + '\n', 'utf8')
   } catch { /* ignore */ }
+}
+
+function tradeOriginFromUrl(url) {
+  try { return new URL(String(url || '')).origin } catch { return '' }
+}
+
+function isRemoteTradeLoaded() {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const u = mainWindow.webContents.getURL() || ''
+  return /^https?:\/\//i.test(u) && !/127\.0\.0\.1|localhost/i.test(u)
+}
+
+async function fetchUiVersion(baseUrl) {
+  try {
+    const origin = tradeOriginFromUrl(baseUrl) || 'https://kakappo.shop'
+    const res = await fetch(`${origin}/api/kassa-ui-version?_=${Date.now()}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(4000),
+    })
+    if (!res.ok) return ''
+    const j = await res.json()
+    return String(j?.v || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/** Обновить UI с сайта. НЕ трогает SQLite / userData / серверные данные. */
+async function softRefreshRemoteUi(reason) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  if (!isRemoteTradeLoaded()) return false
+  bootLog('ui soft refresh', reason)
+  try {
+    await mainWindow.webContents.session.clearCache()
+  } catch { /* ignore */ }
+  try {
+    mainWindow.webContents.reloadIgnoringCache()
+    return true
+  } catch {
+    const remoteUrl = String(loadConfig().tradeUrl || DEFAULT_TRADE_URL)
+    try {
+      const u = new URL(remoteUrl)
+      u.searchParams.set('_kassa', String(app.getVersion() || '0'))
+      u.searchParams.set('_r', String(Date.now()))
+      mainWindow.loadURL(u.toString())
+      return true
+    } catch {
+      try {
+        mainWindow.loadURL(remoteUrl)
+        return true
+      } catch {
+        return false
+      }
+    }
+  }
+}
+
+function startUiVersionPoller(remoteUrl) {
+  if (uiVersionPollTimer) {
+    clearInterval(uiVersionPollTimer)
+    uiVersionPollTimer = null
+  }
+  const tick = async () => {
+    if (!isRemoteTradeLoaded()) return
+    const v = await fetchUiVersion(remoteUrl)
+    if (!v) return
+    if (!lastUiVersion) {
+      lastUiVersion = v
+      bootLog('ui version', v)
+      return
+    }
+    if (v !== lastUiVersion) {
+      bootLog('ui version changed', { from: lastUiVersion, to: v })
+      lastUiVersion = v
+      await softRefreshRemoteUi('deploy-detected')
+    }
+  }
+  void tick()
+  uiVersionPollTimer = setInterval(() => { void tick() }, 45000)
+}
+
+function stopUiVersionPoller() {
+  if (uiVersionPollTimer) {
+    clearInterval(uiVersionPollTimer)
+    uiVersionPollTimer = null
+  }
 }
 
 // На слабых кассовых ПК GPU/полноэкран часто дают чёрный экран и вылет.
@@ -204,8 +293,50 @@ function buildAppMenu() {
           },
         },
         {
+          label: 'Обновить интерфейс с сайта',
+          click: () => {
+            void (async () => {
+              if (!mainWindow || mainWindow.isDestroyed()) return
+              const remoteUrl = loadConfig().tradeUrl || DEFAULT_TRADE_URL
+              if (!isRemoteTradeLoaded()) {
+                try {
+                  const u = new URL(remoteUrl)
+                  u.searchParams.set('_kassa', String(app.getVersion() || '0'))
+                  u.searchParams.set('_r', String(Date.now()))
+                  try { await mainWindow.webContents.session.clearCache() } catch { /* ignore */ }
+                  mainWindow.loadURL(u.toString())
+                  startUiVersionPoller(remoteUrl)
+                } catch {
+                  mainWindow.loadURL(remoteUrl)
+                }
+                return
+              }
+              lastUiVersion = ''
+              await softRefreshRemoteUi('menu')
+            })()
+          },
+        },
+        {
+          label: 'Открыть сайт (онлайн UI)',
+          click: () => {
+            const url = loadConfig().tradeUrl || DEFAULT_TRADE_URL
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              try {
+                const u = new URL(url)
+                u.searchParams.set('_kassa', String(app.getVersion() || '0'))
+                u.searchParams.set('_r', String(Date.now()))
+                mainWindow.loadURL(u.toString())
+                startUiVersionPoller(url)
+              } catch {
+                mainWindow.loadURL(url)
+              }
+            }
+          },
+        },
+        {
           label: 'Вернуть встроенный интерфейс',
           click: () => {
+            stopUiVersionPoller()
             const local = localUiUrl()
             if (!local) {
               dialog.showErrorBox('Недоступно', 'Встроенная сборка интерфейса не найдена в этой версии приложения.')
@@ -476,41 +607,54 @@ function createWindow(localUrl = '') {
     bootLog('render-process-gone', details)
   })
 
-  // Главное: сначала локальная касса (быстро, без чёрного экрана сайта).
-  // Сайт — только если локальный UI не поднялся.
+  // Онлайн → сайт (всегда свежий UI). Офлайн / сайт недоступен → встроенный UI.
+  // Локальный SQLite и данные сервера не трогаем — только какой URL открыть.
   void (async () => {
     const gen = ++bootGen
     await splashReady
     if (!mainWindow || mainWindow.isDestroyed() || gen !== bootGen) return
 
-    setSplashMsg('Подготовка кассы…')
+    setSplashMsg('Проверка связи…')
+    const onlinePromise = probeRemoteReachable(1800)
+    // Локальный UI греем параллельно — пригодится как запасной
     const localPromise = ensureOfflineUi(20000)
-    const onlinePromise = probeRemoteReachable(1000)
 
-    // Локальный UI — приоритет (и онлайн, и офлайн)
-    const local = await localPromise
+    const online = await onlinePromise
     if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
 
-    if (local) {
-      bootLog('boot → local first', local)
-      setSplashMsg('Открытие…')
-      openUrl(local)
-      return
-    }
-
-    // Локального нет — сайт, если есть сеть
-    const online = await onlinePromise
     if (online) {
-      bootLog('boot → remote (no local ui)')
+      bootLog('boot → remote first', remoteTarget)
       setSplashMsg('Загрузка с сервера…')
+      // Сброс только HTTP-кеша (не SQLite / не userData)
+      try { await mainWindow.webContents.session.clearCache() } catch { /* ignore */ }
       openUrl(remoteTarget)
-      // если сайт завис — ошибка через did-fail-load / таймаут
+      startUiVersionPoller(remoteUrl)
       setTimeout(() => {
         if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
         if (mainWindow.webContents.isLoadingMainFrame()) {
-          showLoadErrorPage(mainWindow, remoteUrl, -1, 'Сервер не отвечает')
+          bootLog('remote slow → try local')
+          void localPromise.then(local => {
+            if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
+            if (local) {
+              stopUiVersionPoller()
+              setSplashMsg('Переход в офлайн…')
+              openUrl(local)
+            } else {
+              showLoadErrorPage(mainWindow, remoteUrl, -1, 'Сервер не отвечает')
+            }
+          })
         }
-      }, 8000)
+      }, 10000)
+      return
+    }
+
+    const local = await localPromise
+    if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
+    if (local) {
+      stopUiVersionPoller()
+      bootLog('boot → local (offline)', local)
+      setSplashMsg('Офлайн-касса…')
+      openUrl(local)
       return
     }
 
@@ -552,6 +696,7 @@ function createWindow(localUrl = '') {
 
   mainWindow.on('closed', () => {
     bootLog('window closed')
+    stopUiVersionPoller()
     mainWindow = null
     allowMainWindowClose = false
   })
@@ -1029,7 +1174,7 @@ function installApiCorsBypass() {
 
 app.whenReady().then(async () => {
   bootLog('whenReady', { version: app.getVersion(), electron: process.versions.electron })
-  Menu.setApplicationMenu(null)
+  try { buildAppMenu() } catch (e) { bootLog('menu', e?.message || String(e)) }
   try { installApiCorsBypass() } catch (e) { bootLog('cors bypass', e?.message || String(e)) }
   try {
     initLocalDb()
