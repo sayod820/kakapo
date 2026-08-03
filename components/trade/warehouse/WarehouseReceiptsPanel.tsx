@@ -39,6 +39,7 @@ import {
   packInputUnitLabel,
   packRealWorld,
   parsePackUnit,
+  productUnitLabel,
   sanitizeDecimalInput,
 } from './warehouseShared'
 
@@ -205,7 +206,7 @@ function ReceiptLineCard({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {product.art} · на складе {product.stock ?? 0} {product.unit || 'шт'}
+              {product.art} · на складе {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
             </div>
           </div>
           <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onClear}>Сменить</button>
@@ -337,6 +338,7 @@ export default function WarehouseReceiptsPanel({
   const [newSupplierName, setNewSupplierName] = useState('')
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
+  const [listQ, setListQ] = useState('')
 
   const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
 
@@ -383,6 +385,7 @@ export default function WarehouseReceiptsPanel({
   function resetForm() {
     clearReceiptDraft()
     setDraft(defaultReceiptDraft())
+    setListQ('')
     setMsg('')
   }
 
@@ -395,6 +398,7 @@ export default function WarehouseReceiptsPanel({
       }
       return { ...prev, open: true, editingId: null }
     })
+    setListQ('')
     setMsg('')
     scrollRestored.current = false
   }
@@ -403,6 +407,7 @@ export default function WarehouseReceiptsPanel({
     const next = receiptToDraft(receipt)
     setDraft(next)
     saveReceiptDraft(next)
+    setListQ('')
     setMsg('')
     scrollRestored.current = false
   }
@@ -665,7 +670,30 @@ export default function WarehouseReceiptsPanel({
   const editingReceipt = editingId ? receipts.find(r => r.id === editingId) || null : null
 
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
-  const filledLines = lines.filter(l => l.productId)
+  const filledLines = useMemo(() => lines.filter(l => l.productId), [lines])
+  const listQuery = listQ.trim().toLowerCase()
+  const visibleFilledLines = useMemo(() => {
+    if (!listQuery) return filledLines
+    return filledLines.filter(line => {
+      const product = products.find(p => p.id === line.productId)
+      if (!product) return false
+      const unit = productUnitLabel(product.unit).toLowerCase()
+      if (listQuery === 'г' || listQuery === 'гр' || listQuery === 'грамм') {
+        return /г|гр|\bg\b/i.test(unit)
+      }
+      if (listQuery === 'шт' || listQuery === 'штук') {
+        return /шт|pcs/i.test(unit)
+      }
+      if (listQuery === 'л' || listQuery === 'литр') {
+        return /(^|\s)л\b|литр|\bl\b/i.test(unit)
+      }
+      const hay = [product.name, product.art, product.barcode, product.plu, product.unit, unit]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(listQuery) || String(product.id) === listQuery
+    })
+  }, [filledLines, listQuery, products])
 
   const filteredReceipts = useMemo(() => {
     if (!dateFrom && !dateTo) return receipts
@@ -906,9 +934,27 @@ export default function WarehouseReceiptsPanel({
             </div>
 
             <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
-              {filledLines.map((line, idx) => {
+              {filledLines.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    className="k-inp"
+                    value={listQ}
+                    onChange={e => setListQ(e.target.value)}
+                    placeholder="Поиск в приходе: название, артикул, штрихкод или г / шт / л…"
+                  />
+                  {listQuery && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                      Найдено: <b style={{ color: 'var(--text)' }}>{visibleFilledLines.length}</b> из {filledLines.length}
+                      {visibleFilledLines.length === 0 ? ' — ничего не найдено' : ''}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {visibleFilledLines.map((line) => {
                 const product = products.find(p => p.id === line.productId) || null
                 if (!product) return null
+                const idx = filledLines.findIndex(l => l.key === line.key)
                 const isActive = activeLineKey === line.key
                 if (!isActive) {
                   return (
@@ -966,6 +1012,7 @@ export default function WarehouseReceiptsPanel({
                       borderRadius: 12,
                       border: '2px dashed var(--green)',
                       background: 'rgba(31,215,96,.04)',
+                      marginTop: listQuery ? 12 : 0,
                     }}
                   >
                     <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 10 }}>
@@ -976,7 +1023,7 @@ export default function WarehouseReceiptsPanel({
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
                       onCreateNew={name => openNewProduct(pending.key, name)}
-                      placeholder="Начните вводить название, артикул или штрихкод…"
+                      placeholder="Поиск: название, артикул, штрихкод — в списке г / шт / л…"
                     />
                     <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
                       + Создать новый товар

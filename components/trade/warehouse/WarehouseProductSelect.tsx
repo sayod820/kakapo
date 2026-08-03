@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Product } from '@/lib/types'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import { formatQty, productUnitLabel } from './warehouseShared'
 
 export default function WarehouseProductSelect({
   products,
@@ -73,10 +74,12 @@ export default function WarehouseProductSelect({
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
           background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10,
-          maxHeight: 260, overflow: 'auto', marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,.4)',
+          maxHeight: 320, overflow: 'auto', marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,.4)',
         }}>
           {options.map(p => {
             const codes = productBarcodes(p)
+            const unit = productUnitLabel(p.unit)
+            const stock = Number(p.stock) || 0
             return (
               <button
                 key={p.id}
@@ -84,7 +87,7 @@ export default function WarehouseProductSelect({
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                   border: 'none', background: 'transparent', color: 'var(--text)',
-                  padding: '8px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
+                  padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
                 }}
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => selectProduct(p)}
@@ -98,7 +101,22 @@ export default function WarehouseProductSelect({
                     {[p.art, codes[0], p.plu ? `PLU ${p.plu}` : ''].filter(Boolean).join(' · ')}
                   </span>
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{p.stock ?? 0} шт</span>
+                <span style={{
+                  flexShrink: 0, textAlign: 'right', minWidth: 72,
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
+                }}>
+                  <span style={{
+                    fontSize: 12, fontWeight: 900, color: 'var(--green)',
+                    background: 'var(--green-d)', border: '1px solid var(--green)',
+                    borderRadius: 6, padding: '2px 7px', lineHeight: 1.3,
+                  }}>
+                    {unit}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)' }}>
+                    {formatQty(stock)} {unit}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>на складе</span>
+                </span>
               </button>
             )
           })}

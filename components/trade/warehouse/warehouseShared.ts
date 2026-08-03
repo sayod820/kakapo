@@ -134,6 +134,19 @@ export function packInputUnitLabel(info: { qty: number; label: string }) {
   return isKgLabel(info.label) ? 'кг' : info.label
 }
 
+/** Короткая подпись единицы для поиска: г / шт / л / кг / уп. */
+export function productUnitLabel(unitRaw?: string): string {
+  const info = parsePackUnit(unitRaw)
+  const label = (info.label || 'шт').trim()
+  if (isGramLabel(label)) return info.qty !== 1 ? `${formatQty(info.qty)} г` : 'г'
+  if (isKgLabel(label)) return info.qty !== 1 ? `${formatQty(info.qty)} кг` : 'кг'
+  if (/^(л|l|литр)/i.test(label)) return info.qty !== 1 ? `${formatQty(info.qty)} л` : 'л'
+  if (/^(мл|ml)/i.test(label)) return info.qty !== 1 ? `${formatQty(info.qty)} мл` : 'мл'
+  if (/^(шт|штук|pcs?)/i.test(label)) return info.qty !== 1 ? `${formatQty(info.qty)} шт` : 'шт'
+  if (info.qty !== 1) return `${formatQty(info.qty)} ${label}`
+  return label || 'шт'
+}
+
 /**
  * Приводит ввод в числовых полях (кол-во/сумма/цена) к безопасной строке:
  * заменяет запятую на точку, убирает всё лишнее, не даёт вставить вторую точку.
