@@ -9,6 +9,7 @@ import type { Product } from './types'
  *   21 00001 00255 8  → PLU 1, 255 г = 0.255 кг
  *
  * Только префикс 21. Коды 20/22–29 — обычные штрихкоды товаров, не вес.
+ * Поиск товара — только по PLU (артикул не используется).
  */
 export type ScaleBarcodeParse = {
   digits: string
@@ -59,8 +60,8 @@ export function parseScaleBarcode(raw: string): ScaleBarcodeParse | null {
   }
 }
 
-function codeMatches(p: Partial<Product>, code: number): boolean {
-  return parseProductCodeNum(p.plu) === code || parseProductCodeNum(p.art) === code
+function pluMatches(p: Partial<Product>, code: number): boolean {
+  return parseProductCodeNum(p.plu) === code
 }
 
 function barcodePrefixMatch(p: Partial<Product>, digits: string, itemCodeRaw: string): boolean {
@@ -76,23 +77,48 @@ function barcodePrefixMatch(p: Partial<Product>, digits: string, itemCodeRaw: st
   return false
 }
 
-/** Найти товар по PLU/артикулу из весовой этикетки */
-export function findProductForScaleBarcode<T extends Partial<Product>>(
+function uniqById<T extends Partial<Product>>(rows: T[]): T[] {
+  const out: T[] = []
+  const seen = new Set<number>()
+  for (const p of rows) {
+    const id = Number(p.id)
+    if (Number.isFinite(id)) {
+      if (seen.has(id)) continue
+      seen.add(id)
+    }
+    out.push(p)
+  }
+  return out
+}
+
+/**
+ * Товары по весовой этикетке — только по PLU.
+ * Артикул не учитывается (иначе Шакар art=80 путается с чужим plu=80).
+ */
+export function findProductsForScaleBarcode<T extends Partial<Product>>(
   products: T[],
   parsed: ScaleBarcodeParse,
-): T | null {
+): T[] {
   const codes = [parsed.itemCode, ...parsed.altItemCodes]
-
   const weighted = products.filter(p => isWeighted(p))
   const pools = [weighted, products]
 
   for (const pool of pools) {
-    for (const code of codes) {
-      const hit = pool.find(p => codeMatches(p, code))
-      if (hit) return hit
-    }
-    const byBarcode = pool.find(p => barcodePrefixMatch(p, parsed.digits, parsed.itemCodeRaw))
-    if (byBarcode) return byBarcode
+    const byPlu = uniqById(pool.filter(p => codes.some(code => pluMatches(p, code))))
+    if (byPlu.length) return byPlu
+
+    // Запасной путь: полный/префиксный штрихкод из карточки (не артикул)
+    const byBarcode = uniqById(pool.filter(p => barcodePrefixMatch(p, parsed.digits, parsed.itemCodeRaw)))
+    if (byBarcode.length) return byBarcode
   }
-  return null
+  return []
+}
+
+/** Один товар по PLU с этикетки; если несколько или нет — null */
+export function findProductForScaleBarcode<T extends Partial<Product>>(
+  products: T[],
+  parsed: ScaleBarcodeParse,
+): T | null {
+  const hits = findProductsForScaleBarcode(products, parsed)
+  return hits.length === 1 ? hits[0] : null
 }

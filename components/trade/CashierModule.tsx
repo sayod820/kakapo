@@ -49,7 +49,7 @@ import {
 import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
-import { findProductForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
+import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
   printPosReceipt,
@@ -2495,24 +2495,28 @@ export default function CashierModule({
           ? productCodeIndex.get(`plu:${digits}`)
           : undefined)
         || null
-      if (byCode) {
-        // Если этот же код есть ещё у кого-то — спросить, не брать «первый попавшийся»
-        const artHits = products.filter(p => {
+      if (byCode && digits) {
+        // Конфликт: у одного art=80, у другого plu=80 (Шакар / Milkiway)
+        const codeNum = Number(digits)
+        const conflict = products.filter(p => {
           const art = String(p.art || '').trim()
           const ad = art.replace(/\D/g, '')
-          return art === raw || (digits.length > 0 && ad === digits && ad.length > 0)
+          const plu = String(p.plu || '').replace(/\D/g, '')
+          return art === raw
+            || (ad && ad === digits)
+            || (plu && plu === digits)
+            || (Number.isFinite(codeNum) && codeNum > 0 && (
+              Number(ad) === codeNum || Number(plu) === codeNum
+            ))
         }) as Product[]
-        const pluHits = (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw))
-          ? products.filter(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product[]
-          : []
-        const conflict = [...new Map([...artHits, ...pluHits].map(p => [p.id, p])).values()]
-        if (conflict.length > 1) {
-          openBarcodePick(raw, conflict)
+        const uniq = [...new Map(conflict.map(p => [p.id, p])).values()]
+        if (uniq.length > 1) {
+          openBarcodePick(raw, uniq)
           scanBurstRef.current = false
           return true
         }
-        productHit = byCode
       }
+      if (byCode) productHit = byCode
     }
 
     if (!productHit) {
@@ -2528,9 +2532,16 @@ export default function CashierModule({
     if (!productHit) {
       const scaleLabel = parseScaleBarcode(raw)
       if (scaleLabel) {
-        const scaleHit =
-          findProductForScaleBarcode(pool, scaleLabel)
-          || findProductForScaleBarcode(products, scaleLabel)
+        const scaleHits = findProductsForScaleBarcode(pool, scaleLabel)
+        const scaleHitsAll = scaleHits.length
+          ? scaleHits
+          : findProductsForScaleBarcode(products, scaleLabel)
+        if (scaleHitsAll.length > 1) {
+          openBarcodePick(raw, scaleHitsAll as Product[])
+          scanBurstRef.current = false
+          return true
+        }
+        const scaleHit = scaleHitsAll[0] || null
         if (!scaleHit) {
           openScanBlockAlert(
             'Этикетка не найдена',
