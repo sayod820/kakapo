@@ -6667,11 +6667,14 @@ export default function CashierModule({
                 >
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
-                    <div className="name">{line.name}</div>
+                    <div className="name-row">
+                      <div className="name">{line.name}</div>
+                      <span className="unit-badge" title="Единица">{cartLineUnit(line)}</span>
+                    </div>
                     <div className="meta">
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
-                      <span>{`${line.price.toFixed(2)} ЅМ`}</span>
+                      <span>{`${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}</span>
                       {line.preferRetailPrice != null ? (
                         <span className="line-batch">FIFO</span>
                       ) : line.receiptId && line.supplierName ? (
@@ -6680,19 +6683,16 @@ export default function CashierModule({
                       {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
                   </div>
-                  <div className="qty-wrap">
-                    <button
-                      type="button"
-                      className="qty-btn"
-                      title="Изменить количество"
-                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
-                    >
-                      {line.weightKg != null
-                        ? line.weightKg.toFixed(3)
-                        : `×${fmtQty(line.qty)}`}
-                    </button>
-                    <span className="qty-unit-chip" title="Единица">{cartLineUnit(line)}</span>
-                  </div>
+                  <button
+                    type="button"
+                    className="qty-btn"
+                    title="Изменить количество"
+                    onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
+                  >
+                    {line.weightKg != null
+                      ? line.weightKg.toFixed(3)
+                      : `×${fmtQty(line.qty)}`}
+                  </button>
                   <div className="price">
                     {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
                     {net.toFixed(2)}

@@ -668,7 +668,27 @@ export const POS_MOCK_CSS = `
   .cart-row.sel{background:rgba(31,215,96,.12);border-color:rgba(31,215,96,.45);box-shadow:inset 3px 0 0 var(--green);}
   .cart-row .ic{width:44px;height:44px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
   .cart-row .info{flex:1;min-width:0;}
-  .cart-row .name{font-size:13.5px;font-weight:800;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cart-row .name-row{display:flex;align-items:center;gap:8px;min-width:0;}
+  .cart-row .name{font-size:13.5px;font-weight:800;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;}
+  .cart-row .unit-badge{
+    flex-shrink:0;
+    padding:3px 9px;
+    border-radius:999px;
+    background:rgba(31,215,96,.14);
+    border:1px solid rgba(31,215,96,.32);
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    font-weight:900;
+    color:var(--accent);
+    letter-spacing:.02em;
+    line-height:1.2;
+    white-space:nowrap;
+  }
+  .pos-root[data-theme="light"] .cart-row .unit-badge{
+    background:rgba(11,122,56,.1);
+    border-color:rgba(11,122,56,.28);
+    color:#0B7A38;
+  }
   .cart-row .meta{display:flex;align-items:center;flex-wrap:nowrap;gap:0;margin-top:4px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
   .cart-row .meta span{font-size:10.5px;font-weight:700;color:var(--t3);font-family:'JetBrains Mono',monospace;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
   .cart-row .meta span + span::before{content:'·';margin:0 7px;color:var(--border2);font-weight:800;}
@@ -679,13 +699,9 @@ export const POS_MOCK_CSS = `
   .qtyctrl button{width:24px;height:24px;border-radius:8px;font-size:14px;font-weight:800;color:var(--t2);}
   .qtyctrl button:hover{background:var(--border2);color:var(--t1);}
   .qtyctrl span{font-size:13px;font-weight:800;min-width:18px;text-align:center;font-family:'JetBrains Mono';}
-  .qty-wrap{display:flex;align-items:center;gap:8px;flex-shrink:0;}
   .pos-root button.qty-btn{flex-shrink:0;min-width:48px;min-height:38px;padding:8px 12px;border-radius:11px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:900;color:var(--t1);display:inline-flex;align-items:center;justify-content:center;line-height:1;}
   .pos-root button.qty-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
   .pos-root button.qty-btn:active{transform:scale(.96);}
-  .qty-unit-chip{flex-shrink:0;max-width:80px;padding:5px 10px;border-radius:999px;background:rgba(31,215,96,.1);border:1px solid rgba(31,215,96,.22);font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:900;color:var(--accent);letter-spacing:.02em;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .pos-root[data-theme="light"] .qty-unit-chip{background:rgba(11,122,56,.08);border-color:rgba(11,122,56,.2);color:#0B7A38;}
-  .cart-row .meta .line-unit{color:var(--accent);font-weight:900;}
   .modal-card.qty-edit-card{width:400px;}
   .qty-edit-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
   .qty-edit-av{width:48px;height:48px;border-radius:14px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
