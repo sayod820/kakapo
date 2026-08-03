@@ -6667,9 +6667,7 @@ export default function CashierModule({
                     <div className="meta">
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
-                      <span>
-                        {`${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}
-                      </span>
+                      <span>{`${line.price.toFixed(2)} ЅМ`}</span>
                       {line.preferRetailPrice != null ? (
                         <span className="line-batch">FIFO</span>
                       ) : line.receiptId && line.supplierName ? (
@@ -6678,18 +6676,19 @@ export default function CashierModule({
                       {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="qty-btn"
-                    onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
-                  >
-                    <span className="qty-num">
+                  <div className="qty-wrap">
+                    <button
+                      type="button"
+                      className="qty-btn"
+                      title="Изменить количество"
+                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
+                    >
                       {line.weightKg != null
                         ? line.weightKg.toFixed(3)
                         : `×${fmtQty(line.qty)}`}
-                    </span>
-                    <span className="qty-unit">{cartLineUnit(line)}</span>
-                  </button>
+                    </button>
+                    <span className="qty-unit-chip" title="Единица">{cartLineUnit(line)}</span>
+                  </div>
                   <div className="price">
                     {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
                     {net.toFixed(2)}
