@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -191,6 +191,7 @@ export default function DebtsModule() {
   const [inlineDebt, setInlineDebt] = useState<DebtFormState>(emptyInlineDebt)
   const [histTick, setHistTick] = useState(0)
   const [orderDetail, setOrderDetail] = useState<DebtOrderBalance | DebtHistoryEntry | null>(null)
+  const autoSyncDebtRef = useRef<string | null>(null)
 
   const refreshAll = useCallback(async () => {
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
@@ -273,6 +274,7 @@ export default function DebtsModule() {
     setDetailTab('history')
     setOrderDetail(null)
     setInlineDebt(emptyInlineDebt())
+    autoSyncDebtRef.current = null
   }
 
   function closeDetail() {
@@ -311,25 +313,55 @@ export default function DebtsModule() {
   }
 
   /** Подтянуть баланс, если в истории есть ручные начисления, а «Текущий долг» отстал */
-  async function syncDebtBalanceFromHistory() {
-    if (!detailClient?.phone) return
+  async function syncDebtBalanceFromHistory(silent = false) {
+    if (!detailClient?.phone) return false
     const history = loadDebtHistory(detailClient.phone)
     const { unpaid } = buildDebtOrderBalances(history)
     const unpaidSum = Math.round(unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100) / 100
     const card = cardForClient(detailClient, cards)
     const current = Math.max(0, Number(detailClient.debt) || 0, Number(card?.debt) || 0)
     if (unpaidSum <= current + 0.01) {
-      setInlineDebt(prev => ({ ...prev, msg: 'Баланс уже совпадает с историей' }))
-      return
+      if (!silent) setInlineDebt(prev => ({ ...prev, msg: 'Баланс уже совпадает с историей' }))
+      return false
     }
-    setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
+    setInlineDebt(prev => ({
+      ...prev,
+      saving: true,
+      msg: silent ? `Подтягиваем долг ${fmtMoney(unpaidSum)} из истории…` : '',
+    }))
     try {
       await saveLoyaltyForClient(detailClient, { debt: unpaidSum, debtEnabled: true }, { skipDebtHistory: true })
-      setInlineDebt(prev => ({ ...prev, saving: false, amount: '', msg: '' }))
+      setInlineDebt(prev => ({
+        ...prev,
+        saving: false,
+        amount: '',
+        msg: `Текущий долг обновлён: ${fmtMoney(unpaidSum)}`,
+      }))
+      return true
     } catch (e) {
-      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Не удалось синхронизировать' }))
+      setInlineDebt(prev => ({
+        ...prev,
+        saving: false,
+        msg: e instanceof Error ? e.message : 'Не удалось синхронизировать',
+      }))
+      return false
     }
   }
+
+  // История в localStorage браузера — при открытии карточки сами поднимаем баланс
+  useEffect(() => {
+    if (!detailClient?.id || !detailClient.phone) return
+    if (autoSyncDebtRef.current === detailClient.id) return
+    const history = loadDebtHistory(detailClient.phone)
+    if (!history.length) return
+    const { unpaid } = buildDebtOrderBalances(history)
+    const unpaidSum = Math.round(unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100) / 100
+    const current = Number(detailClient.debt) || 0
+    if (unpaidSum <= current + 0.05) return
+    autoSyncDebtRef.current = detailClient.id
+    void syncDebtBalanceFromHistory(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailClient?.id, detailClient?.phone, detailClient?.debt])
 
   return (
     <div>
@@ -555,7 +587,38 @@ export default function DebtsModule() {
                     {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : 'Начислить'}
                   </button>
                 </div>
-                {inlineDebt.msg && <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{inlineDebt.msg}</div>}
+                {(() => {
+                  const unpaidSum = Math.round(
+                    detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
+                  ) / 100
+                  const current = Number(detailClient.debt) || 0
+                  if (unpaidSum <= current + 0.05) return null
+                  return (
+                    <button
+                      type="button"
+                      className="k-btn"
+                      style={{ marginTop: 10, width: '100%', fontSize: 12, background: 'rgba(255,180,0,.15)', border: '1px solid rgba(255,180,0,.4)' }}
+                      disabled={inlineDebt.saving}
+                      onClick={() => void syncDebtBalanceFromHistory(false)}
+                    >
+                      Подтянуть из истории → {fmtMoney(unpaidSum)}
+                    </button>
+                  )
+                })()}
+                {inlineDebt.msg && (
+                  <div style={{
+                    marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                    background: inlineDebt.msg.includes('обновлён') || inlineDebt.msg.includes('Подтягиваем')
+                      ? 'rgba(20,178,79,.12)'
+                      : 'var(--alert-error-bg)',
+                    color: inlineDebt.msg.includes('обновлён') || inlineDebt.msg.includes('Подтягиваем')
+                      ? 'var(--green)'
+                      : 'var(--red)',
+                    border: '1px solid var(--alert-error-border)',
+                  }}>
+                    {inlineDebt.msg}
+                  </div>
+                )}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
