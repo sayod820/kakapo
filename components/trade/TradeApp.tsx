@@ -187,12 +187,40 @@ const CSS = `
   .k-trade[data-theme="light"] .k-modal-bg{background:rgba(12,26,16,.45)}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
-  .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
+  .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch;z-index:180}
   .k-receipt-modal{
     border-radius:0;width:100%!important;max-width:100%!important;
     height:100vh!important;max-height:100vh!important;
     height:100dvh!important;max-height:100dvh!important;margin:0
   }
+  .k-wh-cta{
+    display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px
+  }
+  .k-wh-cta .k-btn-g{width:auto;min-height:42px;font-size:14px;font-weight:900}
+  .k-wh-cta-spacer{display:none}
+  .k-wh-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .k-wh-chip-row{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;width:100%}
+  .k-wh-chip-row::-webkit-scrollbar{display:none}
+  .k-wh-chip-row .k-subtab{flex-shrink:0}
+  .k-wh-cards{display:none;flex-direction:column;gap:10px}
+  .k-wh-card{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 14px;
+    display:flex;flex-direction:column;gap:10px
+  }
+  .k-wh-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .k-wh-card-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .k-wh-card-meta>div{min-width:0}
+  .k-wh-card-meta .l{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+  .k-wh-card-meta .v{font-size:13px;font-weight:800;margin-top:2px;word-break:break-word}
+  .k-wh-card-actions{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
+  .k-wh-card-actions .k-btn{min-height:44px;width:100%}
+  .k-wh-card-detail{border-top:1px solid var(--border);padding-top:10px;display:grid;gap:8px}
+  .k-receipt-modal-actions{
+    flex-shrink:0;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center
+  }
+  .k-receipt-modal-actions .k-btn-primary-wide{flex:1;min-width:180px}
+  .k-receipt-modal-actions .k-btn-row{display:flex;gap:8px;flex-wrap:wrap}
   .k-modal-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
@@ -281,6 +309,37 @@ const CSS = `
     .k-product-list-body{max-height:50vh}
     .k-tbl{font-size:12px}
     .k-tbl th,.k-tbl td{padding:8px 6px}
+    .k-wh-cta{
+      position:fixed;left:10px;right:10px;
+      bottom:calc(64px + env(safe-area-inset-bottom,0px));
+      z-index:140;margin:0;padding:0;
+      background:transparent;box-shadow:none;
+      flex-direction:column;align-items:stretch;justify-content:flex-start
+    }
+    .k-wh-cta .k-btn-g{
+      width:100%;min-height:50px;font-size:15px;
+      box-shadow:0 10px 28px rgba(0,0,0,.38)
+    }
+    .k-wh-cta > span{display:none}
+    .k-wh-cta-spacer{display:block;height:62px}
+    .k-wh-filters{flex-direction:column;align-items:stretch}
+    .k-wh-period{width:100%}
+    .k-wh-period .k-inp{flex:1 1 calc(50% - 20px);min-width:0;max-width:none!important}
+    .k-wh-cards{display:flex}
+    .k-wh-desk-tbl{display:none!important}
+    .k-receipt-modal-actions{
+      padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
+      flex-direction:column
+    }
+    .k-receipt-modal-actions .k-btn-primary-wide{width:100%;min-width:0;min-height:48px;order:-1}
+    .k-receipt-modal-actions .k-btn-s{flex:1;min-height:44px}
+    .k-receipt-modal-actions .k-btn-row{display:flex;gap:8px;width:100%}
+    .k-page-h{margin-bottom:12px;gap:8px}
+    .k-page-h h1{font-size:18px}
+    .k-subtabs{position:sticky;top:0;z-index:7;background:var(--bg);padding-top:4px;margin-top:-4px}
+    .k-body:has(.k-receipt-modal-bg) .k-bottom-nav,
+    .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav{visibility:hidden;pointer-events:none}
+    .k-trade:has(.k-receipt-modal-bg) .k-wh-cta{display:none!important}
     .k-bottom-nav{
       display:flex;position:fixed;bottom:0;left:0;right:0;z-index:150;
       background:var(--panel);border-top:1px solid var(--border);

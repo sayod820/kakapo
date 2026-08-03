@@ -112,10 +112,10 @@ export default function WarehouseModule({
       <div className="k-page-h">
         <div>
           <h1>🏬 Склад</h1>
-          <div className="sub">Остатки, приход, списание, инвентаризация и сроки годности</div>
+          <div className="sub k-hide-mob">Остатки, приход, списание, инвентаризация и сроки годности</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
+          {apiSyncing && <span className="k-hide-mob" style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
           <button type="button" className="k-btn k-btn-s" onClick={() => void refreshAll()}>↻ Обновить</button>
         </div>
       </div>

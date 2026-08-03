@@ -54,6 +54,29 @@ export function emptyFormWithNextCodes(products: Product[]): ProductForm {
   }
 }
 
+/** Дубликат: имя, штрихкод, ед. (г/шт/л) как у исходного; артикул/PLU — новые свободные. */
+export function formFromDuplicate(source: Product, products: Product[]): ProductForm {
+  const next = emptyFormWithNextCodes(products)
+  const codes = productBarcodes(source)
+  return {
+    ...next,
+    name: source.name || '',
+    e: source.e || '📦',
+    catId: source.catId || next.catId,
+    unit: source.unit || 'шт',
+    barcodes: codes.length ? [...codes] : next.barcodes,
+    brand: source.brand || '',
+    desc: source.desc || '',
+    sellType: source.sellType || 'piece',
+    weightStep: String(source.weightStep || 1),
+    unitGrams: String(source.unitGrams || 1000),
+    hot: !!source.hot,
+    organic: !!source.organic,
+    photo: '',
+    photoThumb: '',
+  }
+}
+
 export function formFromProduct(p: Product, photo?: string): ProductForm {
   return {
     name: p.name,

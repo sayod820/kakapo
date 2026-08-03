@@ -33,10 +33,10 @@ function ReasonBadge({ reason }: { reason: string }) {
       display: 'inline-flex', alignItems: 'center', gap: 5,
       padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 800,
       color: meta.color, background: meta.bg, border: `1px solid ${meta.color}33`,
-      whiteSpace: 'nowrap',
+      maxWidth: '100%',
     }}>
       <span>{meta.icon}</span>
-      {reason}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{reason}</span>
     </span>
   )
 }
@@ -422,6 +422,16 @@ export default function WarehouseWriteoffsPanel({
 
   return (
     <div>
+      <div className="k-wh-cta">
+        <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+          + Новое списание
+        </button>
+        {hasDraft && !open && (
+          <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, textAlign: 'center' }}>● Есть черновик — нажмите кнопку выше</span>
+        )}
+      </div>
+      <div className="k-wh-cta-spacer" aria-hidden />
+
       <div className="k-kpis" style={{ marginBottom: 14 }}>
         <div className="k-kpi k-statcard">
           <div className="kl">Всего списаний</div>
@@ -443,7 +453,7 @@ export default function WarehouseWriteoffsPanel({
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+      <div className="k-wh-filters">
         <WarehousePeriodFilter
           from={dateFrom}
           to={dateTo}
@@ -456,7 +466,7 @@ export default function WarehouseWriteoffsPanel({
             Показано: <b style={{ color: 'var(--text)' }}>{filtered.length}</b> из {writeoffs.length}
           </span>
         )}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: '1 1 auto' }}>
+        <div className="k-wh-chip-row">
           <button
             type="button"
             className={`k-subtab ${reasonFilter === 'all' ? 'active' : ''}`}
@@ -477,14 +487,6 @@ export default function WarehouseWriteoffsPanel({
             </button>
           ))}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          {hasDraft && !open && (
-            <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
-          )}
-          <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-            + Новое списание
-          </button>
-        </div>
       </div>
 
       {!filtered.length ? (
@@ -492,7 +494,92 @@ export default function WarehouseWriteoffsPanel({
           {writeoffs.length ? 'За выбранный период списаний нет' : 'Списаний пока нет — нажмите «Новое списание»'}
         </div>
       ) : (
-        <div className="k-card k-tbl-scroll">
+        <>
+          <div className="k-wh-cards">
+            {filtered.map(w => {
+              const qtySum = w.items.reduce((s, it) => s + (Number(it.qty) || 0), 0)
+              const isOpen = expanded === w.id
+              return (
+                <div key={w.id} className="k-wh-card">
+                  <div className="k-wh-card-top">
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(w.createdAtIso)}</div>
+                      <div style={{ marginTop: 6 }}><ReasonBadge reason={w.reason} /></div>
+                      {w.note && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{w.note}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="k-wh-card-meta">
+                    <div>
+                      <div className="l">Позиций</div>
+                      <div className="v">{w.items.length}</div>
+                    </div>
+                    <div>
+                      <div className="l">Кол-во</div>
+                      <div className="v">{qtySum}</div>
+                    </div>
+                    <div>
+                      <div className="l">Сумма</div>
+                      <div className="v" style={{ color: 'var(--red)' }}>{fmtMoney(w.totalCost)}</div>
+                    </div>
+                  </div>
+                  <div className="k-wh-card-actions">
+                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(w)}>✎ Изменить</button>
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ color: 'var(--red)' }}
+                      disabled={!USE_API || deletingId === w.id}
+                      onClick={() => void removeWriteoff(w.id)}
+                    >
+                      {deletingId === w.id ? '…' : '🗑 Удалить'}
+                    </button>
+                    <button type="button" className="k-btn k-btn-s" style={{ minWidth: 48 }} onClick={() => setExpanded(isOpen ? null : w.id)}>
+                      {isOpen ? '▲' : '▼'}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div className="k-wh-card-detail">
+                      {w.items.map((it, i) => {
+                        const product = products.find(p => p.id === it.productId)
+                        const unitCost = it.unitCost ?? (it.lineCost && it.qty ? it.lineCost / it.qty : product?.costPrice)
+                        const lineSum = it.lineCost ?? (unitCost != null ? Number(unitCost) * it.qty : null)
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                              padding: '10px 12px', borderRadius: 10,
+                              border: '1px solid var(--border)', background: 'var(--card2)',
+                            }}
+                          >
+                            <span style={{ fontSize: 22 }}>{product?.e || '📦'}</span>
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <div style={{ fontWeight: 800 }}>{it.productName}</div>
+                              {product?.art && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{product.art}</div>}
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Кол-во</div>
+                              <div style={{ fontWeight: 900 }}>{it.qty} {product?.unit || 'шт'}</div>
+                            </div>
+                            {lineSum != null && (
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма</div>
+                                <div style={{ fontWeight: 900, color: 'var(--red)' }}>{fmtMoney(lineSum)}</div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="k-card k-tbl-scroll k-wh-desk-tbl">
           <table className="k-tbl">
             <thead>
               <tr>
@@ -592,7 +679,8 @@ export default function WarehouseWriteoffsPanel({
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {open && (
@@ -721,11 +809,11 @@ export default function WarehouseWriteoffsPanel({
               )}
             </div>
 
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div className="k-receipt-modal-actions">
               <button
                 type="button"
-                className="k-btn k-btn-g"
-                style={{ flex: 1, minWidth: 180, background: 'linear-gradient(135deg,#FF5A5A,#cc4040)' }}
+                className="k-btn k-btn-g k-btn-primary-wide"
+                style={{ background: 'linear-gradient(135deg,#FF5A5A,#cc4040)' }}
                 disabled={saving || totals.hasOver || totals.count === 0}
                 onClick={() => void submit()}
               >
@@ -733,19 +821,21 @@ export default function WarehouseWriteoffsPanel({
                   ? `Сохранить${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
                   : `Списать${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
-              {editingId && (
-                <button
-                  type="button"
-                  className="k-btn k-btn-s"
-                  style={{ color: 'var(--red)' }}
-                  disabled={saving || deletingId === editingId}
-                  onClick={() => void removeWriteoff(editingId)}
-                >
-                  {deletingId === editingId ? 'Удаление…' : 'Удалить'}
-                </button>
-              )}
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+              <div className="k-btn-row">
+                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+                {editingId && (
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    style={{ color: 'var(--red)' }}
+                    disabled={saving || deletingId === editingId}
+                    onClick={() => void removeWriteoff(editingId)}
+                  >
+                    {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                  </button>
+                )}
+                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+              </div>
             </div>
           </div>
         </div>

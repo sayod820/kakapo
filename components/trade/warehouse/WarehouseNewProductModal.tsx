@@ -6,16 +6,24 @@ import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
 import type { Product } from '@/lib/types'
 import ProductFormFields from '@/components/trade/products/ProductFormFields'
-import { buildProductPayload, emptyForm, emptyFormWithNextCodes, type ProductForm } from '@/components/trade/products/productFormShared'
+import {
+  buildProductPayload,
+  emptyForm,
+  emptyFormWithNextCodes,
+  formFromDuplicate,
+  type ProductForm,
+} from '@/components/trade/products/productFormShared'
 
 export default function WarehouseNewProductModal({
   open,
   initialName = '',
+  duplicateFrom = null,
   onClose,
   onCreated,
 }: {
   open: boolean
   initialName?: string
+  duplicateFrom?: Product | null
   onClose: () => void
   onCreated: (product: Product) => void
 }) {
@@ -30,11 +38,15 @@ export default function WarehouseNewProductModal({
 
   useEffect(() => {
     if (!open) return
-    setForm({ ...emptyFormWithNextCodes(products), name: initialName })
+    if (duplicateFrom) {
+      setForm(formFromDuplicate(duplicateFrom, products))
+    } else {
+      setForm({ ...emptyFormWithNextCodes(products), name: initialName })
+    }
     setMsg('')
     // products только при открытии — не сбрасывать форму при фоновом обновлении списка
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialName])
+  }, [open, initialName, duplicateFrom])
 
   if (!open) return null
 
@@ -62,17 +74,19 @@ export default function WarehouseNewProductModal({
   }
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1400 }} onClick={() => !saving && onClose()}>
+    <div className="k-modal-bg" style={{ zIndex: 1900 }} onClick={() => !saving && onClose()}>
       <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '92vh' }}>
         <div className="k-modal-h">
-          <b>📦 Новый товар</b>
+          <b>{duplicateFrom ? '⧉ Дублировать товар' : '📦 Новый товар'}</b>
           <button type="button" onClick={() => !saving && onClose()}>✕</button>
         </div>
         <div className="k-modal-b" style={{ padding: 16, overflow: 'auto' }}>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-            Товар создаётся как в разделе «Товары». Цену продажи укажите в строке прихода.
+            {duplicateFrom
+              ? 'Скопированы название, штрихкод и единица (г/шт/л). Артикул и PLU уже новые — при необходимости измените остальное.'
+              : 'Товар создаётся как в разделе «Товары». Цену продажи укажите в строке прихода.'}
           </div>
-                  <ProductFormFields form={form} setForm={setForm} categories={categories} productId={null} products={products} />
+          <ProductFormFields form={form} setForm={setForm} categories={categories} productId={null} products={products} />
           {msg && (
             <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
               {msg}

@@ -81,6 +81,7 @@ function ReceiptLineSummary({
   idx,
   product,
   onActivate,
+  onDuplicate,
   onRemove,
   cardRef,
 }: {
@@ -88,6 +89,7 @@ function ReceiptLineSummary({
   idx: number
   product: Product
   onActivate: () => void
+  onDuplicate: () => void
   onRemove: () => void
   cardRef: (el: HTMLDivElement | null) => void
 }) {
@@ -134,6 +136,7 @@ function ReceiptLineSummary({
           <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</div>
         </div>
       </div>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} title="Дублировать товар" onClick={e => { e.stopPropagation(); onDuplicate() }}>⧉</button>
       <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
       <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', flexShrink: 0 }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
     </div>
@@ -146,6 +149,7 @@ function ReceiptLineCard({
   product,
   canRemove,
   onClear,
+  onDuplicate,
   onRemove,
   onDone,
   onQty,
@@ -164,6 +168,7 @@ function ReceiptLineCard({
   product: Product
   canRemove: boolean
   onClear: () => void
+  onDuplicate: () => void
   onRemove: () => void
   onDone: () => void
   onQty: (v: string) => void
@@ -209,6 +214,7 @@ function ReceiptLineCard({
               {product.art} · на складе {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
             </div>
           </div>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onDuplicate} title="Дублировать товар">⧉ Дубль</button>
           <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onClear}>Сменить</button>
         </div>
         {canRemove && (
@@ -334,6 +340,7 @@ export default function WarehouseReceiptsPanel({
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
+  const [duplicateFrom, setDuplicateFrom] = useState<Product | null>(null)
   const [newSupplierOpen, setNewSupplierOpen] = useState(false)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
@@ -571,6 +578,16 @@ export default function WarehouseReceiptsPanel({
   function openNewProduct(key: string, name: string) {
     setNewProductLineKey(key)
     setNewProductName(name)
+    setDuplicateFrom(null)
+    setNewProductOpen(true)
+  }
+
+  function openDuplicateProduct(source: Product) {
+    const pending = [...lines].reverse().find(l => !l.productId)
+    if (!pending) return
+    setNewProductLineKey(pending.key)
+    setNewProductName(source.name)
+    setDuplicateFrom(source)
     setNewProductOpen(true)
   }
 
@@ -578,6 +595,7 @@ export default function WarehouseReceiptsPanel({
     if (newProductLineKey) selectProduct(newProductLineKey, product)
     setNewProductOpen(false)
     setNewProductLineKey(null)
+    setDuplicateFrom(null)
   }
 
   function onSupplierCreated(supplier: PosSupplier) {
@@ -722,7 +740,17 @@ export default function WarehouseReceiptsPanel({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+      <div className="k-wh-cta">
+        <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+          + Новый приход
+        </button>
+        {hasDraft && !open && (
+          <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, textAlign: 'center' }}>● Есть черновик — нажмите кнопку выше</span>
+        )}
+      </div>
+      <div className="k-wh-cta-spacer" aria-hidden />
+
+      <div className="k-wh-filters">
         <WarehousePeriodFilter
           from={dateFrom}
           to={dateTo}
@@ -735,14 +763,6 @@ export default function WarehouseReceiptsPanel({
             Показано: <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> из {receipts.length}
           </span>
         )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-          {hasDraft && !open && (
-            <span style={{ fontSize: 12, color: 'var(--gold)', alignSelf: 'center' }}>● Черновик сохранён</span>
-          )}
-          <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-            + Новый приход
-          </button>
-        </div>
       </div>
 
       {!!filteredReceipts.length && (
@@ -777,7 +797,93 @@ export default function WarehouseReceiptsPanel({
       {!filteredReceipts.length ? (
         <div className="k-empty">{receipts.length ? 'За выбранный период приходов нет' : 'Приходов пока нет'}</div>
       ) : (
-        <div className="k-card k-tbl-scroll">
+        <>
+          <div className="k-wh-cards">
+            {filteredReceipts.map(r => {
+              const isOpen = expanded === r.id
+              const retail = receiptRetailTotal(r)
+              return (
+                <div key={r.id} className="k-wh-card">
+                  <div className="k-wh-card-top">
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(r.createdAtIso)}</div>
+                      <div style={{ fontWeight: 900, fontSize: 15, marginTop: 4 }}>{r.supplierName || 'Без поставщика'}</div>
+                    </div>
+                  </div>
+                  <div className="k-wh-card-meta">
+                    <div>
+                      <div className="l">Позиций</div>
+                      <div className="v">{r.items.length}</div>
+                    </div>
+                    <div>
+                      <div className="l">Закуп</div>
+                      <div className="v">{fmtMoney(r.totalCost)}</div>
+                    </div>
+                    <div>
+                      <div className="l">Продажа</div>
+                      <div className="v" style={{ color: 'var(--green)' }}>{fmtMoney(retail)}</div>
+                    </div>
+                  </div>
+                  <div className="k-wh-card-meta" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <div>
+                      <div className="l">Оплачено</div>
+                      <div className="v">{fmtMoney(r.paidNow)}</div>
+                    </div>
+                    <div>
+                      <div className="l">Долг</div>
+                      <div className="v" style={{ color: r.debtAdded > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                        {r.debtAdded > 0 ? fmtMoney(r.debtAdded) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+                    <button type="button" className="k-btn k-btn-s" onClick={() => setLabelReceipt(r)}>🖨️</button>
+                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(r)}>✎</button>
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ color: 'var(--red)' }}
+                      disabled={!USE_API || deletingId === r.id}
+                      onClick={() => void removeReceipt(r.id)}
+                    >
+                      {deletingId === r.id ? '…' : '🗑'}
+                    </button>
+                    <button type="button" className="k-btn k-btn-s" style={{ minWidth: 48 }} onClick={() => setExpanded(isOpen ? null : r.id)}>
+                      {isOpen ? '▲' : '▼'}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div className="k-wh-card-detail">
+                      {r.items.map((it, i) => {
+                        const qty = Number(it.qty) || 0
+                        const itemCostTotal = qty * (Number(it.costPrice) || 0)
+                        const itemRetailTotal = it.retailPrice != null ? qty * Number(it.retailPrice) : 0
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              padding: '10px 12px', borderRadius: 10,
+                              border: '1px solid var(--border)', background: 'var(--card2)',
+                            }}
+                          >
+                            <div style={{ fontWeight: 800, marginBottom: 6 }}>{it.productName}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
+                              <span style={{ color: 'var(--muted)' }}>Кол-во: <b style={{ color: 'var(--text)' }}>{it.qty}</b></span>
+                              <span style={{ color: 'var(--muted)' }}>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(itemCostTotal)}</b></span>
+                              <span style={{ color: 'var(--muted)' }}>Розница: <b style={{ color: 'var(--green)' }}>{it.retailPrice != null ? fmtMoney(itemRetailTotal) : '—'}</b></span>
+                              <span style={{ color: 'var(--muted)' }}>Срок: <b style={{ color: 'var(--text)' }}>{it.expiryDate || '—'}</b></span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="k-card k-tbl-scroll k-wh-desk-tbl">
           <table className="k-tbl">
             <thead>
               <tr>
@@ -873,7 +979,8 @@ export default function WarehouseReceiptsPanel({
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {open && (
@@ -964,6 +1071,7 @@ export default function WarehouseReceiptsPanel({
                       idx={idx}
                       product={product}
                       onActivate={() => setActiveLine(line.key)}
+                      onDuplicate={() => openDuplicateProduct(product)}
                       onRemove={() => setDraft(prev => ({
                         ...prev,
                         lines: prev.lines.filter(l => l.key !== line.key),
@@ -981,6 +1089,7 @@ export default function WarehouseReceiptsPanel({
                     product={product}
                     canRemove={filledLines.length > 0}
                     onClear={() => selectProduct(line.key, null)}
+                    onDuplicate={() => openDuplicateProduct(product)}
                     onRemove={() => setDraft(prev => ({
                       ...prev,
                       lines: prev.lines.filter(l => l.key !== line.key),
@@ -1035,25 +1144,27 @@ export default function WarehouseReceiptsPanel({
               {msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{msg}</div>}
             </div>
 
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="k-btn k-btn-g" style={{ flex: 1, minWidth: 180 }} disabled={saving} onClick={() => void submit()}>
+            <div className="k-receipt-modal-actions">
+              <button type="button" className="k-btn k-btn-g k-btn-primary-wide" disabled={saving} onClick={() => void submit()}>
                 {saving ? 'Сохранение…' : editingId
                   ? `Сохранить изменения${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
                   : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
               </button>
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
-              {editingId && (
-                <button
-                  type="button"
-                  className="k-btn k-btn-s"
-                  style={{ color: 'var(--red)' }}
-                  disabled={saving || deletingId === editingId}
-                  onClick={() => void removeReceipt(editingId)}
-                >
-                  {deletingId === editingId ? 'Удаление…' : 'Удалить'}
-                </button>
-              )}
-              <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+              <div className="k-btn-row">
+                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+                {editingId && (
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    style={{ color: 'var(--red)' }}
+                    disabled={saving || deletingId === editingId}
+                    onClick={() => void removeReceipt(editingId)}
+                  >
+                    {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                  </button>
+                )}
+                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1062,7 +1173,8 @@ export default function WarehouseReceiptsPanel({
       <WarehouseNewProductModal
         open={newProductOpen}
         initialName={newProductName}
-        onClose={() => setNewProductOpen(false)}
+        duplicateFrom={duplicateFrom}
+        onClose={() => { setNewProductOpen(false); setDuplicateFrom(null) }}
         onCreated={onProductCreated}
       />
 
