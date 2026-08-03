@@ -191,7 +191,13 @@ const CSS = `
   .k-receipt-modal{
     border-radius:0;width:100%!important;max-width:100%!important;
     height:100vh!important;max-height:100vh!important;
-    height:100dvh!important;max-height:100dvh!important;margin:0
+    height:100dvh!important;max-height:100dvh!important;margin:0;
+    display:flex!important;flex-direction:column;overflow:hidden!important;min-height:0
+  }
+  .k-receipt-scroll{
+    flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding:12px 16px 28px
   }
   .k-wh-cta{
     display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px

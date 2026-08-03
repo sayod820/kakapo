@@ -367,9 +367,7 @@ export default function WarehouseReceiptsPanel({
       const body = bodyRef.current
       if (!body) return
       if (draft.scrollTop > 0) body.scrollTop = draft.scrollTop
-      if (draft.activeLineKey && lineRefs.current[draft.activeLineKey]) {
-        lineRefs.current[draft.activeLineKey]?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior })
-      }
+      else if (draft.activeLineKey) scrollLineIntoBody(draft.activeLineKey)
     })
   }, [open, draft.scrollTop, draft.activeLineKey])
 
@@ -384,6 +382,18 @@ export default function WarehouseReceiptsPanel({
       return { ...prev, lines: [...prev.lines, emptyReceiptLine()] }
     })
   }, [open])
+
+  /** Крутим только список внутри модалки, не всю страницу */
+  function scrollLineIntoBody(key: string) {
+    const body = bodyRef.current
+    const el = lineRefs.current[key]
+    if (!body || !el) return
+    const br = body.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    const pad = 12
+    if (er.bottom > br.bottom - pad) body.scrollTop += er.bottom - br.bottom + pad + 8
+    else if (er.top < br.top + pad) body.scrollTop += er.top - br.top - pad
+  }
 
   const setDraftPatch = useCallback((patch: Partial<ReceiptDraft>) => {
     setDraft(prev => ({ ...prev, ...patch }))
@@ -570,8 +580,19 @@ export default function WarehouseReceiptsPanel({
       }
     })
     requestAnimationFrame(() => {
+      scrollLineIntoBody(key)
       qtyRefs.current[key]?.focus()
       qtyRefs.current[key]?.select()
+      // После добавления чуть ниже виден блок «+ Добавить товар»
+      requestAnimationFrame(() => {
+        const pending = bodyRef.current?.querySelector<HTMLElement>('[data-receipt-pending="1"]')
+        if (!pending || !bodyRef.current) return
+        const br = bodyRef.current.getBoundingClientRect()
+        const er = pending.getBoundingClientRect()
+        if (er.bottom > br.bottom - 8) {
+          bodyRef.current.scrollTop += er.bottom - br.bottom + 20
+        }
+      })
     })
   }
 
@@ -1000,47 +1021,52 @@ export default function WarehouseReceiptsPanel({
               <button type="button" onClick={closeForm}>✕</button>
             </div>
 
-            {editingReceipt && receiptHasConsumption(editingReceipt) && (
-              <div style={{ flexShrink: 0, padding: '10px 16px', borderBottom: '1px solid var(--border)', background: '#2a2414', color: 'var(--gold)', fontSize: 12, fontWeight: 700 }}>
-                ⚠ Часть товара из этого прихода уже списана. При сохранении остатки будут пересчитаны.
-              </div>
-            )}
-
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
-              <div className="k-grid2" style={{ marginBottom: 0 }}>
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Поставщик</label>
-                  <WarehouseSupplierSelect
-                    suppliers={suppliers}
-                    value={supplierId}
-                    onChange={id => setDraftPatch({ supplierId: id })}
-                    onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
-                    onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
-                  />
+            <div
+              ref={bodyRef}
+              className="k-modal-b k-receipt-scroll"
+              onScroll={onBodyScroll}
+            >
+              {editingReceipt && receiptHasConsumption(editingReceipt) && (
+                <div style={{ padding: '10px 0', marginBottom: 10, color: 'var(--gold)', fontSize: 12, fontWeight: 700 }}>
+                  ⚠ Часть товара из этого прихода уже списана. При сохранении остатки будут пересчитаны.
                 </div>
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Оплачено сейчас (сом)</label>
-                  <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
-                </div>
-              </div>
-            </div>
+              )}
 
-            <div className="k-receipt-summary" style={{
-              flexShrink: 0,
-              padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-            }}>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
-                <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
-                  {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+              <div style={{ padding: '12px 0', marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
+                <div className="k-grid2" style={{ marginBottom: 0 }}>
+                  <div className="k-field" style={{ marginBottom: 0 }}>
+                    <label>Поставщик</label>
+                    <WarehouseSupplierSelect
+                      suppliers={suppliers}
+                      value={supplierId}
+                      onChange={id => setDraftPatch({ supplierId: id })}
+                      onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
+                      onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
+                    />
+                  </div>
+                  <div className="k-field" style={{ marginBottom: 0 }}>
+                    <label>Оплачено сейчас (сом)</label>
+                    <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
+              <div className="k-receipt-summary" style={{
+                position: 'sticky', top: 0, zIndex: 2,
+                margin: '0 -16px 12px', padding: '10px 16px',
+                borderBottom: '1px solid var(--border)', background: 'var(--panel)',
+              }}>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
+                  <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                    {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+                  </div>
+                </div>
+              </div>
+
               {filledLines.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <input
@@ -1115,6 +1141,7 @@ export default function WarehouseReceiptsPanel({
                 const pendingIdx = lines.filter(l => l.productId).length
                 return (
                   <div
+                    data-receipt-pending="1"
                     ref={el => { if (pending) lineRefs.current[pending.key] = el }}
                     style={{
                       padding: 16,
@@ -1122,6 +1149,7 @@ export default function WarehouseReceiptsPanel({
                       border: '2px dashed var(--green)',
                       background: 'rgba(31,215,96,.04)',
                       marginTop: listQuery ? 12 : 0,
+                      marginBottom: 8,
                     }}
                   >
                     <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 10 }}>

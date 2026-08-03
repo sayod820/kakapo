@@ -700,54 +700,59 @@ export default function WarehouseWriteoffsPanel({
               <button type="button" onClick={closeForm}>✕</button>
             </div>
 
-            <div style={{ flexShrink: 0, padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginBottom: 8 }}>Причина списания</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: reason === 'Другое' || note ? 10 : 0 }}>
-                {WRITEOFF_REASONS.map(r => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setDraftPatch({ reason: r.id })}
-                    style={{
-                      border: `1px solid ${reason === r.id ? r.color : 'var(--border)'}`,
-                      background: reason === r.id ? r.bg : 'var(--card)',
-                      color: reason === r.id ? r.color : 'var(--muted)',
-                      borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                    }}
-                  >
-                    {r.icon} {r.label}
-                  </button>
-                ))}
-              </div>
-              {reason === 'Другое' && (
-                <div className="k-field" style={{ marginBottom: 8 }}>
-                  <label>Опишите причину</label>
-                  <input className="k-inp" value={customReason} onChange={e => setDraftPatch({ customReason: e.target.value })} placeholder="Например: утеря при транспортировке" />
+            <div
+              ref={bodyRef}
+              className="k-modal-b k-receipt-scroll"
+              onScroll={onBodyScroll}
+            >
+              <div style={{ padding: '4px 0 12px', marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginBottom: 8 }}>Причина списания</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: reason === 'Другое' || note ? 10 : 0 }}>
+                  {WRITEOFF_REASONS.map(r => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setDraftPatch({ reason: r.id })}
+                      style={{
+                        border: `1px solid ${reason === r.id ? r.color : 'var(--border)'}`,
+                        background: reason === r.id ? r.bg : 'var(--card)',
+                        color: reason === r.id ? r.color : 'var(--muted)',
+                        borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                      }}
+                    >
+                      {r.icon} {r.label}
+                    </button>
+                  ))}
                 </div>
-              )}
-              <div className="k-field" style={{ marginBottom: 0 }}>
-                <label>Комментарий (необязательно)</label>
-                <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Дополнительная информация…" />
-              </div>
-            </div>
-
-            <div className="k-receipt-summary" style={{
-              flexShrink: 0,
-              padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-            }}>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Единиц</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.qtyTotal || '—'}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма списания</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--red)' }}>{fmtMoney(totals.costTotal)}</div></div>
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>Статус</div>
-                <div style={{ fontWeight: 900, fontSize: 14, color: totals.hasOver ? 'var(--red)' : totals.count > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                  {totals.hasOver ? '⚠ Ошибка' : totals.count > 0 ? '✓ Готово' : '—'}
+                {reason === 'Другое' && (
+                  <div className="k-field" style={{ marginBottom: 8 }}>
+                    <label>Опишите причину</label>
+                    <input className="k-inp" value={customReason} onChange={e => setDraftPatch({ customReason: e.target.value })} placeholder="Например: утеря при транспортировке" />
+                  </div>
+                )}
+                <div className="k-field" style={{ marginBottom: 0 }}>
+                  <label>Комментарий (необязательно)</label>
+                  <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Дополнительная информация…" />
                 </div>
               </div>
-            </div>
 
-            <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
+              <div className="k-receipt-summary" style={{
+                position: 'sticky', top: 0, zIndex: 2,
+                margin: '0 -16px 12px', padding: '10px 16px',
+                borderBottom: '1px solid var(--border)', background: 'var(--panel)',
+              }}>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Единиц</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.qtyTotal || '—'}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма списания</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--red)' }}>{fmtMoney(totals.costTotal)}</div></div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Статус</div>
+                  <div style={{ fontWeight: 900, fontSize: 14, color: totals.hasOver ? 'var(--red)' : totals.count > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                    {totals.hasOver ? '⚠ Ошибка' : totals.count > 0 ? '✓ Готово' : '—'}
+                  </div>
+                </div>
+              </div>
+
               {filledLines.map((line, idx) => {
                 const product = products.find(p => p.id === line.productId) || null
                 if (!product) return null
@@ -787,6 +792,7 @@ export default function WarehouseWriteoffsPanel({
                       borderRadius: 12,
                       border: '2px dashed var(--red)',
                       background: 'rgba(255,90,90,.04)',
+                      marginBottom: 8,
                     }}
                   >
                     <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--red)', marginBottom: 10 }}>
