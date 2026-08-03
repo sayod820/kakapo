@@ -263,7 +263,9 @@ const CSS = `
     .k-receipt-summary{grid-template-columns:repeat(2,1fr)}
     .k-hide-mob{display:none!important}
     .k-hide-desk{display:block}
-    .k-trade{flex-direction:column}
+    .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
+    .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
+    .k-trade:has(.k-body-pos) .k-main{height:100%!important;min-height:0!important;overflow:hidden;padding-bottom:0}
     .k-side{
       position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
       transform:translateX(-105%);transition:transform .25s ease;box-shadow:none
@@ -279,11 +281,16 @@ const CSS = `
       border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
       cursor:pointer;font-size:20px;flex-shrink:0
     }
-    .k-main{width:100%;height:auto;min-height:100vh;min-height:100dvh;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+    .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
     .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
     .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
     .k-user .who{display:none}
-    .k-body{padding:12px}
+    /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
+    .k-body{padding:12px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
+    .k-body-pos{
+      overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
+      height:calc(100dvh - 56px);max-height:calc(100dvh - 56px)
+    }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
     .k-kpis{grid-template-columns:repeat(2,1fr);gap:8px}
@@ -306,7 +313,7 @@ const CSS = `
     .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static}
-    .k-product-list-body{max-height:50vh}
+    .k-product-list-body{max-height:none;overflow:visible}
     .k-tbl{font-size:12px}
     .k-tbl th,.k-tbl td{padding:8px 6px}
     .k-wh-cta{
