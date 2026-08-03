@@ -46,7 +46,7 @@ import {
   cashDepositTierLabel,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
-import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
@@ -836,6 +836,9 @@ export default function CashierModule({
   /** Блокировка кассы после скана неизвестного штрихкода — пока не нажали Отмена / ✕ */
   const [scanBlockAlert, setScanBlockAlert] = useState<{ title: string; sub: string; code: string } | null>(null)
   const scanBlockAlertRef = useRef(false)
+  /** Один штрихкод на несколько товаров — выбор кассира, без автопробития */
+  const [barcodePick, setBarcodePick] = useState<{ code: string; products: Product[] } | null>(null)
+  const barcodePickRef = useRef(false)
   const [clearCartConfirm, setClearCartConfirm] = useState(false)
 
   const [gateCash, setGateCash] = useState('0.00')
@@ -1084,6 +1087,17 @@ export default function CashierModule({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- closeScanBlockAlert стабилен по смыслу
   }, [scanBlockAlert])
   useEffect(() => {
+    if (!barcodePick) return
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') closeBarcodePick()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeBarcodePick стабилен по смыслу
+  }, [barcodePick])
+  useEffect(() => {
     const bump = () => setHistTick(n => n + 1)
     const offDebt = subscribeDebtHistory(bump)
     const offTopup = subscribeBalanceTopup(bump)
@@ -1189,6 +1203,7 @@ export default function CashierModule({
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
     || !!scanBlockAlert
+    || !!barcodePick
     || clearCartConfirm
 
   function focusProductSearch() {
@@ -2327,6 +2342,44 @@ export default function CashierModule({
     window.setTimeout(focusProductSearch, 40)
   }
 
+  function openBarcodePick(code: string, list: Product[]) {
+    barcodePickRef.current = true
+    if (scanCommitTimer.current) {
+      window.clearTimeout(scanCommitTimer.current)
+      scanCommitTimer.current = null
+    }
+    scanBurstRef.current = false
+    scanAccumRef.current = ''
+    scanTypeBufRef.current = ''
+    qRef.current = ''
+    setQ('')
+    if (searchInputRef.current) searchInputRef.current.value = ''
+    try { searchInputRef.current?.blur() } catch { /* ignore */ }
+    setBarcodePick({ code, products: list })
+  }
+
+  function closeBarcodePick() {
+    barcodePickRef.current = false
+    setBarcodePick(null)
+    window.setTimeout(focusProductSearch, 40)
+  }
+
+  function confirmBarcodePick(p: Product) {
+    const code = barcodePick?.code || ''
+    if ((Number(p.stock) || 0) <= 0) {
+      closeBarcodePick()
+      openScanBlockAlert(
+        'Нет на складе',
+        `${p.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
+        code,
+      )
+      return
+    }
+    closeBarcodePick()
+    addProduct(p, undefined, { fromScanner: true })
+    window.setTimeout(focusProductSearch, 0)
+  }
+
   function findClientByScan(raw: string): AdminClient | null {
     const q = raw.trim().replace(/\s+/g, '')
     if (!q) return null
@@ -2363,7 +2416,7 @@ export default function CashierModule({
 
   /** Сканер / Enter: положить товар в чек. Ручной ввод без Enter — только фильтр (не сюда). */
   function commitPosSearch(rawIn?: string, opts?: { fromScanner?: boolean }): boolean {
-    if (scanBlockAlertRef.current) return false
+    if (scanBlockAlertRef.current || barcodePickRef.current) return false
     const fromScanner = !!opts?.fromScanner || scanBurstRef.current
     const raw = String(
       rawIn
@@ -2379,7 +2432,8 @@ export default function CashierModule({
     const clientHit = findClientByScan(raw)
     const looksLikeClientCard = /какапо/i.test(raw) || /^k-?\d+/i.test(raw)
     if (clientHit && (looksLikeClientCard || !(
-      productCodeIndex.get(raw)
+      findProductsByExactBarcode(products, raw).length
+      || productCodeIndex.get(raw)
       || productCodeIndex.get(raw.replace(/\D/g, ''))
       || pickProductBySearch(products, raw)
     ))) {
@@ -2394,9 +2448,18 @@ export default function CashierModule({
     const digits = raw.replace(/\D/g, '')
     const pool = inStockProducts.length ? inStockProducts : products
 
-    // 1) Сначала точный штрихкод / артикул / PLU — обычные товары с 22… не путать с весом
-    let productHit =
-      productCodeIndex.get(raw)
+    // 1a) Точный штрихкод: если 2+ товара — выбор, без автопробития
+    const barcodeHits = findProductsByExactBarcode(products, raw) as Product[]
+    if (barcodeHits.length > 1) {
+      openBarcodePick(raw, barcodeHits)
+      scanBurstRef.current = false
+      return true
+    }
+
+    // 1b) Один штрихкод / артикул / PLU — обычные товары с 22… не путать с весом
+    let productHit: Product | null =
+      (barcodeHits.length === 1 ? barcodeHits[0] : null)
+      || productCodeIndex.get(raw)
       || (digits ? productCodeIndex.get(digits) : undefined)
       || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
         ? productCodeIndex.get(`plu:${digits}`)
@@ -2405,9 +2468,7 @@ export default function CashierModule({
 
     if (!productHit) {
       productHit =
-        (pool.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
-        || (products.find(p => productBarcodes(p).some(c => c === raw || c.replace(/\D/g, '') === digits)) as Product | undefined)
-        || (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
+        (pool.find(p => String(p.art || '').trim() === raw || String(p.art || '').replace(/\D/g, '') === digits) as Product | undefined)
         || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
           ? (pool.find(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product | undefined)
           : undefined)
@@ -2509,7 +2570,7 @@ export default function CashierModule({
     }
     scanCommitTimer.current = window.setTimeout(() => {
       scanCommitTimer.current = null
-      if (scanBlockAlertRef.current) return
+      if (scanBlockAlertRef.current || barcodePickRef.current) return
       if (!scanBurstRef.current) return
       const live = String(
         scanAccumRef.current
@@ -2534,10 +2595,13 @@ export default function CashierModule({
   }
 
   function onProductSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (scanBlockAlertRef.current) {
+    if (scanBlockAlertRef.current || barcodePickRef.current) {
       e.preventDefault()
       e.stopPropagation()
-      if (e.key === 'Escape') closeScanBlockAlert()
+      if (e.key === 'Escape') {
+        if (barcodePickRef.current) closeBarcodePick()
+        else closeScanBlockAlert()
+      }
       return
     }
     const now = performance.now()
@@ -7120,6 +7184,65 @@ export default function CashierModule({
             </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => closeScanBlockAlert()}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {barcodePick && (
+        <div className="overlay scan-block-overlay" onClick={e => e.stopPropagation()}>
+          <div
+            className="modal-card barcode-pick-card"
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="barcode-pick-title"
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+              <h3 id="barcode-pick-title" style={{ marginBottom: 0 }}>Выберите товар</h3>
+              <button
+                type="button"
+                className="scan-block-x"
+                aria-label="Закрыть"
+                onClick={() => closeBarcodePick()}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 8 }}>
+              Один штрихкод на {barcodePick.products.length} товара — выберите нужный. Автоматически не пробиваем.
+            </div>
+            {barcodePick.code ? (
+              <div className="scan-block-code" style={{ marginBottom: 12 }}>
+                <span>Код</span>
+                <b>{barcodePick.code.length > 32 ? `${barcodePick.code.slice(0, 32)}…` : barcodePick.code}</b>
+              </div>
+            ) : null}
+            <div className="barcode-pick-list">
+              {barcodePick.products.map(p => {
+                const stock = Number(p.stock) || 0
+                const out = stock <= 0
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`barcode-pick-row${out ? ' is-out' : ''}`}
+                    onClick={() => confirmBarcodePick(p)}
+                  >
+                    <span className="barcode-pick-name">{p.name}</span>
+                    <span className="barcode-pick-meta">
+                      <b>{fmtMoney(Number(p.price) || 0)}</b>
+                      <span>{out ? 'нет на складе' : `ост. ${stock}${isWeighted(p) ? ' кг' : ''}`}</span>
+                      {p.art ? <span>арт. {p.art}</span> : null}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="modal-card-actions" style={{ marginTop: 14 }}>
+              <button type="button" className="btn-cancel" onClick={() => closeBarcodePick()}>
                 Отмена
               </button>
             </div>

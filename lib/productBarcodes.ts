@@ -18,6 +18,31 @@ export function normalizeBarcodes(codes: string[]) {
   }
 }
 
+/** Все товары с точным совпадением штрихкода (один код → несколько карточек) */
+export function findProductsByExactBarcode<T extends Partial<Product>>(
+  products: T[] | null | undefined,
+  raw: string,
+): T[] {
+  const q = String(raw || '').trim()
+  if (!q) return []
+  const digits = q.replace(/\D/g, '')
+  const hits: T[] = []
+  const seen = new Set<number>()
+  for (const p of products || []) {
+    const id = Number(p.id)
+    if (Number.isFinite(id) && seen.has(id)) continue
+    const match = productBarcodes(p).some(c => {
+      if (c === q) return true
+      if (!digits) return false
+      return c.replace(/\D/g, '') === digits
+    })
+    if (!match) continue
+    if (Number.isFinite(id)) seen.add(id)
+    hits.push(p)
+  }
+  return hits
+}
+
 /** Префикс внутренних EAN-13 (не 2x — чтобы не путать с весовыми этикетками) */
 export const INTERNAL_EAN_PREFIX = '460'
 

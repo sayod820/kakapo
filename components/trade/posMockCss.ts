@@ -1254,6 +1254,18 @@ export const POS_MOCK_CSS = `
   }
   .scan-block-code span{color:var(--t3);font-weight:700;}
   .scan-block-code b{font-family:ui-monospace,Consolas,monospace;font-size:13px;word-break:break-all;text-align:right;}
+  .modal-card.barcode-pick-card{width:min(480px,94vw);max-height:min(80vh,640px);display:flex;flex-direction:column;}
+  .barcode-pick-list{display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:min(48vh,420px);padding-right:2px;}
+  .barcode-pick-row{
+    display:flex;flex-direction:column;align-items:stretch;gap:4px;text-align:left;
+    padding:12px 14px;border-radius:10px;border:1px solid rgba(40,90,50,.22);
+    background:rgba(255,255,255,.72);cursor:pointer;font:inherit;color:inherit;
+  }
+  .barcode-pick-row:hover{border-color:rgba(40,120,60,.45);background:rgba(230,245,232,.9);}
+  .barcode-pick-row.is-out{opacity:.72;}
+  .barcode-pick-name{font-size:14px;font-weight:700;line-height:1.3;}
+  .barcode-pick-meta{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12px;color:var(--t3);}
+  .barcode-pick-meta b{color:var(--t1);font-size:14px;font-variant-numeric:tabular-nums;}
   .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--surface);border:1.5px solid var(--accent);border-radius:18px;padding:14px 20px;display:flex;align-items:center;gap:11px;box-shadow:0 14px 32px var(--shade);z-index:300;animation:toastIn .3s cubic-bezier(.16,1,.3,1);}
   .toast .ic{width:34px;height:34px;border-radius:11px;background:rgba(31,215,96,.15);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
   .toast b{font-size:13px;display:block;}
