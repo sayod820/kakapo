@@ -15,6 +15,8 @@ export type ReceiptDraftLine = {
 
 export type ReceiptDraft = {
   open: boolean
+  /** Если задан — сохранение идёт как UPDATE, не как новый приход */
+  editingId: string | null
   supplierId: string
   paidNow: string
   lines: ReceiptDraftLine[]
@@ -39,6 +41,7 @@ export function emptyReceiptLine(): ReceiptDraftLine {
 export function defaultReceiptDraft(): ReceiptDraft {
   return {
     open: false,
+    editingId: null,
     supplierId: '',
     paidNow: '',
     lines: [emptyReceiptLine()],
@@ -56,6 +59,7 @@ export function loadReceiptDraft(): ReceiptDraft {
     return {
       ...defaultReceiptDraft(),
       ...parsed,
+      editingId: parsed.editingId ? String(parsed.editingId) : null,
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
@@ -135,6 +139,7 @@ export function defaultMarkupPct(product?: { costPrice?: number | null; price?: 
 export function receiptToDraft(receipt: import('@/lib/types').StockReceipt): ReceiptDraft {
   return {
     open: true,
+    editingId: receipt.id,
     supplierId: receipt.supplierId || '',
     paidNow: String(receipt.paidNow ?? ''),
     lines: [

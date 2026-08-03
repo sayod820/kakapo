@@ -329,7 +329,6 @@ export default function WarehouseReceiptsPanel({
   const [expanded, setExpanded] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
@@ -339,7 +338,7 @@ export default function WarehouseReceiptsPanel({
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
 
-  const { open, supplierId, paidNow, lines, activeLineKey } = draft
+  const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
 
   useEffect(() => {
     if (hydrated.current) return
@@ -384,19 +383,26 @@ export default function WarehouseReceiptsPanel({
   function resetForm() {
     clearReceiptDraft()
     setDraft(defaultReceiptDraft())
-    setEditingId(null)
     setMsg('')
   }
 
+  /** Новый приход. Черновик нового сохраняем; черновик правки не превращаем в второй приход. */
   function openForm() {
-    setEditingId(null)
-    setDraft(prev => ({ ...prev, open: true }))
+    setDraft(prev => {
+      if (prev.editingId) {
+        clearReceiptDraft()
+        return { ...defaultReceiptDraft(), open: true, editingId: null }
+      }
+      return { ...prev, open: true, editingId: null }
+    })
     setMsg('')
+    scrollRestored.current = false
   }
 
   function openEditForm(receipt: StockReceipt) {
-    setEditingId(receipt.id)
-    setDraft(receiptToDraft(receipt))
+    const next = receiptToDraft(receipt)
+    setDraft(next)
+    saveReceiptDraft(next)
     setMsg('')
     scrollRestored.current = false
   }
@@ -419,8 +425,8 @@ export default function WarehouseReceiptsPanel({
   function closeForm() {
     if (saving) return
     if (editingId) {
-      setDraft(prev => ({ ...prev, open: false }))
-      setEditingId(null)
+      // Отмена правки — не оставляем строки как «новый черновик»
+      resetForm()
       return
     }
     if (lines.some(l => l.productId || l.qty || l.costPrice) && !confirm('Закрыть приход? Черновик сохранится в браузере.')) return
@@ -617,8 +623,10 @@ export default function WarehouseReceiptsPanel({
         paidNow: Number(paidNow) || 0,
         items,
       }
-      if (editingId) {
-        await api.updateStockReceipt(editingId, payload)
+      // editingId из черновика — чтобы после перезахода не создавался второй приход
+      const editId = draft.editingId || editingId
+      if (editId) {
+        await api.updateStockReceipt(editId, payload)
         await Promise.all([onRefresh(), fetchProducts()])
         resetForm()
       } else {
