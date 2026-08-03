@@ -733,6 +733,12 @@ export default function CashierModule({
   const [activeTicketId, setActiveTicketId] = useState(bootTicket.id)
   const [nextTicketSeq, setNextTicketSeq] = useState(2)
   const ticketsHydratedRef = useRef(false)
+  const ticketsRef = useRef(tickets)
+  const activeTicketIdRef = useRef(activeTicketId)
+  /** Чек, который сейчас пробивается — не трогаем активную вкладку, если кассир уже переключился */
+  const sellingTicketIdRef = useRef<string | null>(null)
+  ticketsRef.current = tickets
+  activeTicketIdRef.current = activeTicketId
 
   // Восстановление открытых чеков после света / перезапуска
   useEffect(() => {
@@ -954,11 +960,14 @@ export default function CashierModule({
   } | null>(null)
   /** Вопрос «печатать?» ДО пробития чека — чек проходит только после Нет/Печатать */
   const [saleConfirm, setSaleConfirm] = useState<{
+    ticketId: string
     paidCash: number
     method?: PayMethod
     bonusSpend?: number
     paidCard?: number
     debtAmt?: number
+    /** Погашение старого долга вместе с чеком (снимок на момент подтверждения) */
+    debtRepayAmt?: number
     saleNote?: string
     returnTo: 'payPick' | 'cash' | 'splitCard' | 'creditNote'
     previewTotal: number
@@ -4013,6 +4022,8 @@ export default function CashierModule({
     setDiscOpen(false)
     setQtyEditOpen(false)
     setQtyEditKey(null)
+    setSaleConfirm(null)
+    printChoiceLockedRef.current = false
     showToast('Новый чек', `Чек ${t.seq}`)
     // после клика по «+» фокус остаётся на кнопке — вернуть в поиск
     window.setTimeout(focusProductSearch, 0)
@@ -4030,12 +4041,23 @@ export default function CashierModule({
     setSplitCardOpen(false)
     setDiscOpen(false)
     setDiscPickOpen(false)
+    setCreditNoteOpen(false)
+    setSaleConfirm(null)
+    printChoiceLockedRef.current = false
     setActiveTicketId(id)
     window.setTimeout(focusProductSearch, 0)
     window.setTimeout(focusProductSearch, 60)
   }
 
   function closeTicket(id: string) {
+    if (sellingTicketIdRef.current === id) {
+      showToast('Чек пробивается', 'Дождитесь завершения продажи')
+      return
+    }
+    if (saleConfirm?.ticketId === id) {
+      setSaleConfirm(null)
+      printChoiceLockedRef.current = false
+    }
     if (qtyEditDraftKey && id === activeTicketId) {
       setQtyEditDraftKey(null)
       setQtyEditOpen(false)
@@ -4061,11 +4083,11 @@ export default function CashierModule({
     })
   }
 
-  function afterSaleTicketReset() {
+  function afterSaleTicketReset(ticketId: string) {
     setPosMobPanel('shop')
     setTickets(prev => {
       if (prev.length <= 1) {
-        return prev.map(t => t.id !== activeTicketId ? t : {
+        return prev.map(t => t.id !== ticketId ? t : {
           ...t,
           cart: [],
           client: null,
@@ -4075,17 +4097,23 @@ export default function CashierModule({
           selectedLineKey: null,
         })
       }
-      const next = prev.filter(t => t.id !== activeTicketId)
-      const fallback = next[0]
-      if (fallback) setActiveTicketId(fallback.id)
+      const next = prev.filter(t => t.id !== ticketId)
+      // Если кассир уже в другом чеке — остаёмся там; закрываем только пробитый
+      setActiveTicketId(cur => {
+        if (cur !== ticketId) return cur
+        return next[0]?.id || cur
+      })
       return next
     })
-    setDiscLineKey(null)
-    setPayDebtOn(false)
-    setPayDebtBuf('')
-    setCreditNoteOpen(false)
-    setCreditNoteBuf('')
-    setCreditPending(null)
+    // Сброс оплаты только если пробитый чек всё ещё «текущий» в UI
+    if (activeTicketIdRef.current === ticketId) {
+      setDiscLineKey(null)
+      setPayDebtOn(false)
+      setPayDebtBuf('')
+      setCreditNoteOpen(false)
+      setCreditNoteBuf('')
+      setCreditPending(null)
+    }
   }
 
   function currentPayDebtAmt() {
@@ -4280,11 +4308,13 @@ export default function CashierModule({
     setAmountPad(false)
     printChoiceLockedRef.current = false
     setSaleConfirm({
+      ticketId: activeTicketIdRef.current,
       paidCash: opts.paidCash ?? 0,
       method: opts.method,
       bonusSpend: opts.bonusSpend,
       paidCard: opts.paidCard,
       debtAmt: opts.debtAmt,
+      debtRepayAmt: currentPayDebtAmt(),
       saleNote: opts.saleNote,
       returnTo: opts.returnTo,
       previewTotal: opts.previewTotal,
@@ -4296,6 +4326,9 @@ export default function CashierModule({
     const p = saleConfirm
     if (!p || busy) return
     setSaleConfirm(null)
+    if (p.ticketId && p.ticketId !== activeTicketIdRef.current) {
+      setActiveTicketId(p.ticketId)
+    }
     if (p.returnTo === 'cash') {
       setCashOpen(true)
     } else if (p.returnTo === 'splitCard') {
@@ -4312,6 +4345,8 @@ export default function CashierModule({
     const p = saleConfirm
     if (!p || printChoiceLockedRef.current || busy) return
     printChoiceLockedRef.current = true
+    const ticketId = p.ticketId
+    const debtRepayAmt = Math.max(0, Number(p.debtRepayAmt) || 0)
     setSaleConfirm(null)
     try {
       const ok = await submitSale(
@@ -4321,10 +4356,13 @@ export default function CashierModule({
         p.paidCard,
         p.debtAmt,
         p.saleNote,
-        { shouldPrint },
+        { shouldPrint, ticketId, debtRepayAmt },
       )
       if (!ok) {
-        // Чек не прошёл — вернуть к оплате
+        // Чек не прошёл — вернуть к оплате на том же чеке
+        if (ticketId && ticketId !== activeTicketIdRef.current) {
+          setActiveTicketId(ticketId)
+        }
         if (p.returnTo === 'cash') setCashOpen(true)
         else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
         else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
@@ -4359,9 +4397,34 @@ export default function CashierModule({
     paidCardAmt?: number,
     debtAmt?: number,
     saleNote?: string,
-    opts?: { shouldPrint?: boolean },
+    opts?: { shouldPrint?: boolean; ticketId?: string; debtRepayAmt?: number },
   ): Promise<boolean> {
-    if (!activeShift || !cart.length) return false
+    const ticketId = opts?.ticketId || activeTicketIdRef.current
+    const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
+    if (!activeShift || !ticketSnap?.cart.length) return false
+
+    // Снимок чека — даже если кассир уже перешёл на другую вкладку
+    const cart = ticketSnap.cart
+    const client = ticketSnap.client
+    const pay = ticketSnap.pay
+    const discountPct = ticketSnap.discountPct
+    const loyalty = client ? loyaltySummaryForClient(client, cards) : null
+    const clientDebt = Number(loyalty?.debt) || 0
+    const clientDebtBlocked = !!(client?.debtCreditBlocked || loyalty?.debtCreditBlocked)
+    const subtotalGross = cart.reduce((s, l) => s + lineGross(l), 0)
+    const itemDiscAmount = cart.reduce((s, l) => s + (lineGross(l) - lineNet(l)), 0)
+    const subtotal = cart.reduce((s, l) => s + lineNet(l), 0)
+    const levelDiscPct = (!loyalty || pay === 'credit')
+      ? 0
+      : ({ bronze: 0, silver: 3, gold: 5, platinum: 8, basic: 0 } as Record<string, number>)[loyalty.level] || 0
+    const checkDiscPct = discountPct + levelDiscPct
+    const discAmount = subtotal * (checkDiscPct / 100)
+    const afterDisc = Math.max(0, subtotal - discAmount)
+    const maxBonus = loyalty ? Math.min(Number(loyalty.bonus) || 0, afterDisc) : 0
+    const usedBonus = Math.min(ticketSnap.bonusUsed, maxBonus)
+    const total = Math.max(0, afterDisc - usedBonus)
+    const payDebtForSale = Math.max(0, Number(opts?.debtRepayAmt) || 0)
+
     const methodPay = payOverride ?? pay
     const spend = Math.max(
       0,
@@ -4449,7 +4512,7 @@ export default function CashierModule({
     } else if (methodPay === 'cash') {
       apiMethod = 'cash'
       cashPaid = payable
-      const debtRepayNow = currentPayDebtAmt()
+      const debtRepayNow = payDebtForSale
       cashReceivedVal = Math.round(Math.max(0, paidCash) * 100) / 100
       if (cashReceivedVal < payable + debtRepayNow - 0.001) {
         cashReceivedVal = Math.round((payable + debtRepayNow) * 100) / 100
@@ -4478,6 +4541,7 @@ export default function CashierModule({
       }
     }
 
+    sellingTicketIdRef.current = ticketId
     setBusy(true)
     setMsg('')
     try {
@@ -4688,7 +4752,7 @@ export default function CashierModule({
         }
       }
 
-      const debtRepay = currentPayDebtAmt()
+      const debtRepay = payDebtForSale
       let debtRepayNote = ''
       if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
         const method = cashPaid > 0.001 ? 'cash' : 'card'
@@ -4747,7 +4811,7 @@ export default function CashierModule({
         bonusBalanceAfter: created.bonusBalanceAfter ?? bonusBalanceAfter,
         total: created.total ?? total,
       }
-      afterSaleTicketReset()
+      afterSaleTicketReset(ticketId)
       if (opts?.shouldPrint) {
         void printSaleOnce(saleForPrint)
       }
@@ -4757,6 +4821,7 @@ export default function CashierModule({
       showToast('Ошибка', e instanceof Error ? e.message : 'Ошибка продажи')
       return false
     } finally {
+      sellingTicketIdRef.current = null
       setBusy(false)
     }
   }
