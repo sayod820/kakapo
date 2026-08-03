@@ -265,6 +265,16 @@ function qtyText(n: number) {
   return Number.isInteger(rounded) ? String(rounded) : String(rounded)
 }
 
+function itemUnitLabel(it: { qty?: number; unit?: string; productName?: string }) {
+  const raw = String(it.unit || '').trim()
+  if (raw) return raw
+  const qty = Number(it.qty) || 0
+  // Старые чеки без unit: дробное кол-во → кг, иначе шт
+  if (qty > 0 && !Number.isInteger(Math.round(qty * 1000) / 1000)) return 'кг'
+  if (qty > 0 && Math.abs(qty - Math.round(qty)) > 0.0001) return 'кг'
+  return 'шт'
+}
+
 function payLabel(sale: PosSale) {
   if (sale.paymentMethod === 'credit') return 'В долг'
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
@@ -405,6 +415,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     const price = Number(it.price) || 0
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const rawName = String(it.productName || `#${it.productId}`).trim()
+    const unit = itemUnitLabel(it)
     const rightLen = m(sum).length
     const maxLeft = Math.max(8, 32 - rightLen - 1)
     const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
@@ -421,7 +432,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
       <span>${m(sum)}</span>
     </div>
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
-    <div class="item-qty">${qtyText(qty)} x ${shortMoney(price)}</div>
+    <div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>
   </div>${sep}`
   }).join('\n') : ''
 
@@ -505,6 +516,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .item-row{display:flex;justify-content:space-between;margin-top:4px;gap:8px}
   .item-name{flex:1;word-break:break-word}
   .item-qty{color:#000;font-size:12px}
+  .item-qty-unit{font-weight:800;font-size:13px}
   .totals .row{margin:3px 0}
   .grand-total{font-size:17px;font-weight:800;margin:6px 0;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0}
   .footer{margin-top:10px}

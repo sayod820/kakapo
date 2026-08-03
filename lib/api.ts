@@ -941,7 +941,7 @@ export const api = {
       orderGoodsTotal?: number
       discountAmount?: number
       note?: string
-      items: { productId: number; productName?: string; qty: number; price?: number; receiptId?: string; preferRetailPrice?: number }[]
+      items: { productId: number; productName?: string; qty: number; price?: number; unit?: string; receiptId?: string; preferRetailPrice?: number }[]
     },
     opts?: { mode?: 'fast' | 'sync' },
   ) => {

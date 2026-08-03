@@ -429,6 +429,8 @@ export interface PosSaleItem {
   qty: number
   price: number
   lineTotal: number
+  /** Единица продажи: кг, шт, л, гр… */
+  unit?: string
   /** Партия прихода, с которой списали (если кассир выбрал вручную) */
   receiptId?: string
   unitCost?: number

@@ -229,6 +229,7 @@ type ClientHistLine = {
   qty: number
   price: number
   sum: number
+  unit?: string
 }
 
 type ClientHistRow = {
@@ -247,8 +248,8 @@ type ClientHistRow = {
 }
 
 function mapSaleLines(
-  items: { productName?: string; productId?: number; qty?: number; price?: number; lineTotal?: number }[] | undefined,
-  products: { id: number; name: string; price?: number }[],
+  items: { productName?: string; productId?: number; qty?: number; price?: number; lineTotal?: number; unit?: string }[] | undefined,
+  products: { id: number; name: string; price?: number; unit?: string; sellType?: string }[],
 ): ClientHistLine[] {
   if (!items?.length) return []
   return items.map(i => {
@@ -257,7 +258,14 @@ function mapSaleLines(
     const qty = Number(i.qty) || 0
     const price = Number(i.price) || Number(fromCatalog?.price) || 0
     const sum = Number(i.lineTotal) || Math.round(price * qty * 100) / 100
-    return { name, qty, price, sum }
+    const unitFromItem = String(i.unit || '').trim()
+    const unitFromCat = fromCatalog
+      ? (String(fromCatalog.sellType || '').toLowerCase() === 'weight'
+        ? 'кг'
+        : String(fromCatalog.unit || '').trim())
+      : ''
+    const unit = unitFromItem || unitFromCat || (Number.isInteger(qty) ? 'шт' : 'кг')
+    return { name, qty, price, sum, unit }
   })
 }
 
@@ -265,7 +273,8 @@ function linesLabel(lines: ClientHistLine[]): string {
   if (!lines.length) return ''
   const parts = lines.slice(0, 5).map(l => {
     const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
-    return `${l.name} ×${q}`
+    const u = String(l.unit || '').trim()
+    return u ? `${l.name} ${q} ${u}` : `${l.name} ×${q}`
   })
   if (lines.length > 5) parts.push(`+${lines.length - 5}`)
   return parts.join(', ')
@@ -306,6 +315,13 @@ function displaySellUnit(p: Product): string {
     .replace(/(\d)\s*g\b/gi, '$1 гр')
     .replace(/(^|[^а-яa-z])l\b/gi, '$1л')
   return u
+}
+
+/** Единица в строке чека: для веса всегда кг */
+function cartLineUnit(line: Pick<CartLine, 'unit' | 'weightKg'>): string {
+  if (line.weightKg != null) return 'кг'
+  const u = String(line.unit || '').trim()
+  return u || 'шт'
 }
 
 function saleNumber(s: { number?: number }) {
@@ -3829,7 +3845,7 @@ export default function CashierModule({
         price,
         qty: 1,
         stock: layerStock,
-        unit: p.unit || 'кг',
+        unit: displaySellUnit(p),
         art,
         barcode,
         weightKg: 0,
@@ -3873,7 +3889,7 @@ export default function CashierModule({
         price,
         qty: 1,
         stock: layerStock,
-        unit: p.unit || 'кг',
+        unit: displaySellUnit(p),
         art,
         barcode,
         weightKg,
@@ -4667,6 +4683,7 @@ export default function CashierModule({
           productName: l.name,
           qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
           price: l.price,
+          unit: cartLineUnit(l),
           receiptId: l.receiptId || undefined,
           preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
         })),
@@ -6651,9 +6668,7 @@ export default function CashierModule({
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
                       <span>
-                        {line.weightKg != null
-                          ? `${line.weightKg.toFixed(3)} кг · ${line.price.toFixed(2)} ЅМ/${line.unit}`
-                          : `${line.price.toFixed(2)} ЅМ × ${fmtQty(line.qty)}`}
+                        {`${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}
                       </span>
                       {line.preferRetailPrice != null ? (
                         <span className="line-batch">FIFO</span>
@@ -6663,23 +6678,18 @@ export default function CashierModule({
                       {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
                     </div>
                   </div>
-                  {line.weightKg == null ? (
-                    <button
-                      type="button"
-                      className="qty-btn"
-                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
-                    >
-                      ×{fmtQty(line.qty)}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="qty-btn"
-                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
-                    >
-                      {line.weightKg.toFixed(3)} кг
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="qty-btn"
+                    onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
+                  >
+                    <span className="qty-num">
+                      {line.weightKg != null
+                        ? line.weightKg.toFixed(3)
+                        : `×${fmtQty(line.qty)}`}
+                    </span>
+                    <span className="qty-unit">{cartLineUnit(line)}</span>
+                  </button>
                   <div className="price">
                     {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
                     {net.toFixed(2)}
@@ -6844,7 +6854,7 @@ export default function CashierModule({
                 <div className="qty-edit-av">{line.emoji}</div>
                 <div>
                   <div className="qty-edit-name">{line.name}</div>
-                  <div className="qty-edit-stock">На складе: {line.stock}{isWeight ? ' кг' : ' шт'}</div>
+                  <div className="qty-edit-stock">На складе: {line.stock} {unit}</div>
                 </div>
               </div>
 
@@ -8493,11 +8503,12 @@ export default function CashierModule({
                         const q = Number.isInteger(line.qty)
                           ? String(line.qty)
                           : String(Math.round(line.qty * 1000) / 1000)
+                        const u = String(line.unit || '').trim()
                         return (
                           <div key={`${line.name}-${i}`} className="hist-line">
                             <div className="hist-line-main">
                               <b>{line.name}</b>
-                              <span className="hist-line-qty">× {q}</span>
+                              <span className="hist-line-qty">{u ? `${q} ${u}` : `× ${q}`}</span>
                             </div>
                             <div className="hist-line-sum">
                               {line.sum > 0 ? fmtMoney(line.sum) : (line.price > 0 ? fmtMoney(line.price * line.qty) : '—')}
@@ -8707,11 +8718,19 @@ export default function CashierModule({
                     const returnedQty = Number(line.returnedQty) || 0
                     const selectedQty = Number(returnQtyByIdx[i]) || 0
                     const on = selectedQty > 0
-                    const unit = Number(line.qty) > 0
+                    const unitPrice = Number(line.qty) > 0
                       ? (Number(line.lineTotal) || 0) / Number(line.qty)
                       : Number(line.price) || 0
-                    const showSum = left > 0 ? unit * left : Number(line.lineTotal) || 0
+                    const showSum = left > 0 ? unitPrice * left : Number(line.lineTotal) || 0
                     const canReturn = left > 0 && !isSaleFullyReturned(receiptDetail)
+                    const p = products.find(x => x.id === line.productId)
+                    const unitLabel = String(line.unit || '').trim()
+                      || (p ? (isWeighted(p) ? 'кг' : displaySellUnit(p)) : '')
+                      || (Number.isInteger(Number(line.qty)) ? 'шт' : 'кг')
+                    const qtyLabel = (n: number) => {
+                      const q = Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000)
+                      return `${q} ${unitLabel}`
+                    }
                     return (
                       <div
                         key={`${line.productId}-${i}`}
@@ -8733,9 +8752,9 @@ export default function CashierModule({
                         <div className="hist-line-main">
                           <b>{line.productName || `#${line.productId}`}</b>
                           <span className="hist-line-qty">
-                            {left > 0 ? `× ${left}` : 'возвращено'}
-                            {returnedQty > 0 && left > 0 ? ` · уже возврат ${returnedQty}` : ''}
-                            {returnedQty > 0 && left <= 0 ? ` × ${line.qty}` : ''}
+                            {left > 0 ? qtyLabel(left) : 'возвращено'}
+                            {returnedQty > 0 && left > 0 ? ` · уже возврат ${qtyLabel(returnedQty)}` : ''}
+                            {returnedQty > 0 && left <= 0 ? ` ${qtyLabel(Number(line.qty) || 0)}` : ''}
                           </span>
                           {on && left > 1 && (
                             <div
@@ -8748,7 +8767,7 @@ export default function CashierModule({
                                 disabled={busy || selectedQty <= 0.01}
                                 onClick={() => setReturnLineQty(i, selectedQty - 1, left)}
                               >−</button>
-                              <span>{selectedQty}</span>
+                              <span>{selectedQty} {unitLabel}</span>
                               <button
                                 type="button"
                                 disabled={busy || selectedQty >= left}

@@ -679,9 +679,13 @@ export const POS_MOCK_CSS = `
   .qtyctrl button{width:24px;height:24px;border-radius:8px;font-size:14px;font-weight:800;color:var(--t2);}
   .qtyctrl button:hover{background:var(--border2);color:var(--t1);}
   .qtyctrl span{font-size:13px;font-weight:800;min-width:18px;text-align:center;font-family:'JetBrains Mono';}
-  .pos-root button.qty-btn{flex-shrink:0;min-width:64px;min-height:42px;padding:10px 14px;border-radius:12px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:900;color:var(--t1);}
+  .pos-root button.qty-btn{flex-shrink:0;min-width:72px;min-height:46px;padding:8px 12px;border-radius:12px;background:var(--surface2);border:1.5px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:900;color:var(--t1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;line-height:1.05;}
   .pos-root button.qty-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
   .pos-root button.qty-btn:active{transform:scale(.96);}
+  .pos-root button.qty-btn .qty-num{font-size:15px;font-weight:900;}
+  .pos-root button.qty-btn .qty-unit{font-size:11px;font-weight:900;color:var(--accent);letter-spacing:.02em;text-transform:none;}
+  .pos-root[data-theme="light"] button.qty-btn .qty-unit{color:#0B7A38;}
+  .cart-row .meta .line-unit{color:var(--accent);font-weight:900;}
   .modal-card.qty-edit-card{width:400px;}
   .qty-edit-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
   .qty-edit-av{width:48px;height:48px;border-radius:14px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;}
@@ -1164,7 +1168,8 @@ export const POS_MOCK_CSS = `
   .hist-line{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);}
   .hist-line-main{min-width:0;display:flex;flex-direction:column;gap:3px;}
   .hist-line-main b{font-size:12.5px;font-weight:800;color:var(--t1);line-height:1.3;}
-  .hist-line-qty{font-size:11px;font-weight:800;color:var(--t2);font-family:'JetBrains Mono',monospace;}
+  .hist-line-qty{font-size:12px;font-weight:900;color:var(--accent);font-family:'JetBrains Mono',monospace;}
+  .pos-root[data-theme="light"] .hist-line-qty{color:#0B7A38;}
   .hist-line-sum{flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:900;color:var(--gd);}
   .hist-row.tone-sale .hist-amt{color:var(--gd);}
   .hist-row.tone-credit,.hist-row.tone-debt{border-color:rgba(234,88,12,.35);background:rgba(234,88,12,.08);}

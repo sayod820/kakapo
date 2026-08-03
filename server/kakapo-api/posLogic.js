@@ -1359,12 +1359,20 @@ export function createPosSale(db, data = {}) {
     const price = round2(raw.price ?? row.product.price)
     const lineCost = round2(row.cogs || 0)
     const unitCost = row.qty > 0 ? round2(lineCost / row.qty) : 0
+    const rawUnit = String(raw.unit || '').trim()
+    const productUnit = String(row.product.unit || '').trim()
+    const sellType = String(row.product.sellType || '').toLowerCase()
+    const unit = rawUnit
+      || (sellType === 'weight' || sellType === 'weighted' ? 'кг' : '')
+      || productUnit
+      || 'шт'
     return {
       productId: row.product.id,
       productName: row.product.name,
       qty: row.qty,
       price,
       lineTotal: round2(price * row.qty),
+      unit,
       unitCost,
       lineCost,
       receiptId: row.receiptId || undefined,
