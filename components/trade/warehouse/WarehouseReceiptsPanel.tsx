@@ -339,6 +339,7 @@ export default function WarehouseReceiptsPanel({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
+  const [newProductBarcode, setNewProductBarcode] = useState('')
   const [newProductLineKey, setNewProductLineKey] = useState<string | null>(null)
   const [duplicateFrom, setDuplicateFrom] = useState<Product | null>(null)
   const [newSupplierOpen, setNewSupplierOpen] = useState(false)
@@ -596,9 +597,10 @@ export default function WarehouseReceiptsPanel({
     })
   }
 
-  function openNewProduct(key: string, name: string) {
+  function openNewProduct(key: string, name: string, barcode = '') {
     setNewProductLineKey(key)
     setNewProductName(name)
+    setNewProductBarcode(barcode)
     setDuplicateFrom(null)
     setNewProductOpen(true)
   }
@@ -1159,7 +1161,7 @@ export default function WarehouseReceiptsPanel({
                       products={products}
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      onCreateNew={name => openNewProduct(pending.key, name)}
+                      onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
                       placeholder="Поиск: название, артикул, штрихкод — в списке г / шт / л…"
                     />
                     <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
@@ -1201,8 +1203,9 @@ export default function WarehouseReceiptsPanel({
       <WarehouseNewProductModal
         open={newProductOpen}
         initialName={newProductName}
+        initialBarcode={newProductBarcode}
         duplicateFrom={duplicateFrom}
-        onClose={() => { setNewProductOpen(false); setDuplicateFrom(null) }}
+        onClose={() => { setNewProductOpen(false); setDuplicateFrom(null); setNewProductBarcode('') }}
         onCreated={onProductCreated}
       />
 

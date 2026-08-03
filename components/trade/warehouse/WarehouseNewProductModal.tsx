@@ -17,12 +17,14 @@ import {
 export default function WarehouseNewProductModal({
   open,
   initialName = '',
+  initialBarcode = '',
   duplicateFrom = null,
   onClose,
   onCreated,
 }: {
   open: boolean
   initialName?: string
+  initialBarcode?: string
   duplicateFrom?: Product | null
   onClose: () => void
   onCreated: (product: Product) => void
@@ -41,12 +43,18 @@ export default function WarehouseNewProductModal({
     if (duplicateFrom) {
       setForm(formFromDuplicate(duplicateFrom, products))
     } else {
-      setForm({ ...emptyFormWithNextCodes(products), name: initialName })
+      const base = emptyFormWithNextCodes(products)
+      const code = initialBarcode.trim()
+      setForm({
+        ...base,
+        name: initialName,
+        barcodes: code ? [code] : base.barcodes,
+      })
     }
     setMsg('')
     // products только при открытии — не сбрасывать форму при фоновом обновлении списка
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialName, duplicateFrom])
+  }, [open, initialName, initialBarcode, duplicateFrom])
 
   if (!open) return null
 

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Product } from '@/lib/types'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import { formatQty, productUnitLabel } from './warehouseShared'
 
 export default function WarehouseProductSelect({
@@ -15,11 +16,13 @@ export default function WarehouseProductSelect({
   products: Product[]
   value: number | null
   onChange: (product: Product | null) => void
-  onCreateNew?: (query: string) => void
+  onCreateNew?: (query: string, meta?: { barcode?: string }) => void
   placeholder?: string
 }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanMsg, setScanMsg] = useState('')
   const selected = products.find(p => p.id === value) || null
   const options = useMemo(
     () => filterProductsBySearch(products, q || selected?.name || '', 30),
@@ -34,6 +37,7 @@ export default function WarehouseProductSelect({
       onChange(exact)
       setQ('')
       setOpen(false)
+      setScanMsg('')
     }
   }, [q, open, products, onChange])
 
@@ -43,6 +47,7 @@ export default function WarehouseProductSelect({
       onChange(best)
       setQ('')
       setOpen(false)
+      setScanMsg('')
       return true
     }
     return false
@@ -52,24 +57,72 @@ export default function WarehouseProductSelect({
     onChange(p)
     setQ('')
     setOpen(false)
+    setScanMsg('')
   }
+
+  const onScanned = useCallback((code: string) => {
+    const trimmed = code.trim()
+    if (!trimmed) return
+    setScanOpen(false)
+    const exact = pickProductBySearch(products, trimmed)
+    const codesMatch = exact && productBarcodes(exact).some(c => {
+      if (c === trimmed) return true
+      const a = c.replace(/\D/g, '')
+      const b = trimmed.replace(/\D/g, '')
+      return a.length >= 8 && a === b
+    })
+    if (exact && codesMatch) {
+      onChange(exact)
+      setQ('')
+      setOpen(false)
+      setScanMsg(`Найден: ${exact.name}`)
+      return
+    }
+    setQ(trimmed)
+    setOpen(true)
+    setScanMsg(onCreateNew
+      ? `Код ${trimmed} не найден — нажмите «Создать товар»`
+      : `Код ${trimmed} не найден в каталоге`)
+  }, [products, onCreateNew, onChange])
 
   return (
     <div style={{ position: 'relative' }}>
-      <input
-        className="k-inp"
-        value={open ? q : (selected ? `${selected.e || '📦'} ${selected.name}` : q)}
-        placeholder={placeholder}
-        onChange={e => { setQ(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 180)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            tryPick()
-          }
-        }}
-      />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+        <input
+          className="k-inp"
+          style={{ flex: 1, minWidth: 0 }}
+          value={open ? q : (selected ? `${selected.e || '📦'} ${selected.name}` : q)}
+          placeholder={placeholder}
+          onChange={e => { setQ(e.target.value); setOpen(true); setScanMsg('') }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 180)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              tryPick()
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="k-btn k-btn-s k-cam-scan-btn"
+          title="Сканер камеры"
+          aria-label="Сканер камеры"
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { setScanOpen(true); setScanMsg('') }}
+          style={{
+            flexShrink: 0, minWidth: 48, minHeight: 44, padding: '0 12px',
+            fontSize: 20, lineHeight: 1,
+          }}
+        >
+          📷
+        </button>
+      </div>
+      {scanMsg && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, fontWeight: 700 }}>
+          {scanMsg}
+        </div>
+      )}
       {open && (options.length > 0 || canCreate) && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
@@ -131,7 +184,9 @@ export default function WarehouseProductSelect({
               }}
               onMouseDown={e => e.preventDefault()}
               onClick={() => {
-                onCreateNew(q.trim())
+                const code = q.trim()
+                const asBarcode = /^\d{8,}$/.test(code)
+                onCreateNew(asBarcode ? '' : code, asBarcode ? { barcode: code } : undefined)
                 setOpen(false)
               }}
             >
@@ -140,6 +195,14 @@ export default function WarehouseProductSelect({
           )}
         </div>
       )}
+
+      <MobileBarcodeScanner
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onDetect={onScanned}
+        title="Сканер · поиск товара"
+        hint="Наведите на штрихкод — товар найдётся сам"
+      />
     </div>
   )
 }

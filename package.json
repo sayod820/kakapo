@@ -17,6 +17,7 @@
     "desktop:publish-out": "node scripts/publish-desktop-update.mjs"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
     "clsx": "^2.1.1",
     "jsbarcode": "^3.12.3",
     "leaflet": "^1.9.4",

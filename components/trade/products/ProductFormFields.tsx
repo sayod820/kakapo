@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
 import { nextFreeEan13 } from '@/lib/productBarcodes'
 import { parseProductCodeNum } from '@/lib/productCodes'
@@ -8,6 +8,7 @@ import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
+import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 
 export default function ProductFormFields({
   form,
@@ -26,6 +27,8 @@ export default function ProductFormFields({
   const children = (parentId: number) => categories.filter(c => Number(c.parent_id) === parentId)
   const isWeight = form.sellType === 'weight'
   const [newBarcode, setNewBarcode] = useState('')
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanHint, setScanHint] = useState('')
 
   function addBarcode() {
     const code = newBarcode.trim()
@@ -36,6 +39,19 @@ export default function ProductFormFields({
     setForm({ ...form, barcodes: [...form.barcodes, code] })
     setNewBarcode('')
   }
+
+  const onBarcodeScanned = useCallback((code: string) => {
+    const trimmed = code.trim()
+    setScanOpen(false)
+    if (!trimmed) return
+    if (form.barcodes.includes(trimmed)) {
+      setScanHint(`Уже есть: ${trimmed}`)
+      return
+    }
+    setForm({ ...form, barcodes: [...form.barcodes, trimmed] })
+    setNewBarcode('')
+    setScanHint(`Добавлен штрихкод ${trimmed}`)
+  }, [form, setForm])
 
   function generateBarcode() {
     const prefer = parseProductCodeNum(form.art) ?? parseProductCodeNum(form.plu)
@@ -140,6 +156,16 @@ export default function ProductFormFields({
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBarcode() } }}
             placeholder="Сканируйте или введите штрихкод"
           />
+          <button
+            type="button"
+            className="k-btn k-btn-s k-cam-scan-btn"
+            title="Сканер камеры"
+            aria-label="Сканер камеры"
+            onClick={() => { setScanHint(''); setScanOpen(true) }}
+            style={{ flexShrink: 0, minWidth: 48, minHeight: 44, padding: '0 12px', fontSize: 20, lineHeight: 1 }}
+          >
+            📷
+          </button>
           <button type="button" className="k-btn" onClick={addBarcode} style={{ whiteSpace: 'nowrap' }}>
             Добавить
           </button>
@@ -153,6 +179,9 @@ export default function ProductFormFields({
             Сгенерировать
           </button>
         </div>
+        {scanHint && (
+          <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>{scanHint}</div>
+        )}
         {form.barcodes.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {form.barcodes.map(code => (
@@ -182,7 +211,7 @@ export default function ProductFormFields({
           </div>
         )}
         <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-          При создании — EAN-13 сам. Можно сканировать свой или нажать «Сгенерировать»
+          📷 Камера на телефоне подставит штрихкод сама. Или «Сгенерировать» / ввод вручную.
         </div>
       </div>
       <div className="k-field">
@@ -227,6 +256,14 @@ export default function ProductFormFields({
         <input type="checkbox" checked={form.organic} onChange={e => setForm({ ...form, organic: e.target.checked })} />
         <span>Органик</span>
       </label>
+
+      <MobileBarcodeScanner
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onDetect={onBarcodeScanned}
+        title="Сканер · штрихкод товара"
+        hint="Наведите на штрихкод — он добавится в карточку"
+      />
     </div>
   )
 }
