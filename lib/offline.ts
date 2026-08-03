@@ -5,6 +5,7 @@
 import { api, isNetworkError } from './api'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
+import { browserSaysOffline, recentlyApiOk } from './apiReachability'
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -376,7 +377,10 @@ export async function resolveLocalId(id: string | undefined | null): Promise<str
 // ── Онлайн-детект ──
 export function isOnline(): boolean {
   if (typeof navigator === 'undefined') return true
-  return navigator.onLine !== false
+  // navigator.onLine часто врёт в Electron после reconnect —
+  // если недавно API отвечал, считаем что связь есть
+  if (!browserSaysOffline()) return true
+  return recentlyApiOk()
 }
 
 export interface FlushResult {

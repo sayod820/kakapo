@@ -30,6 +30,7 @@ import type { AdminAssembler } from './assemblerTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
+import { noteApiFail, noteApiOk, shouldSkipFetchAsOffline } from './apiReachability'
 
 // ── Сетевые ошибки (нет связи / таймаут) для офлайн-режима ──
 export class NetworkError extends Error {
@@ -44,9 +45,9 @@ export function isNetworkError(e: unknown): boolean {
   return e instanceof NetworkError
 }
 
-/** Браузер уже знает, что сети нет — не ждём таймаутов */
+/** Браузер уже знает, что сети нет — не ждём таймаутов (кроме ложного offline в Electron) */
 function browserOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false
+  return shouldSkipFetchAsOffline()
 }
 
 /**
@@ -238,6 +239,7 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
   try {
     res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
   } catch (e) {
+    noteApiFail()
     const timedOut = e instanceof NetworkError || (e instanceof Error && e.message.includes('Сервер не отвечает'))
     // Сетевая ошибка / таймаут: один повтор максимум, иначе касса «висит» по 75 секунд
     if (timedOut && attempt < 1) {
@@ -258,10 +260,12 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
       return requestUrl<T>(url, options, attempt + 1, timeoutMs)
     }
     if (looksLikeOutage(res.status, raw)) {
+      noteApiFail()
       throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
     }
     throw new Error(message || `Ошибка ${res.status}`)
   }
+  noteApiOk()
   return parseSuccessBody<T>(res)
 }
 

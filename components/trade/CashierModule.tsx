@@ -1096,8 +1096,12 @@ export default function CashierModule({
     let cancelled = false
     const softSync = () => {
       if (cancelled || document.visibilityState === 'hidden') return
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+      // Не смотрим на navigator.onLine — в Electron после reconnect он часто врёт.
       void softSyncPosAfterSale()
+      const net = useOfflineSync.getState()
+      if (!net.online || net.pending > 0 || net.failed > 0) {
+        void net.syncNow()
+      }
     }
     const id = window.setInterval(softSync, 20000)
     const onVisible = () => {
