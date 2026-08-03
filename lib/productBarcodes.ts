@@ -266,6 +266,8 @@ export function pickProductBySearch<T extends Partial<Product>>(
 ): T | null {
   const q = query.trim()
   if (!q) return null
+  // Один-два символа слишком шумные для автопробития («р» ≈ половина каталога)
+  if (q.length < 3 && !/^\d{1,4}$/.test(q)) return null
   const qDigits = q.replace(/\D/g, '')
   const rows = filterProductsBySearch(products, q, 30, extraForProduct)
   if (!rows.length) return null
@@ -288,14 +290,24 @@ export function pickProductBySearch<T extends Partial<Product>>(
     return null
   }
 
+  const scoreOf = (p: T) => productSearchScore(p, q, extraForProduct?.(p) || '')
+
   if (rows.length === 1) {
     const only = rows[0]
-    if (productSearchScore(only, q, extraForProduct?.(only) || '') >= 600) return only
-    return null
+    const sc = scoreOf(only)
+    // Для короткого текста требуем сильное совпадение (не «содержит букву»)
+    if (q.length < 5) return sc >= 880 ? only : null
+    return sc >= 600 ? only : null
   }
   const top = rows[0]
-  if (productSearchScore(top, q, extraForProduct?.(top) || '') >= 600) return top
-  return null
+  const second = rows[1]
+  const topScore = scoreOf(top)
+  const secondScore = scoreOf(second)
+  // Несколько кандидатов с близким счётом — не угадываем (Шакар vs чужой товар)
+  if (topScore < 880) return null
+  if (secondScore >= topScore - 20 && secondScore >= 860) return null
+  if (q.length < 5 && topScore < 900) return null
+  return topScore >= 600 ? top : null
 }
 
 /** Поиск товара в строке документа (приход, списание, ревизия) */

@@ -2481,15 +2481,39 @@ export default function CashierModule({
       return true
     }
 
-    // 1b) Один штрихкод / артикул / PLU — обычные товары с 22… не путать с весом
+    // 1b) Один штрихкод — обычные товары с 22… не путать с весом
+    // Артикул/PLU через индекс — только если ключ не конфликтует с другим товаром
     let productHit: Product | null =
       (barcodeHits.length === 1 ? barcodeHits[0] : null)
-      || productCodeIndex.get(raw)
-      || (digits ? productCodeIndex.get(digits) : undefined)
-      || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
-        ? productCodeIndex.get(`plu:${digits}`)
-        : undefined)
       || null
+
+    if (!productHit) {
+      const byCode =
+        productCodeIndex.get(raw)
+        || (digits ? productCodeIndex.get(digits) : undefined)
+        || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
+          ? productCodeIndex.get(`plu:${digits}`)
+          : undefined)
+        || null
+      if (byCode) {
+        // Если этот же код есть ещё у кого-то — спросить, не брать «первый попавшийся»
+        const artHits = products.filter(p => {
+          const art = String(p.art || '').trim()
+          const ad = art.replace(/\D/g, '')
+          return art === raw || (digits.length > 0 && ad === digits && ad.length > 0)
+        }) as Product[]
+        const pluHits = (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw))
+          ? products.filter(p => String(p.plu || '').replace(/\D/g, '') === digits) as Product[]
+          : []
+        const conflict = [...new Map([...artHits, ...pluHits].map(p => [p.id, p])).values()]
+        if (conflict.length > 1) {
+          openBarcodePick(raw, conflict)
+          scanBurstRef.current = false
+          return true
+        }
+        productHit = byCode
+      }
+    }
 
     if (!productHit) {
       productHit =
@@ -2543,8 +2567,8 @@ export default function CashierModule({
       }
     }
 
-    // Сканер: если точный код не сработал, но поиск однозначно нашёл товар — пробиваем
-    if (!productHit && fromScanner) {
+    // Точный код не сработал — однозначный поиск по имени/коду (и для сканера, и для Enter)
+    if (!productHit) {
       productHit =
         (pickProductBySearch(pool, raw) as Product | null)
         || (pickProductBySearch(products, raw) as Product | null)
@@ -2552,8 +2576,9 @@ export default function CashierModule({
     }
 
     if (!productHit) {
-      // Скан / длинный код — блокируем кассу (не просто toast снизу)
-      if (fromScanner || digits.length >= 6 || raw.length >= 6) {
+      // Скан / длинный цифровой код — блокируем кассу
+      const looksNumericCode = digits.length >= 6 && /^\d[\d\s\-]*$/.test(raw)
+      if (fromScanner || looksNumericCode) {
         openScanBlockAlert(
           'Товар не найден',
           'Штрихкода нет в базе. Касса остановлена — нажмите «Отмена», затем сканируйте снова.',
@@ -2664,16 +2689,27 @@ export default function CashierModule({
     }
 
     if (e.key === 'Enter' || e.key === 'Tab') {
-      const fromAccum = (scanAccumRef.current || scanTypeBufRef.current).trim()
-      const raw = (fromAccum || (e.currentTarget as HTMLInputElement).value || qRef.current || '').trim()
+      // Важно: scanTypeBuf после медленного ввода может держать только последний символ.
+      // Для ручного Enter всегда берём полный текст из поля, иначе «Шакар» → «р» и чужой товар.
+      const isScanner = scanBurstRef.current && !!(scanAccumRef.current || scanTypeBufRef.current).trim()
+      const fromAccum = isScanner
+        ? (scanAccumRef.current || scanTypeBufRef.current).trim()
+        : ''
+      const raw = (
+        fromAccum
+        || (e.currentTarget as HTMLInputElement).value
+        || qRef.current
+        || ''
+      ).trim()
       if (!raw) return
-      const isScanner = scanBurstRef.current || !!fromAccum
       if (e.key === 'Tab' && !isScanner) return
       e.preventDefault()
       if (scanCommitTimer.current) {
         window.clearTimeout(scanCommitTimer.current)
         scanCommitTimer.current = null
       }
+      scanTypeBufRef.current = ''
+      scanAccumRef.current = ''
       commitPosSearch(raw, { fromScanner: isScanner })
     }
   }
