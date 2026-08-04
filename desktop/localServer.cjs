@@ -17,9 +17,20 @@ const path = require('path')
 let child = null
 let startedUrl = ''
 
-/** Каталог со сборкой: в упакованном виде — resources/ui, в dev — desktop/ui */
+/**
+ * Каталог со сборкой:
+ * 1) userData/ui-cache — свежий пакет с /updates/kassa-ui (после синка онлайн)
+ * 2) resources/ui — то, что было в установщике
+ * 3) desktop/ui — dev
+ */
 function resolveUiDir() {
   const candidates = []
+  try {
+    const { app } = require('electron')
+    if (app && typeof app.getPath === 'function') {
+      candidates.push(path.join(app.getPath('userData'), 'ui-cache'))
+    }
+  } catch { /* вне Electron — пропускаем */ }
   if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'ui'))
   candidates.push(path.join(__dirname, 'ui'))
   for (const dir of candidates) {
@@ -132,8 +143,14 @@ function stopLocalUi() {
   startedUrl = ''
 }
 
+/** Перезапуск локального UI (после обновления ui-cache). */
+async function restartLocalUi({ timeoutMs = 20000 } = {}) {
+  stopLocalUi()
+  return startLocalUi({ timeoutMs })
+}
+
 function localUiUrl() {
   return startedUrl
 }
 
-module.exports = { startLocalUi, stopLocalUi, localUiUrl, resolveUiDir }
+module.exports = { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl, resolveUiDir }

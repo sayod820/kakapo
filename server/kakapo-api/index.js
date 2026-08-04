@@ -408,6 +408,29 @@ app.get('/updates/kassa', (_req, res) => {
   res.type('text').send('KAKAPO Kassa updates channel')
 })
 
+/** Офлайн-пакет UI для Electron (без полной переустановки Setup.exe) */
+const UPDATES_KASSA_UI_DIR = process.env.UPDATES_DIR
+  ? join(process.env.UPDATES_DIR, 'kassa-ui')
+  : join(DATA_DIR, 'updates', 'kassa-ui')
+try {
+  mkdirSync(UPDATES_KASSA_UI_DIR, { recursive: true })
+} catch { /* ignore */ }
+app.use('/updates/kassa-ui', express.static(UPDATES_KASSA_UI_DIR, {
+  maxAge: 0,
+  fallthrough: true,
+  setHeaders(res, filePath) {
+    if (/latest\.json$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=3600')
+    }
+    res.setHeader('Access-Control-Allow-Origin', '*')
+  },
+}))
+app.get('/updates/kassa-ui', (_req, res) => {
+  res.type('text').send('KAKAPO Kassa offline UI channel')
+})
+
 const photoUpload = multer({
   storage: multer.memoryStorage(),
   // Практически без лимита: сервер сам сожмёт в WebP (защита от OOM — 200 МБ)
@@ -4752,6 +4775,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health`)
   console.log(`   Updates: http://0.0.0.0:${PORT}/updates/kassa  (${UPDATES_KASSA_DIR})`)
+  console.log(`   UI pack: http://0.0.0.0:${PORT}/updates/kassa-ui  (${UPDATES_KASSA_UI_DIR})`)
   const geminiKey = getGeminiApiKey()
   console.log(`   Gemini ИИ: ${geminiKey ? `готов (${getGeminiModel()})` : 'нет GEMINI_API_KEY в .env / переменных окружения'}\n`)
   runDebtMaintenanceAndNotify()

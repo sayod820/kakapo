@@ -13,6 +13,7 @@
     "desktop:dev": "npm run dev --prefix desktop",
     "desktop:install": "npm install --prefix desktop",
     "desktop:build-ui": "node scripts/build-desktop-ui.mjs",
+    "desktop:pack-ui": "node scripts/pack-desktop-ui.mjs",
     "desktop:dist": "npm run desktop:build-ui && npm run dist --prefix desktop",
     "desktop:publish-out": "node scripts/publish-desktop-update.mjs"
   },
