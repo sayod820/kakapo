@@ -486,17 +486,17 @@ export const POS_MOCK_CSS = `
   .cashier-screen-inner.receipts-fs .receipt-scope-bar,
   .cashier-screen-inner.receipts-fs .receipt-product-hint{flex-shrink:0;}
   .cashier-screen-top.receipts-top{align-items:center;gap:12px;margin-bottom:10px;}
-  .receipts-top-title{min-width:0;flex:0 1 auto;}
+  .receipts-top-title{min-width:0;flex:0 0 auto;}
   .receipts-top-title h2{margin:0;}
   .receipts-top-title p{margin:2px 0 0;}
   .receipt-shift-card{
     display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
-    padding:8px 12px;border-radius:12px;flex-shrink:0;
+    padding:8px 14px;border-radius:12px;flex-shrink:0;
     background:linear-gradient(135deg,rgba(31,215,96,.12),rgba(31,215,96,.04));
     border:1px solid rgba(31,215,96,.22);
   }
   .receipt-shift-card.receipts-top-shift{
-    margin-left:auto;margin-bottom:0;max-width:min(520px,58%);
+    flex:1 1 auto;min-width:0;margin-left:8px;margin-bottom:0;width:auto;max-width:none;
   }
   .receipt-shift-card-main{display:flex;flex-direction:column;gap:2px;min-width:0;}
   .receipt-shift-card-main b{font-size:13px;font-weight:900;color:var(--t1);}
@@ -517,7 +517,7 @@ export const POS_MOCK_CSS = `
   .receipt-topbar-shift{margin-bottom:8px;}
   @media(max-width:900px){
     .cashier-screen-top.receipts-top{flex-wrap:wrap;}
-    .receipt-shift-card.receipts-top-shift{margin-left:0;max-width:100%;width:100%;}
+    .receipt-shift-card.receipts-top-shift{margin-left:0;width:100%;flex:1 1 100%;}
   }
   .pos-root button.receipt-load-more{
     width:100%;margin-top:4px;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:850;
