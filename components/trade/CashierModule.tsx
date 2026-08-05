@@ -958,6 +958,15 @@ export default function CashierModule({
   const [receiptQ, setReceiptQ] = useState('')
   const receiptQDeferred = useDeferredValue(receiptQ)
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
+  const [receiptPeriod, setReceiptPeriod] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('day')
+  const [receiptFrom, setReceiptFrom] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  const [receiptTo, setReceiptTo] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
   const receiptSearchRef = useRef<HTMLInputElement>(null)
   const receiptScanBurstRef = useRef(false)
   const receiptScanAccumRef = useRef('')
@@ -3369,14 +3378,75 @@ export default function CashierModule({
     return true
   }
 
+  function receiptPeriodBounds(
+    period: typeof receiptPeriod,
+    fromStr: string,
+    toStr: string,
+  ): { fromMs: number; toMs: number } | null {
+    const startOfDay = (d: Date) => {
+      const x = new Date(d)
+      x.setHours(0, 0, 0, 0)
+      return x.getTime()
+    }
+    const endOfDay = (d: Date) => {
+      const x = new Date(d)
+      x.setHours(23, 59, 59, 999)
+      return x.getTime()
+    }
+    const now = new Date()
+    if (period === 'all') return null
+    if (period === 'day') return { fromMs: startOfDay(now), toMs: endOfDay(now) }
+    if (period === 'week') {
+      const from = new Date(now)
+      from.setDate(from.getDate() - 6)
+      return { fromMs: startOfDay(from), toMs: endOfDay(now) }
+    }
+    if (period === 'month') {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1)
+      return { fromMs: startOfDay(from), toMs: endOfDay(now) }
+    }
+    const from = new Date(fromStr)
+    const to = new Date(toStr)
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null
+    const a = startOfDay(from)
+    const b = endOfDay(to)
+    return a <= b ? { fromMs: a, toMs: b } : { fromMs: startOfDay(to), toMs: endOfDay(from) }
+  }
+
+  function saleInReceiptPeriod(s: (typeof sales)[number], bounds: { fromMs: number; toMs: number } | null) {
+    if (!bounds) return true
+    const t = new Date(s.createdAtIso).getTime()
+    if (Number.isNaN(t)) return true
+    return t >= bounds.fromMs && t <= bounds.toMs
+  }
+
+  function productCodesForId(productId: number | undefined | null) {
+    if (productId == null) return { art: '', barcode: '', plu: '' }
+    const p = products.find(x => Number(x.id) === Number(productId))
+    if (!p) return { art: '', barcode: '', plu: '' }
+    return {
+      art: String(p.art || '').trim(),
+      barcode: productBarcodes(p)[0] || '',
+      plu: String(p.plu || '').trim(),
+    }
+  }
+
   /** Быстрый поиск чеков: штрихкод / номер — без тяжёлого hay на каждый символ */
-  function findReceiptsByQuery(qRawIn: string, filter: typeof receiptFilter, limit = 80) {
+  function findReceiptsByQuery(
+    qRawIn: string,
+    filter: typeof receiptFilter,
+    period: typeof receiptPeriod,
+    fromStr: string,
+    toStr: string,
+    limit = 80,
+  ) {
     const qRaw = qRawIn.trim()
     const q = qRaw.toLowerCase()
     const qDigits = qRaw.replace(/[^\d]/g, '')
     const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
     const productIds = qRaw ? resolveReceiptProductIds(qRaw) : new Set<number>()
     const isBarcodeLike = productIds.size > 0 || qDigits.length >= 8
+    const bounds = receiptPeriodBounds(period, fromStr, toStr)
 
     const namedIds = new Set<number>()
     if (qRaw && !looksOrderNum && !isBarcodeLike && q.length >= 2) {
@@ -3392,6 +3462,7 @@ export default function CashierModule({
 
     const out: typeof sales = []
     for (const s of receiptsSorted) {
+      if (!saleInReceiptPeriod(s, bounds)) continue
       if (!saleMatchesReceiptFilter(s, filter)) continue
       if (!q) {
         out.push(s)
@@ -3436,6 +3507,20 @@ export default function CashierModule({
         continue
       }
 
+      // Поиск по артикулу / штрихкоду позиций через каталог
+      if (q.length >= 2 && items.some(i => {
+        const codes = productCodesForId(i.productId)
+        return (
+          codes.art.toLowerCase().includes(q)
+          || codes.barcode.toLowerCase().includes(q)
+          || codes.plu === qDigits
+        )
+      })) {
+        out.push(s)
+        if (out.length >= limit) break
+        continue
+      }
+
       const hay = [
         label,
         seq > 0 ? String(seq) : '',
@@ -3455,10 +3540,26 @@ export default function CashierModule({
   }
 
   const receiptList = useMemo(
-    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, 80),
+    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 100),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted
-    [receiptQDeferred, receiptFilter, receiptsSorted, products, receiptBarcodeIndex],
+    [receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, receiptsSorted, products, receiptBarcodeIndex],
   )
+
+  const receiptListTotalCount = useMemo(() => {
+    const bounds = receiptPeriodBounds(receiptPeriod, receiptFrom, receiptTo)
+    return receiptsSorted.filter(s => saleInReceiptPeriod(s, bounds) && saleMatchesReceiptFilter(s, receiptFilter)).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiptsSorted, receiptFilter, receiptPeriod, receiptFrom, receiptTo])
+
+  const receiptPeriodSum = useMemo(() => {
+    let sum = 0
+    for (const s of receiptList) {
+      if (isSaleFullyReturned(s)) continue
+      sum += Number(s.total) || 0
+    }
+    return Math.round(sum * 100) / 100
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiptList])
 
   const receiptProductHint = useMemo(() => {
     const qRaw = receiptQDeferred.trim()
@@ -3467,18 +3568,22 @@ export default function CashierModule({
     const ids = resolveReceiptProductIds(qRaw)
     let hitName = ''
     let hitId: number | null = null
+    let codes = { art: '', barcode: '', plu: '' }
     if (ids.size) {
       hitId = [...ids][0]
-      hitName = products.find(p => Number(p.id) === hitId)?.name || ''
+      const p = products.find(x => Number(x.id) === hitId)
+      hitName = p?.name || ''
+      codes = productCodesForId(hitId)
     } else {
       const hit = pickProductBySearch(products, qRaw)
       if (!hit) return null
       hitId = Number(hit.id)
       hitName = hit.name
+      codes = productCodesForId(hitId)
     }
     if (hitId == null || !hitName) return null
     const n = receiptList.filter(s => (s.items || []).some(i => Number(i.productId) === hitId)).length
-    return { name: hitName, count: n }
+    return { name: hitName, count: n, art: codes.art, barcode: codes.barcode, plu: codes.plu }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiptQDeferred, products, receiptList, receiptBarcodeIndex])
 
@@ -3486,7 +3591,7 @@ export default function CashierModule({
     const raw = String(rawIn || '').trim()
     setReceiptQ(raw)
     if (!raw || !opts?.openIfUnique) return
-    const hits = findReceiptsByQuery(raw, receiptFilter, 5)
+    const hits = findReceiptsByQuery(raw, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 5)
     if (hits.length === 1) {
       setReturnQtyByIdx({})
       setReceiptSaleId(hits[0].id)
@@ -8807,47 +8912,121 @@ export default function CashierModule({
               </button>
               <div>
                 <h2>{receiptDetail ? 'Чек' : 'История чеков'}</h2>
-                <p>{receiptDetail ? saleNumberLabel(receiptDetail) : `${receiptQ.trim() ? receiptList.length : receiptsSorted.filter(s => saleMatchesReceiptFilter(s, receiptFilter)).length} чеков`}</p>
+                <p>
+                  {receiptDetail
+                    ? saleNumberLabel(receiptDetail)
+                    : (receiptPeriod === 'day'
+                      ? 'За сегодня'
+                      : receiptPeriod === 'week'
+                        ? 'За 7 дней'
+                        : receiptPeriod === 'month'
+                          ? 'За этот месяц'
+                          : receiptPeriod === 'custom'
+                            ? `${receiptFrom} — ${receiptTo}`
+                            : 'Все периоды')}
+                </p>
               </div>
             </div>
 
             {!receiptDetail ? (
               <>
-                <div className="pos-search" style={{ marginBottom: 12 }}>
+                <div className="pos-search receipt-search">
                   <span className="ic">🔍</span>
                   <input
                     ref={receiptSearchRef}
                     value={receiptQ}
                     onChange={e => onReceiptSearchChange(e.target.value)}
-                    placeholder="Скан товара, K-4863, клиент…"
+                    placeholder="Скан, артикул, K-4863, клиент…"
                     autoFocus
                     onKeyDown={onReceiptSearchKeyDown}
                   />
+                  {!!receiptQ.trim() && (
+                    <button
+                      type="button"
+                      className="search-clear"
+                      title="Очистить"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => setReceiptQ('')}
+                    >×</button>
+                  )}
                 </div>
                 {receiptProductHint && (
                   <div className="receipt-product-hint">
-                    Товар: <b>{receiptProductHint.name}</b>
-                    <span> · найдено {receiptProductHint.count}</span>
+                    <div className="receipt-product-hint-name">
+                      Товар: <b>{receiptProductHint.name}</b>
+                      <span> · {receiptProductHint.count} чек.</span>
+                    </div>
+                    <div className="receipt-codes">
+                      {receiptProductHint.art ? <span>арт. {receiptProductHint.art}</span> : null}
+                      {receiptProductHint.plu ? <span>PLU {receiptProductHint.plu}</span> : null}
+                      {receiptProductHint.barcode ? <span>ш/к {receiptProductHint.barcode}</span> : null}
+                    </div>
                   </div>
                 )}
-                <div className="receipt-filters">
-                  {([
-                    ['all', 'Все'],
-                    ['cash', 'Нал'],
-                    ['card', 'Карта'],
-                    ['credit', 'Долг'],
-                    ['returned', 'Возврат'],
-                  ] as const).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
-                      onClick={() => setReceiptFilter(id)}
-                    >
-                      {label}
-                    </button>
-                  ))}
+
+                <div className="receipt-toolbar">
+                  <div className="receipt-filters" role="group" aria-label="Период">
+                    {([
+                      ['day', 'День'],
+                      ['week', 'Неделя'],
+                      ['month', 'Месяц'],
+                      ['custom', 'Период'],
+                      ['all', 'Все'],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`receipt-filter ${receiptPeriod === id ? 'on' : ''}`}
+                        onClick={() => setReceiptPeriod(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {receiptPeriod === 'custom' && (
+                    <div className="receipt-period-range">
+                      <label>
+                        <span>С</span>
+                        <input
+                          type="date"
+                          value={receiptFrom}
+                          onChange={e => setReceiptFrom(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>По</span>
+                        <input
+                          type="date"
+                          value={receiptTo}
+                          onChange={e => setReceiptTo(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  <div className="receipt-filters" role="group" aria-label="Оплата">
+                    {([
+                      ['all', 'Все'],
+                      ['cash', 'Нал'],
+                      ['card', 'Карта'],
+                      ['credit', 'Долг'],
+                      ['returned', 'Возврат'],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
+                        onClick={() => setReceiptFilter(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="receipt-summary">
+                    <span>{receiptQ.trim() ? `${receiptList.length} из ${receiptListTotalCount}` : `${receiptListTotalCount} чеков`}</span>
+                    <b>{fmtMoney(receiptPeriodSum)}</b>
+                  </div>
                 </div>
+
                 <div className="receipt-list">
                   {!receiptList.length && <div className="hist-empty">Чеков не найдено</div>}
                   {receiptList.map(s => {
@@ -8865,7 +9044,7 @@ export default function CashierModule({
                             : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
                               ? 'В долг'
                               : 'Смешанная'
-                    const itemsPreview = (s.items || []).slice(0, 3).map(i => i.productName).filter(Boolean).join(', ')
+                    const previewItems = (s.items || []).slice(0, 3)
                     return (
                       <button
                         key={s.id}
@@ -8876,7 +9055,7 @@ export default function CashierModule({
                         <div className="receipt-row-main">
                           <div className="hist-title-row">
                             <span className="receipt-num">{saleNumberLabel(s)}</span>
-                            <b>{payLabel}</b>
+                            <b className="receipt-pay-label">{payLabel}</b>
                             {fully && <span className="hist-badge open">Возвращён</span>}
                             {partial && <span className="hist-badge">Часть</span>}
                           </div>
@@ -8886,7 +9065,26 @@ export default function CashierModule({
                               : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
                             {s.clientName ? ` · ${s.clientName}` : ''}
                           </span>
-                          {itemsPreview ? <span className="hist-items">{itemsPreview}{(s.items || []).length > 3 ? '…' : ''}</span> : null}
+                          {previewItems.length > 0 && (
+                            <div className="receipt-item-previews">
+                              {previewItems.map((i, idx) => {
+                                const codes = productCodesForId(i.productId)
+                                return (
+                                  <div key={`${s.id}-${i.productId}-${idx}`} className="receipt-item-preview">
+                                    <span className="receipt-item-name">{i.productName || `#${i.productId}`}</span>
+                                    <span className="receipt-codes">
+                                      {codes.art ? <span>арт. {codes.art}</span> : null}
+                                      {codes.plu ? <span>PLU {codes.plu}</span> : null}
+                                      {codes.barcode ? <span>ш/к {codes.barcode}</span> : null}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                              {(s.items || []).length > 3 ? (
+                                <span className="receipt-item-more">+{(s.items || []).length - 3} ещё</span>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
                         <div className="hist-amt-col">
                           <div className="hist-amt">{fmtMoney(s.total)}</div>
@@ -8985,6 +9183,17 @@ export default function CashierModule({
                         )}
                         <div className="hist-line-main">
                           <b>{line.productName || `#${line.productId}`}</b>
+                          {(() => {
+                            const codes = productCodesForId(line.productId)
+                            if (!codes.art && !codes.barcode && !codes.plu) return null
+                            return (
+                              <span className="receipt-codes">
+                                {codes.art ? <span>арт. {codes.art}</span> : null}
+                                {codes.plu ? <span>PLU {codes.plu}</span> : null}
+                                {codes.barcode ? <span>ш/к {codes.barcode}</span> : null}
+                              </span>
+                            )
+                          })()}
                           <span className="hist-line-qty">
                             {left > 0 ? qtyLabel(left) : 'возвращено'}
                             {returnedQty > 0 && left > 0 ? ` · уже возврат ${qtyLabel(returnedQty)}` : ''}

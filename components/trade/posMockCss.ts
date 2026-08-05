@@ -470,23 +470,57 @@ export const POS_MOCK_CSS = `
   .cashier-screen-inner{
     width:min(720px,100%);margin:0 auto;padding:28px 24px 40px;display:flex;flex-direction:column;min-height:100%;
   }
-  .cashier-screen-inner.wide{width:min(860px,100%);}
-  .receipt-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .cashier-screen-inner.wide{width:min(920px,100%);}
+  .receipt-search{margin-bottom:12px;position:relative;}
+  .receipt-search .search-clear{
+    position:absolute;right:42px;top:50%;transform:translateY(-50%);
+    width:28px;height:28px;border:none;border-radius:8px;cursor:pointer;
+    background:transparent;color:var(--t3);font-size:18px;font-weight:700;line-height:1;
+  }
+  .receipt-search .search-clear:hover{background:var(--border2);color:var(--t1);}
+  .receipt-toolbar{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
+  .receipt-filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .receipt-period-range{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:10px 12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);
+  }
+  .receipt-period-range label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--t2);}
+  .receipt-period-range span{min-width:18px;color:var(--t3);}
+  .receipt-period-range input[type="date"]{
+    border:1.5px solid var(--border);background:var(--surface2);color:var(--t1);
+    border-radius:10px;padding:7px 10px;font:inherit;font-weight:700;
+  }
+  .receipt-summary{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:10px 14px;border-radius:14px;
+    background:linear-gradient(135deg,rgba(31,215,96,.12),rgba(31,215,96,.04));
+    border:1px solid rgba(31,215,96,.22);
+  }
+  .receipt-summary span{font-size:12px;font-weight:800;color:var(--t2);}
+  .receipt-summary b{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:900;color:var(--accent);}
   .receipt-product-hint{
-    margin:-4px 0 12px;padding:8px 12px;border-radius:12px;
+    margin:-2px 0 12px;padding:10px 12px;border-radius:14px;
     background:rgba(31,215,96,.08);border:1px solid rgba(31,215,96,.22);
     font-size:12px;font-weight:700;color:var(--t2);
+    display:flex;flex-direction:column;gap:6px;
   }
-  .receipt-product-hint b{color:var(--accent);font-weight:900;}
-  .receipt-product-hint span{color:var(--t3);font-weight:700;}
+  .receipt-product-hint-name b{color:var(--accent);font-weight:900;}
+  .receipt-product-hint-name span{color:var(--t3);font-weight:700;}
+  .receipt-codes{display:flex;flex-wrap:wrap;gap:6px;}
+  .receipt-codes > span{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:800;letter-spacing:.02em;
+    color:var(--t2);background:var(--surface2);border:1px solid var(--border);
+    border-radius:8px;padding:2px 7px;
+  }
   .pos-root button.receipt-filter{padding:8px 12px;border-radius:11px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
   .pos-root button.receipt-filter.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--accent);}
-  .receipt-list{display:flex;flex-direction:column;gap:8px;flex:1;overflow-y:auto;padding-bottom:12px;}
+  .receipt-list{display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;padding-bottom:12px;}
   .pos-root button.receipt-row{
-    display:flex;align-items:flex-start;justify-content:space-between;gap:12px;width:100%;text-align:left;
-    padding:12px 14px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);color:inherit;font:inherit;
+    display:flex;align-items:flex-start;justify-content:space-between;gap:14px;width:100%;text-align:left;
+    padding:14px 16px;border-radius:16px;background:var(--surface);border:1.5px solid var(--border);color:inherit;font:inherit;
+    transition:border-color .15s,background .15s,transform .12s;
   }
-  .pos-root button.receipt-row:hover{border-color:var(--accent);}
+  .pos-root button.receipt-row:hover{border-color:var(--accent);transform:translateY(-1px);}
   .pos-root button.receipt-row.returned{opacity:.72;border-color:rgba(255,69,69,.28);background:rgba(255,69,69,.06);}
   .pos-root button.receipt-row.partial{border-color:rgba(255,170,40,.35);background:rgba(255,170,40,.07);}
   .receipt-num{
@@ -494,7 +528,12 @@ export const POS_MOCK_CSS = `
     color:var(--accent);background:rgba(31,215,96,.12);border:1px solid rgba(31,215,96,.28);
     border-radius:8px;padding:2px 7px;letter-spacing:.02em;
   }
-  .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;}
+  .receipt-pay-label{font-size:12.5px;font-weight:850;}
+  .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;}
+  .receipt-item-previews{display:flex;flex-direction:column;gap:5px;margin-top:2px;}
+  .receipt-item-preview{display:flex;flex-direction:column;gap:3px;min-width:0;}
+  .receipt-item-name{font-size:12px;font-weight:750;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .receipt-item-more{font-size:11px;font-weight:800;color:var(--t3);}
   .receipt-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
   .receipt-detail-meta > div{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);}
   .receipt-detail-meta span{display:block;font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
@@ -508,6 +547,7 @@ export const POS_MOCK_CSS = `
   .hist-line.receipt-line{cursor:pointer;align-items:center;gap:10px;transition:border-color .15s,background .15s;}
   .hist-line.receipt-line.on{border-color:var(--accent);background:rgba(31,215,96,.1);}
   .hist-line.receipt-line.returned{opacity:.65;cursor:default;}
+  .hist-line-main .receipt-codes{margin:2px 0 2px;}
   .receipt-check{
     flex-shrink:0;width:22px;height:22px;border-radius:7px;border:1.5px solid var(--border);
     background:var(--surface);display:grid;place-items:center;font-size:12px;font-weight:900;color:var(--accent);
@@ -525,6 +565,8 @@ export const POS_MOCK_CSS = `
   @media(max-width:640px){
     .receipt-detail-meta,.receipt-actions{grid-template-columns:1fr;}
     .receipt-actions .receipt-return-all{grid-column:auto;}
+    .receipt-period-range{flex-direction:column;align-items:stretch;}
+    .receipt-period-range label{justify-content:space-between;}
   }
   .cashier-screen-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:22px;}
   .cashier-screen-top h2{font-family:'Unbounded',sans-serif;font-size:20px;font-weight:800;margin:0 0 4px;}
