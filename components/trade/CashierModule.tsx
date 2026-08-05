@@ -956,8 +956,13 @@ export default function CashierModule({
   const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
+  const receiptQDeferred = useDeferredValue(receiptQ)
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
   const receiptSearchRef = useRef<HTMLInputElement>(null)
+  const receiptScanBurstRef = useRef(false)
+  const receiptScanAccumRef = useRef('')
+  const receiptScanLastTsRef = useRef(0)
+  const receiptScanTimerRef = useRef<number | null>(null)
   /** index позиции → qty к возврату (0 = не выбрано) */
   const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
@@ -3291,32 +3296,11 @@ export default function CashierModule({
     return (s.items || []).some(it => (Number(it.returnedQty) || 0) > 0)
   }
 
-  const receiptList = useMemo(() => {
-    const qRaw = receiptQ.trim()
-    const q = qRaw.toLowerCase()
-    const qDigits = qRaw.replace(/[^\d]/g, '')
-    const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
-    const barcodeHit = qRaw ? pickProductBySearch(products, qRaw) : null
-    const barcodeIds = new Set<number>()
-    if (barcodeHit?.id != null) barcodeIds.add(Number(barcodeHit.id))
-    if (qDigits.length >= 4) {
-      for (const p of products) {
-        if (productBarcodes(p).some(c => {
-          const cd = c.replace(/\D/g, '')
-          return c === qRaw || cd === qDigits || (qDigits.length >= 8 && (cd.endsWith(qDigits) || qDigits.endsWith(cd)))
-        })) {
-          barcodeIds.add(Number(p.id))
-        }
-      }
-    }
-    const namedHits = qRaw && !looksOrderNum
-      ? filterProductsBySearch(products, qRaw, 40)
-      : []
-    const namedIds = new Set(namedHits.map(p => Number(p.id)))
-
+  /** Отсортированные чеки точки — один раз, не на каждый символ сканера */
+  const receiptsSorted = useMemo(() => {
+    const posId = activeShift?.posId
     return [...sales]
       .filter(s => {
-        const posId = activeShift?.posId
         if (!posId) return true
         if (!s.posId) return true
         return s.posId === posId
@@ -3327,61 +3311,251 @@ export default function CashierModule({
         if (nb !== na) return nb - na
         return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
       })
-      .filter(s => {
-        const fully = isSaleFullyReturned(s)
-        const partial = isSalePartiallyReturned(s)
-        if (receiptFilter === 'returned') return fully || partial
-        if (receiptFilter === 'cash') return !fully && s.paymentMethod === 'cash'
-        if (receiptFilter === 'card') return !fully && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
-        if (receiptFilter === 'credit') return !fully && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
-        return true
-      })
-      .filter(s => {
-        if (!q) return true
-        const seq = saleOrderSeq(s)
-        const label = saleNumberLabel(s)
-        const items = s.items || []
+  }, [sales, activeShift?.posId])
 
-        // Штрихкод / артикул товара → чеки с этим productId
-        if (barcodeIds.size > 0 && (qDigits.length >= 4 || barcodeHit)) {
-          if (items.some(i => barcodeIds.has(Number(i.productId)))) return true
-          // длинный штрихкод без совпадения по id — не путать с номером чека
-          if (qDigits.length >= 8 && !looksOrderNum) return false
+  /** Штрихкод / PLU / арт → productId — O(1) вместо полного перебора каталога */
+  const receiptBarcodeIndex = useMemo(() => {
+    const exact = new Map<string, number>()
+    const digits = new Map<string, number>()
+    for (const p of products) {
+      const id = Number(p.id)
+      if (!Number.isFinite(id)) continue
+      for (const c of productBarcodes(p)) {
+        const raw = String(c || '').trim()
+        if (!raw) continue
+        exact.set(raw, id)
+        exact.set(raw.toLowerCase(), id)
+        const d = raw.replace(/\D/g, '')
+        if (d.length >= 4) digits.set(d, id)
+      }
+      const art = String(p.art || '').trim()
+      if (art) {
+        exact.set(art, id)
+        exact.set(art.toLowerCase(), id)
+      }
+      const plu = String(p.plu || '').replace(/\D/g, '')
+      if (plu) digits.set(plu, id)
+    }
+    return { exact, digits }
+  }, [products])
+
+  function resolveReceiptProductIds(qRaw: string): Set<number> {
+    const ids = new Set<number>()
+    const q = qRaw.trim()
+    if (!q) return ids
+    const qDigits = q.replace(/\D/g, '')
+    const fromExact = receiptBarcodeIndex.exact.get(q) ?? receiptBarcodeIndex.exact.get(q.toLowerCase())
+    if (fromExact != null) ids.add(fromExact)
+    if (qDigits) {
+      const fromDigits = receiptBarcodeIndex.digits.get(qDigits)
+      if (fromDigits != null) ids.add(fromDigits)
+    }
+    // Точное совпадение по каталогу (на случай если индекс не покрыл)
+    if (!ids.size && (qDigits.length >= 8 || q.length >= 8)) {
+      for (const p of findProductsByExactBarcode(products, q)) {
+        if (p.id != null) ids.add(Number(p.id))
+      }
+    }
+    return ids
+  }
+
+  function saleMatchesReceiptFilter(s: (typeof sales)[number], filter: typeof receiptFilter) {
+    const fully = isSaleFullyReturned(s)
+    const partial = isSalePartiallyReturned(s)
+    if (filter === 'returned') return fully || partial
+    if (filter === 'cash') return !fully && s.paymentMethod === 'cash'
+    if (filter === 'card') return !fully && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
+    if (filter === 'credit') return !fully && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
+    return true
+  }
+
+  /** Быстрый поиск чеков: штрихкод / номер — без тяжёлого hay на каждый символ */
+  function findReceiptsByQuery(qRawIn: string, filter: typeof receiptFilter, limit = 80) {
+    const qRaw = qRawIn.trim()
+    const q = qRaw.toLowerCase()
+    const qDigits = qRaw.replace(/[^\d]/g, '')
+    const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
+    const productIds = qRaw ? resolveReceiptProductIds(qRaw) : new Set<number>()
+    const isBarcodeLike = productIds.size > 0 || qDigits.length >= 8
+
+    const namedIds = new Set<number>()
+    if (qRaw && !looksOrderNum && !isBarcodeLike && q.length >= 2) {
+      for (const p of filterProductsBySearch(products, qRaw, 24)) {
+        if (p.id != null) namedIds.add(Number(p.id))
+      }
+    }
+
+    // Длинный штрихкод без товара — сразу пусто, без тяжёлого текстового поиска
+    if (qDigits.length >= 8 && productIds.size === 0 && !looksOrderNum) {
+      return []
+    }
+
+    const out: typeof sales = []
+    for (const s of receiptsSorted) {
+      if (!saleMatchesReceiptFilter(s, filter)) continue
+      if (!q) {
+        out.push(s)
+        if (out.length >= limit) break
+        continue
+      }
+
+      const items = s.items || []
+      const seq = saleOrderSeq(s)
+      const label = saleNumberLabel(s)
+
+      if (productIds.size > 0) {
+        if (items.some(i => productIds.has(Number(i.productId)))) {
+          out.push(s)
+          if (out.length >= limit) break
         }
+        continue
+      }
 
-        // Короткий номер чека: "4863", "K-4863", "№11"
-        if (looksOrderNum && qDigits) {
-          if (String(seq) === qDigits || label.toLowerCase() === q || label.replace(/^k-/i, '') === qDigits) return true
+      if (looksOrderNum && qDigits) {
+        if (
+          String(seq) === qDigits
+          || label.toLowerCase() === q
+          || label.replace(/^k-/i, '') === qDigits
+          || String(s.number || '') === qDigits
+        ) {
+          out.push(s)
+          if (out.length >= limit) break
         }
+        continue
+      }
 
-        // Поиск по названию товара из каталога
-        if (namedIds.size && items.some(i => namedIds.has(Number(i.productId)))) return true
-        if (items.some(i => (i.productName || '').toLowerCase().includes(q))) return true
+      if (namedIds.size && items.some(i => namedIds.has(Number(i.productId)))) {
+        out.push(s)
+        if (out.length >= limit) break
+        continue
+      }
 
-        const hay = [
-          label,
-          seq > 0 ? String(seq) : '',
-          s.orderId,
-          s.id,
-          s.clientName,
-          s.clientPhone,
-          s.cardNum,
-          s.cashierName,
-          ...items.map(i => i.productName),
-        ].join(' ').toLowerCase()
-        return hay.includes(q)
-      })
-  }, [sales, receiptQ, receiptFilter, products, activeShift?.posId])
+      if (items.some(i => (i.productName || '').toLowerCase().includes(q))) {
+        out.push(s)
+        if (out.length >= limit) break
+        continue
+      }
+
+      const hay = [
+        label,
+        seq > 0 ? String(seq) : '',
+        s.orderId,
+        s.id,
+        s.clientName,
+        s.clientPhone,
+        s.cardNum,
+        s.cashierName,
+      ].join(' ').toLowerCase()
+      if (hay.includes(q)) {
+        out.push(s)
+        if (out.length >= limit) break
+      }
+    }
+    return out
+  }
+
+  const receiptList = useMemo(
+    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, 80),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted
+    [receiptQDeferred, receiptFilter, receiptsSorted, products, receiptBarcodeIndex],
+  )
 
   const receiptProductHint = useMemo(() => {
-    const qRaw = receiptQ.trim()
+    const qRaw = receiptQDeferred.trim()
     if (!qRaw) return null
     if (/^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)) return null
-    const hit = pickProductBySearch(products, qRaw)
-    if (!hit) return null
-    const n = receiptList.filter(s => (s.items || []).some(i => Number(i.productId) === Number(hit.id))).length
-    return { name: hit.name, count: n }
-  }, [receiptQ, products, receiptList])
+    const ids = resolveReceiptProductIds(qRaw)
+    let hitName = ''
+    let hitId: number | null = null
+    if (ids.size) {
+      hitId = [...ids][0]
+      hitName = products.find(p => Number(p.id) === hitId)?.name || ''
+    } else {
+      const hit = pickProductBySearch(products, qRaw)
+      if (!hit) return null
+      hitId = Number(hit.id)
+      hitName = hit.name
+    }
+    if (hitId == null || !hitName) return null
+    const n = receiptList.filter(s => (s.items || []).some(i => Number(i.productId) === hitId)).length
+    return { name: hitName, count: n }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiptQDeferred, products, receiptList, receiptBarcodeIndex])
+
+  function commitReceiptSearch(rawIn: string, opts?: { openIfUnique?: boolean }) {
+    const raw = String(rawIn || '').trim()
+    setReceiptQ(raw)
+    if (!raw || !opts?.openIfUnique) return
+    const hits = findReceiptsByQuery(raw, receiptFilter, 5)
+    if (hits.length === 1) {
+      setReturnQtyByIdx({})
+      setReceiptSaleId(hits[0].id)
+    }
+  }
+
+  function onReceiptSearchChange(value: string) {
+    if (receiptScanBurstRef.current && receiptScanAccumRef.current) {
+      return
+    }
+    setReceiptQ(value)
+  }
+
+  function onReceiptSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    const now = performance.now()
+    const gap = now - receiptScanLastTsRef.current
+    receiptScanLastTsRef.current = now
+
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      if (receiptScanTimerRef.current) {
+        window.clearTimeout(receiptScanTimerRef.current)
+        receiptScanTimerRef.current = null
+      }
+      const raw = String(
+        receiptScanAccumRef.current || (e.currentTarget as HTMLInputElement).value || receiptQ || '',
+      ).trim()
+      receiptScanBurstRef.current = false
+      receiptScanAccumRef.current = ''
+      commitReceiptSearch(raw, { openIfUnique: true })
+      return
+    }
+
+    if (e.key === 'Escape') {
+      receiptScanBurstRef.current = false
+      receiptScanAccumRef.current = ''
+      setReceiptQ('')
+      return
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (gap >= 180) {
+        receiptScanBurstRef.current = false
+        receiptScanAccumRef.current = e.key
+        return
+      }
+      const fast = gap < 90 || receiptScanBurstRef.current
+      if (fast) {
+        receiptScanBurstRef.current = true
+        if (!receiptScanAccumRef.current) {
+          receiptScanAccumRef.current = String(receiptQ || e.currentTarget.value || '')
+        }
+        receiptScanAccumRef.current += e.key
+        e.preventDefault()
+        if (receiptScanTimerRef.current) window.clearTimeout(receiptScanTimerRef.current)
+        receiptScanTimerRef.current = window.setTimeout(() => {
+          receiptScanTimerRef.current = null
+          if (!receiptScanBurstRef.current) return
+          const live = String(receiptScanAccumRef.current || '').trim()
+          receiptScanBurstRef.current = false
+          receiptScanAccumRef.current = ''
+          if (live.length >= 3) commitReceiptSearch(live, { openIfUnique: true })
+        }, 45)
+        return
+      }
+      receiptScanBurstRef.current = false
+      receiptScanAccumRef.current = ''
+    }
+  }
 
   useEffect(() => {
     if (cashierScreen !== 'receipts' || receiptSaleId) return
@@ -8633,7 +8807,7 @@ export default function CashierModule({
               </button>
               <div>
                 <h2>{receiptDetail ? 'Чек' : 'История чеков'}</h2>
-                <p>{receiptDetail ? saleNumberLabel(receiptDetail) : `${receiptList.length} чеков`}</p>
+                <p>{receiptDetail ? saleNumberLabel(receiptDetail) : `${receiptQ.trim() ? receiptList.length : receiptsSorted.filter(s => saleMatchesReceiptFilter(s, receiptFilter)).length} чеков`}</p>
               </div>
             </div>
 
@@ -8644,15 +8818,10 @@ export default function CashierModule({
                   <input
                     ref={receiptSearchRef}
                     value={receiptQ}
-                    onChange={e => setReceiptQ(e.target.value)}
+                    onChange={e => onReceiptSearchChange(e.target.value)}
                     placeholder="Скан товара, K-4863, клиент…"
                     autoFocus
-                    onKeyDown={e => {
-                      if (e.key !== 'Enter' && e.key !== 'Tab') return
-                      e.preventDefault()
-                      const raw = (e.currentTarget as HTMLInputElement).value.trim()
-                      if (raw) setReceiptQ(raw)
-                    }}
+                    onKeyDown={onReceiptSearchKeyDown}
                   />
                 </div>
                 {receiptProductHint && (
