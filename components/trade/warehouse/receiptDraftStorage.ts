@@ -97,26 +97,23 @@ export function loadReceiptDraft(): ReceiptDraft {
     const raw = localStorage.getItem(RECEIPT_DRAFT_KEY) || localStorage.getItem('kakapo-receipt-draft-v1')
     if (!raw) return defaultReceiptDraft()
     const parsed = JSON.parse(raw) as Partial<ReceiptDraft>
-    const lines = Array.isArray(parsed.lines) && parsed.lines.length
-      ? parsed.lines.map(l => ({
-        ...emptyReceiptLine(),
-        ...l,
-        pendingProduct: l.pendingProduct?.form?.name
-          ? { form: l.pendingProduct.form }
-          : null,
-        purchaseTotal: l.purchaseTotal ?? '',
-        bulkPricing: Array.isArray(l.bulkPricing) ? l.bulkPricing : [],
-      }))
-      : [emptyReceiptLine()]
-    // Всегда держим пустую строку для поиска — иначе после черновика поиск «ломается»
-    if (!lines.some(l => !lineHasProduct(l))) lines.push(emptyReceiptLine())
     return {
       ...defaultReceiptDraft(),
       ...parsed,
       editingId: parsed.editingId ? String(parsed.editingId) : null,
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
-      lines,
+      lines: Array.isArray(parsed.lines) && parsed.lines.length
+        ? parsed.lines.map(l => ({
+          ...emptyReceiptLine(),
+          ...l,
+          pendingProduct: l.pendingProduct?.form?.name
+            ? { form: l.pendingProduct.form }
+            : null,
+          purchaseTotal: l.purchaseTotal ?? '',
+          bulkPricing: Array.isArray(l.bulkPricing) ? l.bulkPricing : [],
+        }))
+        : [emptyReceiptLine()],
     }
   } catch {
     return defaultReceiptDraft()
