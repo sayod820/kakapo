@@ -958,9 +958,12 @@ export default function CashierModule({
   const [receiptQ, setReceiptQ] = useState('')
   const receiptQDeferred = useDeferredValue(receiptQ)
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'cash' | 'card' | 'credit' | 'returned'>('all')
-  const [receiptPeriod, setReceiptPeriod] = useState<'all' | 'day' | 'week' | 'month' | 'custom'>('day')
+  /** Касса: по умолчанию только текущая смена */
+  const [receiptScope, setReceiptScope] = useState<'shift' | 'other'>('shift')
+  const [receiptLimit, setReceiptLimit] = useState(50)
   const [receiptFrom, setReceiptFrom] = useState(() => {
     const d = new Date()
+    d.setDate(d.getDate() - 6)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
   const [receiptTo, setReceiptTo] = useState(() => {
@@ -3215,6 +3218,8 @@ export default function CashierModule({
     if (kind === 'receipts') {
       setReceiptQ('')
       setReceiptFilter('all')
+      setReceiptScope('shift')
+      setReceiptLimit(50)
       setReceiptSaleId(null)
       setReturnQtyByIdx({})
       setCashierScreen('receipts')
@@ -3384,11 +3389,7 @@ export default function CashierModule({
     return true
   }
 
-  function receiptPeriodBounds(
-    _period: typeof receiptPeriod,
-    fromStr: string,
-    toStr: string,
-  ): { fromMs: number; toMs: number } | null {
+  function receiptPeriodBounds(fromStr: string, toStr: string): { fromMs: number; toMs: number } | null {
     const startOfDay = (d: Date) => {
       const x = new Date(d)
       x.setHours(0, 0, 0, 0)
@@ -3414,19 +3415,59 @@ export default function CashierModule({
     return t >= bounds.fromMs && t <= bounds.toMs
   }
 
+  /** Чек относится к текущей открытой смене */
+  function saleInCurrentShift(s: (typeof sales)[number]) {
+    if (!activeShift) return false
+    if (s.shiftId) return s.shiftId === activeShift.id
+    const t = new Date(s.createdAtIso).getTime()
+    const open = new Date(activeShift.openedAtIso).getTime()
+    if (Number.isNaN(t) || Number.isNaN(open)) return false
+    return t >= open
+  }
+
+  function saleMatchesReceiptScope(s: (typeof sales)[number], scope: typeof receiptScope) {
+    const inShift = saleInCurrentShift(s)
+    if (scope === 'shift') return inShift
+    if (!saleInReceiptPeriod(s, receiptPeriodBounds(receiptFrom, receiptTo))) return false
+    return !inShift
+  }
+
   function productCodesForId(productId: number | undefined | null) {
     if (productId == null) return { art: '', barcode: '', plu: '' }
     return receiptBarcodeIndex.codesById.get(Number(productId)) || { art: '', barcode: '', plu: '' }
+  }
+
+  function shiftLabelForSale(s: (typeof sales)[number]) {
+    const sh = s.shiftId ? shifts.find(x => x.id === s.shiftId) : null
+    if (sh) {
+      const opened = new Date(sh.openedAtIso)
+      const time = Number.isNaN(opened.getTime())
+        ? ''
+        : opened.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      return `${sh.cashierName || 'Смена'}${time ? ` · с ${time}` : ''}${sh.status === 'closed' ? ' · закрыта' : ''}`
+    }
+    if (activeShift && saleInCurrentShift(s)) {
+      const opened = new Date(activeShift.openedAtIso)
+      const time = Number.isNaN(opened.getTime())
+        ? ''
+        : opened.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      return `${activeShift.cashierName || settings.cashierName}${time ? ` · с ${time}` : ''}`
+    }
+    return 'Другая смена'
+  }
+
+  function needsAdminReturnConfirm(sale: (typeof sales)[number]) {
+    if (!activeShift) return true
+    if (sale.shiftId && sale.shiftId !== activeShift.id) return true
+    return !saleInCurrentShift(sale)
   }
 
   /** Быстрый поиск чеков: штрихкод / номер — без тяжёлого hay на каждый символ */
   function findReceiptsByQuery(
     qRawIn: string,
     filter: typeof receiptFilter,
-    period: typeof receiptPeriod,
-    fromStr: string,
-    toStr: string,
-    limit = 80,
+    scope: typeof receiptScope,
+    limit = 0,
   ) {
     const qRaw = qRawIn.trim()
     const q = qRaw.toLowerCase()
@@ -3434,7 +3475,6 @@ export default function CashierModule({
     const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
     const productIds = qRaw ? resolveReceiptProductIds(qRaw) : new Set<number>()
     const isBarcodeLike = productIds.size > 0 || qDigits.length >= 8
-    const bounds = receiptPeriodBounds(period, fromStr, toStr)
 
     const namedIds = new Set<number>()
     if (qRaw && !looksOrderNum && !isBarcodeLike && q.length >= 2) {
@@ -3445,16 +3485,16 @@ export default function CashierModule({
 
     // Длинный штрихкод без товара — сразу пусто, без тяжёлого текстового поиска
     if (qDigits.length >= 8 && productIds.size === 0 && !looksOrderNum) {
-      return []
+      return [] as typeof sales
     }
 
     const out: typeof sales = []
     for (const s of receiptsSorted) {
-      if (!saleInReceiptPeriod(s, bounds)) continue
+      if (!saleMatchesReceiptScope(s, scope)) continue
       if (!saleMatchesReceiptFilter(s, filter)) continue
       if (!q) {
         out.push(s)
-        if (out.length >= limit) break
+        if (limit > 0 && out.length >= limit) break
         continue
       }
 
@@ -3465,7 +3505,7 @@ export default function CashierModule({
       if (productIds.size > 0) {
         if (items.some(i => productIds.has(Number(i.productId)))) {
           out.push(s)
-          if (out.length >= limit) break
+          if (limit > 0 && out.length >= limit) break
         }
         continue
       }
@@ -3478,24 +3518,23 @@ export default function CashierModule({
           || String(s.number || '') === qDigits
         ) {
           out.push(s)
-          if (out.length >= limit) break
+          if (limit > 0 && out.length >= limit) break
         }
         continue
       }
 
       if (namedIds.size && items.some(i => namedIds.has(Number(i.productId)))) {
         out.push(s)
-        if (out.length >= limit) break
+        if (limit > 0 && out.length >= limit) break
         continue
       }
 
       if (items.some(i => (i.productName || '').toLowerCase().includes(q))) {
         out.push(s)
-        if (out.length >= limit) break
+        if (limit > 0 && out.length >= limit) break
         continue
       }
 
-      // Поиск по артикулу / штрихкоду позиций через каталог
       if (q.length >= 2 && items.some(i => {
         const codes = productCodesForId(i.productId)
         return (
@@ -3505,7 +3544,7 @@ export default function CashierModule({
         )
       })) {
         out.push(s)
-        if (out.length >= limit) break
+        if (limit > 0 && out.length >= limit) break
         continue
       }
 
@@ -3521,33 +3560,48 @@ export default function CashierModule({
       ].join(' ').toLowerCase()
       if (hay.includes(q)) {
         out.push(s)
-        if (out.length >= limit) break
+        if (limit > 0 && out.length >= limit) break
       }
     }
     return out
   }
 
-  const receiptList = useMemo(
-    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 50),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted
-    [receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, receiptsSorted, products, receiptBarcodeIndex],
+  const receiptMatches = useMemo(
+    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptScope, 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted/activeShift
+    [receiptQDeferred, receiptFilter, receiptScope, receiptFrom, receiptTo, receiptsSorted, products, receiptBarcodeIndex, activeShift?.id, activeShift?.openedAtIso],
   )
 
-  const receiptListTotalCount = useMemo(() => {
-    const bounds = receiptPeriodBounds(receiptPeriod, receiptFrom, receiptTo)
-    return receiptsSorted.filter(s => saleInReceiptPeriod(s, bounds) && saleMatchesReceiptFilter(s, receiptFilter)).length
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receiptsSorted, receiptFilter, receiptPeriod, receiptFrom, receiptTo])
+  const receiptList = useMemo(
+    () => receiptMatches.slice(0, receiptLimit),
+    [receiptMatches, receiptLimit],
+  )
+
+  const receiptListTotalCount = receiptMatches.length
 
   const receiptPeriodSum = useMemo(() => {
     let sum = 0
-    for (const s of receiptList) {
+    for (const s of receiptMatches) {
       if (isSaleFullyReturned(s)) continue
       sum += Number(s.total) || 0
     }
     return Math.round(sum * 100) / 100
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receiptList])
+  }, [receiptMatches])
+
+  const receiptShiftHeader = useMemo(() => {
+    if (!activeShift) return null
+    const opened = new Date(activeShift.openedAtIso)
+    const time = Number.isNaN(opened.getTime())
+      ? '—'
+      : opened.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    const shortId = String(activeShift.id || '').replace(/\D/g, '').slice(-4)
+      || String(activeShift.id || '').slice(-4)
+    return {
+      title: `Смена${shortId ? ` · ${shortId}` : ''} · ${activeShift.cashierName || settings.cashierName}`,
+      openedLabel: `открыта ${time}`,
+    }
+  }, [activeShift, settings.cashierName])
 
   const receiptProductHint = useMemo(() => {
     const qRaw = receiptQDeferred.trim()
@@ -3570,16 +3624,16 @@ export default function CashierModule({
       codes = productCodesForId(hitId)
     }
     if (hitId == null || !hitName) return null
-    const n = receiptList.filter(s => (s.items || []).some(i => Number(i.productId) === hitId)).length
+    const n = receiptMatches.filter(s => (s.items || []).some(i => Number(i.productId) === hitId)).length
     return { name: hitName, count: n, art: codes.art, barcode: codes.barcode, plu: codes.plu }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receiptQDeferred, products, receiptList, receiptBarcodeIndex])
+  }, [receiptQDeferred, products, receiptMatches, receiptBarcodeIndex])
 
   function commitReceiptSearch(rawIn: string, opts?: { openIfUnique?: boolean }) {
     const raw = String(rawIn || '').trim()
     setReceiptQ(raw)
     if (!raw || !opts?.openIfUnique) return
-    const hits = findReceiptsByQuery(raw, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 5)
+    const hits = findReceiptsByQuery(raw, receiptFilter, receiptScope, 5)
     if (hits.length === 1) {
       setReturnQtyByIdx({})
       setReceiptSaleId(hits[0].id)
@@ -3750,6 +3804,15 @@ export default function CashierModule({
     }
 
     if (!window.confirm(confirmLabel)) return
+    if (needsAdminReturnConfirm(sale)) {
+      const code = window.prompt(
+        'Этот чек из другой или закрытой смены.\nДля возврата введите код администратора: АДМИН',
+      )
+      if (String(code || '').trim().toUpperCase() !== 'АДМИН') {
+        showToast('Нужен код админа', 'Возврат из чужой смены отменён')
+        return
+      }
+    }
     setBusy(true)
     setMsg('')
     try {
@@ -8903,23 +8966,53 @@ export default function CashierModule({
                 <p>
                   {receiptDetail
                     ? saleNumberLabel(receiptDetail)
-                    : (receiptFrom === receiptTo
-                      ? new Date(receiptFrom + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-                      : `${receiptFrom} — ${receiptTo}`)}
+                    : receiptScope === 'shift'
+                      ? (receiptShiftHeader ? `${receiptShiftHeader.title} · ${receiptShiftHeader.openedLabel}` : 'Текущая смена')
+                      : 'Другие смены'}
                 </p>
               </div>
             </div>
 
             {!receiptDetail ? (
               <>
-                <div className="receipt-topbar">
+                <div className="receipt-scope-bar" role="group" aria-label="Режим истории">
+                  <button
+                    type="button"
+                    className={`receipt-scope-btn ${receiptScope === 'shift' ? 'on' : ''}`}
+                    onClick={() => { setReceiptScope('shift'); setReceiptLimit(50) }}
+                  >
+                    Эта смена
+                  </button>
+                  <button
+                    type="button"
+                    className={`receipt-scope-btn ${receiptScope === 'other' ? 'on' : ''}`}
+                    onClick={() => { setReceiptScope('other'); setReceiptLimit(50) }}
+                  >
+                    Другие смены
+                  </button>
+                </div>
+
+                {receiptScope === 'shift' && receiptShiftHeader && (
+                  <div className="receipt-shift-card">
+                    <div className="receipt-shift-card-main">
+                      <b>{receiptShiftHeader.title}</b>
+                      <span>{receiptShiftHeader.openedLabel}</span>
+                    </div>
+                    <div className="receipt-shift-card-stats">
+                      <span>Чеков: <b>{receiptListTotalCount}</b></span>
+                      <span>Выручка: <b>{fmtMoney(receiptPeriodSum)}</b></span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="receipt-topbar receipt-topbar-shift">
                   <div className="pos-search receipt-search">
                     <span className="ic">🔍</span>
                     <input
                       ref={receiptSearchRef}
                       value={receiptQ}
                       onChange={e => onReceiptSearchChange(e.target.value)}
-                      placeholder="Скан, артикул, K-4863…"
+                      placeholder="Номер чека, товар, клиент…"
                       autoFocus
                       onKeyDown={onReceiptSearchKeyDown}
                     />
@@ -8935,63 +9028,29 @@ export default function CashierModule({
                   </div>
 
                   <div className="receipt-toolbar">
-                    <div className="receipt-filters-row">
-                      <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Период">
-                        {([
-                          ['day', 'День'],
-                          ['week', 'Нед.'],
-                          ['month', 'Мес.'],
-                        ] as const).map(([id, label]) => (
-                          <button
-                            key={id}
-                            type="button"
-                            className={`receipt-filter ${receiptPeriod === id ? 'on' : ''}`}
-                            onClick={() => {
-                              const now = new Date()
-                              const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-                              if (id === 'day') {
-                                const t = iso(now)
-                                setReceiptFrom(t)
-                                setReceiptTo(t)
-                              } else if (id === 'week') {
-                                const from = new Date(now)
-                                from.setDate(from.getDate() - 6)
-                                setReceiptFrom(iso(from))
-                                setReceiptTo(iso(now))
-                              } else {
-                                const from = new Date(now.getFullYear(), now.getMonth(), 1)
-                                setReceiptFrom(iso(from))
-                                setReceiptTo(iso(now))
-                              }
-                              setReceiptPeriod(id)
-                            }}
-                          >
-                            {label}
-                          </button>
-                        ))}
+                    {receiptScope === 'other' && (
+                      <div className="receipt-filters-row">
+                        <div className="receipt-period-inline" title="Период других смен">
+                          <input
+                            type="date"
+                            value={receiptFrom}
+                            onChange={e => { setReceiptFrom(e.target.value); setReceiptLimit(50) }}
+                            aria-label="Дата с"
+                          />
+                          <span>—</span>
+                          <input
+                            type="date"
+                            value={receiptTo}
+                            onChange={e => { setReceiptTo(e.target.value); setReceiptLimit(50) }}
+                            aria-label="Дата по"
+                          />
+                        </div>
+                        <div className="receipt-summary receipt-summary-inline">
+                          <span>{receiptListTotalCount} чек.</span>
+                          <b>{fmtMoney(receiptPeriodSum)}</b>
+                        </div>
                       </div>
-                      <div className="receipt-period-inline" title="Выбранный период">
-                        <input
-                          type="date"
-                          value={receiptFrom}
-                          onChange={e => {
-                            setReceiptFrom(e.target.value)
-                            setReceiptPeriod('custom')
-                          }}
-                          aria-label="Дата с"
-                        />
-                        <span>—</span>
-                        <input
-                          type="date"
-                          value={receiptTo}
-                          onChange={e => {
-                            setReceiptTo(e.target.value)
-                            setReceiptPeriod('custom')
-                          }}
-                          aria-label="Дата по"
-                        />
-                      </div>
-                    </div>
+                    )}
                     <div className="receipt-filters-row">
                       <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Оплата">
                         {([
@@ -9005,16 +9064,18 @@ export default function CashierModule({
                             key={id}
                             type="button"
                             className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
-                            onClick={() => setReceiptFilter(id)}
+                            onClick={() => { setReceiptFilter(id); setReceiptLimit(50) }}
                           >
                             {label}
                           </button>
                         ))}
                       </div>
-                      <div className="receipt-summary receipt-summary-inline">
-                        <span>{receiptQ.trim() ? `${receiptList.length}/${receiptListTotalCount}` : `${receiptListTotalCount}`}</span>
-                        <b>{fmtMoney(receiptPeriodSum)}</b>
-                      </div>
+                      {receiptScope === 'shift' && (
+                        <div className="receipt-summary receipt-summary-inline">
+                          <span>{receiptQ.trim() ? `${receiptList.length}/${receiptListTotalCount}` : `${receiptListTotalCount}`}</span>
+                          <b>{fmtMoney(receiptPeriodSum)}</b>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -9044,13 +9105,13 @@ export default function CashierModule({
                       : partial
                         ? 'Частичный возврат'
                         : s.paymentMethod === 'cash'
-                          ? 'Наличные'
+                          ? 'Нал'
                           : s.paymentMethod === 'card'
                             ? 'Карта'
                             : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
-                              ? 'В долг'
-                              : 'Смешанная'
-                    const previewItems = (s.items || []).slice(0, 2)
+                              ? 'Долг'
+                              : 'Смеш.'
+                    const cashierShort = (s.cashierName || settings.cashierName || '—').split(' ')[0]
                     return (
                       <button
                         key={s.id}
@@ -9068,49 +9129,39 @@ export default function CashierModule({
                           <span className="hist-when">
                             {Number.isNaN(when.getTime())
                               ? s.createdAtIso
-                              : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
+                              : `${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${receiptScope === 'other' ? ` · ${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}` : ''}`}
+                            {` · ${cashierShort}`}
                             {s.clientName ? ` · ${s.clientName}` : ''}
                           </span>
-                          {previewItems.length > 0 && (
-                            <div className="receipt-item-previews">
-                              {previewItems.map((i, idx) => {
-                                const codes = productCodesForId(i.productId)
-                                return (
-                                  <div key={`${s.id}-${i.productId}-${idx}`} className="receipt-item-preview">
-                                    <span className="receipt-item-name">{i.productName || `#${i.productId}`}</span>
-                                    <span className="receipt-codes">
-                                      {codes.art ? <span>арт. {codes.art}</span> : null}
-                                      {codes.plu ? <span>PLU {codes.plu}</span> : null}
-                                      {codes.barcode ? <span>ш/к {codes.barcode}</span> : null}
-                                    </span>
-                                  </div>
-                                )
-                              })}
-                              {(s.items || []).length > 2 ? (
-                                <span className="receipt-item-more">+{(s.items || []).length - 2} ещё</span>
-                              ) : null}
-                            </div>
-                          )}
                         </div>
                         <div className="hist-amt-col">
                           <div className="hist-amt">{fmtMoney(s.total)}</div>
-                          {(Number(s.cashReceived) || 0) > 0.001 && (
-                            <div className="hist-cash-meta">
-                              <span>дал {fmtMoney(Number(s.cashReceived))}</span>
-                              {(Number(s.changeGiven) || 0) > 0.001 && (
-                                <span className="hist-change">сдача {fmtMoney(Number(s.changeGiven))}</span>
-                              )}
-                            </div>
-                          )}
                         </div>
                       </button>
                     )
                   })}
+                  {receiptList.length < receiptListTotalCount && (
+                    <button
+                      type="button"
+                      className="receipt-load-more"
+                      onClick={() => setReceiptLimit(n => n + 50)}
+                    >
+                      Показать ещё {Math.min(50, receiptListTotalCount - receiptList.length)}
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
               <div className="receipt-detail">
                 <div className="receipt-detail-meta">
+                  <div><span>Дата и время</span><b>{(() => {
+                    const when = new Date(receiptDetail.createdAtIso)
+                    return Number.isNaN(when.getTime())
+                      ? receiptDetail.createdAtIso
+                      : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+                  })()}</b></div>
+                  <div><span>Смена</span><b>{shiftLabelForSale(receiptDetail)}</b></div>
+                  <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
                   <div><span>Оплата</span><b>
                     {isSaleFullyReturned(receiptDetail)
                       ? 'Возврат'
@@ -9125,15 +9176,70 @@ export default function CashierModule({
                               : 'Смешанная'}
                   </b></div>
                   <div><span>Сумма</span><b className="sum">{fmtMoney(receiptDetail.total)}</b></div>
+                  {(Number(receiptDetail.paidCash) || 0) > 0.001 && (
+                    <div><span>Наличные</span><b>{fmtMoney(Number(receiptDetail.paidCash))}</b></div>
+                  )}
+                  {(Number(receiptDetail.paidCard) || 0) > 0.001 && (
+                    <div><span>Карта</span><b>{fmtMoney(Number(receiptDetail.paidCard))}</b></div>
+                  )}
+                  {(Number(receiptDetail.paidWallet) || 0) > 0.001 && (
+                    <div><span>Кошелёк</span><b>{fmtMoney(Number(receiptDetail.paidWallet))}</b></div>
+                  )}
+                  {(Number(receiptDetail.debtAdded) || 0) > 0.001 && (
+                    <div><span>В долг</span><b>{fmtMoney(Number(receiptDetail.debtAdded))}</b></div>
+                  )}
+                  {(Number(receiptDetail.discountAmount) || 0) > 0.001 && (
+                    <div><span>Скидка</span><b>{fmtMoney(Number(receiptDetail.discountAmount))}</b></div>
+                  )}
+                  {(Number(receiptDetail.bonusSpent) || 0) > 0.001 && (
+                    <div><span>Списано бонусов</span><b>{fmtMoney(Number(receiptDetail.bonusSpent))}</b></div>
+                  )}
+                  {(Number(receiptDetail.bonusEarned) || 0) > 0.001 && (
+                    <div><span>Начислено бонусов</span><b>{fmtMoney(Number(receiptDetail.bonusEarned))}</b></div>
+                  )}
                   {(Number(receiptDetail.cashReceived) || 0) > 0.001 && (
                     <div><span>Дал клиент</span><b className="bank-fig">{fmtMoney(Number(receiptDetail.cashReceived))}</b></div>
                   )}
                   {(Number(receiptDetail.changeGiven) || 0) > 0.001 && (
                     <div><span>Сдача</span><b className="sum">{fmtMoney(Number(receiptDetail.changeGiven))}</b></div>
                   )}
-                  <div><span>Клиент</span><b>{receiptDetail.clientName || 'Без клиента'}</b></div>
-                  <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
+                  <div>
+                    <span>Клиент</span>
+                    <b>
+                      {receiptDetail.clientName || 'Без клиента'}
+                      {receiptDetail.clientPhone ? ` · ${receiptDetail.clientPhone}` : ''}
+                    </b>
+                  </div>
+                  {needsAdminReturnConfirm(receiptDetail) && !isSaleFullyReturned(receiptDetail) && (
+                    <div><span>Возврат</span><b style={{ color: 'var(--org, #e8a23a)' }}>Нужен код админа (чужая/закрытая смена)</b></div>
+                  )}
                 </div>
+                {(receiptDetail.returns || []).length > 0 && (
+                  <div className="receipt-returns-block">
+                    <div className="hist-section-h">История возвратов</div>
+                    <div className="receipt-returns-list">
+                      {(receiptDetail.returns || []).map((r, idx) => {
+                        const at = new Date(r.atIso)
+                        const who = r.cashierId
+                          ? (shifts.find(x => x.cashierId === r.cashierId)?.cashierName
+                            || (r.cashierId === settings.cashierId ? settings.cashierName : r.cashierId))
+                          : '—'
+                        return (
+                          <div key={`${r.atIso}-${idx}`} className="receipt-return-row">
+                            <b>{fmtMoney(Number(r.total) || 0)}</b>
+                            <span>
+                              {Number.isNaN(at.getTime())
+                                ? r.atIso
+                                : `${at.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
+                              {` · ${who}`}
+                              {r.note ? ` · ${r.note}` : ''}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="hist-section-h" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                   <span>Состав</span>
                   {!isSaleFullyReturned(receiptDetail) && (

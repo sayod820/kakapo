@@ -483,11 +483,45 @@ export const POS_MOCK_CSS = `
   }
   .cashier-screen-inner.receipts-fs .cashier-screen-top{margin-bottom:12px;flex-shrink:0;}
   .cashier-screen-inner.receipts-fs .receipt-topbar,
+  .cashier-screen-inner.receipts-fs .receipt-scope-bar,
+  .cashier-screen-inner.receipts-fs .receipt-shift-card,
   .cashier-screen-inner.receipts-fs .receipt-product-hint{flex-shrink:0;}
+  .receipt-scope-bar{display:flex;gap:6px;margin-bottom:10px;flex-shrink:0;}
+  .pos-root button.receipt-scope-btn{
+    flex:1;padding:8px 12px;border-radius:10px;font-size:12.5px;font-weight:850;
+    background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);
+  }
+  .pos-root button.receipt-scope-btn.on{border-color:var(--accent);background:rgba(31,215,96,.12);color:var(--accent);}
+  .receipt-shift-card{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    margin-bottom:10px;padding:10px 12px;border-radius:12px;flex-shrink:0;
+    background:linear-gradient(135deg,rgba(31,215,96,.12),rgba(31,215,96,.04));
+    border:1px solid rgba(31,215,96,.22);
+  }
+  .receipt-shift-card-main{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .receipt-shift-card-main b{font-size:13px;font-weight:900;color:var(--t1);}
+  .receipt-shift-card-main span{font-size:11px;font-weight:750;color:var(--t3);}
+  .receipt-shift-card-stats{display:flex;gap:14px;flex-wrap:wrap;}
+  .receipt-shift-card-stats span{font-size:12px;font-weight:800;color:var(--t2);}
+  .receipt-shift-card-stats b{font-family:'JetBrains Mono',monospace;color:var(--accent);}
   .receipt-topbar{
     display:grid;grid-template-columns:minmax(220px,1fr) minmax(320px,1.15fr);
     gap:10px 14px;align-items:start;margin-bottom:10px;
   }
+  .receipt-topbar-shift{margin-bottom:8px;}
+  .pos-root button.receipt-load-more{
+    width:100%;margin-top:4px;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:850;
+    background:var(--surface2);border:1.5px dashed var(--border);color:var(--accent);
+  }
+  .pos-root button.receipt-load-more:hover{border-color:var(--accent);background:rgba(31,215,96,.08);}
+  .receipt-returns-block{margin:0 0 14px;}
+  .receipt-returns-list{display:flex;flex-direction:column;gap:6px;}
+  .receipt-return-row{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+    padding:8px 10px;border-radius:10px;background:rgba(255,69,69,.06);border:1px solid rgba(255,69,69,.2);
+  }
+  .receipt-return-row b{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:900;color:var(--t1);flex-shrink:0;}
+  .receipt-return-row span{font-size:11.5px;font-weight:750;color:var(--t2);text-align:right;}
   .receipt-search{margin:0;position:relative;min-width:0;}
   .receipt-search .search-clear{
     position:absolute;right:10px;top:50%;transform:translateY(-50%);
