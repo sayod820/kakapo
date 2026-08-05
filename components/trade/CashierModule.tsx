@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { api, isNetworkError } from '@/lib/api'
+import { api, isNetworkError, NetworkError } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
@@ -51,6 +51,7 @@ import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { beginCashierCritical, endCashierCritical, isCashierCritical } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
@@ -1090,12 +1091,40 @@ export default function CashierModule({
 
   useEffect(() => { startNetSync() }, [startNetSync])
 
+  /** Пока идёт оплата/пробитие — не гоняем тяжёлый sync в фоне (иначе поиск «замирает») */
+  useEffect(() => {
+    const critical =
+      busy
+      || !!saleConfirm
+      || payPickOpen
+      || cashOpen
+      || splitCardOpen
+      || creditNoteOpen
+      || topupOpen
+      || repayOpen
+      || !!tillMoveKind
+    if (!critical) return
+    beginCashierCritical()
+    return () => { endCashierCritical() }
+  }, [
+    busy,
+    saleConfirm,
+    payPickOpen,
+    cashOpen,
+    splitCardOpen,
+    creditNoteOpen,
+    topupOpen,
+    repayOpen,
+    tillMoveKind,
+  ])
+
   /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
   useEffect(() => {
     if (!USE_API) return
     let cancelled = false
     const softSync = () => {
       if (cancelled || document.visibilityState === 'hidden') return
+      if (isCashierCritical()) return
       // Не смотрим на navigator.onLine — в Electron после reconnect он часто врёт.
       void softSyncPosAfterSale()
       const net = useOfflineSync.getState()
@@ -4761,7 +4790,16 @@ export default function CashierModule({
         created = await applyOfflineSaleLocal()
       } else {
         try {
-          created = await api.createPosSale(salePayload)
+          // Короткий race: слабый интернет не должен держать busy и модалки
+          created = await Promise.race([
+            api.createPosSale(salePayload),
+            new Promise<never>((_, reject) => {
+              setTimeout(
+                () => reject(new NetworkError('Медленная связь — чек сохранён локально')),
+                1600,
+              )
+            }),
+          ])
           usePosStore.setState(st => ({
             sales: [created, ...st.sales.filter(x => x.id !== created.id)],
             shifts: st.shifts.map(sh => sh.id === activeShift.id ? {
@@ -4789,6 +4827,10 @@ export default function CashierModule({
           }
         }
       }
+
+      // Сразу снимаем busy — дальше фон (sync/бонусы) не должен блокировать поиск
+      sellingTicketIdRef.current = null
+      setBusy(false)
 
       if (created._offline) {
         // Не пугаем «офлайн», если сеть есть — просто фоновая отправка

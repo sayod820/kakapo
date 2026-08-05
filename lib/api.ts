@@ -182,17 +182,27 @@ const RETRY_STATUS = new Set([500, 502, 503, 504])
 const REQUEST_TIMEOUT_MS = 12000
 const LIST_TIMEOUT_MS = 20000
 const REVIEW_TIMEOUT_MS = 30000
-/** Чек кассы: лучше быстро уйти в офлайн-очередь, чем висеть 24+ сек */
-const POS_SALE_TIMEOUT_MS = 2500
+/** Чек кассы: лучше быстро уйти в офлайн-очередь, чем висеть */
+const POS_SALE_TIMEOUT_MS = 1600
 const MAX_ATTEMPTS = 2
 const RETRY_DELAY_MS = 1200
 
-function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = REQUEST_TIMEOUT_MS, abort?: AbortController): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new NetworkError('Сервер не отвечает. Попробуйте ещё раз.')), ms)
+    const timer = setTimeout(() => {
+      try { abort?.abort() } catch { /* ignore */ }
+      reject(new NetworkError('Сервер не отвечает. Попробуйте ещё раз.'))
+    }, ms)
     promise.then(
       v => { clearTimeout(timer); resolve(v) },
-      e => { clearTimeout(timer); reject(e) },
+      e => {
+        clearTimeout(timer)
+        if (abort?.signal.aborted) {
+          reject(new NetworkError('Сервер не отвечает. Попробуйте ещё раз.'))
+          return
+        }
+        reject(e)
+      },
     )
   })
 }
@@ -237,14 +247,28 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
 
   let res: Response
   try {
-    res = await withTimeout(fetch(url, { ...options, headers }), timeoutMs)
+    const ctrl = new AbortController()
+    const parentSignal = options.signal
+    if (parentSignal) {
+      if (parentSignal.aborted) {
+        throw new NetworkError('Сервер не отвечает. Попробуйте ещё раз.')
+      }
+      parentSignal.addEventListener('abort', () => {
+        try { ctrl.abort() } catch { /* ignore */ }
+      }, { once: true })
+    }
+    res = await withTimeout(
+      fetch(url, { ...options, headers, signal: ctrl.signal }),
+      timeoutMs,
+      ctrl,
+    )
   } catch (e) {
     noteApiFail()
     const timedOut = e instanceof NetworkError || (e instanceof Error && e.message.includes('Сервер не отвечает'))
-    // Сетевая ошибка / таймаут: один повтор максимум, иначе касса «висит» по 75 секунд
-    if (timedOut && attempt < 1) {
-      await new Promise(r => setTimeout(r, 800))
-      return requestUrl<T>(url, options, attempt + 1, Math.min(timeoutMs, 12000))
+    // Сетевая ошибка / таймаут: один повтор максимум, иначе касса «висит»
+    if (timedOut && attempt < 1 && timeoutMs > 2000) {
+      await new Promise(r => setTimeout(r, 400))
+      return requestUrl<T>(url, options, attempt + 1, Math.min(timeoutMs, 8000))
     }
     if (timedOut) {
       throw new NetworkError('Сервер не отвечает. Подождите немного и обновите страницу.')
