@@ -8,12 +8,9 @@ import {
   deleteStockReceiptSafe,
   updateStockReceiptSafe,
 } from '@/lib/offlineWarehouseOps'
-import { useProductPhotos } from '@/lib/productPhotos'
 import { useProducts } from '@/lib/store'
-import { useCategories } from '@/lib/useCategories'
 import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
-import { buildProductPayload, type ProductForm } from '@/components/trade/products/productFormShared'
 import WarehouseNewProductModal from './WarehouseNewProductModal'
 import WarehouseNewSupplierModal from './WarehouseNewSupplierModal'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
@@ -26,11 +23,9 @@ import {
   defaultMarkupPct,
   defaultReceiptDraft,
   emptyReceiptLine,
-  lineHasProduct,
   linePurchaseSum,
   loadReceiptDraft,
   markupFromRetail,
-  productFromPending,
   receiptHasConsumption,
   receiptToDraft,
   retailFromMarkup,
@@ -76,28 +71,11 @@ function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptD
   return {
     ...line,
     productId: product.id,
-    pendingProduct: null,
     costPrice: cost,
     retailPrice,
     markupPct,
     qty: line.qty || '1',
     bulkPricing: (product.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
-  }
-}
-
-function fillLineFromPendingForm(line: ReceiptDraftLine, form: ProductForm): ReceiptDraftLine {
-  const pending = productFromPending({ ...line, pendingProduct: { form } })
-  const withPending: ReceiptDraftLine = {
-    ...line,
-    productId: null,
-    pendingProduct: { form },
-    qty: line.qty || '1',
-    bulkPricing: [],
-  }
-  if (!pending) return withPending
-  return {
-    ...withPending,
-    markupPct: line.markupPct || defaultMarkupPct(pending),
   }
 }
 
@@ -350,9 +328,6 @@ export default function WarehouseReceiptsPanel({
   onRefresh: () => Promise<void>
 }) {
   const fetchProducts = useProducts(s => s.fetchProducts)
-  const saveProduct = useProducts(s => s.saveProduct)
-  const { setPhoto } = useProductPhotos()
-  const { categories } = useCategories()
   const hydrated = useRef(false)
   const scrollRestored = useRef(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -407,7 +382,7 @@ export default function WarehouseReceiptsPanel({
   useEffect(() => {
     if (!open || !hydrated.current) return
     setDraft(prev => {
-      if (prev.lines.some(l => !lineHasProduct(l))) return prev
+      if (prev.lines.some(l => !l.productId)) return prev
       return { ...prev, lines: [...prev.lines, emptyReceiptLine()] }
     })
   }, [open])
@@ -469,7 +444,7 @@ export default function WarehouseReceiptsPanel({
 
   function ensureTrailingEmptyLine(updatedLines: ReceiptDraftLine[]) {
     const last = updatedLines[updatedLines.length - 1]
-    if (last && lineHasProduct(last)) return [...updatedLines, emptyReceiptLine()]
+    if (last?.productId) return [...updatedLines, emptyReceiptLine()]
     return updatedLines
   }
 
@@ -480,9 +455,7 @@ export default function WarehouseReceiptsPanel({
       resetForm()
       return
     }
-    if (lines.some(l => lineHasProduct(l) || l.qty || l.costPrice) && !confirm(
-      'Закрыть приход? Черновик сохранится в браузере.\n\nНовые товары появятся на кассе только после «Провести приход».',
-    )) return
+    if (lines.some(l => l.productId || l.qty || l.costPrice) && !confirm('Закрыть приход? Черновик сохранится в браузере.')) return
     setDraft(prev => ({ ...prev, open: false }))
   }
 
@@ -598,16 +571,7 @@ export default function WarehouseReceiptsPanel({
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
-      updateLine(key, {
-        productId: null,
-        pendingProduct: null,
-        qty: '',
-        purchaseTotal: '',
-        costPrice: '',
-        retailPrice: '',
-        markupPct: '',
-        bulkPricing: [],
-      })
+      updateLine(key, { productId: null, qty: '', purchaseTotal: '', costPrice: '', retailPrice: '', markupPct: '', bulkPricing: [] })
       setActiveLine(key)
       return
     }
@@ -636,22 +600,6 @@ export default function WarehouseReceiptsPanel({
     })
   }
 
-  function selectPendingProduct(key: string, form: ProductForm) {
-    setDraft(prev => {
-      const updated = prev.lines.map(l => (l.key === key ? fillLineFromPendingForm(l, form) : l))
-      return {
-        ...prev,
-        activeLineKey: key,
-        lines: ensureTrailingEmptyLine(updated),
-      }
-    })
-    requestAnimationFrame(() => {
-      scrollLineIntoBody(key)
-      qtyRefs.current[key]?.focus()
-      qtyRefs.current[key]?.select()
-    })
-  }
-
   function openNewProduct(key: string, name: string, barcode = '') {
     setNewProductLineKey(key)
     setNewProductName(name)
@@ -661,7 +609,7 @@ export default function WarehouseReceiptsPanel({
   }
 
   function openDuplicateProduct(source: Product) {
-    const pending = [...lines].reverse().find(l => !lineHasProduct(l))
+    const pending = [...lines].reverse().find(l => !l.productId)
     if (!pending) return
     setNewProductLineKey(pending.key)
     setNewProductName(source.name)
@@ -669,8 +617,8 @@ export default function WarehouseReceiptsPanel({
     setNewProductOpen(true)
   }
 
-  function onProductPrepared(form: ProductForm) {
-    if (newProductLineKey) selectPendingProduct(newProductLineKey, form)
+  function onProductCreated(product: Product) {
+    if (newProductLineKey) selectProduct(newProductLineKey, product)
     setNewProductOpen(false)
     setNewProductLineKey(null)
     setDuplicateFrom(null)
@@ -688,7 +636,7 @@ export default function WarehouseReceiptsPanel({
     let retailTotal = 0
     let count = 0
     for (const l of lines) {
-      if (!lineHasProduct(l)) continue
+      if (!l.productId) continue
       const qty = Number(l.qty) || 0
       if (qty <= 0) continue
       count++
@@ -696,47 +644,28 @@ export default function WarehouseReceiptsPanel({
       retailTotal += qty * (Number(l.retailPrice) || 0)
     }
     const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
-    return { costTotal, retailTotal, markup, count, withProduct: lines.filter(l => lineHasProduct(l)).length }
+    return { costTotal, retailTotal, markup, count, withProduct: lines.filter(l => l.productId).length }
   }, [lines])
 
   async function submit() {
     if (!USE_API) return
-    const readyLines = lines.filter(l => lineHasProduct(l) && Number(l.qty) > 0)
-    if (!readyLines.length) {
+    const items = lines
+      .filter(l => l.productId && Number(l.qty) > 0)
+      .map(l => ({
+        productId: l.productId!,
+        qty: Number(l.qty),
+        costPrice: Number(l.costPrice) || 0,
+        retailPrice: Number(l.retailPrice) || undefined,
+        bulkPricing: serializeBulkPricing(l.bulkPricing),
+        expiryDate: l.expiryDate || null,
+      }))
+    if (!items.length) {
       setMsg('Добавьте товар и укажите количество')
       return
     }
     setSaving(true)
     setMsg('')
     try {
-      // Сначала создаём товары из черновика — только при проведении прихода
-      const resolved: { line: ReceiptDraftLine; productId: number }[] = []
-      let catalog = products
-      for (const line of readyLines) {
-        if (line.productId != null) {
-          resolved.push({ line, productId: line.productId })
-          continue
-        }
-        const form = line.pendingProduct?.form
-        if (!form?.name?.trim()) {
-          throw new Error('В черновике есть строка без товара')
-        }
-        const payload = buildProductPayload(form, catalog, null, categories)
-        const saved = await saveProduct(payload)
-        if (!saved?.id) throw new Error(`Не удалось создать товар «${form.name.trim()}»`)
-        if (form.photo) setPhoto(saved.id, form.photo)
-        catalog = [...catalog.filter(p => p.id !== saved.id), saved]
-        resolved.push({ line, productId: saved.id })
-      }
-
-      const items = resolved.map(({ line, productId }) => ({
-        productId,
-        qty: Number(line.qty),
-        costPrice: Number(line.costPrice) || 0,
-        retailPrice: Number(line.retailPrice) || undefined,
-        bulkPricing: serializeBulkPricing(line.bulkPricing),
-        expiryDate: line.expiryDate || null,
-      }))
       const payload = {
         supplierId: supplierId || undefined,
         paidNow: Number(paidNow) || 0,
@@ -757,7 +686,6 @@ export default function WarehouseReceiptsPanel({
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
-      void fetchProducts()
     } finally {
       setSaving(false)
     }
@@ -783,19 +711,13 @@ export default function WarehouseReceiptsPanel({
 
   const editingReceipt = editingId ? receipts.find(r => r.id === editingId) || null : null
 
-  const hasDraft = !editingId && lines.some(l => lineHasProduct(l) || l.qty || l.costPrice)
-  const filledLines = useMemo(() => lines.filter(l => lineHasProduct(l)), [lines])
+  const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
+  const filledLines = useMemo(() => lines.filter(l => l.productId), [lines])
   const listQuery = listQ.trim().toLowerCase()
-
-  function resolveLineProduct(line: ReceiptDraftLine): Product | null {
-    if (line.productId != null) return products.find(p => p.id === line.productId) || null
-    return productFromPending(line)
-  }
-
   const visibleFilledLines = useMemo(() => {
     if (!listQuery) return filledLines
     return filledLines.filter(line => {
-      const product = resolveLineProduct(line)
+      const product = products.find(p => p.id === line.productId)
       if (!product) return false
       const unit = productUnitLabel(product.unit).toLowerCase()
       if (listQuery === 'г' || listQuery === 'гр' || listQuery === 'грамм') {
@@ -813,7 +735,6 @@ export default function WarehouseReceiptsPanel({
         .toLowerCase()
       return hay.includes(listQuery) || String(product.id) === listQuery
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveLineProduct closes over products
   }, [filledLines, listQuery, products])
 
   const filteredReceipts = useMemo(() => {
@@ -848,9 +769,7 @@ export default function WarehouseReceiptsPanel({
           + Новый приход
         </button>
         {hasDraft && !open && (
-          <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, textAlign: 'center' }}>
-            ● Есть черновик — откройте и нажмите «Провести приход», иначе новые товары не появятся на кассе
-          </span>
+          <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, textAlign: 'center' }}>● Есть черновик — нажмите кнопку выше</span>
         )}
       </div>
       <div className="k-wh-cta-spacer" aria-hidden />
@@ -1169,73 +1088,60 @@ export default function WarehouseReceiptsPanel({
               )}
 
               {visibleFilledLines.map((line) => {
-                const product = resolveLineProduct(line)
+                const product = products.find(p => p.id === line.productId) || null
                 if (!product) return null
                 const idx = filledLines.findIndex(l => l.key === line.key)
                 const isActive = activeLineKey === line.key
-                const isPendingNew = !!line.pendingProduct && line.productId == null
                 if (!isActive) {
                   return (
-                    <Fragment key={line.key}>
-                      {isPendingNew && (
-                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold)', margin: '0 0 4px 34px' }}>
-                          Новый · появится на кассе после проведения прихода
-                        </div>
-                      )}
-                      <ReceiptLineSummary
-                        line={line}
-                        idx={idx}
-                        product={product}
-                        onActivate={() => setActiveLine(line.key)}
-                        onDuplicate={() => openDuplicateProduct(product)}
-                        onRemove={() => setDraft(prev => ({
-                          ...prev,
-                          lines: prev.lines.filter(l => l.key !== line.key),
-                          activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                        }))}
-                        cardRef={el => { lineRefs.current[line.key] = el }}
-                      />
-                    </Fragment>
-                  )
-                }
-                return (
-                  <Fragment key={line.key}>
-                    {isPendingNew && (
-                      <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--gold)', margin: '0 0 4px 34px' }}>
-                        Новый · появится на кассе после проведения прихода
-                      </div>
-                    )}
-                    <ReceiptLineCard
+                    <ReceiptLineSummary
+                      key={line.key}
                       line={line}
                       idx={idx}
                       product={product}
-                      canRemove={filledLines.length > 0}
-                      onClear={() => selectProduct(line.key, null)}
+                      onActivate={() => setActiveLine(line.key)}
                       onDuplicate={() => openDuplicateProduct(product)}
                       onRemove={() => setDraft(prev => ({
                         ...prev,
                         lines: prev.lines.filter(l => l.key !== line.key),
                         activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                       }))}
-                      onDone={() => setActiveLine(null)}
-                      onQty={v => setLineQty(line.key, v)}
-                      onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
-                      onCost={v => setLineCost(line.key, v)}
-                      onMarkup={v => setLineMarkup(line.key, v)}
-                      onRetail={v => setLineRetail(line.key, v)}
-                      onExpiry={v => updateLine(line.key, { expiryDate: v })}
-                      onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
-                      onQuickMarkup={p => setLineMarkup(line.key, String(p))}
                       cardRef={el => { lineRefs.current[line.key] = el }}
-                      qtyRef={el => { qtyRefs.current[line.key] = el }}
                     />
-                  </Fragment>
+                  )
+                }
+                return (
+                  <ReceiptLineCard
+                    key={line.key}
+                    line={line}
+                    idx={idx}
+                    product={product}
+                    canRemove={filledLines.length > 0}
+                    onClear={() => selectProduct(line.key, null)}
+                    onDuplicate={() => openDuplicateProduct(product)}
+                    onRemove={() => setDraft(prev => ({
+                      ...prev,
+                      lines: prev.lines.filter(l => l.key !== line.key),
+                      activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                    }))}
+                    onDone={() => setActiveLine(null)}
+                    onQty={v => setLineQty(line.key, v)}
+                    onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
+                    onCost={v => setLineCost(line.key, v)}
+                    onMarkup={v => setLineMarkup(line.key, v)}
+                    onRetail={v => setLineRetail(line.key, v)}
+                    onExpiry={v => updateLine(line.key, { expiryDate: v })}
+                    onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
+                    onQuickMarkup={p => setLineMarkup(line.key, String(p))}
+                    cardRef={el => { lineRefs.current[line.key] = el }}
+                    qtyRef={el => { qtyRefs.current[line.key] = el }}
+                  />
                 )
               })}
 
               {(() => {
-                const pending = [...lines].reverse().find(l => !lineHasProduct(l))!
-                const pendingIdx = lines.filter(l => lineHasProduct(l)).length
+                const pending = [...lines].reverse().find(l => !l.productId)!
+                const pendingIdx = lines.filter(l => l.productId).length
                 return (
                   <div
                     data-receipt-pending="1"
@@ -1300,9 +1206,8 @@ export default function WarehouseReceiptsPanel({
         initialName={newProductName}
         initialBarcode={newProductBarcode}
         duplicateFrom={duplicateFrom}
-        deferCreate
         onClose={() => { setNewProductOpen(false); setDuplicateFrom(null); setNewProductBarcode('') }}
-        onPrepared={onProductPrepared}
+        onCreated={onProductCreated}
       />
 
       <WarehouseNewSupplierModal
