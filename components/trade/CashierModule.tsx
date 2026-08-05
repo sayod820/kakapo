@@ -8966,21 +8966,28 @@ export default function CashierModule({
                 {receiptDetail && <p>{saleNumberLabel(receiptDetail)}</p>}
               </div>
               {!receiptDetail && (
-                <div className="receipts-top-meta">
+                <div className="receipt-shift-card receipts-top-shift">
                   {receiptScope === 'shift' && receiptShiftHeader ? (
                     <>
-                      <b>{receiptShiftHeader.title}</b>
-                      <span>{receiptShiftHeader.openedLabel}</span>
-                      <span className="receipts-top-stats">
-                        {receiptListTotalCount} чек. · <b>{fmtMoney(receiptPeriodSum)}</b>
-                      </span>
+                      <div className="receipt-shift-card-main">
+                        <b>{receiptShiftHeader.title}</b>
+                        <span>{receiptShiftHeader.openedLabel}</span>
+                      </div>
+                      <div className="receipt-shift-card-stats">
+                        <span>Чеков: <b>{receiptListTotalCount}</b></span>
+                        <span>Выручка: <b>{fmtMoney(receiptPeriodSum)}</b></span>
+                      </div>
                     </>
                   ) : (
                     <>
-                      <b>Другие смены</b>
-                      <span className="receipts-top-stats">
-                        {receiptListTotalCount} чек. · <b>{fmtMoney(receiptPeriodSum)}</b>
-                      </span>
+                      <div className="receipt-shift-card-main">
+                        <b>Другие смены</b>
+                        <span>выберите период ниже</span>
+                      </div>
+                      <div className="receipt-shift-card-stats">
+                        <span>Чеков: <b>{receiptListTotalCount}</b></span>
+                        <span>Выручка: <b>{fmtMoney(receiptPeriodSum)}</b></span>
+                      </div>
                     </>
                   )}
                 </div>

@@ -489,14 +489,21 @@ export const POS_MOCK_CSS = `
   .receipts-top-title{min-width:0;flex:0 1 auto;}
   .receipts-top-title h2{margin:0;}
   .receipts-top-title p{margin:2px 0 0;}
-  .receipts-top-meta{
-    margin-left:auto;text-align:right;min-width:0;max-width:min(420px,52%);
-    display:flex;flex-direction:column;align-items:flex-end;gap:2px;
+  .receipt-shift-card{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:8px 12px;border-radius:12px;flex-shrink:0;
+    background:linear-gradient(135deg,rgba(31,215,96,.12),rgba(31,215,96,.04));
+    border:1px solid rgba(31,215,96,.22);
   }
-  .receipts-top-meta b{font-size:13px;font-weight:900;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
-  .receipts-top-meta span{font-size:11.5px;font-weight:750;color:var(--t3);}
-  .receipts-top-stats{color:var(--t2)!important;font-weight:800!important;}
-  .receipts-top-stats b{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--accent);}
+  .receipt-shift-card.receipts-top-shift{
+    margin-left:auto;margin-bottom:0;max-width:min(520px,58%);
+  }
+  .receipt-shift-card-main{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .receipt-shift-card-main b{font-size:13px;font-weight:900;color:var(--t1);}
+  .receipt-shift-card-main span{font-size:11px;font-weight:750;color:var(--t3);}
+  .receipt-shift-card-stats{display:flex;gap:14px;flex-wrap:wrap;}
+  .receipt-shift-card-stats span{font-size:12px;font-weight:800;color:var(--t2);}
+  .receipt-shift-card-stats b{font-family:'JetBrains Mono',monospace;color:var(--accent);}
   .receipt-scope-bar{display:flex;gap:6px;margin-bottom:8px;flex-shrink:0;}
   .pos-root button.receipt-scope-btn{
     flex:1;padding:7px 12px;border-radius:10px;font-size:12.5px;font-weight:850;
@@ -510,7 +517,7 @@ export const POS_MOCK_CSS = `
   .receipt-topbar-shift{margin-bottom:8px;}
   @media(max-width:900px){
     .cashier-screen-top.receipts-top{flex-wrap:wrap;}
-    .receipts-top-meta{margin-left:0;max-width:100%;width:100%;align-items:flex-start;text-align:left;}
+    .receipt-shift-card.receipts-top-shift{margin-left:0;max-width:100%;width:100%;}
   }
   .pos-root button.receipt-load-more{
     width:100%;margin-top:4px;padding:10px 12px;border-radius:12px;font-size:12.5px;font-weight:850;
