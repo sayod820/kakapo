@@ -8945,7 +8945,7 @@ export default function CashierModule({
       {cashierScreen === 'receipts' && activeShift && (
         <div className="cashier-screen receipts-screen">
           <div className="cashier-screen-inner wide receipts-fs">
-            <div className="cashier-screen-top">
+            <div className="cashier-screen-top receipts-top">
               <button
                 type="button"
                 className="hist-back"
@@ -8961,16 +8961,30 @@ export default function CashierModule({
               >
                 ← Назад
               </button>
-              <div>
+              <div className="receipts-top-title">
                 <h2>{receiptDetail ? 'Чек' : 'История чеков'}</h2>
-                <p>
-                  {receiptDetail
-                    ? saleNumberLabel(receiptDetail)
-                    : receiptScope === 'shift'
-                      ? (receiptShiftHeader ? `${receiptShiftHeader.title} · ${receiptShiftHeader.openedLabel}` : 'Текущая смена')
-                      : 'Другие смены'}
-                </p>
+                {receiptDetail && <p>{saleNumberLabel(receiptDetail)}</p>}
               </div>
+              {!receiptDetail && (
+                <div className="receipts-top-meta">
+                  {receiptScope === 'shift' && receiptShiftHeader ? (
+                    <>
+                      <b>{receiptShiftHeader.title}</b>
+                      <span>{receiptShiftHeader.openedLabel}</span>
+                      <span className="receipts-top-stats">
+                        {receiptListTotalCount} чек. · <b>{fmtMoney(receiptPeriodSum)}</b>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <b>Другие смены</b>
+                      <span className="receipts-top-stats">
+                        {receiptListTotalCount} чек. · <b>{fmtMoney(receiptPeriodSum)}</b>
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {!receiptDetail ? (
@@ -8991,19 +9005,6 @@ export default function CashierModule({
                     Другие смены
                   </button>
                 </div>
-
-                {receiptScope === 'shift' && receiptShiftHeader && (
-                  <div className="receipt-shift-card">
-                    <div className="receipt-shift-card-main">
-                      <b>{receiptShiftHeader.title}</b>
-                      <span>{receiptShiftHeader.openedLabel}</span>
-                    </div>
-                    <div className="receipt-shift-card-stats">
-                      <span>Чеков: <b>{receiptListTotalCount}</b></span>
-                      <span>Выручка: <b>{fmtMoney(receiptPeriodSum)}</b></span>
-                    </div>
-                  </div>
-                )}
 
                 <div className="receipt-topbar receipt-topbar-shift">
                   <div className="pos-search receipt-search">
@@ -9028,29 +9029,6 @@ export default function CashierModule({
                   </div>
 
                   <div className="receipt-toolbar">
-                    {receiptScope === 'other' && (
-                      <div className="receipt-filters-row">
-                        <div className="receipt-period-inline" title="Период других смен">
-                          <input
-                            type="date"
-                            value={receiptFrom}
-                            onChange={e => { setReceiptFrom(e.target.value); setReceiptLimit(50) }}
-                            aria-label="Дата с"
-                          />
-                          <span>—</span>
-                          <input
-                            type="date"
-                            value={receiptTo}
-                            onChange={e => { setReceiptTo(e.target.value); setReceiptLimit(50) }}
-                            aria-label="Дата по"
-                          />
-                        </div>
-                        <div className="receipt-summary receipt-summary-inline">
-                          <span>{receiptListTotalCount} чек.</span>
-                          <b>{fmtMoney(receiptPeriodSum)}</b>
-                        </div>
-                      </div>
-                    )}
                     <div className="receipt-filters-row">
                       <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Оплата">
                         {([
@@ -9070,10 +9048,21 @@ export default function CashierModule({
                           </button>
                         ))}
                       </div>
-                      {receiptScope === 'shift' && (
-                        <div className="receipt-summary receipt-summary-inline">
-                          <span>{receiptQ.trim() ? `${receiptList.length}/${receiptListTotalCount}` : `${receiptListTotalCount}`}</span>
-                          <b>{fmtMoney(receiptPeriodSum)}</b>
+                      {receiptScope === 'other' && (
+                        <div className="receipt-period-inline" title="Период других смен">
+                          <input
+                            type="date"
+                            value={receiptFrom}
+                            onChange={e => { setReceiptFrom(e.target.value); setReceiptLimit(50) }}
+                            aria-label="Дата с"
+                          />
+                          <span>—</span>
+                          <input
+                            type="date"
+                            value={receiptTo}
+                            onChange={e => { setReceiptTo(e.target.value); setReceiptLimit(50) }}
+                            aria-label="Дата по"
+                          />
                         </div>
                       )}
                     </div>
