@@ -495,26 +495,34 @@ export const POS_MOCK_CSS = `
     background:transparent;color:var(--t3);font-size:18px;font-weight:700;line-height:1;
   }
   .receipt-search .search-clear:hover{background:var(--border2);color:var(--t1);}
-  .receipt-toolbar{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
-  .receipt-filters{display:flex;gap:8px;flex-wrap:wrap;}
-  .receipt-period-range{
-    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-    padding:10px 12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);
+  .receipt-toolbar{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;}
+  .receipt-filters-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .receipt-filters{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+  .receipt-filters-sm{flex:1;min-width:0;}
+  .receipt-period-inline{
+    display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+    padding:3px 6px;border-radius:10px;background:var(--surface);border:1px solid var(--border);
   }
-  .receipt-period-range label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--t2);}
-  .receipt-period-range span{min-width:18px;color:var(--t3);}
-  .receipt-period-range input[type="date"]{
-    border:1.5px solid var(--border);background:var(--surface2);color:var(--t1);
-    border-radius:10px;padding:7px 10px;font:inherit;font-weight:700;
+  .receipt-period-inline span{color:var(--t3);font-size:11px;font-weight:800;}
+  .receipt-period-inline input[type="date"]{
+    border:none;background:transparent;color:var(--t1);
+    border-radius:6px;padding:3px 2px;font:inherit;font-size:11.5px;font-weight:750;
+    max-width:128px;
   }
+  .receipt-period-range{display:none;}
   .receipt-summary{
     display:flex;align-items:center;justify-content:space-between;gap:12px;
     padding:10px 14px;border-radius:14px;
     background:linear-gradient(135deg,rgba(31,215,96,.12),rgba(31,215,96,.04));
     border:1px solid rgba(31,215,96,.22);
   }
+  .receipt-summary-inline{
+    margin-left:auto;padding:5px 10px;gap:8px;border-radius:10px;flex-shrink:0;
+  }
   .receipt-summary span{font-size:12px;font-weight:800;color:var(--t2);}
+  .receipt-summary-inline span{font-size:11px;}
   .receipt-summary b{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:900;color:var(--accent);}
+  .receipt-summary-inline b{font-size:13px;}
   .receipt-product-hint{
     margin:-2px 0 12px;padding:10px 12px;border-radius:14px;
     background:rgba(31,215,96,.08);border:1px solid rgba(31,215,96,.22);
@@ -529,8 +537,17 @@ export const POS_MOCK_CSS = `
     color:var(--t2);background:var(--surface2);border:1px solid var(--border);
     border-radius:8px;padding:2px 7px;
   }
-  .pos-root button.receipt-filter{padding:8px 12px;border-radius:11px;font-size:11.5px;font-weight:800;background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);}
+  .pos-root button.receipt-filter{
+    padding:5px 9px;border-radius:9px;font-size:11px;font-weight:800;
+    background:var(--surface2);border:1.5px solid var(--border);color:var(--t2);
+  }
   .pos-root button.receipt-filter.on{border-color:var(--accent);background:rgba(31,215,96,.1);color:var(--accent);}
+  @media(max-width:640px){
+    .receipt-filters-row{flex-direction:column;align-items:stretch;}
+    .receipt-period-inline{width:100%;justify-content:space-between;}
+    .receipt-period-inline input[type="date"]{max-width:none;flex:1;}
+    .receipt-summary-inline{width:100%;justify-content:space-between;margin-left:0;}
+  }
   .receipt-list{display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;padding-bottom:12px;}
   .pos-root button.receipt-row{
     display:flex;align-items:flex-start;justify-content:space-between;gap:14px;width:100%;text-align:left;

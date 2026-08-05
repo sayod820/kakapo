@@ -3385,7 +3385,7 @@ export default function CashierModule({
   }
 
   function receiptPeriodBounds(
-    period: typeof receiptPeriod,
+    _period: typeof receiptPeriod,
     fromStr: string,
     toStr: string,
   ): { fromMs: number; toMs: number } | null {
@@ -3398,18 +3398,6 @@ export default function CashierModule({
       const x = new Date(d)
       x.setHours(23, 59, 59, 999)
       return x.getTime()
-    }
-    const now = new Date()
-    if (period === 'all') return null
-    if (period === 'day') return { fromMs: startOfDay(now), toMs: endOfDay(now) }
-    if (period === 'week') {
-      const from = new Date(now)
-      from.setDate(from.getDate() - 6)
-      return { fromMs: startOfDay(from), toMs: endOfDay(now) }
-    }
-    if (period === 'month') {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1)
-      return { fromMs: startOfDay(from), toMs: endOfDay(now) }
     }
     const from = new Date(fromStr)
     const to = new Date(toStr)
@@ -8915,15 +8903,9 @@ export default function CashierModule({
                 <p>
                   {receiptDetail
                     ? saleNumberLabel(receiptDetail)
-                    : (receiptPeriod === 'day'
-                      ? 'За сегодня'
-                      : receiptPeriod === 'week'
-                        ? 'За 7 дней'
-                        : receiptPeriod === 'month'
-                          ? 'За этот месяц'
-                          : receiptPeriod === 'custom'
-                            ? `${receiptFrom} — ${receiptTo}`
-                            : 'Все периоды')}
+                    : (receiptFrom === receiptTo
+                      ? new Date(receiptFrom + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+                      : `${receiptFrom} — ${receiptTo}`)}
                 </p>
               </div>
             </div>
@@ -8965,65 +8947,86 @@ export default function CashierModule({
                 )}
 
                 <div className="receipt-toolbar">
-                  <div className="receipt-filters" role="group" aria-label="Период">
-                    {([
-                      ['day', 'День'],
-                      ['week', 'Неделя'],
-                      ['month', 'Месяц'],
-                      ['custom', 'Период'],
-                      ['all', 'Все'],
-                    ] as const).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`receipt-filter ${receiptPeriod === id ? 'on' : ''}`}
-                        onClick={() => setReceiptPeriod(id)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {receiptPeriod === 'custom' && (
-                    <div className="receipt-period-range">
-                      <label>
-                        <span>С</span>
-                        <input
-                          type="date"
-                          value={receiptFrom}
-                          onChange={e => setReceiptFrom(e.target.value)}
-                        />
-                      </label>
-                      <label>
-                        <span>По</span>
-                        <input
-                          type="date"
-                          value={receiptTo}
-                          onChange={e => setReceiptTo(e.target.value)}
-                        />
-                      </label>
+                  <div className="receipt-filters-row">
+                    <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Период">
+                      {([
+                        ['day', 'День'],
+                        ['week', 'Неделя'],
+                        ['month', 'Месяц'],
+                      ] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`receipt-filter ${receiptPeriod === id ? 'on' : ''}`}
+                          onClick={() => {
+                            const now = new Date()
+                            const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                            if (id === 'day') {
+                              const t = iso(now)
+                              setReceiptFrom(t)
+                              setReceiptTo(t)
+                            } else if (id === 'week') {
+                              const from = new Date(now)
+                              from.setDate(from.getDate() - 6)
+                              setReceiptFrom(iso(from))
+                              setReceiptTo(iso(now))
+                            } else {
+                              const from = new Date(now.getFullYear(), now.getMonth(), 1)
+                              setReceiptFrom(iso(from))
+                              setReceiptTo(iso(now))
+                            }
+                            setReceiptPeriod(id)
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                  )}
-                  <div className="receipt-filters" role="group" aria-label="Оплата">
-                    {([
-                      ['all', 'Все'],
-                      ['cash', 'Нал'],
-                      ['card', 'Карта'],
-                      ['credit', 'Долг'],
-                      ['returned', 'Возврат'],
-                    ] as const).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
-                        onClick={() => setReceiptFilter(id)}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    <div className="receipt-period-inline" title="Выбранный период">
+                      <input
+                        type="date"
+                        value={receiptFrom}
+                        onChange={e => {
+                          setReceiptFrom(e.target.value)
+                          setReceiptPeriod('custom')
+                        }}
+                        aria-label="Дата с"
+                      />
+                      <span>—</span>
+                      <input
+                        type="date"
+                        value={receiptTo}
+                        onChange={e => {
+                          setReceiptTo(e.target.value)
+                          setReceiptPeriod('custom')
+                        }}
+                        aria-label="Дата по"
+                      />
+                    </div>
                   </div>
-                  <div className="receipt-summary">
-                    <span>{receiptQ.trim() ? `${receiptList.length} из ${receiptListTotalCount}` : `${receiptListTotalCount} чеков`}</span>
-                    <b>{fmtMoney(receiptPeriodSum)}</b>
+                  <div className="receipt-filters-row">
+                    <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Оплата">
+                      {([
+                        ['all', 'Все'],
+                        ['cash', 'Нал'],
+                        ['card', 'Карта'],
+                        ['credit', 'Долг'],
+                        ['returned', 'Возврат'],
+                      ] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
+                          onClick={() => setReceiptFilter(id)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="receipt-summary receipt-summary-inline">
+                      <span>{receiptQ.trim() ? `${receiptList.length}/${receiptListTotalCount}` : `${receiptListTotalCount} чек.`}</span>
+                      <b>{fmtMoney(receiptPeriodSum)}</b>
+                    </div>
                   </div>
                 </div>
 
