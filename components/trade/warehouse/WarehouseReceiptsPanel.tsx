@@ -437,14 +437,16 @@ export default function WarehouseReceiptsPanel({
 
   /** Новый приход. Черновик нового сохраняем; черновик правки не превращаем в второй приход. */
   function openForm() {
+    setListQ('')
     setDraft(prev => {
       if (prev.editingId) {
         clearReceiptDraft()
         return { ...defaultReceiptDraft(), open: true, editingId: null }
       }
-      return { ...prev, open: true, editingId: null }
+      const lines = [...prev.lines]
+      if (!lines.some(l => !lineHasProduct(l))) lines.push(emptyReceiptLine())
+      return { ...prev, open: true, editingId: null, lines }
     })
-    setListQ('')
     setMsg('')
     scrollRestored.current = false
   }
@@ -1135,20 +1137,56 @@ export default function WarehouseReceiptsPanel({
                 </div>
               </div>
 
-              <div className="k-receipt-summary" style={{
-                position: 'sticky', top: 0, zIndex: 2,
-                margin: '0 -16px 12px', padding: '10px 16px',
+              <div style={{
+                position: 'sticky', top: 0, zIndex: 3,
+                margin: '0 -16px 12px', padding: '10px 16px 12px',
                 borderBottom: '1px solid var(--border)', background: 'var(--panel)',
               }}>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
-                  <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
-                    {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+                <div className="k-receipt-summary" style={{ margin: '0 0 12px', padding: 0, border: 'none', background: 'transparent' }}>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
+                  <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
+                    <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                      {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+                    </div>
                   </div>
                 </div>
+
+                {(() => {
+                  const pending = [...lines].reverse().find(l => !lineHasProduct(l))
+                  if (!pending) return null
+                  const pendingIdx = filledLines.length
+                  return (
+                    <div
+                      data-receipt-pending="1"
+                      ref={el => { lineRefs.current[pending.key] = el }}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        border: '2px dashed var(--green)',
+                        background: 'rgba(31,215,96,.06)',
+                      }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 8 }}>
+                        {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите или создайте товар'}
+                      </div>
+                      <WarehouseProductSelect
+                        key={`pending-${pending.key}`}
+                        products={products}
+                        value={null}
+                        autoFocus={!filledLines.length}
+                        onChange={p => { if (p) selectProduct(pending.key, p) }}
+                        onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
+                        placeholder="Поиск: название, артикул, штрихкод…"
+                      />
+                      <button type="button" className="k-btn k-btn-s" style={{ marginTop: 8, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
+                        + Создать новый товар
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
 
               {filledLines.length > 0 && (
@@ -1157,7 +1195,7 @@ export default function WarehouseReceiptsPanel({
                     className="k-inp"
                     value={listQ}
                     onChange={e => setListQ(e.target.value)}
-                    placeholder="Поиск в приходе: название, артикул, штрихкод или г / шт / л…"
+                    placeholder="Фильтр уже добавленных: название, артикул, штрихкод или г / шт / л…"
                   />
                   {listQuery && (
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
@@ -1232,39 +1270,6 @@ export default function WarehouseReceiptsPanel({
                   </Fragment>
                 )
               })}
-
-              {(() => {
-                const pending = [...lines].reverse().find(l => !lineHasProduct(l))!
-                const pendingIdx = lines.filter(l => lineHasProduct(l)).length
-                return (
-                  <div
-                    data-receipt-pending="1"
-                    ref={el => { if (pending) lineRefs.current[pending.key] = el }}
-                    style={{
-                      padding: 16,
-                      borderRadius: 12,
-                      border: '2px dashed var(--green)',
-                      background: 'rgba(31,215,96,.04)',
-                      marginTop: listQuery ? 12 : 0,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 10 }}>
-                      {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите или создайте товар'}
-                    </div>
-                    <WarehouseProductSelect
-                      products={products}
-                      value={null}
-                      onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
-                      placeholder="Поиск: название, артикул, штрихкод — в списке г / шт / л…"
-                    />
-                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
-                      + Создать новый товар
-                    </button>
-                  </div>
-                )
-              })()}
 
               {msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{msg}</div>}
             </div>
