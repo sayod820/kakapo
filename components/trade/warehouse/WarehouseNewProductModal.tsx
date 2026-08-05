@@ -19,15 +19,20 @@ export default function WarehouseNewProductModal({
   initialName = '',
   initialBarcode = '',
   duplicateFrom = null,
+  /** Не писать в каталог сразу — только вернуть форму в черновик прихода */
+  deferCreate = false,
   onClose,
   onCreated,
+  onPrepared,
 }: {
   open: boolean
   initialName?: string
   initialBarcode?: string
   duplicateFrom?: Product | null
+  deferCreate?: boolean
   onClose: () => void
-  onCreated: (product: Product) => void
+  onCreated?: (product: Product) => void
+  onPrepared?: (form: ProductForm) => void
 }) {
   const products = useProducts(s => s.products)
   const saveProduct = useProducts(s => s.saveProduct)
@@ -66,12 +71,19 @@ export default function WarehouseNewProductModal({
     setSaving(true)
     setMsg('')
     try {
+      if (deferCreate) {
+        // Валидация кодов без записи в каталог
+        buildProductPayload(form, products, null, categories)
+        onPrepared?.(form)
+        onClose()
+        return
+      }
       const payload = buildProductPayload(form, products, null, categories)
       const saved = await saveProduct(payload)
       if (saved && form.photo) setPhoto(saved.id, form.photo)
       await fetchProducts()
       if (saved) {
-        onCreated(saved)
+        onCreated?.(saved)
         onClose()
       }
     } catch (e) {
@@ -92,7 +104,9 @@ export default function WarehouseNewProductModal({
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
             {duplicateFrom
               ? 'Скопированы название, штрихкод и единица (г/шт/л). Артикул и PLU уже новые — при необходимости измените остальное.'
-              : 'Товар создаётся как в разделе «Товары». Цену продажи укажите в строке прихода.'}
+              : deferCreate
+                ? 'Товар пока только в черновике прихода. В каталог и на кассу попадёт после «Провести приход». Цену продажи укажите в строке прихода.'
+                : 'Товар создаётся как в разделе «Товары». Цену продажи укажите в строке прихода.'}
           </div>
           <ProductFormFields form={form} setForm={setForm} categories={categories} productId={null} products={products} />
           {msg && (
@@ -102,7 +116,11 @@ export default function WarehouseNewProductModal({
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={saving} onClick={() => void handleSave()}>
-              {saving ? 'Сохранение…' : 'Создать и добавить в приход'}
+              {saving
+                ? 'Сохранение…'
+                : deferCreate
+                  ? 'Добавить в приход'
+                  : 'Создать и добавить в приход'}
             </button>
             <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={onClose}>Отмена</button>
           </div>

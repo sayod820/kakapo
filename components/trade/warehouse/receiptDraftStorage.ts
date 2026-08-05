@@ -1,9 +1,19 @@
+import type { ProductForm } from '@/components/trade/products/productFormShared'
+import type { Product } from '@/lib/types'
+
 export const RECEIPT_DRAFT_KEY = 'kakapo-receipt-draft-v2'
 export const WAREHOUSE_TAB_KEY = 'kakapo-warehouse-tab'
+
+/** Новый товар только в черновике — в каталог/на кассу попадёт после «Провести приход» */
+export type PendingReceiptProduct = {
+  form: ProductForm
+}
 
 export type ReceiptDraftLine = {
   key: string
   productId: number | null
+  /** Локальный черновик нового товара (ещё не в каталоге) */
+  pendingProduct?: PendingReceiptProduct | null
   qty: string
   purchaseTotal: string
   costPrice: string
@@ -11,6 +21,36 @@ export type ReceiptDraftLine = {
   markupPct: string
   expiryDate: string
   bulkPricing: { minQty: string; price: string }[]
+}
+
+export function lineHasProduct(line: ReceiptDraftLine) {
+  return line.productId != null || !!line.pendingProduct?.form?.name?.trim()
+}
+
+export function productFromPending(line: ReceiptDraftLine): Product | null {
+  const form = line.pendingProduct?.form
+  if (!form?.name?.trim()) return null
+  const barcodes = Array.isArray(form.barcodes) ? form.barcodes.filter(Boolean) : []
+  return {
+    id: -1,
+    name: form.name.trim(),
+    e: form.e || '📦',
+    art: form.art || '',
+    plu: form.plu || undefined,
+    barcode: barcodes[0] || undefined,
+    barcodes: barcodes.length ? barcodes : undefined,
+    catId: form.catId || 'veg',
+    cat: form.catId || 'veg',
+    unit: form.unit || 'шт',
+    price: 0,
+    costPrice: null,
+    stock: 0,
+    sellType: form.sellType || 'piece',
+    brand: form.brand || undefined,
+    desc: form.desc || undefined,
+    hot: !!form.hot,
+    organic: !!form.organic,
+  }
 }
 
 export type ReceiptDraft = {
@@ -28,6 +68,7 @@ export function emptyReceiptLine(): ReceiptDraftLine {
   return {
     key: String(Date.now() + Math.random()),
     productId: null,
+    pendingProduct: null,
     qty: '',
     purchaseTotal: '',
     costPrice: '',
@@ -66,6 +107,9 @@ export function loadReceiptDraft(): ReceiptDraft {
         ? parsed.lines.map(l => ({
           ...emptyReceiptLine(),
           ...l,
+          pendingProduct: l.pendingProduct?.form?.name
+            ? { form: l.pendingProduct.form }
+            : null,
           purchaseTotal: l.purchaseTotal ?? '',
           bulkPricing: Array.isArray(l.bulkPricing) ? l.bulkPricing : [],
         }))
