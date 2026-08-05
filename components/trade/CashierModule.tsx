@@ -9253,7 +9253,7 @@ export default function CashierModule({
                 {!isSaleFullyReturned(receiptDetail) && (
                   <div className="receipt-return-hint">Отметьте позиции для возврата (можно часть количества)</div>
                 )}
-                <div className="hist-lines">
+                <div className="hist-lines receipt-lines-compact">
                   {(receiptDetail.items || []).map((line, i) => {
                     const left = saleLineLeft(line)
                     const returnedQty = Number(line.returnedQty) || 0
@@ -9272,6 +9272,14 @@ export default function CashierModule({
                       const q = Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000)
                       return `${q} ${unitLabel}`
                     }
+                    const codes = productCodesForId(line.productId)
+                    const metaParts = [
+                      left > 0 ? qtyLabel(left) : `возвращено ${qtyLabel(Number(line.qty) || 0)}`,
+                      returnedQty > 0 && left > 0 ? `возврат ${qtyLabel(returnedQty)}` : '',
+                      codes.art ? `арт. ${codes.art}` : '',
+                      codes.plu ? `PLU ${codes.plu}` : '',
+                      codes.barcode ? `ш/к ${codes.barcode}` : '',
+                    ].filter(Boolean)
                     return (
                       <div
                         key={`${line.productId}-${i}`}
@@ -9287,27 +9295,17 @@ export default function CashierModule({
                           }
                         }}
                       >
-                        {canReturn && (
+                        {canReturn ? (
                           <span className={`receipt-check ${on ? 'on' : ''}`} aria-hidden>{on ? '✓' : ''}</span>
+                        ) : (
+                          <span className="receipt-check ghost" aria-hidden />
                         )}
                         <div className="hist-line-main">
-                          <b>{line.productName || `#${line.productId}`}</b>
-                          {(() => {
-                            const codes = productCodesForId(line.productId)
-                            if (!codes.art && !codes.barcode && !codes.plu) return null
-                            return (
-                              <span className="receipt-codes">
-                                {codes.art ? <span>арт. {codes.art}</span> : null}
-                                {codes.plu ? <span>PLU {codes.plu}</span> : null}
-                                {codes.barcode ? <span>ш/к {codes.barcode}</span> : null}
-                              </span>
-                            )
-                          })()}
-                          <span className="hist-line-qty">
-                            {left > 0 ? qtyLabel(left) : 'возвращено'}
-                            {returnedQty > 0 && left > 0 ? ` · уже возврат ${qtyLabel(returnedQty)}` : ''}
-                            {returnedQty > 0 && left <= 0 ? ` ${qtyLabel(Number(line.qty) || 0)}` : ''}
-                          </span>
+                          <div className="hist-line-top">
+                            <b>{line.productName || `#${line.productId}`}</b>
+                            <span className="hist-line-sum">{fmtMoney(showSum)}</span>
+                          </div>
+                          <span className="hist-line-meta">{metaParts.join(' · ')}</span>
                           {on && left > 1 && (
                             <div
                               className="receipt-qty-ctrl"
@@ -9328,7 +9326,6 @@ export default function CashierModule({
                             </div>
                           )}
                         </div>
-                        <div className="hist-line-sum">{fmtMoney(showSum)}</div>
                       </div>
                     )
                   })}

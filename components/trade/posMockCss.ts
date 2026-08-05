@@ -618,10 +618,40 @@ export const POS_MOCK_CSS = `
     padding:6px 10px;border-radius:10px;font-size:11px;font-weight:800;
     background:var(--surface2);border:1.5px solid var(--border);color:var(--accent);
   }
-  .hist-line.receipt-line{cursor:pointer;align-items:center;gap:10px;transition:border-color .15s,background .15s;}
+  .hist-line.receipt-line{cursor:pointer;align-items:center;gap:8px;transition:border-color .15s,background .15s;}
   .hist-line.receipt-line.on{border-color:var(--accent);background:rgba(31,215,96,.1);}
   .hist-line.receipt-line.returned{opacity:.65;cursor:default;}
   .hist-line-main .receipt-codes{margin:2px 0 2px;}
+  .receipt-lines-compact{gap:4px!important;}
+  .receipt-detail .receipt-lines-compact .hist-line{
+    align-items:center;gap:8px;padding:6px 8px;border-radius:10px;min-height:0;
+  }
+  .receipt-detail .receipt-lines-compact .hist-line-main{flex:1;min-width:0;gap:1px;}
+  .receipt-detail .hist-line-top{
+    display:flex;align-items:baseline;justify-content:space-between;gap:10px;min-width:0;
+  }
+  .receipt-detail .hist-line-top b{
+    font-size:12.5px;font-weight:850;line-height:1.2;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+  }
+  .receipt-detail .hist-line-top .hist-line-sum{
+    flex-shrink:0;font-size:12.5px;font-weight:900;color:var(--gd);
+  }
+  .receipt-detail .hist-line-meta{
+    display:block;font-size:10.5px;font-weight:750;color:var(--t3);line-height:1.25;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .receipt-detail .receipt-check{
+    width:18px;height:18px;border-radius:5px;font-size:11px;
+  }
+  .receipt-detail .receipt-check.ghost{
+    border-color:transparent;background:transparent;
+  }
+  .receipt-detail .receipt-qty-ctrl{margin-top:3px;gap:4px;}
+  .receipt-detail .receipt-qty-ctrl span{font-size:11px;min-width:14px;}
+  .pos-root .receipt-detail .receipt-qty-ctrl button{
+    width:24px;height:24px;border-radius:7px;font-size:14px;
+  }
   .receipt-list{display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0;flex:1;}
   .receipt-product-hint{
     display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
