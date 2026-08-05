@@ -1111,6 +1111,7 @@ export default function CashierModule({
   useEffect(() => {
     const critical =
       busy
+      || cashierScreen === 'receipts'
       || !!saleConfirm
       || payPickOpen
       || cashOpen
@@ -1124,6 +1125,7 @@ export default function CashierModule({
     return () => { endCashierCritical() }
   }, [
     busy,
+    cashierScreen,
     saleConfirm,
     payPickOpen,
     cashOpen,
@@ -3322,14 +3324,20 @@ export default function CashierModule({
       })
   }, [sales, activeShift?.posId])
 
-  /** Штрихкод / PLU / арт → productId — O(1) вместо полного перебора каталога */
+  /** Штрихкод / PLU / арт → productId + готовые коды по id */
   const receiptBarcodeIndex = useMemo(() => {
     const exact = new Map<string, number>()
     const digits = new Map<string, number>()
+    const codesById = new Map<number, { art: string; barcode: string; plu: string }>()
     for (const p of products) {
       const id = Number(p.id)
       if (!Number.isFinite(id)) continue
-      for (const c of productBarcodes(p)) {
+      const codes = productBarcodes(p)
+      const art = String(p.art || '').trim()
+      const plu = String(p.plu || '').trim()
+      const barcode = codes[0] || ''
+      codesById.set(id, { art, barcode, plu })
+      for (const c of codes) {
         const raw = String(c || '').trim()
         if (!raw) continue
         exact.set(raw, id)
@@ -3337,15 +3345,14 @@ export default function CashierModule({
         const d = raw.replace(/\D/g, '')
         if (d.length >= 4) digits.set(d, id)
       }
-      const art = String(p.art || '').trim()
       if (art) {
         exact.set(art, id)
         exact.set(art.toLowerCase(), id)
       }
-      const plu = String(p.plu || '').replace(/\D/g, '')
-      if (plu) digits.set(plu, id)
+      const pluDigits = plu.replace(/\D/g, '')
+      if (pluDigits) digits.set(pluDigits, id)
     }
-    return { exact, digits }
+    return { exact, digits, codesById }
   }, [products])
 
   function resolveReceiptProductIds(qRaw: string): Set<number> {
@@ -3359,7 +3366,6 @@ export default function CashierModule({
       const fromDigits = receiptBarcodeIndex.digits.get(qDigits)
       if (fromDigits != null) ids.add(fromDigits)
     }
-    // Точное совпадение по каталогу (на случай если индекс не покрыл)
     if (!ids.size && (qDigits.length >= 8 || q.length >= 8)) {
       for (const p of findProductsByExactBarcode(products, q)) {
         if (p.id != null) ids.add(Number(p.id))
@@ -3422,13 +3428,7 @@ export default function CashierModule({
 
   function productCodesForId(productId: number | undefined | null) {
     if (productId == null) return { art: '', barcode: '', plu: '' }
-    const p = products.find(x => Number(x.id) === Number(productId))
-    if (!p) return { art: '', barcode: '', plu: '' }
-    return {
-      art: String(p.art || '').trim(),
-      barcode: productBarcodes(p)[0] || '',
-      plu: String(p.plu || '').trim(),
-    }
+    return receiptBarcodeIndex.codesById.get(Number(productId)) || { art: '', barcode: '', plu: '' }
   }
 
   /** Быстрый поиск чеков: штрихкод / номер — без тяжёлого hay на каждый символ */
@@ -3540,7 +3540,7 @@ export default function CashierModule({
   }
 
   const receiptList = useMemo(
-    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 100),
+    () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, 50),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted
     [receiptQDeferred, receiptFilter, receiptPeriod, receiptFrom, receiptTo, receiptsSorted, products, receiptBarcodeIndex],
   )
@@ -8892,8 +8892,8 @@ export default function CashierModule({
       )}
 
       {cashierScreen === 'receipts' && activeShift && (
-        <div className="cashier-screen">
-          <div className="cashier-screen-inner wide">
+        <div className="cashier-screen receipts-screen">
+          <div className="cashier-screen-inner wide receipts-fs">
             <div className="cashier-screen-top">
               <button
                 type="button"
@@ -9044,7 +9044,7 @@ export default function CashierModule({
                             : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
                               ? 'В долг'
                               : 'Смешанная'
-                    const previewItems = (s.items || []).slice(0, 3)
+                    const previewItems = (s.items || []).slice(0, 2)
                     return (
                       <button
                         key={s.id}
@@ -9080,8 +9080,8 @@ export default function CashierModule({
                                   </div>
                                 )
                               })}
-                              {(s.items || []).length > 3 ? (
-                                <span className="receipt-item-more">+{(s.items || []).length - 3} ещё</span>
+                              {(s.items || []).length > 2 ? (
+                                <span className="receipt-item-more">+{(s.items || []).length - 2} ещё</span>
                               ) : null}
                             </div>
                           )}

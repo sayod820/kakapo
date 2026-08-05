@@ -18,6 +18,12 @@ export const POS_MOCK_CSS = `
   .pos-root[data-embed="1"] .toast{
     position:absolute;
   }
+  /* История чеков — на весь экран даже внутри панели «Торговля» */
+  .pos-root[data-embed="1"] .cashier-screen.receipts-screen{
+    position:fixed !important;
+    inset:0;
+    z-index:220;
+  }
   /* Модалки поверх всего окна торговли — иначе обрезаются по высоте колонки */
   .pos-root[data-embed="1"] .gate.gate-modal,
   .pos-root[data-embed="1"] .overlay{
@@ -465,12 +471,23 @@ export const POS_MOCK_CSS = `
 
   .cashier-screen{
     position:fixed;inset:0;z-index:180;background:var(--bg);color:var(--t1);
-    display:flex;align-items:stretch;justify-content:center;overflow:auto;animation:fadeIn .2s ease;
+    display:flex;align-items:stretch;justify-content:center;overflow:hidden;animation:fadeIn .2s ease;
   }
   .cashier-screen-inner{
     width:min(720px,100%);margin:0 auto;padding:28px 24px 40px;display:flex;flex-direction:column;min-height:100%;
   }
   .cashier-screen-inner.wide{width:min(920px,100%);}
+  .cashier-screen-inner.receipts-fs{
+    width:100%;max-width:none;height:100%;min-height:0;max-height:100%;
+    padding:14px 18px 16px;box-sizing:border-box;overflow:hidden;
+  }
+  .cashier-screen-inner.receipts-fs .cashier-screen-top{margin-bottom:12px;flex-shrink:0;}
+  .cashier-screen-inner.receipts-fs .receipt-search,
+  .cashier-screen-inner.receipts-fs .receipt-product-hint,
+  .cashier-screen-inner.receipts-fs .receipt-toolbar{flex-shrink:0;}
+  .cashier-screen-inner.receipts-fs .receipt-list{
+    flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  }
   .receipt-search{margin-bottom:12px;position:relative;}
   .receipt-search .search-clear{
     position:absolute;right:42px;top:50%;transform:translateY(-50%);
@@ -517,10 +534,9 @@ export const POS_MOCK_CSS = `
   .receipt-list{display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;padding-bottom:12px;}
   .pos-root button.receipt-row{
     display:flex;align-items:flex-start;justify-content:space-between;gap:14px;width:100%;text-align:left;
-    padding:14px 16px;border-radius:16px;background:var(--surface);border:1.5px solid var(--border);color:inherit;font:inherit;
-    transition:border-color .15s,background .15s,transform .12s;
+    padding:12px 14px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);color:inherit;font:inherit;
   }
-  .pos-root button.receipt-row:hover{border-color:var(--accent);transform:translateY(-1px);}
+  .pos-root button.receipt-row:hover{border-color:var(--accent);}
   .pos-root button.receipt-row.returned{opacity:.72;border-color:rgba(255,69,69,.28);background:rgba(255,69,69,.06);}
   .pos-root button.receipt-row.partial{border-color:rgba(255,170,40,.35);background:rgba(255,170,40,.07);}
   .receipt-num{
@@ -529,10 +545,10 @@ export const POS_MOCK_CSS = `
     border-radius:8px;padding:2px 7px;letter-spacing:.02em;
   }
   .receipt-pay-label{font-size:12.5px;font-weight:850;}
-  .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;}
-  .receipt-item-previews{display:flex;flex-direction:column;gap:5px;margin-top:2px;}
-  .receipt-item-preview{display:flex;flex-direction:column;gap:3px;min-width:0;}
-  .receipt-item-name{font-size:12px;font-weight:750;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .receipt-row-main{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px;}
+  .receipt-item-previews{display:flex;flex-direction:column;gap:4px;margin-top:1px;}
+  .receipt-item-preview{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;}
+  .receipt-item-name{font-size:12px;font-weight:750;color:var(--t1);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .receipt-item-more{font-size:11px;font-weight:800;color:var(--t3);}
   .receipt-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
   .receipt-detail-meta > div{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);}
