@@ -9149,6 +9149,7 @@ export default function CashierModule({
               </>
             ) : (
               <div className="receipt-detail">
+                <div className="receipt-detail-scroll">
                 <div className="receipt-detail-meta">
                   <div><span>Дата и время</span><b>{(() => {
                     const when = new Date(receiptDetail.createdAtIso)
@@ -9334,6 +9335,7 @@ export default function CashierModule({
                   {!(receiptDetail.items || []).length && <div className="hist-empty">Нет позиций</div>}
                 </div>
                 {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
+                </div>
                 <div className="receipt-actions">
                   <button
                     type="button"

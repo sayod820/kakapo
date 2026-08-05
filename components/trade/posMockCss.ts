@@ -600,11 +600,19 @@ export const POS_MOCK_CSS = `
   .receipt-item-preview{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;}
   .receipt-item-name{font-size:12px;font-weight:750;color:var(--t1);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .receipt-item-more{font-size:11px;font-weight:800;color:var(--t3);}
-  .receipt-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
-  .receipt-detail-meta > div{padding:12px;border-radius:14px;background:var(--surface);border:1px solid var(--border);}
-  .receipt-detail-meta span{display:block;font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
-  .receipt-detail-meta b{font-size:13px;font-weight:800;}
-  .receipt-detail-meta b.sum{font-family:'JetBrains Mono',monospace;font-size:18px;color:var(--accent);}
+  .receipt-detail{
+    flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;
+  }
+  .receipt-detail-scroll{
+    flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;padding-bottom:8px;
+  }
+  .receipt-detail-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;}
+  .receipt-detail-meta > div{padding:8px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--border);}
+  .receipt-detail-meta span{display:block;font-size:9.5px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+  .receipt-detail-meta b{font-size:12.5px;font-weight:800;line-height:1.25;}
+  .receipt-detail-meta b.sum{font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--accent);}
+  .receipt-detail .hist-section-h{position:sticky;top:0;z-index:2;background:var(--bg);padding:6px 0;margin:0 0 6px;}
   .receipt-return-hint{font-size:11.5px;font-weight:700;color:var(--t3);margin:-4px 0 10px;}
   .pos-root button.receipt-select-all{
     padding:6px 10px;border-radius:10px;font-size:11px;font-weight:800;
@@ -641,9 +649,15 @@ export const POS_MOCK_CSS = `
     width:28px;height:28px;border-radius:8px;font-size:16px;font-weight:800;line-height:1;
     background:var(--surface);border:1.5px solid var(--border);color:var(--t1);
   }
-  .receipt-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
-  .receipt-actions .action-chip{width:100%;justify-content:center;}
+  .receipt-actions{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;
+    margin-top:0;padding-top:10px;border-top:1px solid var(--border);background:var(--bg);
+  }
+  .receipt-actions .action-chip{width:100%;justify-content:center;min-height:44px;}
   .receipt-actions .receipt-return-all{grid-column:1 / -1;}
+  @media(max-width:900px){
+    .receipt-detail-meta{grid-template-columns:1fr 1fr;}
+  }
   @media(max-width:640px){
     .receipt-detail-meta,.receipt-actions{grid-template-columns:1fr;}
     .receipt-actions .receipt-return-all{grid-column:auto;}
