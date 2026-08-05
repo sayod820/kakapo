@@ -767,6 +767,8 @@ export default function CashierModule({
   const [tickets, setTickets] = useState<PosTicket[]>([bootTicket])
   const [activeTicketId, setActiveTicketId] = useState(bootTicket.id)
   const [nextTicketSeq, setNextTicketSeq] = useState(2)
+  const nextTicketSeqRef = useRef(2)
+  nextTicketSeqRef.current = nextTicketSeq
   const ticketsHydratedRef = useRef(false)
   const ticketsRef = useRef(tickets)
   const activeTicketIdRef = useRef(activeTicketId)
@@ -4223,7 +4225,15 @@ export default function CashierModule({
 
   function afterSaleTicketReset(ticketId: string) {
     setPosMobPanel('shop')
+    setDiscLineKey(null)
+    setPayDebtOn(false)
+    setPayDebtBuf('')
+    setCreditNoteOpen(false)
+    setCreditNoteBuf('')
+    setCreditPending(null)
+
     setTickets(prev => {
+      // Один чек — очищаем и остаёмся на нём
       if (prev.length <= 1) {
         return prev.map(t => t.id !== ticketId ? t : {
           ...t,
@@ -4235,23 +4245,25 @@ export default function CashierModule({
           selectedLineKey: null,
         })
       }
-      const next = prev.filter(t => t.id !== ticketId)
-      // Если кассир уже в другом чеке — остаёмся там; закрываем только пробитый
-      setActiveTicketId(cur => {
-        if (cur !== ticketId) return cur
-        return next[0]?.id || cur
-      })
-      return next
+
+      // Несколько чеков: закрываем пробитый и открываем НОВЫЙ пустой
+      // (не переключаемся на уже существующий чек 1/2/…)
+      const remaining = prev.filter(t => t.id !== ticketId)
+      if (remaining.length >= MAX_TICKETS) {
+        const fallback = remaining[remaining.length - 1]
+        if (fallback) setActiveTicketId(fallback.id)
+        return remaining
+      }
+      const seq = nextTicketSeqRef.current
+      const fresh = makeTicket(seq)
+      nextTicketSeqRef.current = seq + 1
+      setNextTicketSeq(seq + 1)
+      setActiveTicketId(fresh.id)
+      return [...remaining, fresh]
     })
-    // Сброс оплаты только если пробитый чек всё ещё «текущий» в UI
-    if (activeTicketIdRef.current === ticketId) {
-      setDiscLineKey(null)
-      setPayDebtOn(false)
-      setPayDebtBuf('')
-      setCreditNoteOpen(false)
-      setCreditNoteBuf('')
-      setCreditPending(null)
-    }
+
+    window.setTimeout(focusProductSearch, 0)
+    window.setTimeout(focusProductSearch, 60)
   }
 
   function currentPayDebtAmt() {
