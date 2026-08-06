@@ -300,20 +300,43 @@ function lsQueueWrite(list: PendingOp[]) {
 }
 
 export async function getPending(): Promise<PendingOp[]> {
+  const byRef = new Map<string, PendingOp>()
+
   const desk = deskDb()
   if (desk?.localDbQueueAll) {
     try {
-      const all = await desk.localDbQueueAll()
-      return (all || []).map(normalizeRow).sort(byOrder)
+      for (const raw of (await desk.localDbQueueAll()) || []) {
+        const row = normalizeRow(raw)
+        if (row.clientRef) byRef.set(row.clientRef, row)
+      }
     } catch { /* fallback */ }
   }
+
+  let idbOnly = 0
   if (hasIndexedDB()) {
     try {
-      const all = await idbRun<PendingOp[]>(STORE_QUEUE, 'readonly', s => s.getAll())
-      return (all || []).map(normalizeRow).sort(byOrder)
+      for (const raw of (await idbRun<PendingOp[]>(STORE_QUEUE, 'readonly', s => s.getAll())) || []) {
+        const row = normalizeRow(raw)
+        if (!row.clientRef) continue
+        if (!byRef.has(row.clientRef)) {
+          byRef.set(row.clientRef, row)
+          idbOnly++
+        }
+      }
     } catch { /* fallback */ }
   }
-  return lsQueueRead().sort(byOrder)
+
+  if (byRef.size === 0) return lsQueueRead().sort(byOrder)
+
+  // Старая касса писала очередь в IndexedDB — один раз переносим в SQLite,
+  // чтобы после обновления Electron ничего не потерялось.
+  if (idbOnly > 0 && desk?.localDbQueuePut) {
+    for (const row of byRef.values()) {
+      try { await desk.localDbQueuePut(row) } catch { /* ignore */ }
+    }
+  }
+
+  return [...byRef.values()].sort(byOrder)
 }
 
 async function putPending(row: PendingOp): Promise<void> {
