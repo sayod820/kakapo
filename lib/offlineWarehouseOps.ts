@@ -6,7 +6,7 @@ import { api, isNetworkError, NetworkError } from './api'
 import { isLocalId, newClientRef, newLocalId } from './offline'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
-import type { StockReceipt, StockWriteoff } from './types'
+import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff } from './types'
 
 const WAREHOUSE_FAST_MS = 1600
 
@@ -350,6 +350,239 @@ export async function deleteStockWriteoffSafe(id: string): Promise<OfflineResult
 
   return raceWarehouseOp(
     () => api.deleteStockWriteoff(id, { clientRef }),
+    applyLocal,
+  )
+}
+
+// ── Ревизия (инвентаризация) ──
+
+export type RevisionPayload = {
+  note?: string
+  createdBy?: string
+  items: { productId: number; countedStock: number }[]
+}
+
+async function setProductStockExact(productId: number, stock: number) {
+  const { useProducts } = await import('./store')
+  const ps = useProducts.getState()
+  const p = ps.products.find(x => x.id === productId)
+  if (!p) return
+  ps.updateProduct(productId, { stock: round2(Math.max(0, stock)) } as any)
+}
+
+async function applyRevisionExact(items: { productId: number; countedStock: number }[]) {
+  for (const it of items) {
+    await setProductStockExact(it.productId, Number(it.countedStock) || 0)
+  }
+}
+
+async function reverseRevision(items: { productId: number; systemStock: number }[]) {
+  for (const it of items) {
+    await setProductStockExact(it.productId, Number(it.systemStock) || 0)
+  }
+}
+
+async function buildLocalRevision(
+  payload: RevisionPayload,
+  opts: { id: string; clientRef: string; createdAtIso?: string },
+): Promise<StockRevision> {
+  const { useProducts } = await import('./store')
+  const list = useProducts.getState().products
+  const items = payload.items.map(it => {
+    const p = list.find(x => x.id === it.productId)
+    const systemStock = round2(Number(p?.stock) || 0)
+    const countedStock = round2(Number(it.countedStock) || 0)
+    return {
+      productId: it.productId,
+      productName: p?.name || `#${it.productId}`,
+      systemStock,
+      countedStock,
+      diff: round2(countedStock - systemStock),
+    }
+  })
+  return {
+    id: opts.id,
+    clientRef: opts.clientRef,
+    createdAtIso: opts.createdAtIso || new Date().toISOString(),
+    createdBy: payload.createdBy,
+    note: payload.note,
+    items,
+  }
+}
+
+export async function createStockRevisionSafe(
+  payload: RevisionPayload,
+): Promise<OfflineResult<StockRevision>> {
+  const clientRef = newClientRef()
+  const createdAtIso = new Date().toISOString()
+  const body = {
+    ...payload,
+    clientRef,
+    createdAtIso,
+    items: payload.items.map(it => ({
+      productId: it.productId,
+      countedStock: round2(it.countedStock),
+    })),
+  }
+
+  const applyLocal = async () => {
+    const localId = newLocalId('rev')
+    const revision = await buildLocalRevision(payload, { id: localId, clientRef, createdAtIso })
+    await useOfflineSync.getState().queueOp('stock_revision_create', body, { localId })
+    await applyRevisionExact(payload.items)
+    usePosStore.setState(s => ({ revisions: [revision, ...s.revisions] }))
+    return revision
+  }
+
+  return raceWarehouseOp(() => api.createStockRevision(body as any), applyLocal)
+}
+
+export async function updateStockRevisionSafe(
+  id: string,
+  payload: RevisionPayload,
+): Promise<OfflineResult<StockRevision>> {
+  const clientRef = newClientRef()
+  const body = {
+    ...payload,
+    clientRef,
+    id,
+    items: payload.items.map(it => ({
+      productId: it.productId,
+      countedStock: round2(it.countedStock),
+    })),
+  }
+
+  const applyLocal = async () => {
+    const old = usePosStore.getState().revisions.find(r => r.id === id)
+    if (old) await reverseRevision(old.items)
+    const revision = await buildLocalRevision(payload, {
+      id,
+      clientRef,
+      createdAtIso: old?.createdAtIso,
+    })
+    await applyRevisionExact(payload.items)
+    await useOfflineSync.getState().queueOp('stock_revision_update', body)
+    usePosStore.setState(s => ({
+      revisions: s.revisions.map(r => (r.id === id ? revision : r)),
+    }))
+    return revision
+  }
+
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+
+  return raceWarehouseOp(() => api.updateStockRevision(id, body as any), applyLocal)
+}
+
+export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const clientRef = newClientRef()
+  const body = { clientRef, id }
+
+  const applyLocal = async () => {
+    const old = usePosStore.getState().revisions.find(r => r.id === id)
+    if (old) await reverseRevision(old.items)
+    await useOfflineSync.getState().queueOp('stock_revision_delete', body)
+    usePosStore.setState(s => ({ revisions: s.revisions.filter(r => r.id !== id) }))
+    return { id }
+  }
+
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+
+  return raceWarehouseOp(() => api.deleteStockRevision(id), applyLocal)
+}
+
+/** Правка цен/опта существующей партии (раздел «Партии и приходы»). */
+export async function updateStockLayerSafe(
+  receiptId: string,
+  productId: number,
+  data: {
+    costPrice?: number
+    retailPrice?: number
+    bulkPricing?: { minQty: number; price: number }[]
+    expiryDate?: string | null
+  },
+): Promise<OfflineResult<ProductStockLayer[]>> {
+  const clientRef = newClientRef()
+  const body = {
+    clientRef,
+    receiptId,
+    productId,
+    costPrice: data.costPrice != null ? round2(data.costPrice) : undefined,
+    retailPrice: data.retailPrice != null ? round2(data.retailPrice) : undefined,
+    bulkPricing: data.bulkPricing,
+    expiryDate: data.expiryDate,
+  }
+
+  const applyLocal = async () => {
+    await useOfflineSync.getState().queueOp('stock_layer_update', body, { clientRef })
+    usePosStore.setState(s => ({
+      receipts: s.receipts.map(r => {
+        if (r.id !== receiptId) return r
+        return {
+          ...r,
+          items: r.items.map(it => (
+            Number(it.productId) === Number(productId)
+              ? {
+                  ...it,
+                  costPrice: body.costPrice ?? it.costPrice,
+                  retailPrice: body.retailPrice ?? it.retailPrice,
+                  bulkPricing: body.bulkPricing ?? it.bulkPricing,
+                  expiryDate: body.expiryDate !== undefined ? body.expiryDate : it.expiryDate,
+                }
+              : it
+          )),
+        }
+      }),
+    }))
+    if (body.retailPrice != null && body.retailPrice > 0) {
+      const { useProducts } = await import('./store')
+      useProducts.getState().updateProduct(productId, { price: body.retailPrice } as any)
+    }
+    if (body.costPrice != null && body.costPrice > 0) {
+      const { useProducts } = await import('./store')
+      useProducts.getState().updateProduct(productId, { costPrice: body.costPrice } as any)
+    }
+    // Локальный снимок слоёв для UI
+    const receipt = usePosStore.getState().receipts.find(r => r.id === receiptId)
+    const item = receipt?.items.find(it => Number(it.productId) === Number(productId))
+    const layer: ProductStockLayer = {
+      receiptId,
+      productId,
+      productName: item?.productName || `#${productId}`,
+      qty: Number(item?.qty) || 0,
+      remainingQty: Number(item?.remainingQty) || 0,
+      costPrice: Number(item?.costPrice) || 0,
+      retailPrice: Number(item?.retailPrice) || 0,
+      bulkPricing: item?.bulkPricing || [],
+      expiryDate: item?.expiryDate,
+      createdAtIso: receipt?.createdAtIso || new Date().toISOString(),
+      supplierName: receipt?.supplierName,
+      layerIndex: 0,
+      isActive: true,
+    }
+    return [layer]
+  }
+
+  if (isLocalId(receiptId)) {
+    const dataLocal = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data: dataLocal }
+  }
+
+  return raceWarehouseOp(
+    () => api.updateProductStockLayer(receiptId, productId, {
+      costPrice: body.costPrice,
+      retailPrice: body.retailPrice,
+      bulkPricing: body.bulkPricing,
+      expiryDate: body.expiryDate,
+    }),
     applyLocal,
   )
 }

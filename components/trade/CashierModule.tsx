@@ -51,6 +51,7 @@ import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { shadowMirrorSale } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierCritical } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -82,6 +83,7 @@ import {
 } from '@/lib/useCategories'
 import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 import { POS_MOCK_CSS } from './posMockCss'
+import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
@@ -893,6 +895,7 @@ export default function CashierModule({
   const [clientPick, setClientPick] = useState<AdminClient | null>(null)
   const [clientScanOpen, setClientScanOpen] = useState(false)
   const [clientScanBuf, setClientScanBuf] = useState('')
+  const [camScanOpen, setCamScanOpen] = useState(false)
   const clientScanRef = useRef<HTMLInputElement>(null)
   const clientSearchRef = useRef<HTMLInputElement>(null)
   const [discOpen, setDiscOpen] = useState(false)
@@ -1295,7 +1298,7 @@ export default function CashierModule({
     || !!editPosId
     || !!deletePosId
     || !!cashierScreen
-    || catModalOpen || clientOpen || clientScanOpen || discOpen || discPickOpen
+    || catModalOpen || clientOpen || clientScanOpen || camScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
@@ -5174,6 +5177,9 @@ export default function CashierModule({
       sellingTicketIdRef.current = null
       setBusy(false)
 
+      // Offline V2 shadow (режим off = no-op) — не блокирует кассу
+      try { shadowMirrorSale(created) } catch { /* ignore */ }
+
       if (created._offline) {
         // Не пугаем «офлайн», если сеть есть — просто фоновая отправка
         if (!apiReachable) {
@@ -6739,7 +6745,16 @@ export default function CashierModule({
                 ×
               </button>
             )}
-            <span className="scan-tag" title="Сканер">📷</span>
+            <button
+              type="button"
+              className="scan-tag"
+              title="Камера · сканер штрихкода"
+              aria-label="Открыть сканер камеры"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => setCamScanOpen(true)}
+            >
+              📷
+            </button>
           </div>
 
           <div className="order-tabs" aria-label="Открытые чеки">
@@ -7833,6 +7848,17 @@ export default function CashierModule({
           </div>
         </div>
       )}
+
+      <MobileBarcodeScanner
+        open={camScanOpen}
+        onClose={() => setCamScanOpen(false)}
+        onDetect={code => {
+          setCamScanOpen(false)
+          commitPosSearchRef.current(code, { fromScanner: true })
+        }}
+        title="Сканер · касса"
+        hint="Наведите на штрихкод — товар добавится в чек"
+      />
 
       {clientScanOpen && (
         <div className="overlay" onClick={() => setClientScanOpen(false)}>

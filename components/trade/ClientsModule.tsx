@@ -1,8 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '@/lib/api'
-import { USE_API } from '@/lib/config'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -15,11 +13,9 @@ import {
 import {
   earnedAutoLevelForClient,
   loyaltySummaryForClient,
-  provisionLoyaltyCardForClient,
-  registerClientAccount,
   saveCardLoyalty,
-  saveClientProfile,
 } from '@/lib/clientCardSync'
+import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -335,9 +331,9 @@ export default function ClientsModule() {
   async function saveLoyaltyForClient(client: AdminClient, patch: Partial<CardLoyaltyForm>) {
     let card = cardForClient(client, cards)
     if (!card) {
-      const updated = await provisionLoyaltyCardForClient(client)
-      await refreshAll()
-      card = cardForClient(updated, useCardStore.getState().cards)
+      const res = await provisionLoyaltyCardSafe(client)
+      if (!res.offline) await refreshAll()
+      card = cardForClient(res.data, useCardStore.getState().cards)
     }
     if (!card) throw new Error('Не удалось получить карту лояльности')
     const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
@@ -387,22 +383,10 @@ export default function ClientsModule() {
     }
     setForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      if (!form.editingId && form.withCard) {
-        await registerClientAccount({
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-          email: form.email.trim(),
-          addr: form.addr.trim(),
-          card: form.card.trim().toUpperCase(),
-          level: 'basic',
-          debt: 0,
-          bonus: 0,
-          debtLimit: 0,
-          blocked: form.blocked,
-          note: form.note.trim(),
-        })
-      } else {
-        saveClientProfile(form.editingId, {
+      const res = await saveClientSafe({
+        editingId: form.editingId,
+        withCard: !form.editingId && form.withCard,
+        profile: {
           name: form.name,
           phone: form.phone,
           email: form.email,
@@ -410,9 +394,9 @@ export default function ClientsModule() {
           card: form.card,
           blocked: form.blocked,
           note: form.note,
-        })
-      }
-      await refreshAll()
+        },
+      })
+      if (!res.offline) await refreshAll()
       closeForm()
     } catch (e) {
       setForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка сохранения' }))
@@ -427,10 +411,9 @@ export default function ClientsModule() {
     if (!confirm(`Удалить клиента «${c.name}»?`)) return
     setDeletingId(c.id)
     try {
-      if (USE_API) await api.deleteClient(c.id, c.phone)
-      else useClientStore.getState().removeClient(c.id)
+      const res = await deleteClientSafe(c.id, c.phone)
       if (detailId === c.id) setDetailId(null)
-      await refreshAll()
+      if (!res.offline) await refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить клиента')
     } finally {
@@ -439,15 +422,19 @@ export default function ClientsModule() {
   }
 
   async function toggleBlockClient(c: EnrichedClient) {
-    useClientStore.getState().toggleBlock(c.id)
-    await refreshAll()
+    try {
+      const res = await toggleClientBlockSafe(c.id)
+      if (!res.offline) await refreshAll()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось изменить блокировку')
+    }
   }
 
   async function provisionCard(c: EnrichedClient) {
     setProvisioningId(c.id)
     try {
-      await provisionLoyaltyCardForClient(c)
-      await refreshAll()
+      const res = await provisionLoyaltyCardSafe(c)
+      if (!res.offline) await refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось создать карту')
     } finally {

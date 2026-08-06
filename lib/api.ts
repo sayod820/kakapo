@@ -469,7 +469,11 @@ export const api = {
   }),
   createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteProduct: (id: number) => request(`/products/${id}`, { method: 'DELETE' }),
+  deleteProduct: (id: number, data?: { clientRef?: string }) =>
+    request(`/products/${id}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   deleteProducts: (ids: number[]) => request<{ ok: boolean; removed: number; ids: number[] }>(
     '/products/bulk-delete',
     { method: 'POST', body: JSON.stringify({ ids }) },
@@ -496,18 +500,21 @@ export const api = {
   getCategoriesTree: () => request<any[]>('/categories/tree'),
   createCategory: (data: any) => request('/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id: number, data: any) => request<Category>(`/categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  reorderCategories: (items: { id: number; order: number }[]) =>
+  reorderCategories: (items: { id: number; order: number }[], data?: { clientRef?: string }) =>
     request<{ ok: boolean; changed: number }>('/categories/reorder', {
       method: 'POST',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, clientRef: data?.clientRef }),
     }),
-  deleteCategory: (id: number) => request<{
+  deleteCategory: (id: number, data?: { clientRef?: string }) => request<{
     ok: boolean
     movedProducts?: number
     deleted?: number[]
     slugs?: string[]
-  }>(`/categories/${id}`, { method: 'DELETE' }),
-  deleteCategories: (ids: number[]) => request<{
+  }>(`/categories/${id}`, {
+    method: 'DELETE',
+    body: data ? JSON.stringify(data) : undefined,
+  }),
+  deleteCategories: (ids: number[], data?: { clientRef?: string }) => request<{
     ok: boolean
     removed: number
     deleted: number[]
@@ -515,7 +522,7 @@ export const api = {
     movedProducts: number
   }>('/categories/bulk-delete', {
     method: 'POST',
-    body: JSON.stringify({ ids }),
+    body: JSON.stringify({ ids, clientRef: data?.clientRef }),
   }, 0, 300_000),
 
   // ── Акции ──
@@ -651,10 +658,13 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ purge: true }),
     }),
-  deleteClient: (id: string, phone?: string) =>
+  deleteClient: (id: string, phone?: string, data?: { clientRef?: string }) =>
     request<{ ok: boolean }>(`/clients/${encodeURIComponent(id)}/delete`, {
       method: 'POST',
-      body: JSON.stringify({ phone: phone ? phone.replace(/\D/g, '').slice(-9) : '' }),
+      body: JSON.stringify({
+        phone: phone ? phone.replace(/\D/g, '').slice(-9) : '',
+        clientRef: data?.clientRef,
+      }),
     }),
   deleteClientByPhone: (phone: string) => {
     const digits = (phone || '').replace(/\D/g, '').slice(-9)
@@ -1044,8 +1054,11 @@ export const api = {
     note?: string
     items: { productId: number; countedStock: number }[]
   }) => request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteStockRevision: (id: string) =>
-    request<{ id: string }>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteStockRevision: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/stock/revisions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getStockExpiry: (days = 14) =>
     request<Array<{
       receiptId: string
@@ -1063,16 +1076,22 @@ export const api = {
     request<PosSupplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
   updateSupplier: (id: string, data: Partial<PosSupplier>) =>
     request<PosSupplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteSupplier: (id: string) =>
-    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteSupplier: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getSupplierPayments: (id: string) =>
     request<SupplierPayment[]>(`/suppliers/${encodeURIComponent(id)}/payments`),
-  createSupplierPayment: (id: string, data: { amount: number; note?: string }) =>
+  createSupplierPayment: (id: string, data: { amount: number; note?: string; clientRef?: string }) =>
     request<SupplierPayment>(`/suppliers/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteSupplierPayment: (id: string, paymentId: string) =>
-    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' }),
+  deleteSupplierPayment: (id: string, paymentId: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getExpenses: () => request<PosExpense[]>('/expenses'),
-  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string }) =>
+  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string; clientRef?: string }) =>
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
   getFinanceMoves: () => request<FinanceMove[]>('/finance/moves'),
   createFinanceMove: (data: {
@@ -1088,8 +1107,11 @@ export const api = {
     supplierId?: string
     reason?: string
   }) => request<FinanceMove>('/finance/moves', { method: 'POST', body: JSON.stringify(data) }),
-  deleteFinanceMove: (id: string) =>
-    request<{ id: string }>(`/finance/moves/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteFinanceMove: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/finance/moves/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getPosFinanceSummary: () => request<any>('/finance/pos-summary'),
   getFinanceTruth: (q?: Record<string, string>) => {
     const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''

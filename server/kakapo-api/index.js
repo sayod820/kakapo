@@ -3,6 +3,7 @@ import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { loadDb, scheduleSaveDb, flushDb, getDbStats, DATA_DIR } from './db.js'
+import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import {
@@ -267,6 +268,8 @@ function rememberOpRef(kind, clientRef, result) {
   rows.push({ clientRef: ref, kind, result, createdAtIso: new Date().toISOString() })
   pruneOpRefs()
 }
+
+const { replyIfKnownOp, remember: rememberKnownOp } = makeIdempotency(findOpRef, rememberOpRef)
 
 function ensurePromos() {
   if (!Array.isArray(db.promos)) db.promos = []
@@ -886,6 +889,8 @@ app.get('/products/next-codes', (_req, res) => {
 })
 app.post('/products', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
     const id = ++db._seq.product
     const codes = allocateProductCodes(db.products, {
       art: req.body.art,
@@ -927,6 +932,7 @@ app.post('/products', (req, res) => {
       summary: `Создан товар «${p.name}» · цена ${p.price}`,
       after: { name: p.name, price: p.price, stock: p.stock, art: p.art },
     })
+    if (clientRef) { p.clientRef = clientRef; rememberKnownOp('product_upsert', clientRef, p) }
     persist()
     broadcastProduct(p)
     res.json(p)
@@ -938,9 +944,12 @@ app.patch('/products/:id', (req, res) => {
   const p = db.products.find(x => x.id === Number(req.params.id))
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
     const previousPhoto = p.photo
     const before = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     const body = { ...req.body }
+    delete body.clientRef
     const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
     const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
     if (artTouched || pluTouched) {
@@ -972,6 +981,7 @@ app.patch('/products/:id', (req, res) => {
       before,
       after,
     })
+    if (clientRef) rememberKnownOp('product_upsert', clientRef, p)
     persist()
     broadcastProduct(p)
     if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
@@ -1020,8 +1030,14 @@ app.post('/stock/reconcile', (req, res) => {
 
 app.post('/products/:id/stock-layers', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_receipt_create', clientRef)) return
     const id = Number(req.params.id)
     const result = addProductStockLayer(db, id, req.body || {})
+    if (clientRef) {
+      if (result.receipt) result.receipt.clientRef = clientRef
+      rememberKnownOp('stock_receipt_create', clientRef, result)
+    }
     persist()
     broadcastPosUpdate({ kind: 'receipt', id: result.receipt.id })
     broadcastProduct({ id, reason: 'stock-layer' })
@@ -1033,7 +1049,10 @@ app.post('/products/:id/stock-layers', (req, res) => {
 
 app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_layer_update', clientRef)) return
     const layers = updateProductStockLayer(db, req.params.receiptId, Number(req.params.productId), req.body || {})
+    if (clientRef) rememberKnownOp('stock_layer_update', clientRef, layers)
     persist()
     broadcastProduct({ id: Number(req.params.productId), reason: 'stock-layer' })
     res.json(layers)
@@ -1042,6 +1061,8 @@ app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
   }
 })
 app.delete('/products/:id', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'product_delete', clientRef)) return
   const id = Number(req.params.id)
   const existing = db.products.find(x => x.id === id)
   if (existing?.photo) deleteManagedProductPhoto(existing.photo)
@@ -1056,9 +1077,11 @@ app.delete('/products/:id', (req, res) => {
     })
   }
   db.products = db.products.filter(x => x.id !== id)
+  const result = { ok: true, id }
+  if (clientRef) rememberKnownOp('product_delete', clientRef, result)
   persist()
   broadcastProduct({ id, deleted: true })
-  res.json({ ok: true })
+  res.json(result)
 })
 
 /** Массовое удаление — один persist / один broadcast (иначе N запросов висят минутами) */
@@ -1107,6 +1130,8 @@ app.get('/categories/tree', (_req, res) => {
   res.json(roots.map(withChildren))
 })
 app.post('/categories', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'category_upsert', clientRef)) return
   const id = ++db._seq.category
   const slug = String(req.body.slug || '').trim() || slugifyCategory(req.body.name)
   if (db.categories.some(c => c.slug === slug)) {
@@ -1131,11 +1156,14 @@ app.post('/categories', (req, res) => {
     db.deletedCategorySlugs = db.deletedCategorySlugs.filter(s => s !== slug)
   }
   db.categories.push(c)
+  if (clientRef) rememberKnownOp('category_upsert', clientRef, c)
   persist()
   broadcastCategory(c)
   res.json(c)
 })
 app.patch('/categories/:id', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'category_upsert', clientRef)) return
   const id = Number(req.params.id)
   const idx = db.categories.findIndex(c => c.id === id)
   if (idx < 0) return res.status(404).json({ error: 'not found' })
@@ -1158,14 +1186,24 @@ app.patch('/categories/:id', (req, res) => {
   }
   if (!next.name) return res.status(400).json({ error: 'name required' })
   db.categories[idx] = next
+  if (clientRef) rememberKnownOp('category_upsert', clientRef, next)
   persist()
   broadcastCategory(next)
   res.json(next)
 })
 app.delete('/categories/:id', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'category_delete', clientRef)) return
   const id = Number(req.params.id)
   const result = removeCategoryTree(db, id)
   if (!result.ok) return res.status(404).json({ error: 'not found' })
+  const payload = {
+    ok: true,
+    movedProducts: result.movedProducts,
+    deleted: result.deleted,
+    slugs: result.slugs,
+  }
+  if (clientRef) rememberKnownOp('category_delete', clientRef, payload)
   persist()
   broadcastCategory({
     id,
@@ -1175,16 +1213,13 @@ app.delete('/categories/:id', (req, res) => {
     movedProducts: result.movedProducts,
   })
   if (result.movedProducts) broadcastProduct({ reason: 'category_delete' })
-  res.json({
-    ok: true,
-    movedProducts: result.movedProducts,
-    deleted: result.deleted,
-    slugs: result.slugs,
-  })
+  res.json(payload)
 })
 
 /** Массовая смена порядка (siblings: [{ id, order }]) */
 app.post('/categories/reorder', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'category_reorder', clientRef)) return
   const raw = Array.isArray(req.body?.items) ? req.body.items : []
   if (!raw.length) return res.status(400).json({ detail: 'Укажите items: [{ id, order }]' })
   let changed = 0
@@ -1199,15 +1234,19 @@ app.post('/categories/reorder', (req, res) => {
       changed += 1
     }
   }
+  const payload = { ok: true, changed }
   if (changed) {
     persist()
     broadcastCategory({ reason: 'reorder' })
   }
-  res.json({ ok: true, changed })
+  if (clientRef) rememberKnownOp('category_reorder', clientRef, payload)
+  res.json(payload)
 })
 
 /** Массовое удаление категорий — один persist / один broadcast */
 app.post('/categories/bulk-delete', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'category_delete', clientRef)) return
   const raw = Array.isArray(req.body?.ids) ? req.body.ids : []
   const requested = [...new Set(raw.map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0))]
   if (!requested.length) return res.status(400).json({ detail: 'Укажите ids категорий' })
@@ -1237,6 +1276,8 @@ app.post('/categories/bulk-delete', (req, res) => {
     movedProducts += result.movedProducts
   }
   if (!allDeleted.length) return res.status(404).json({ detail: 'Категории не найдены' })
+  const payload = { ok: true, removed: removedRoots, deleted: allDeleted, slugs: allSlugs, movedProducts }
+  if (clientRef) rememberKnownOp('category_delete', clientRef, payload)
   persist()
   broadcastCategory({
     deleted: true,
@@ -1245,7 +1286,7 @@ app.post('/categories/bulk-delete', (req, res) => {
     movedProducts,
   })
   if (movedProducts) broadcastProduct({ reason: 'category_delete' })
-  res.json({ ok: true, removed: removedRoots, deleted: allDeleted, slugs: allSlugs, movedProducts })
+  res.json(payload)
 })
 
 function removeCategoryTree(dbRef, rootId) {
@@ -2565,7 +2606,10 @@ app.get('/stock/revisions', (_req, res) => {
 })
 app.post('/stock/revisions', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_revision_create', clientRef)) return
     const row = createStockRevision(db, req.body || {})
+    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('stock_revision_create', clientRef, row) }
     auditFromReq(db, req, {
       action: 'create',
       entity: 'stock',
@@ -2583,7 +2627,10 @@ app.post('/stock/revisions', (req, res) => {
 })
 app.put('/stock/revisions/:id', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_revision_update', clientRef)) return
     const row = updateStockRevision(db, req.params.id, req.body || {})
+    if (clientRef) rememberKnownOp('stock_revision_update', clientRef, row)
     auditFromReq(db, req, {
       action: 'update',
       entity: 'stock',
@@ -2601,7 +2648,10 @@ app.put('/stock/revisions/:id', (req, res) => {
 })
 app.delete('/stock/revisions/:id', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_revision_delete', clientRef)) return
     const row = deleteStockRevision(db, req.params.id)
+    if (clientRef) rememberKnownOp('stock_revision_delete', clientRef, row)
     auditFromReq(db, req, {
       action: 'delete',
       entity: 'stock',
@@ -2626,7 +2676,10 @@ app.get('/suppliers', (_req, res) => {
 })
 app.post('/suppliers', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'supplier_upsert', clientRef)) return
     const row = createSupplier(db, req.body || {})
+    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('supplier_upsert', clientRef, row) }
     persist()
     broadcastPosUpdate({ kind: 'supplier', id: row.id })
     res.json(row)
@@ -2636,7 +2689,10 @@ app.post('/suppliers', (req, res) => {
 })
 app.patch('/suppliers/:id', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'supplier_upsert', clientRef)) return
     const row = updateSupplier(db, req.params.id, req.body || {})
+    if (clientRef) rememberKnownOp('supplier_upsert', clientRef, row)
     persist()
     broadcastPosUpdate({ kind: 'supplier', id: row.id })
     res.json(row)
@@ -2646,7 +2702,10 @@ app.patch('/suppliers/:id', (req, res) => {
 })
 app.delete('/suppliers/:id', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'supplier_delete', clientRef)) return
     const row = deleteSupplier(db, req.params.id)
+    if (clientRef) rememberKnownOp('supplier_delete', clientRef, row)
     persist()
     broadcastPosUpdate({ kind: 'supplier', id: row.id, deleted: true })
     res.json(row)
@@ -2663,7 +2722,10 @@ app.get('/suppliers/:id/payments', (req, res) => {
 })
 app.post('/suppliers/:id/payments', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'supplier_payment_create', clientRef)) return
     const row = createSupplierPayment(db, req.params.id, req.body || {})
+    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('supplier_payment_create', clientRef, row) }
     persist()
     broadcastPosUpdate({ kind: 'supplier_payment', id: row.id })
     res.json(row)
@@ -2673,7 +2735,10 @@ app.post('/suppliers/:id/payments', (req, res) => {
 })
 app.delete('/suppliers/:id/payments/:paymentId', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'supplier_payment_delete', clientRef)) return
     const row = deleteSupplierPayment(db, req.params.id, req.params.paymentId)
+    if (clientRef) rememberKnownOp('supplier_payment_delete', clientRef, row)
     persist()
     broadcastPosUpdate({ kind: 'supplier_payment', id: row.id, deleted: true })
     res.json(row)
@@ -2687,7 +2752,10 @@ app.get('/expenses', (_req, res) => {
 })
 app.post('/expenses', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'expense_create', clientRef)) return
     const row = createExpense(db, req.body || {})
+    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('expense_create', clientRef, row) }
     persist()
     broadcastPosUpdate({ kind: 'expense', id: row.id })
     res.json(row)
@@ -2733,7 +2801,10 @@ app.post('/finance/moves', (req, res) => {
 })
 app.delete('/finance/moves/:id', (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'finance_move_delete', clientRef)) return
     const row = deleteFinanceMove(db, req.params.id)
+    if (clientRef) rememberKnownOp('finance_move_delete', clientRef, row)
     persist()
     broadcastPosUpdate({ kind: 'finance-move', id: row.id, deleted: true })
     res.json(row)
@@ -2991,6 +3062,8 @@ app.get('/clients', (_req, res) => {
 })
 app.post('/clients', (req, res) => {
   if (!db.clients) db.clients = []
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'client_upsert', clientRef)) return
   runAccountLifecycleMaintenance()
 
   const phone = req.body?.phone || ''
@@ -3041,10 +3114,13 @@ app.post('/clients', (req, res) => {
   ensureCardRowForClient(row)
   clearPersonalNotificationsOnServer(row.phone)
   reconcileClientBonuses(db, row.phone, loyaltyHooks())
+  if (clientRef) { row.clientRef = clientRef; rememberKnownOp('client_upsert', clientRef, row) }
   persist()
   res.json(row)
 })
 app.patch('/clients/:id', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'client_upsert', clientRef)) return
   const c = (db.clients || []).find(x => x.id === req.params.id)
   if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
   if (req.body && req.body.purge === true) {
@@ -3166,6 +3242,7 @@ app.patch('/clients/:id', (req, res) => {
       after: afterSnap,
     })
   }
+  if (clientRef) rememberKnownOp('client_upsert', clientRef, c)
   persist()
   res.json(c)
 })
@@ -3363,11 +3440,15 @@ app.post('/clients/purge-demo', (_req, res) => {
 
 app.post('/clients/:id/delete', (req, res) => {
   if (!db.clients) db.clients = []
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'client_delete', clientRef)) return
   const client = db.clients.find(x => x.id === req.params.id)
   if (!client) {
     const digits = normalizePhoneDigits(req.body?.phone || '')
     if (digits) rememberDeletedPhone(digits)
-    return res.json({ ok: true })
+    const result = { ok: true }
+    if (clientRef) rememberKnownOp('client_delete', clientRef, result)
+    return res.json(result)
   }
   if (rejectDeleteWithDebt(res, [client])) return
   auditFromReq(db, req, {
@@ -3379,7 +3460,9 @@ app.post('/clients/:id/delete', (req, res) => {
     before: { name: client.name, phone: client.phone, debt: client.debt },
   })
   removeClientAndUnlinkCards(client)
-  res.json({ ok: true })
+  const result = { ok: true }
+  if (clientRef) rememberKnownOp('client_delete', clientRef, result)
+  res.json(result)
 })
 
 app.delete('/clients/by-phone/:phone', (req, res) => {
@@ -4009,9 +4092,26 @@ app.post('/cards/ensure', (req, res) => {
 })
 
 app.patch('/cards/:num', (req, res) => {
+  const clientRef = takeClientRef(req)
+  if (replyIfKnownOp(res, 'card_loyalty_patch', clientRef)) return
   const num = decodeURIComponent(req.params.num).toUpperCase()
-  const card = findCardByNum(num)
-  if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
+  let card = findCardByNum(num)
+  // Офлайн-выдача: карта могла быть создана локально — создаём на сервере при первом PATCH
+  if (!card) {
+    if (!Array.isArray(db.cards)) db.cards = []
+    card = normalizeCardRow({
+      num,
+      client: '',
+      phone: '',
+      status: 'unlinked',
+      level: '',
+      bonus: 0,
+      debt: 0,
+      debtLimit: 0,
+      issued: new Date().toISOString().slice(0, 10),
+    })
+    db.cards.push(card)
+  }
   const beforeSnap = {
     client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
     level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
@@ -4146,6 +4246,7 @@ app.patch('/cards/:num', (req, res) => {
       })
     }
   }
+  if (clientRef) rememberKnownOp('card_loyalty_patch', clientRef, card)
   persist()
   res.json(card)
 })

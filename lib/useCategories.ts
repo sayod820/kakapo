@@ -146,6 +146,19 @@ function setMemoryCategories(list: Category[], fromApi: boolean) {
   notifyCategories()
 }
 
+/** Локальная замена списка категорий (офлайн V2) */
+export function applyCategoriesLocal(list: Category[]) {
+  setMemoryCategories(list, memoryFromApi || USE_API)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('kakapo:categories'))
+  }
+}
+
+/** Текущий снимок категорий из памяти/кэша */
+export function peekCategories(): Category[] {
+  return memoryCategories ?? readPersistedCategories() ?? bootstrapCategories()
+}
+
 function bootstrapCategories(): Category[] {
   if (memoryCategories !== null) return memoryCategories
   const cached = readPersistedCategories()
@@ -267,59 +280,47 @@ export function useCategories() {
     order?: number
     active?: boolean
   }) => {
-    const created = await api.createCategory(data)
-    await reload(true)
+    const { createCategorySafe } = await import('./offlineCategoryOps')
+    const res = await createCategorySafe(data)
+    if (!res.offline) await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
-    return created as Category
+    return res.data
   }, [reload])
 
   const updateCategory = useCallback(async (id: number, data: Partial<Category>) => {
-    const updated = await api.updateCategory(id, data)
-    await reload(true)
+    const { updateCategorySafe } = await import('./offlineCategoryOps')
+    const res = await updateCategorySafe(id, data)
+    if (!res.offline) await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
-    return updated as Category
+    return res.data
   }, [reload])
 
   const reorderCategories = useCallback(async (items: { id: number; order: number }[]) => {
     if (!items.length) return
-    await api.reorderCategories(items)
-    await reload(true)
+    const { reorderCategoriesSafe } = await import('./offlineCategoryOps')
+    const res = await reorderCategoriesSafe(items)
+    if (!res.offline) await reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
   const deleteCategory = useCallback(async (id: number) => {
+    const { deleteCategorySafe } = await import('./offlineCategoryOps')
     try {
-      const res = await api.deleteCategory(id) as {
-        deleted?: number[]
-        slugs?: string[]
-        movedProducts?: number
-      }
-      applyCategoryDeletion({
-        ids: res?.deleted?.length ? res.deleted : [id],
-        slugs: res?.slugs,
-      })
+      const res = await deleteCategorySafe(id)
+      if (!res.offline) await reload(true)
+      window.dispatchEvent(new CustomEvent('kakapo:categories'))
     } catch (e) {
       throw e instanceof Error ? e : new Error('Не удалось удалить категорию')
     }
-    await reload(true)
-    window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
   const deleteCategories = useCallback(async (ids: number[]) => {
-    const unique = [...new Set((ids || []).map(Number).filter(n => Number.isFinite(n) && n > 0))]
-    if (!unique.length) return { removed: 0, movedProducts: 0 }
+    const { deleteCategoriesSafe } = await import('./offlineCategoryOps')
     try {
-      const res = await api.deleteCategories(unique)
-      applyCategoryDeletion({
-        ids: res?.deleted?.length ? res.deleted : unique,
-        slugs: res?.slugs,
-      })
-      await reload(true)
+      const res = await deleteCategoriesSafe(ids)
+      if (!res.offline) await reload(true)
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
-      return {
-        removed: Number(res?.removed) || unique.length,
-        movedProducts: Number(res?.movedProducts) || 0,
-      }
+      return res.data
     } catch (e) {
       throw e instanceof Error ? e : new Error('Не удалось удалить категории')
     }

@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { isOfflineV2Full } from '@/lib/offlineV2'
+import { saveSupplierSafe } from '@/lib/offlineSupplierOps'
 import type { PosSupplier } from '@/lib/types'
 
 export default function WarehouseNewSupplierModal({
@@ -40,7 +41,7 @@ export default function WarehouseNewSupplierModal({
   if (!open) return null
 
   async function handleSave() {
-    if (!USE_API) return
+    if (!USE_API && !isOfflineV2Full()) return
     const trimmed = name.trim()
     if (!trimmed) {
       setMsg('Укажите название поставщика')
@@ -56,10 +57,8 @@ export default function WarehouseNewSupplierModal({
         address: address.trim() || undefined,
         note: note.trim() || undefined,
       }
-      const saved = editingSupplier
-        ? await api.updateSupplier(editingSupplier.id, payload)
-        : await api.createSupplier(payload)
-      onCreated(saved)
+      const res = await saveSupplierSafe(payload, editingSupplier?.id || null)
+      onCreated(res.data)
       onClose()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить поставщика')

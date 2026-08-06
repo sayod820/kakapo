@@ -39,7 +39,7 @@ interface OfflineSyncState {
   /** добавить чек в очередь (офлайн) и обновить счётчик */
   queueSale: (payload: PosSalePayload) => Promise<void>
   /** добавить любую операцию кассы в очередь */
-  queueOp: <P>(kind: QueueKind, payload: P, opts?: { localId?: string }) => Promise<PendingOp<P>>
+  queueOp: <P>(kind: QueueKind, payload: P, opts?: { localId?: string; clientRef?: string }) => Promise<PendingOp<P>>
   /** пометить, что связи нет (запрос упал с сетевой ошибкой) */
   markOffline: () => void
   /** повторить отклонённую операцию */

@@ -47,4 +47,7 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
   localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
   localDbMarkInstalled: () => ipcRenderer.invoke('desktop:localDbMarkInstalled'),
+  localDbMirrorPut: (row) => ipcRenderer.invoke('desktop:localDbMirrorPut', row),
+  localDbMirrorGet: (kind, id) => ipcRenderer.invoke('desktop:localDbMirrorGet', kind, id),
+  localDbMirrorList: (kind, limit) => ipcRenderer.invoke('desktop:localDbMirrorList', kind, limit),
 })

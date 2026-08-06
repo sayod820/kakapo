@@ -160,6 +160,7 @@ export type KakapoDesktopApi = {
     bootstrapComplete: boolean
     kvKeys: number
     queueLen: number
+    mirrorCount?: number
     lastBootstrapAt?: string | null
     lastSyncAt?: string | null
   }>
@@ -173,6 +174,15 @@ export type KakapoDesktopApi = {
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
   /** Пометить установку завершённой — больше не просить скачивание */
   localDbMarkInstalled?: () => Promise<{ ok: boolean; bootstrapComplete: boolean }>
+  /** Offline V2: теневое зеркало сущностей (не влияет на кассу, пока режим off) */
+  localDbMirrorPut?: (row: { kind: string; id: string; data: unknown }) => Promise<{ ok: boolean }>
+  localDbMirrorGet?: (kind: string, id: string) => Promise<unknown>
+  localDbMirrorList?: (kind?: string, limit?: number) => Promise<Array<{
+    kind: string
+    id: string
+    data: unknown
+    updatedAtIso: string
+  }>>
 }
 
 declare global {

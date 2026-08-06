@@ -1,11 +1,12 @@
 'use client'
 
 import { useCanMutate } from '@/lib/offlineGuard'
+import { isOfflineV2Full } from '@/lib/offlineV2'
 
 /**
  * Плашка офлайн-режима для разделов торговли.
- * mode="queue" — операции сохраняются локально и уйдут при связи (склад).
- * mode="view" (по умолчанию) — только просмотр.
+ * mode="queue" — операции сохраняются локально и уйдут при связи (склад / V2).
+ * mode="view" (по умолчанию) — только просмотр; при Offline V2=on автоматически queue.
  */
 export default function OfflineNotice({
   section,
@@ -16,6 +17,7 @@ export default function OfflineNotice({
 }) {
   const online = useCanMutate()
   if (online) return null
+  const effective = mode === 'queue' || isOfflineV2Full() ? 'queue' : 'view'
   return (
     <div
       style={{
@@ -28,8 +30,8 @@ export default function OfflineNotice({
         border: '1px solid var(--alert-warn-border, #5a4020)',
       }}
     >
-      {mode === 'queue'
-        ? `Нет связи — ${section}: приход и списание сохраняются локально и отправятся при подключении.`
+      {effective === 'queue'
+        ? `Нет связи — ${section}: изменения сохраняются локально и отправятся при подключении.`
         : `Нет связи — ${section} сейчас только для просмотра. Изменения станут доступны после подключения.`}
     </div>
   )

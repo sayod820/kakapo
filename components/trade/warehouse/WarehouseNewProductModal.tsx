@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
+import { saveProductSafe } from '@/lib/offlineProductOps'
 import type { Product } from '@/lib/types'
 import ProductFormFields from '@/components/trade/products/ProductFormFields'
 import {
@@ -30,7 +31,6 @@ export default function WarehouseNewProductModal({
   onCreated: (product: Product) => void
 }) {
   const products = useProducts(s => s.products)
-  const saveProduct = useProducts(s => s.saveProduct)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const { setPhoto } = useProductPhotos()
   const { categories } = useCategories()
@@ -67,13 +67,13 @@ export default function WarehouseNewProductModal({
     setMsg('')
     try {
       const payload = buildProductPayload(form, products, null, categories)
-      const saved = await saveProduct(payload)
+      const res = await saveProductSafe(payload)
+      const saved = res.data
       if (saved && form.photo) setPhoto(saved.id, form.photo)
-      await fetchProducts()
-      if (saved) {
-        onCreated(saved)
-        onClose()
-      }
+      // В полном офлайне каталог уже обновлён локально — лишний fetch не нужен
+      if (!res.offline) await fetchProducts()
+      onCreated(saved)
+      onClose()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить товар')
     } finally {

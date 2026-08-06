@@ -24,6 +24,24 @@ export type QueueKind =
   | 'stock_writeoff_create'
   | 'stock_writeoff_update'
   | 'stock_writeoff_delete'
+  | 'stock_layer_update'
+  | 'stock_revision_create'
+  | 'stock_revision_update'
+  | 'stock_revision_delete'
+  | 'product_upsert'
+  | 'product_delete'
+  | 'client_upsert'
+  | 'client_delete'
+  | 'supplier_upsert'
+  | 'supplier_delete'
+  | 'supplier_payment_create'
+  | 'supplier_payment_delete'
+  | 'expense_create'
+  | 'finance_move_delete'
+  | 'category_upsert'
+  | 'category_delete'
+  | 'category_reorder'
+  | 'card_loyalty_patch'
 
 export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   sale: 'Чек',
@@ -39,6 +57,24 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   stock_writeoff_create: 'Списание',
   stock_writeoff_update: 'Изменение списания',
   stock_writeoff_delete: 'Удаление списания',
+  stock_layer_update: 'Правка партии',
+  stock_revision_create: 'Ревизия',
+  stock_revision_update: 'Изменение ревизии',
+  stock_revision_delete: 'Удаление ревизии',
+  product_upsert: 'Товар',
+  product_delete: 'Удаление товара',
+  client_upsert: 'Клиент',
+  client_delete: 'Удаление клиента',
+  supplier_upsert: 'Поставщик',
+  supplier_delete: 'Удаление поставщика',
+  supplier_payment_create: 'Оплата поставщику',
+  supplier_payment_delete: 'Отмена оплаты поставщику',
+  expense_create: 'Расход',
+  finance_move_delete: 'Удаление движения',
+  category_upsert: 'Категория',
+  category_delete: 'Удаление категории',
+  category_reorder: 'Порядок категорий',
+  card_loyalty_patch: 'Долг / лояльность',
 }
 
 export interface PendingOp<P = any> {
@@ -205,6 +241,29 @@ export function cacheData<T>(key: string, data: T): Promise<void> {
 }
 export function readCachedData<T>(key: string): Promise<T | null> {
   return kvGet<T>(`data_${key}`)
+}
+
+/** Обновить pos_snapshot из текущего Zustand (после локальных правок поставщиков/финансов) */
+export async function persistPosSnapshot(): Promise<void> {
+  try {
+    const { usePosStore } = await import('./posStore')
+    const cur = usePosStore.getState()
+    await cacheData('pos_snapshot', {
+      cashiers: cur.cashiers,
+      posPoints: cur.posPoints,
+      shifts: cur.shifts,
+      sales: cur.sales,
+      receipts: cur.receipts,
+      writeoffs: cur.writeoffs,
+      revisions: cur.revisions,
+      suppliers: cur.suppliers,
+      expenses: cur.expenses,
+      financeMoves: cur.financeMoves,
+      expiry: cur.expiry,
+      financeSummary: cur.financeSummary,
+      report: cur.report,
+    })
+  } catch { /* ignore */ }
 }
 
 // ── Очередь операций ──
@@ -376,6 +435,20 @@ async function rememberId(localId: string, serverId: string): Promise<void> {
   map[localId] = serverId
   idMap = map
   await kvSet(KEY_IDMAP, map)
+}
+
+/** Подмена локальных (отрицательных) productId на серверные перед flush склада */
+async function remapProductIdsInItems(items: any[]): Promise<any[]> {
+  if (!Array.isArray(items) || !items.length) return items || []
+  const map = await getIdMap()
+  return items.map(it => {
+    const pid = Number(it?.productId)
+    if (!Number.isFinite(pid)) return it
+    const mapped = map[String(pid)]
+    if (!mapped) return it
+    const next = Number(mapped)
+    return { ...it, productId: Number.isFinite(next) ? next : it.productId }
+  })
 }
 
 /** Настоящий id для временного (или сам id, если он уже настоящий) */
@@ -565,23 +638,25 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_receipt_create': {
       const p = row.payload || {}
+      const items = await remapProductIdsInItems(p.items || [])
       const receipt = await api.createStockReceipt({
         clientRef: p.clientRef,
         supplierId: p.supplierId,
         createdBy: p.createdBy,
         paidNow: Number(p.paidNow) || 0,
-        items: p.items || [],
+        items,
         createdAtIso: p.createdAtIso,
       } as any)
       return String((receipt as any)?.id || '')
     }
     case 'stock_receipt_update': {
       const p = await resolveRefs(row.payload, ['id'])
+      const items = await remapProductIdsInItems(p.items || [])
       const receipt = await api.updateStockReceipt(String(p.id), {
         clientRef: p.clientRef,
         supplierId: p.supplierId,
         paidNow: Number(p.paidNow) || 0,
-        items: p.items || [],
+        items,
       } as any)
       return String((receipt as any)?.id || '')
     }
@@ -592,24 +667,26 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_writeoff_create': {
       const p = row.payload || {}
+      const items = await remapProductIdsInItems(p.items || [])
       const w = await api.createStockWriteoff({
         clientRef: p.clientRef,
         reason: p.reason,
         note: p.note,
         createdBy: p.createdBy,
-        items: p.items || [],
+        items,
         createdAtIso: p.createdAtIso,
       } as any)
       return String((w as any)?.id || '')
     }
     case 'stock_writeoff_update': {
       const p = await resolveRefs(row.payload, ['id'])
+      const items = await remapProductIdsInItems(p.items || [])
       const w = await api.updateStockWriteoff(String(p.id), {
         clientRef: p.clientRef,
         reason: p.reason,
         note: p.note,
         createdBy: p.createdBy,
-        items: p.items || [],
+        items,
       } as any)
       return String((w as any)?.id || '')
     }
@@ -617,6 +694,306 @@ async function sendOp(row: PendingOp): Promise<string> {
       const p = await resolveRefs(row.payload, ['id'])
       await api.deleteStockWriteoff(String(p.id), { clientRef: p.clientRef } as any)
       return String(p.id || '')
+    }
+    case 'stock_layer_update': {
+      const p = await resolveRefs(row.payload, ['receiptId'])
+      await api.updateProductStockLayer(String(p.receiptId), Number(p.productId), {
+        costPrice: p.costPrice,
+        retailPrice: p.retailPrice,
+        bulkPricing: p.bulkPricing,
+        expiryDate: p.expiryDate,
+        clientRef: p.clientRef,
+      } as any)
+      return String(p.receiptId || '')
+    }
+    case 'stock_revision_create': {
+      const p = row.payload || {}
+      const items = await remapProductIdsInItems(p.items || [])
+      const rev = await api.createStockRevision({
+        clientRef: p.clientRef,
+        createdBy: p.createdBy,
+        note: p.note,
+        items: items.map((it: any) => ({
+          productId: it.productId,
+          countedStock: Number(it.countedStock),
+        })),
+      } as any)
+      return String((rev as any)?.id || '')
+    }
+    case 'stock_revision_update': {
+      const p = await resolveRefs(row.payload, ['id'])
+      const items = await remapProductIdsInItems(p.items || [])
+      const rev = await api.updateStockRevision(String(p.id), {
+        clientRef: p.clientRef,
+        createdBy: p.createdBy,
+        note: p.note,
+        items: items.map((it: any) => ({
+          productId: it.productId,
+          countedStock: Number(it.countedStock),
+        })),
+      } as any)
+      return String((rev as any)?.id || '')
+    }
+    case 'stock_revision_delete': {
+      const p = await resolveRefs(row.payload, ['id'])
+      await api.deleteStockRevision(String(p.id), { clientRef: p.clientRef })
+      return String(p.id || '')
+    }
+    case 'supplier_payment_create': {
+      const p = await resolveRefs(row.payload, ['supplierId'])
+      const pay = await api.createSupplierPayment(String(p.supplierId), {
+        amount: Number(p.amount) || 0,
+        note: p.note,
+        clientRef: p.clientRef,
+      } as any)
+      return String((pay as any)?.id || '')
+    }
+    case 'supplier_payment_delete': {
+      const p = await resolveRefs(row.payload, ['supplierId', 'paymentId'])
+      const paymentId = String(p.paymentId || p.id || '')
+      if (paymentId && !isLocalId(paymentId)) {
+        await api.deleteSupplierPayment(String(p.supplierId), paymentId, { clientRef: p.clientRef })
+      }
+      return paymentId
+    }
+    case 'product_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : ''
+      const body = { ...(p.product || p) }
+      delete body.localId
+      delete body.clientRef
+      const rawId = Number(body.id)
+      const isLocal = !Number.isFinite(rawId) || rawId <= 0
+      let saved: any
+      if (isLocal) {
+        const { id: _drop, ...createBody } = body
+        saved = await api.createProduct({ ...createBody, clientRef: p.clientRef })
+      } else {
+        saved = await api.updateProduct(rawId, { ...body, clientRef: p.clientRef })
+      }
+      const serverId = String(saved?.id || '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { useProducts } = await import('./store')
+          useProducts.setState(s => ({
+            products: s.products.map(x => (
+              String(x.id) === localId ? { ...saved, old: null, discount: 0 } : x
+            )),
+          }))
+          void cacheProducts(useProducts.getState().products)
+        } catch { /* ignore */ }
+      }
+      return serverId
+    }
+    case 'product_delete': {
+      const p = row.payload || {}
+      let id = String(p.id || '')
+      const map = await getIdMap()
+      if (map[id]) id = map[id]
+      const num = Number(id)
+      if (Number.isFinite(num) && num > 0) {
+        await api.deleteProduct(num, { clientRef: p.clientRef })
+      }
+      return id
+    }
+    case 'client_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : ''
+      const body = { ...(p.client || p) }
+      delete body.localId
+      delete body.clientRef
+      const rawId = String(body.id || '')
+      const isLocal = !rawId || isLocalId(rawId)
+      let saved: any
+      if (isLocal) {
+        const { id: _drop, ...createBody } = body
+        saved = await api.createClient({ ...createBody, clientRef: p.clientRef })
+      } else {
+        saved = await api.updateClient(rawId, { ...body, clientRef: p.clientRef })
+      }
+      const serverId = String(saved?.id || '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { useClientStore } = await import('./clientStore')
+          const { normalizeClient } = await import('./clientCrm')
+          useClientStore.setState(s => ({
+            clients: s.clients.map(c => (
+              String(c.id) === localId ? normalizeClient({ ...c, ...saved, id: serverId }) : c
+            )),
+          }))
+          void cacheData('clients', useClientStore.getState().clients)
+        } catch { /* ignore */ }
+      }
+      return serverId
+    }
+    case 'client_delete': {
+      const p = row.payload || {}
+      let id = String(p.id || '')
+      const map = await getIdMap()
+      if (map[id]) id = map[id]
+      if (id && !isLocalId(id)) {
+        await api.deleteClient(id, p.phone, { clientRef: p.clientRef })
+      }
+      return id
+    }
+    case 'supplier_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : ''
+      const body = { ...(p.supplier || p) }
+      delete body.localId
+      delete body.clientRef
+      delete body.payableAmount
+      delete body.totalSupplied
+      delete body.totalPaid
+      delete body.lastDeliveryAtIso
+      const rawId = String(body.id || '')
+      const isLocal = !rawId || isLocalId(rawId)
+      let saved: any
+      if (isLocal) {
+        const { id: _drop, ...createBody } = body
+        saved = await api.createSupplier({ ...createBody, clientRef: p.clientRef } as any)
+      } else {
+        saved = await api.updateSupplier(rawId, { ...body, clientRef: p.clientRef } as any)
+      }
+      const serverId = String(saved?.id || '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { usePosStore } = await import('./posStore')
+          usePosStore.setState(s => ({
+            suppliers: s.suppliers.map(x => (String(x.id) === localId ? { ...saved } : x)),
+          }))
+          void persistPosSnapshot()
+        } catch { /* ignore */ }
+      }
+      return serverId
+    }
+    case 'supplier_delete': {
+      const p = row.payload || {}
+      let id = String(p.id || '')
+      const map = await getIdMap()
+      if (map[id]) id = map[id]
+      if (id && !isLocalId(id)) {
+        await api.deleteSupplier(id, { clientRef: p.clientRef })
+      }
+      return id
+    }
+    case 'expense_create': {
+      const p = row.payload || {}
+      const exp = await api.createExpense({
+        category: p.category,
+        amount: Number(p.amount) || 0,
+        note: p.note,
+        createdBy: p.createdBy,
+        shiftId: p.shiftId,
+        clientRef: p.clientRef,
+      } as any)
+      return String((exp as any)?.id || '')
+    }
+    case 'finance_move_delete': {
+      const p = await resolveRefs(row.payload, ['id'])
+      const id = String(p.id || '')
+      if (id && !isLocalId(id)) {
+        await api.deleteFinanceMove(id, { clientRef: p.clientRef })
+      }
+      return id
+    }
+    case 'category_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : ''
+      const body = { ...(p.category || p) }
+      delete body.localId
+      delete body.clientRef
+      const rawId = Number(body.id)
+      const isLocal = !Number.isFinite(rawId) || rawId <= 0
+      let saved: any
+      if (isLocal) {
+        const { id: _drop, ...createBody } = body
+        if (createBody.parent_id != null) {
+          const map = await getIdMap()
+          const pid = String(createBody.parent_id)
+          if (map[pid]) createBody.parent_id = Number(map[pid])
+          else if (Number(createBody.parent_id) <= 0) createBody.parent_id = null
+        }
+        saved = await api.createCategory({ ...createBody, clientRef: p.clientRef })
+      } else {
+        saved = await api.updateCategory(rawId, { ...body, clientRef: p.clientRef })
+      }
+      const serverId = String(saved?.id ?? '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { peekCategories, applyCategoriesLocal } = await import('./useCategories')
+          const lid = Number(localId)
+          applyCategoriesLocal(peekCategories().map(c => (
+            Number(c.id) === lid
+              ? { ...c, ...saved, id: Number(saved.id), slug: saved.slug || c.slug }
+              : (Number(c.parent_id) === lid ? { ...c, parent_id: Number(saved.id) } : c)
+          )))
+        } catch { /* ignore */ }
+      }
+      return serverId
+    }
+    case 'category_delete': {
+      const p = row.payload || {}
+      const ids: number[] = Array.isArray(p.ids) ? p.ids.map(Number) : [Number(p.id)]
+      const map = await getIdMap()
+      const serverIds = ids
+        .map(id => {
+          const mapped = map[String(id)]
+          return mapped != null ? Number(mapped) : id
+        })
+        .filter(id => Number.isFinite(id) && id > 0)
+      if (serverIds.length > 1) {
+        await api.deleteCategories(serverIds, { clientRef: p.clientRef })
+      } else if (serverIds.length === 1) {
+        await api.deleteCategory(serverIds[0], { clientRef: p.clientRef })
+      }
+      return serverIds.join(',')
+    }
+    case 'category_reorder': {
+      const p = row.payload || {}
+      const map = await getIdMap()
+      const items = (p.items || []).map((it: { id: number; order: number }) => {
+        const mapped = map[String(it.id)]
+        const id = mapped != null ? Number(mapped) : Number(it.id)
+        return { id, order: Number(it.order) || 0 }
+      }).filter((it: { id: number }) => Number.isFinite(it.id) && it.id > 0)
+      if (items.length) await api.reorderCategories(items, { clientRef: p.clientRef })
+      return String(items.length)
+    }
+    case 'card_loyalty_patch': {
+      const p = row.payload || {}
+      const num = String(p.num || '')
+      if (!num) return ''
+      const cardPatch = p.cardPatch || {
+        debt: p.debt,
+        debtEnabled: p.debtEnabled,
+        debtLimit: p.debtLimit,
+        bonus: p.bonus,
+        level: p.level,
+        vip: p.vip,
+        allowBonusDecrease: true,
+      }
+      await api.updateCard(num, { ...cardPatch, clientRef: p.clientRef })
+      if (p.clientId) {
+        let clientId = String(p.clientId)
+        const map = await getIdMap()
+        if (map[clientId]) clientId = map[clientId]
+        if (clientId && !isLocalId(clientId)) {
+          await api.updateClient(clientId, p.clientPatch || {
+            debt: p.debt,
+            debtEnabled: p.debtEnabled,
+            debtLimit: p.debtLimit,
+            bonus: p.bonus,
+            level: p.level,
+            vip: p.vip,
+          })
+        }
+      }
+      return num
     }
     default:
       throw new Error(`Неизвестная операция: ${row.kind}`)

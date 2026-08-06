@@ -5,6 +5,8 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
+import { isOfflineV2Full } from '@/lib/offlineV2'
+import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
 import OfflineNotice from './OfflineNotice'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
@@ -42,7 +44,10 @@ function emptyPaymentForm(): PaymentFormState {
 }
 
 export default function SuppliersModule() {
-  const canMutate = useCanMutate()
+  const canMutateOnline = useCanMutate()
+  const canMutate = canMutateOnline || isOfflineV2Full()
+  // Оплаты: онлайн всегда; офлайн — только при V2
+  const canPay = canMutateOnline || isOfflineV2Full()
   const suppliers = usePosStore(s => s.suppliers)
   const receipts = usePosStore(s => s.receipts)
   const apiSyncing = usePosStore(s => s.apiSyncing)
@@ -149,8 +154,8 @@ export default function SuppliersModule() {
   }
 
   async function submitForm() {
-    if (!USE_API) return
-    if (!guardMutation(msg => setForm(prev => ({ ...prev, msg })))) return
+    if (!USE_API && !isOfflineV2Full()) return
+    if (!isOfflineV2Full() && !guardMutation(msg => setForm(prev => ({ ...prev, msg })))) return
     const name = form.name.trim()
     if (!name) {
       setForm(prev => ({ ...prev, msg: 'Укажите название поставщика' }))
@@ -165,12 +170,8 @@ export default function SuppliersModule() {
         address: form.address.trim() || undefined,
         note: form.note.trim() || undefined,
       }
-      if (form.editingId) {
-        await api.updateSupplier(form.editingId, payload)
-      } else {
-        await api.createSupplier(payload)
-      }
-      await refreshAll()
+      const res = await saveSupplierSafe(payload, form.editingId)
+      if (!res.offline) await refreshAll()
       closeForm()
     } catch (e) {
       setForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка сохранения' }))
@@ -178,8 +179,8 @@ export default function SuppliersModule() {
   }
 
   async function removeSupplier(s: PosSupplier) {
-    if (!USE_API) return
-    if (!guardMutation()) return
+    if (!USE_API && !isOfflineV2Full()) return
+    if (!isOfflineV2Full() && !guardMutation()) return
     if ((Number(s.payableAmount) || 0) > 0) {
       alert('Нельзя удалить поставщика с непогашенным долгом — сначала оплатите задолженность')
       return
@@ -187,9 +188,9 @@ export default function SuppliersModule() {
     if (!confirm(`Удалить поставщика «${s.name}»?`)) return
     setDeletingId(s.id)
     try {
-      await api.deleteSupplier(s.id)
+      const res = await deleteSupplierSafe(s.id)
       if (detailId === s.id) setDetailId(null)
-      await refreshAll()
+      if (!res.offline) await refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить поставщика')
     } finally {
@@ -206,8 +207,8 @@ export default function SuppliersModule() {
   }
 
   async function submitPayment() {
-    if (!USE_API) return
-    if (!guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
+    if (!USE_API && !isOfflineV2Full()) return
+    if (!isOfflineV2Full() && !guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
     const amount = Number(payForm.amount)
     if (!(amount > 0)) {
       setPayForm(prev => ({ ...prev, msg: 'Укажите сумму оплаты' }))
@@ -215,8 +216,18 @@ export default function SuppliersModule() {
     }
     setPayForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      await api.createSupplierPayment(payForm.supplierId, { amount, note: payForm.note.trim() || undefined })
-      await Promise.all([refreshAll(), loadPayments(payForm.supplierId)])
+      const res = await createSupplierPaymentSafe(payForm.supplierId, {
+        amount,
+        note: payForm.note.trim() || undefined,
+      })
+      if (res.offline) {
+        setPayments(prev => ({
+          ...prev,
+          [payForm.supplierId]: [res.data, ...(prev[payForm.supplierId] || [])],
+        }))
+      } else {
+        await Promise.all([refreshAll(), loadPayments(payForm.supplierId)])
+      }
       closePayForm()
     } catch (e) {
       setPayForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка оплаты' }))
@@ -224,13 +235,21 @@ export default function SuppliersModule() {
   }
 
   async function removePayment(supplierId: string, paymentId: string) {
-    if (!USE_API) return
-    if (!guardMutation()) return
+    if (!USE_API && !isOfflineV2Full()) return
+    if (!isOfflineV2Full() && !guardMutation()) return
     if (!confirm('Удалить этот платёж? Долг поставщику будет восстановлен.')) return
+    const amountHint = payments[supplierId]?.find(p => p.id === paymentId)?.amount
     setDeletingPaymentId(paymentId)
     try {
-      await api.deleteSupplierPayment(supplierId, paymentId)
-      await Promise.all([refreshAll(), loadPayments(supplierId)])
+      const res = await deleteSupplierPaymentSafe(supplierId, paymentId, amountHint)
+      if (res.offline) {
+        setPayments(prev => ({
+          ...prev,
+          [supplierId]: (prev[supplierId] || []).filter(p => p.id !== paymentId),
+        }))
+      } else {
+        await Promise.all([refreshAll(), loadPayments(supplierId)])
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить платёж')
     } finally {
@@ -253,7 +272,7 @@ export default function SuppliersModule() {
           <button
             type="button"
             className="k-btn k-btn-g"
-            disabled={!USE_API || !canMutate}
+            disabled={(!USE_API && !isOfflineV2Full()) || !canMutate}
             title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
             onClick={openNewForm}
           >
@@ -533,7 +552,7 @@ export default function SuppliersModule() {
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-                <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={() => openPayForm(detailSupplier)}>💰 Оплатить долг</button>
+                <button type="button" className="k-btn k-btn-g" disabled={!USE_API || !canPay} title={canPay ? undefined : OFFLINE_BLOCK_MESSAGE} onClick={() => openPayForm(detailSupplier)}>💰 Оплатить долг</button>
                 <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(detailSupplier)}>✎ Редактировать</button>
                 <button
                   type="button"

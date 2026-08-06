@@ -125,6 +125,14 @@ function openSqlite() {
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS mirror (
+      kind TEXT NOT NULL,
+      id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_mirror_kind_updated ON mirror(kind, updated_at);
   `)
 }
 
@@ -176,6 +184,44 @@ function sqlQueueDelete(clientRef) {
 
 function sqlQueueLen() {
   const row = db.prepare('SELECT COUNT(*) AS n FROM queue').get()
+  return Number(row && row.n) || 0
+}
+
+function sqlMirrorPut(kind, id, data) {
+  const k = String(kind || '').trim()
+  const i = String(id || '').trim()
+  if (!k || !i) return false
+  const stamp = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO mirror(kind, id, payload, updated_at) VALUES(?, ?, ?, ?)
+    ON CONFLICT(kind, id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+  `).run(k, i, JSON.stringify(data == null ? null : data), stamp)
+  return true
+}
+
+function sqlMirrorGet(kind, id) {
+  const row = db.prepare('SELECT payload FROM mirror WHERE kind = ? AND id = ?')
+    .get(String(kind || ''), String(id || ''))
+  if (!row) return null
+  try { return JSON.parse(row.payload) } catch { return null }
+}
+
+function sqlMirrorList(kind, limit = 200) {
+  const lim = Math.max(1, Math.min(2000, Number(limit) || 200))
+  const rows = kind
+    ? db.prepare('SELECT kind, id, payload, updated_at FROM mirror WHERE kind = ? ORDER BY updated_at DESC LIMIT ?')
+      .all(String(kind), lim)
+    : db.prepare('SELECT kind, id, payload, updated_at FROM mirror ORDER BY updated_at DESC LIMIT ?')
+      .all(lim)
+  return rows.map(r => {
+    let data = null
+    try { data = JSON.parse(r.payload) } catch { data = null }
+    return { kind: r.kind, id: r.id, data, updatedAtIso: r.updated_at }
+  })
+}
+
+function sqlMirrorCount() {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM mirror').get()
   return Number(row && row.n) || 0
 }
 
@@ -342,6 +388,7 @@ function installLocalDbIpc() {
     hasCatalog: catalogReady(),
     kvKeys: sqlKvKeysCount(),
     queueLen: sqlQueueLen(),
+    mirrorCount: sqlMirrorCount(),
     lastBootstrapAt: sqlMetaGetAll().lastBootstrapAt || null,
     lastSyncAt: sqlMetaGetAll().lastSyncAt || null,
   }))
@@ -414,6 +461,37 @@ function installLocalDbIpc() {
   ipcMain.handle('desktop:localDbMarkInstalled', () => {
     writeInstallOk()
     return { ok: true, bootstrapComplete: true }
+  })
+
+  ipcMain.handle('desktop:localDbMirrorPut', (_e, row) => {
+    try {
+      const kind = row && row.kind
+      const id = row && row.id
+      const data = row && row.data
+      const ok = sqlMirrorPut(kind, id, data)
+      return { ok: !!ok }
+    } catch (e) {
+      console.error('[localDb] mirrorPut', e)
+      return { ok: false }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbMirrorGet', (_e, kind, id) => {
+    try {
+      return sqlMirrorGet(kind, id)
+    } catch (e) {
+      console.error('[localDb] mirrorGet', e)
+      return null
+    }
+  })
+
+  ipcMain.handle('desktop:localDbMirrorList', (_e, kind, limit) => {
+    try {
+      return sqlMirrorList(kind, limit)
+    } catch (e) {
+      console.error('[localDb] mirrorList', e)
+      return []
+    }
   })
 }
 

@@ -7,6 +7,8 @@ import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
+import { isOfflineV2Full } from '@/lib/offlineV2'
+import { expenseCreateSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
 import OfflineNotice from './OfflineNotice'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
@@ -47,6 +49,7 @@ const FINANCE_TABS: { id: FinanceTab; label: string; icon: string }[] = [
 
 export default function FinanceModule() {
   const canMutate = useCanMutate()
+  const canEditOffline = canMutate || isOfflineV2Full()
   const sales = usePosStore(s => s.sales)
   const shifts = usePosStore(s => s.shifts)
   const expenses = usePosStore(s => s.expenses)
@@ -181,22 +184,23 @@ export default function FinanceModule() {
   }, [loadTruth])
 
   async function submitExpense() {
-    if (!guardMutation(setMsg)) return
+    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
       const amount = Number(expAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму расхода')
-      if (!USE_API) throw new Error('Нужен API')
-      await api.createExpense({
+      if (!USE_API && !isOfflineV2Full()) throw new Error('Нужен API')
+      const res = await expenseCreateSafe({
         category: expCat.trim() || 'Прочее',
         amount,
         note: expNote.trim() || undefined,
       })
-      await refresh()
+      if (!res.offline) await refresh()
       setExpOpen(false)
       setExpAmount('')
       setExpNote('')
+      if (res.offline) setMsg('Расход сохранён · отправится при связи')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -205,22 +209,23 @@ export default function FinanceModule() {
   }
 
   async function submitDeposit() {
-    if (!guardMutation(setMsg)) return
+    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
       const amount = Number(depAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму')
-      if (!USE_API) throw new Error('Нужен API')
-      await api.createFinanceMove({
+      if (!USE_API && !isOfflineV2Full()) throw new Error('Нужен API')
+      const res = await financeMoveSafe({
         type: depType,
         amount,
         note: depNote.trim() || undefined,
       })
-      await refresh()
+      if (!res.offline) await refresh()
       setDepOpen(false)
       setDepAmount('')
       setDepNote('')
+      if (res.offline) setMsg('Движение сохранено · отправится при связи')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -229,11 +234,11 @@ export default function FinanceModule() {
   }
 
   async function removeMove(id: string) {
-    if (!guardMutation()) return
+    if (!isOfflineV2Full() && !guardMutation()) return
     if (!confirm('Удалить запись?')) return
     try {
-      await api.deleteFinanceMove(id)
-      await refresh()
+      const res = await financeMoveDeleteSafe(id)
+      if (!res.offline) await refresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить')
     }
@@ -280,8 +285,8 @@ export default function FinanceModule() {
           <button
             type="button"
             className="k-btn k-btn-g"
-            disabled={!canMutate}
-            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
+            disabled={!canEditOffline}
+            title={canEditOffline ? undefined : OFFLINE_BLOCK_MESSAGE}
             onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
           >
             + Вклад
@@ -289,8 +294,8 @@ export default function FinanceModule() {
           <button
             type="button"
             className="k-btn k-btn-s"
-            disabled={!canMutate}
-            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
+            disabled={!canEditOffline}
+            title={canEditOffline ? undefined : OFFLINE_BLOCK_MESSAGE}
             onClick={() => { setMsg(''); setExpOpen(true) }}
           >
             + Расход

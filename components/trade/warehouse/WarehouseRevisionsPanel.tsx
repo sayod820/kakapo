@@ -2,8 +2,12 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
-import { guardMutation } from '@/lib/offlineGuard'
 import { USE_API } from '@/lib/config'
+import {
+  createStockRevisionSafe,
+  deleteStockRevisionSafe,
+  updateStockRevisionSafe,
+} from '@/lib/offlineWarehouseOps'
 import { useProducts } from '@/lib/store'
 import { useCategories } from '@/lib/useCategories'
 import type { Product, ProductStockLayer, StockRevision } from '@/lib/types'
@@ -484,7 +488,6 @@ export default function WarehouseRevisionsPanel({
 
   async function submit() {
     if (!USE_API) return
-    if (!guardMutation(setMsg)) return
     const items = lines
       .filter(l => l.productId != null && l.countedStock !== '')
       .map(l => ({ productId: l.productId!, countedStock: Number(l.countedStock) }))
@@ -496,12 +499,14 @@ export default function WarehouseRevisionsPanel({
     setMsg('')
     try {
       const payload = { note: note.trim() || undefined, items }
-      if (editingId) {
-        await api.updateStockRevision(editingId, payload)
+      const res = editingId
+        ? await updateStockRevisionSafe(editingId, payload)
+        : await createStockRevisionSafe(payload)
+      if (!res.offline) {
+        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       } else {
-        await api.createStockRevision(payload)
+        setMsg('Ревизия сохранена локально · отправится при связи')
       }
-      await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       resetForm()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -512,16 +517,17 @@ export default function WarehouseRevisionsPanel({
 
   async function removeRevision(id: string) {
     if (!USE_API) return
-    if (!guardMutation()) return
     const revision = revisions.find(r => r.id === id)
     if (!revision) return
     if (!confirm(`Удалить ревизию от ${fmtDateTime(revision.createdAtIso)}?\n\nОстатки вернутся к значениям до ревизии.`)) return
     setDeletingId(id)
     try {
-      await api.deleteStockRevision(id)
+      const res = await deleteStockRevisionSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+      if (!res.offline) {
+        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить ревизию')
     } finally {

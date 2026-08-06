@@ -419,6 +419,7 @@ export interface StockRevisionItem {
 
 export interface StockRevision {
   id: string
+  clientRef?: string
   createdAtIso: string
   createdBy?: string
   note?: string

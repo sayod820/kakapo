@@ -4,10 +4,11 @@
 // сразу локально + очередь (как офлайн), синхронизация в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError, NetworkError } from './api'
-import { isLocalId, newClientRef, newLocalId } from './offline'
+import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
+import { isOfflineV2Full, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
-import type { FinanceMove, PosSale, PosShift } from './types'
+import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
 
 /** Сколько ждём живой ответ сервера, прежде чем подтвердить локально */
 const CASHIER_FAST_MS = 1600
@@ -100,7 +101,9 @@ export async function openShiftSafe(input: {
     return shift
   }
 
-  return raceCashierOp(() => api.openPosShift(payload), applyLocal)
+  const res = await raceCashierOp(() => api.openPosShift(payload), applyLocal)
+  if (res.data) shadowMirrorShift(res.data)
+  return res
 }
 
 export async function closeShiftSafe(
@@ -127,7 +130,7 @@ export async function closeShiftSafe(
     return current ? { ...current, status: 'closed' as const } : null
   }
 
-  return raceCashierOp(
+  const res = await raceCashierOp(
     () => api.closePosShift(shiftId, {
       clientRef,
       closingCash: payload.closingCash,
@@ -135,6 +138,8 @@ export async function closeShiftSafe(
     }),
     applyLocal,
   )
+  if (res.data) shadowMirrorShift(res.data)
+  return res
 }
 
 // ── Движение по кассе ──
@@ -154,8 +159,8 @@ export async function financeMoveSafe(input: {
   const clientRef = newClientRef()
   const payload = { ...input, clientRef, amount: round2(input.amount) }
 
-  // Оплата поставщику — только онлайн (нужен актуальный долг)
-  if (input.supplierId) {
+  // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
+  if (input.supplierId && !isOfflineV2Full()) {
     try {
       const move = await api.createFinanceMove(payload)
       return { offline: false, data: move }
@@ -177,6 +182,7 @@ export async function financeMoveSafe(input: {
       createdAtIso: new Date().toISOString(),
       shiftId: payload.shiftId,
       posId: payload.posId,
+      supplierId: payload.supplierId,
     }
     usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
     if (payload.shiftId) {
@@ -186,6 +192,21 @@ export async function financeMoveSafe(input: {
           ? { expenseTotal: round2((shift.expenseTotal || 0) + payload.amount) }
           : { cashInTotal: round2((shift.cashInTotal || 0) + payload.amount) })
       }
+    }
+    if (payload.supplierId && payload.type === 'withdraw') {
+      usePosStore.setState(s => ({
+        suppliers: s.suppliers.map(sup => {
+          if (sup.id !== payload.supplierId) return sup
+          const totalPaid = round2((Number(sup.totalPaid) || 0) + payload.amount)
+          const totalSupplied = Number(sup.totalSupplied) || 0
+          return {
+            ...sup,
+            totalPaid,
+            payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+          }
+        }),
+      }))
+      void persistPosSnapshot()
     }
     return move
   }
@@ -352,6 +373,7 @@ export async function returnSaleSafe(
   if (isLocalId(sale.id)) {
     await useOfflineSync.getState().queueOp('sale_return', payload)
     const returned = applyLocalReturn(sale, input.items)
+    shadowMirrorSale(returned)
     void useOfflineSync.getState().syncNow()
     return { offline: true, data: returned }
   }
@@ -361,7 +383,7 @@ export async function returnSaleSafe(
     return applyLocalReturn(sale, input.items)
   }
 
-  return raceCashierOp(
+  const res = await raceCashierOp(
     () => api.returnPosSale(sale.id, {
       clientRef,
       note: input.note,
@@ -370,6 +392,8 @@ export async function returnSaleSafe(
     }),
     applyLocal,
   )
+  if (res.data) shadowMirrorSale(res.data)
+  return res
 }
 
 /** Локальный возврат: товары на склад, чек помечен возвращённым */
@@ -420,4 +444,77 @@ function applyLocalReturn(
   })()
 
   return updated
+}
+
+// ── Расход (FinanceModule, Offline V2) ──
+
+export async function expenseCreateSafe(input: {
+  category: string
+  amount: number
+  note?: string
+  createdBy?: string
+  shiftId?: string
+}): Promise<OfflineResult<PosExpense>> {
+  const clientRef = newClientRef()
+  const payload = {
+    ...input,
+    clientRef,
+    amount: round2(input.amount),
+    category: String(input.category || 'Прочее').trim() || 'Прочее',
+  }
+
+  if (!isOfflineV2Full()) {
+    const exp = await api.createExpense(payload)
+    return { offline: false, data: exp }
+  }
+
+  const applyLocal = async () => {
+    const localId = newLocalId('exp')
+    await useOfflineSync.getState().queueOp('expense_create', payload, { localId, clientRef })
+    const exp: PosExpense = {
+      id: localId,
+      category: payload.category,
+      amount: payload.amount,
+      note: payload.note,
+      createdBy: payload.createdBy,
+      createdAtIso: new Date().toISOString(),
+      shiftId: payload.shiftId,
+    }
+    usePosStore.setState(s => ({ expenses: [exp, ...s.expenses] }))
+    void persistPosSnapshot()
+    return exp
+  }
+
+  return raceCashierOp(() => api.createExpense(payload), applyLocal)
+}
+
+// ── Удаление движения (Offline V2) ──
+
+export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const clientRef = newClientRef()
+
+  if (!isOfflineV2Full()) {
+    await api.deleteFinanceMove(id)
+    return { offline: false, data: { id } }
+  }
+
+  const applyLocal = async () => {
+    await useOfflineSync.getState().queueOp('finance_move_delete', { clientRef, id }, { clientRef })
+    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    void persistPosSnapshot()
+    return { id }
+  }
+
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+
+  return raceCashierOp(async () => {
+    await api.deleteFinanceMove(id)
+    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    void persistPosSnapshot()
+    return { id }
+  }, applyLocal)
 }

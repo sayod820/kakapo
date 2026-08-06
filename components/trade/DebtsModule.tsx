@@ -12,8 +12,9 @@ import {
 } from '@/lib/cardCrm'
 import {
   provisionLoyaltyCardForClient,
-  saveCardLoyalty,
 } from '@/lib/clientCardSync'
+import { adjustClientDebtSafe, saveCardLoyaltySafe } from '@/lib/offlineLoyaltyOps'
+import { isOfflineV2Full } from '@/lib/offlineV2'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -258,6 +259,9 @@ export default function DebtsModule() {
   ) {
     let card = cardForClient(client, cards)
     if (!card) {
+      if (isOfflineV2Full()) {
+        throw new Error('Нет карты лояльности — выдача карты нужна при связи')
+      }
       const updated = await provisionLoyaltyCardForClient(client)
       await refreshAll()
       card = cardForClient(updated, useCardStore.getState().cards)
@@ -265,8 +269,8 @@ export default function DebtsModule() {
     if (!card) throw new Error('Не удалось получить карту лояльности')
     const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
     const base = cardLoyaltyFromCard(card, freshClient)
-    await saveCardLoyalty(card, { ...base, ...patch }, 'edit', opts)
-    await refreshAll()
+    const res = await saveCardLoyaltySafe(card, { ...base, ...patch }, 'edit', opts)
+    if (!res.offline) await refreshAll()
   }
 
   function openDetail(id: string) {
@@ -290,23 +294,15 @@ export default function DebtsModule() {
       setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму' }))
       return
     }
-    const card = cardForClient(detailClient, cards)
-    const prevDebt = Math.max(
-      0,
-      Number(detailClient.debt) || 0,
-      Number(card?.debt) || 0,
-    )
-    const nextDebt = inlineDebt.action === 'repay'
-      ? Math.max(0, Math.round((prevDebt - amount) * 100) / 100)
-      : Math.round((prevDebt + amount) * 100) / 100
 
     setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      await saveLoyaltyForClient(detailClient, {
-        debt: nextDebt,
-        ...(nextDebt > 0.001 ? { debtEnabled: true } : {}),
+      const res = await adjustClientDebtSafe(detailClient, {
+        action: inlineDebt.action === 'repay' ? 'repay' : 'charge',
+        amount,
       })
       setInlineDebt(emptyInlineDebt())
+      if (!res.offline) await refreshAll()
     } catch (e) {
       setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
     }
@@ -330,13 +326,21 @@ export default function DebtsModule() {
       msg: silent ? `Подтягиваем долг ${fmtMoney(unpaidSum)} из истории…` : '',
     }))
     try {
-      await saveLoyaltyForClient(detailClient, { debt: unpaidSum, debtEnabled: true }, { skipDebtHistory: true })
+      const res = await adjustClientDebtSafe(detailClient, {
+        action: 'charge',
+        amount: 0,
+        absoluteDebt: unpaidSum,
+        skipDebtHistory: true,
+      })
       setInlineDebt(prev => ({
         ...prev,
         saving: false,
         amount: '',
-        msg: `Текущий долг обновлён: ${fmtMoney(unpaidSum)}`,
+        msg: res.offline
+          ? `Текущий долг обновлён локально: ${fmtMoney(unpaidSum)} · отправится при связи`
+          : `Текущий долг обновлён: ${fmtMoney(unpaidSum)}`,
       }))
+      if (!res.offline) await refreshAll()
       return true
     } catch (e) {
       setInlineDebt(prev => ({

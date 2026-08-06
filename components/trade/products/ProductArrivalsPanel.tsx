@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { createStockReceiptSafe, updateStockLayerSafe } from '@/lib/offlineWarehouseOps'
 import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
 import type { Product, ProductStockLayer, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from './BulkPricingFields'
@@ -152,26 +153,52 @@ export default function ProductArrivalsPanel({
     setSaving(true)
     setMsg('')
     try {
-      const res = await api.addProductStockLayer(product.id, {
-        qty: q,
-        costPrice: Number(costPrice) || 0,
-        retailPrice: Number(retailPrice) || Number(product.price) || 0,
-        bulkPricing: serializeBulkPricing(bulkPricing),
-        expiryDate: expiryDate || null,
-        supplierName: 'Ручной приход',
+      const cost = Number(costPrice) || 0
+      const retail = Number(retailPrice) || Number(product.price) || 0
+      const bulk = serializeBulkPricing(bulkPricing)
+      const res = await createStockReceiptSafe({
         createdBy: 'Торговля',
+        paidNow: 0,
+        items: [{
+          productId: product.id,
+          qty: q,
+          costPrice: cost,
+          retailPrice: retail,
+          bulkPricing: bulk,
+          expiryDate: expiryDate || null,
+        }],
       })
+      const receipt = {
+        ...res.data,
+        supplierName: res.data.supplierName || 'Ручной приход',
+      }
       initAddForm()
       setShowAdd(false)
-      await loadLayers()
-      onUpdated?.()
-      setMsg('Приход добавлен')
-      if (res?.receipt) {
-        setLabelReceipt(res.receipt)
-      } else if (res?.layers?.length) {
-        const layer = res.layers.find(l => l.receiptId === res.receipt?.id) || res.layers[0]
-        setLabelReceipt(receiptFromLayer(product, layer))
+      if (res.offline) {
+        const item = receipt.items[0]
+        const layer: ProductStockLayer = {
+          receiptId: receipt.id,
+          productId: product.id,
+          productName: product.name,
+          qty: Number(item?.qty) || q,
+          remainingQty: Number(item?.remainingQty ?? item?.qty) || q,
+          costPrice: cost,
+          retailPrice: retail,
+          bulkPricing: bulk || [],
+          expiryDate: expiryDate || null,
+          createdAtIso: receipt.createdAtIso,
+          supplierName: 'Ручной приход',
+          layerIndex: 0,
+          isActive: true,
+        }
+        setLayers(prev => [layer, ...prev])
+        setMsg('Приход сохранён локально · отправится при связи')
+      } else {
+        await loadLayers()
+        setMsg('Приход добавлен')
       }
+      onUpdated?.()
+      setLabelReceipt(receipt)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось добавить приход')
     } finally {
@@ -190,15 +217,29 @@ export default function ProductArrivalsPanel({
     setSaving(true)
     setMsg('')
     try {
-      await api.updateProductStockLayer(layer.receiptId, product.id, {
+      const res = await updateStockLayerSafe(layer.receiptId, product.id, {
         costPrice: Number(editCost) || 0,
         retailPrice: Number(editRetail) || 0,
         bulkPricing: serializeBulkPricing(editBulk),
       })
       setEditId(null)
-      await loadLayers()
+      if (res.offline) {
+        setLayers(prev => prev.map(l => (
+          l.receiptId === layer.receiptId
+            ? {
+                ...l,
+                costPrice: Number(editCost) || 0,
+                retailPrice: Number(editRetail) || 0,
+                bulkPricing: serializeBulkPricing(editBulk) || [],
+              }
+            : l
+        )))
+        setMsg('Партия обновлена локально · отправится при связи')
+      } else {
+        await loadLayers()
+        setMsg('Партия обновлена')
+      }
       onUpdated?.()
-      setMsg('Партия обновлена')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {

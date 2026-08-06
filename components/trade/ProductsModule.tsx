@@ -5,6 +5,8 @@ import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useCategories } from '@/lib/useCategories'
 import { guardMutation } from '@/lib/offlineGuard'
+import { isOfflineV2Full } from '@/lib/offlineV2'
+import { deleteProductSafe, saveProductSafe } from '@/lib/offlineProductOps'
 import OfflineNotice from '@/components/trade/OfflineNotice'
 import ProductTab from '@/components/trade/products/ProductTab'
 import CategoryTab from '@/components/trade/products/CategoryTab'
@@ -36,8 +38,6 @@ export default function ProductsModule({
 }) {
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
-  const saveProduct = useProducts(s => s.saveProduct)
-  const removeProduct = useProducts(s => s.removeProduct)
   const removeProducts = useProducts(s => s.removeProducts)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const { getPhoto, setPhoto, hydrate } = useProductPhotos()
@@ -140,12 +140,13 @@ export default function ProductsModule({
   }
 
   async function handleSave() {
-    if (!guardMutation(setMsg)) return
+    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     setSaving(true)
     setMsg('')
     try {
       const payload = buildProductPayload(form, products, isNew ? null : selectedProduct, categories)
-      const saved = await saveProduct(payload)
+      const res = await saveProductSafe(payload)
+      const saved = res.data
       if (saved && form.photo) setPhoto(saved.id, form.photo)
       if (isNew && saved) {
         setSelectedId(saved.id)
@@ -153,7 +154,11 @@ export default function ProductsModule({
         formLoadedForId.current = saved.id
       }
       setFormDirty(false)
-      setMsg(isNew ? 'Товар добавлен' : 'Товар обновлён')
+      setMsg(
+        res.offline
+          ? (isNew ? 'Товар добавлен · отправится при связи' : 'Сохранено · отправится при связи')
+          : (isNew ? 'Товар добавлен' : 'Товар обновлён'),
+      )
       setSub('product')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
@@ -163,17 +168,21 @@ export default function ProductsModule({
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!guardMutation(setMsg)) return
+    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     if (!confirm(`Удалить товар «${name}»?`)) return
-    await removeProduct(id)
-    if (selectedId === id) {
-      setSelectedId(null)
-      setIsNew(false)
-      setForm(emptyForm())
-      setFormDirty(false)
-      formLoadedForId.current = null
+    try {
+      const res = await deleteProductSafe(id)
+      if (selectedId === id) {
+        setSelectedId(null)
+        setIsNew(false)
+        setForm(emptyForm())
+        setFormDirty(false)
+        formLoadedForId.current = null
+      }
+      setMsg(res.offline ? 'Товар удалён · отправится при связи' : 'Товар удалён')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     }
-    setMsg('Товар удалён')
   }
 
   async function handleDeleteSelected() {
@@ -182,10 +191,20 @@ export default function ProductsModule({
   }
 
   async function handleDeleteProducts(ids: number[]) {
-    if (!guardMutation(setMsg)) return
     if (!ids.length) return
+    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     try {
-      const { removed } = await removeProducts(ids)
+      let removed = 0
+      let anyOffline = false
+      if (isOfflineV2Full()) {
+        for (const id of ids) {
+          const res = await deleteProductSafe(id)
+          removed += 1
+          if (res.offline) anyOffline = true
+        }
+      } else {
+        ;({ removed } = await removeProducts(ids))
+      }
       if (selectedId != null && ids.includes(selectedId)) {
         setSelectedId(null)
         setIsNew(false)
@@ -193,7 +212,11 @@ export default function ProductsModule({
         setFormDirty(false)
         formLoadedForId.current = null
       }
-      setMsg(`Удалено товаров: ${removed}`)
+      setMsg(
+        anyOffline
+          ? `Удалено товаров: ${removed} · отправится при связи`
+          : `Удалено товаров: ${removed}`,
+      )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить товары')
     }
