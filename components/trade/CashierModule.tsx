@@ -2,9 +2,9 @@
 
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { api, isNetworkError, NetworkError } from '@/lib/api'
+import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
-import { newClientRef, newLocalId, isOnline } from '@/lib/offline'
+import { newClientRef, isOnline } from '@/lib/offline'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import {
   openShiftSafe,
@@ -13,6 +13,7 @@ import {
   cardTopupSafe,
   debtRepaySafe,
   returnSaleSafe,
+  createSaleSafe,
 } from '@/lib/offlinePosOps'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
@@ -51,7 +52,7 @@ import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { shadowMirrorSale } from '@/lib/offlineV2'
+import { isOfflineV2Full } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierCritical } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -4605,31 +4606,6 @@ export default function CashierModule({
     return Math.min(clientDebt, raw)
   }
 
-  async function applyDebtRepayAfterSale(amount: number, method: 'cash' | 'card') {
-    if (!client?.card || !(amount > 0.001)) return
-    const prevDebt = Number(loyalty?.debt) || clientDebt
-    const payAmt = Math.min(prevDebt, Math.round(amount * 100) / 100)
-    if (!(payAmt > 0.001)) return
-    const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
-    const repayBonus = method === 'cash' ? calcCashDepositBonus(payAmt) : 0
-    const summary = loyaltySummaryForClient(client, cards)
-    const cardRow = cards.find(c => cardNumsMatch(c.num, client.card!))
-    const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-    await api.updateCard(client.card, {
-      debt: nextDebt,
-      ...(repayBonus > 0 ? {
-        bonus: (Number(summary.bonus) || 0) + repayBonus,
-        posCashBonus: prevPos + repayBonus,
-      } : {}),
-    })
-    if (client.phone) {
-      recordStoreDebtRepayment(client.phone, payAmt, { method })
-      if (repayBonus > 0) {
-        recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга с чеком (нал)')
-      }
-    }
-  }
-
   function discBaseAmount(mode: 'all' | 'line', lineKey?: string | null) {
     if (mode === 'line' && lineKey) {
       const line = cart.find(l => l.key === lineKey)
@@ -5009,16 +4985,17 @@ export default function CashierModule({
     // Офлайн только если браузер реально без сети.
     // Статус «сервер недоступен» не должен блокировать попытку пробить чек онлайн.
     const apiReachable = isOnline()
+    const v2Full = isOfflineV2Full()
     if (!apiReachable) {
       if (cardPaid > 0.001 || apiMethod === 'card') {
         showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
         return false
       }
-      if (walletPaid > 0.001 || apiMethod === 'wallet') {
+      if (!v2Full && (walletPaid > 0.001 || apiMethod === 'wallet')) {
         showToast('Нет связи', 'Оплата с кошелька недоступна офлайн.')
         return false
       }
-      if (spend > 0) {
+      if (!v2Full && spend > 0) {
         showToast('Нет связи', 'Списание бонусов недоступно офлайн.')
         return false
       }
@@ -5072,113 +5049,43 @@ export default function CashierModule({
           preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
         })),
       }
-      const applyOfflineSaleLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
-        useOfflineSync.getState().markOffline()
-        const offlineSaleId = newLocalId('sale')
-        await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
-        try {
-          const ps = useProducts.getState()
-          for (const l of cart) {
-            const p = ps.products.find(x => x.id === l.productId)
-            if (!p) continue
-            const dec = l.weightKg != null ? l.weightKg : l.qty
-            ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
-          }
-        } catch { /* ignore */ }
-        if (debtAdded > 0.001 && client) {
-          const nextDebt = Math.round(((Number(client.debt) || 0) + debtAdded) * 100) / 100
-          useClientStore.getState().updateClient(
-            client.id,
-            { debt: nextDebt, debtEnabled: true },
-            { skipApi: true },
-          )
-          if (client.card) {
-            const currentCard = cards.find(c => cardNumsMatch(c.num, client.card))
-            useCardStore.getState().updateCardLoyalty(
-              client.card,
-              { debt: Math.round(((Number(currentCard?.debt) || 0) + debtAdded) * 100) / 100, debtEnabled: true },
-              { skipApi: true },
-            )
-          }
-        }
-        const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
-          ...(salePayload as unknown as PosSale),
-          id: offlineSaleId,
-          orderId: salePayload.clientRef,
-          total,
-          _offline: true,
-        }
-        usePosStore.setState(st => ({
-          sales: [offlineSale, ...st.sales],
-          shifts: st.shifts.map(sh => sh.id === activeShift.id ? {
-            ...sh,
-            salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
-            salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
-            salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
-            salesCount: (sh.salesCount || 0) + 1,
-          } : sh),
-        }))
-        return offlineSale
-      }
 
-      let created: PosSale & { orderId?: string; _offline?: boolean }
-      // Нал / долг / смешанная без карты: сразу локально (без ожидания сервера),
-      // потом очередь уходит в фоне — так чек не «висит» даже при медленном интернете.
+      // Карта / кошелёк / бонусы — живой сервер, если онлайн; при V2 офлайн кошелёк+бонусы локально
       const needsLiveServer =
         cardPaid > 0.001
-        || walletPaid > 0.001
-        || spend > 0
         || apiMethod === 'card'
-        || apiMethod === 'wallet'
         || apiMethod === 'balance'
-      if (!apiReachable || !needsLiveServer) {
-        created = await applyOfflineSaleLocal()
-      } else {
-        try {
-          // Короткий race: слабый интернет не должен держать busy и модалки
-          created = await Promise.race([
-            api.createPosSale(salePayload),
-            new Promise<never>((_, reject) => {
-              setTimeout(
-                () => reject(new NetworkError('Медленная связь — чек сохранён локально')),
-                1600,
-              )
-            }),
-          ])
-          usePosStore.setState(st => ({
-            sales: [created, ...st.sales.filter(x => x.id !== created.id)],
-            shifts: st.shifts.map(sh => sh.id === activeShift.id ? {
-              ...sh,
-              salesCash: Math.round(((sh.salesCash || 0) + cashPaid) * 100) / 100,
-              salesCard: Math.round(((sh.salesCard || 0) + cardPaid) * 100) / 100,
-              salesCredit: Math.round(((sh.salesCredit || 0) + debtAdded) * 100) / 100,
-              salesCount: (sh.salesCount || 0) + 1,
-            } : sh),
-          }))
-          try {
-            const ps = useProducts.getState()
-            for (const l of cart) {
-              const p = ps.products.find(x => x.id === l.productId)
-              if (!p) continue
-              const dec = l.weightKg != null ? l.weightKg : l.qty
-              ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
-            }
-          } catch { /* ignore */ }
-        } catch (e) {
-          if (isNetworkError(e)) {
-            created = await applyOfflineSaleLocal()
-          } else {
-            throw e
-          }
-        }
-      }
+        || ((!v2Full || apiReachable) && (walletPaid > 0.001 || apiMethod === 'wallet' || spend > 0))
+
+      const saleRes = await createSaleSafe({
+        salePayload,
+        cart: cart.map(l => ({
+          productId: l.productId,
+          qty: l.qty,
+          weightKg: l.weightKg,
+        })),
+        shiftId: activeShift.id,
+        cashPaid,
+        cardPaid,
+        debtAdded,
+        walletPaid,
+        total,
+        needsLiveServer,
+        forceOffline: !apiReachable,
+        client: client
+          ? { id: client.id, card: client.card, debt: client.debt, wallet: client.wallet }
+          : null,
+        bonusSpend: spend,
+        bonusEarn: earnedBonusPreview,
+      })
+      const created = {
+        ...saleRes.data,
+        _offline: saleRes.offline || !!(saleRes.data as { _offline?: boolean })._offline,
+      } as PosSale & { orderId?: string; _offline?: boolean }
 
       // Сразу снимаем busy — дальше фон (sync/бонусы) не должен блокировать поиск
       sellingTicketIdRef.current = null
       setBusy(false)
-
-      // Offline V2 shadow (режим off = no-op) — не блокирует кассу
-      try { shadowMirrorSale(created) } catch { /* ignore */ }
 
       if (created._offline) {
         // Не пугаем «офлайн», если сеть есть — просто фоновая отправка
@@ -6350,6 +6257,50 @@ export default function CashierModule({
                   ) : (
                     <div className="pos-settings-status warn">Нужен desktop KAKAPO Касса</div>
                   )}
+                </div>
+
+                <div className="pos-settings-card">
+                  <h3>Офлайн Trade (V2)</h3>
+                  <p className="hint">По умолчанию выкл. «Полный» — склад, клиенты, бонусы и кошелёк без сети (карта терминала всё равно только онлайн).</p>
+                  <div className="pos-settings-row-btns" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    {([
+                      { id: 'off' as const, label: 'Выкл' },
+                      { id: 'shadow' as const, label: 'Тень' },
+                      { id: 'on' as const, label: 'Полный' },
+                    ]).map(opt => {
+                      const cur = (() => {
+                        try {
+                          const raw = String(localStorage.getItem('kakapo-offline-v2') || '').trim().toLowerCase()
+                          return raw === 'shadow' || raw === 'on' ? raw : 'off'
+                        } catch { return 'off' }
+                      })()
+                      const on = cur === opt.id
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className="btn-switch-till"
+                          style={on ? { borderColor: 'var(--green, #2a7a3a)', fontWeight: 800 } : undefined}
+                          onClick={() => {
+                            try {
+                              localStorage.setItem('kakapo-offline-v2', opt.id)
+                            } catch { /* ignore */ }
+                            showToast(
+                              'Офлайн V2',
+                              opt.id === 'off'
+                                ? 'Выключен — обычный режим'
+                                : opt.id === 'shadow'
+                                  ? 'Тень: зеркало SQLite, касса без изменений'
+                                  : 'Полный офлайн Trade включён',
+                            )
+                            setVersion(v => v + 1)
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

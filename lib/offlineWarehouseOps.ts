@@ -4,6 +4,7 @@
 // ════════════════════════════════════════════════
 import { api, isNetworkError, NetworkError } from './api'
 import { isLocalId, newClientRef, newLocalId } from './offline'
+import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff } from './types'
@@ -167,10 +168,13 @@ export async function createStockReceiptSafe(
     await useOfflineSync.getState().queueOp('stock_receipt_create', body, { localId })
     await applyReceiptStock(receipt, 1)
     usePosStore.setState(s => ({ receipts: [receipt, ...s.receipts] }))
+    shadowMirrorPut('stock_receipt', receipt.id, receipt)
     return receipt
   }
 
-  return raceWarehouseOp(() => api.createStockReceipt(body), applyLocal)
+  const res = await raceWarehouseOp(() => api.createStockReceipt(body), applyLocal)
+  if (res.data) shadowMirrorPut('stock_receipt', res.data.id, res.data)
+  return res
 }
 
 export async function updateStockReceiptSafe(
@@ -292,10 +296,13 @@ export async function createStockWriteoffSafe(
     await useOfflineSync.getState().queueOp('stock_writeoff_create', body, { localId })
     await applyWriteoffStock(payload.items, 1)
     usePosStore.setState(s => ({ writeoffs: [writeoff, ...s.writeoffs] }))
+    shadowMirrorPut('stock_writeoff', writeoff.id, writeoff)
     return writeoff
   }
 
-  return raceWarehouseOp(() => api.createStockWriteoff(body), applyLocal)
+  const res = await raceWarehouseOp(() => api.createStockWriteoff(body), applyLocal)
+  if (res.data) shadowMirrorPut('stock_writeoff', res.data.id, res.data)
+  return res
 }
 
 export async function updateStockWriteoffSafe(
@@ -431,10 +438,13 @@ export async function createStockRevisionSafe(
     await useOfflineSync.getState().queueOp('stock_revision_create', body, { localId })
     await applyRevisionExact(payload.items)
     usePosStore.setState(s => ({ revisions: [revision, ...s.revisions] }))
+    shadowMirrorPut('stock_receipt', `rev:${revision.id}`, revision)
     return revision
   }
 
-  return raceWarehouseOp(() => api.createStockRevision(body as any), applyLocal)
+  const res = await raceWarehouseOp(() => api.createStockRevision(body as any), applyLocal)
+  if (res.data) shadowMirrorPut('stock_receipt', `rev:${res.data.id}`, res.data)
+  return res
 }
 
 export async function updateStockRevisionSafe(

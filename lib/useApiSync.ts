@@ -7,7 +7,7 @@ import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
 import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
-import { syncPosFromApi } from './posStore'
+import { softSyncPosAfterSale, syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 
@@ -15,6 +15,8 @@ export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog
 
 const INTERVAL_MS = 12000
 const POS_INTERVAL_MS = 30000
+/** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
+const PULL_DEBOUNCE_MS = 400
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -24,14 +26,53 @@ function wsRoleForMode(mode: SyncMode) {
   return 'admin' as const
 }
 
+type PullKind = 'crm' | 'pos' | 'products' | 'posSoft'
+
+function createDebouncedPullers() {
+  const timers: Partial<Record<PullKind, ReturnType<typeof setTimeout>>> = {}
+  const pending = new Set<PullKind>()
+
+  function schedule(kind: PullKind, run: () => void) {
+    pending.add(kind)
+    if (timers[kind]) clearTimeout(timers[kind])
+    timers[kind] = setTimeout(() => {
+      pending.delete(kind)
+      delete timers[kind]
+      try { run() } catch (e) { console.error('[kakapo] pull failed', kind, e) }
+    }, PULL_DEBOUNCE_MS)
+  }
+
+  return {
+    crm: () => schedule('crm', () => {
+      void syncClientsFromApi()
+      void syncCardsFromApi()
+    }),
+    pos: () => schedule('pos', () => {
+      void syncPosFromApi()
+    }),
+    products: () => schedule('products', () => {
+      void useProducts.getState().fetchProducts()
+    }),
+    posSoft: () => schedule('posSoft', () => {
+      void softSyncPosAfterSale()
+    }),
+    flushAll: () => {
+      for (const t of Object.values(timers)) if (t) clearTimeout(t)
+      for (const k of Object.keys(timers) as PullKind[]) delete timers[k]
+      pending.clear()
+    },
+  }
+}
+
 export function useApiSync(mode: SyncMode = 'all') {
-  const started = useRef(false)
+  const pullersRef = useRef<ReturnType<typeof createDebouncedPullers> | null>(null)
+  if (!pullersRef.current) pullersRef.current = createDebouncedPullers()
+  const pull = pullersRef.current
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
     if (msg.event === 'loyalty_update') {
-      void syncClientsFromApi()
-      void syncCardsFromApi()
+      pull.crm()
       return
     }
     if (msg.event === 'courier_wallet_update') {
@@ -74,8 +115,8 @@ export function useApiSync(mode: SyncMode = 'all') {
           })
         })
       }
-      void useProducts.getState().fetchProducts()
-      if (mode === 'pos') void syncPosFromApi()
+      pull.products()
+      if (mode === 'pos') pull.pos()
       return
     }
     if (msg.event === 'restaurant_update') {
@@ -104,14 +145,25 @@ export function useApiSync(mode: SyncMode = 'all') {
             slugs: Array.isArray(incoming.slugs) ? incoming.slugs : undefined,
           })
         })
-        void useProducts.getState().fetchProducts()
+        pull.products()
       }
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
       return
     }
     if (msg.event === 'pos_update') {
-      void useProducts.getState().fetchProducts()
-      void syncPosFromApi()
+      const kind = String(msg.payload?.kind || msg.payload?.reason || '')
+      pull.products()
+      // CRM / лояльность — сразу клиенты и карты
+      if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
+        pull.crm()
+      }
+      // Лёгкий sync продаж/смен vs полный снимок склада/финансов
+      if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
+        pull.posSoft()
+        pull.pos()
+      } else {
+        pull.pos()
+      }
       return
     }
     if (msg.order) {
@@ -133,7 +185,10 @@ export function useApiSync(mode: SyncMode = 'all') {
     if (mode === 'assembler') orders.fetchAssemblerOrders()
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
-    else if (mode === 'pos') syncPosFromApi()
+    else if (mode === 'pos') {
+      pull.pos()
+      pull.crm()
+    }
     else if (mode === 'all') orders.fetchOrders()
   })
 
@@ -175,8 +230,11 @@ export function useApiSync(mode: SyncMode = 'all') {
 
     load()
     const id = setInterval(load, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
-    return () => clearInterval(id)
-  }, [mode])
+    return () => {
+      clearInterval(id)
+      pull.flushAll()
+    }
+  }, [mode, pull])
 }
 
 /** Однократная загрузка при старте (layout) */

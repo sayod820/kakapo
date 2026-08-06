@@ -579,11 +579,13 @@ function broadcastLoyalty(payload = {}) {
       phone: payload.phone || '',
       bonus: payload.bonus,
       card: payload.card || '',
+      clientId: payload.clientId || '',
     },
   })
   for (const ws of clients) {
     if (ws.readyState !== 1) continue
-    if (ws.wsRole === 'admin') {
+    // admin + все кассы (pos): сразу тянут клиентов/карты
+    if (ws.wsRole === 'admin' || ws.wsRole === 'pos') {
       ws.send(msg)
       continue
     }
@@ -591,6 +593,25 @@ function broadcastLoyalty(payload = {}) {
       ws.send(msg)
     }
   }
+}
+
+/** Клиент/карта изменились → касса и админка обновляются сразу */
+function notifyCrmChange(clientOrCard = {}) {
+  const phone = clientOrCard.phone || ''
+  const card = clientOrCard.card || clientOrCard.num || ''
+  const clientId = clientOrCard.id || clientOrCard.clientId || ''
+  broadcastLoyalty({
+    phone,
+    bonus: clientOrCard.bonus,
+    card,
+    clientId,
+  })
+  broadcastPosUpdate({
+    kind: 'crm',
+    id: clientId || card || phone,
+    phone,
+    card,
+  })
 }
 
 function parseWsMeta(url) {
@@ -3116,6 +3137,7 @@ app.post('/clients', (req, res) => {
   reconcileClientBonuses(db, row.phone, loyaltyHooks())
   if (clientRef) { row.clientRef = clientRef; rememberKnownOp('client_upsert', clientRef, row) }
   persist()
+  notifyCrmChange(row)
   res.json(row)
 })
 app.patch('/clients/:id', (req, res) => {
@@ -3134,6 +3156,7 @@ app.patch('/clients/:id', (req, res) => {
       before: { name: c.name, phone: c.phone, debt: c.debt, card: c.card },
     })
     removeClientAndUnlinkCards(c)
+    broadcastPosUpdate({ kind: 'crm', id: c.id, deleted: true })
     return res.json({ ok: true })
   }
   const beforeSnap = {
@@ -3244,6 +3267,7 @@ app.patch('/clients/:id', (req, res) => {
   }
   if (clientRef) rememberKnownOp('client_upsert', clientRef, c)
   persist()
+  notifyCrmChange(c)
   res.json(c)
 })
 function unlinkCardsForClient(client) {
@@ -3497,6 +3521,7 @@ app.delete('/clients/:id', (req, res) => {
     before: { name: client.name, phone: client.phone },
   })
   removeClientAndUnlinkCards(client)
+  broadcastPosUpdate({ kind: 'crm', id: client.id, deleted: true, phone: client.phone })
   res.json({ ok: true })
 })
 
@@ -4248,6 +4273,13 @@ app.patch('/cards/:num', (req, res) => {
   }
   if (clientRef) rememberKnownOp('card_loyalty_patch', clientRef, card)
   persist()
+  notifyCrmChange({
+    phone: card.phone,
+    bonus: card.bonus,
+    card: card.num,
+    num: card.num,
+    clientId: card.clientId,
+  })
   res.json(card)
 })
 

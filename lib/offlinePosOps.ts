@@ -4,11 +4,41 @@
 // сразу локально + очередь (как офлайн), синхронизация в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError, NetworkError } from './api'
-import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
-import { isOfflineV2Full, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
+import { isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot } from './offline'
+import { cardNumsMatch } from './cardCrm'
+import { isOfflineV2Full, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
+
+export type SaleCartLine = {
+  productId: number
+  qty: number
+  weightKg?: number | null
+}
+
+export type CreateSaleSafeInput = {
+  salePayload: Record<string, unknown>
+  cart: SaleCartLine[]
+  shiftId: string
+  cashPaid: number
+  cardPaid: number
+  debtAdded: number
+  walletPaid?: number
+  total: number
+  /** Карта / кошелёк / бонусы — нужен живой сервер, если онлайн */
+  needsLiveServer: boolean
+  /** Браузер реально офлайн */
+  forceOffline: boolean
+  client?: {
+    id: string
+    card?: string
+    debt?: number
+    wallet?: number
+  } | null
+  bonusSpend?: number
+  bonusEarn?: number
+}
 
 /** Сколько ждём живой ответ сервера, прежде чем подтвердить локально */
 const CASHIER_FAST_MS = 1600
@@ -185,6 +215,7 @@ export async function financeMoveSafe(input: {
       supplierId: payload.supplierId,
     }
     usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
+    shadowMirrorPut('finance_move', move.id, move)
     if (payload.shiftId) {
       const shift = shiftById(payload.shiftId)
       if (shift) {
@@ -446,6 +477,176 @@ function applyLocalReturn(
   return updated
 }
 
+// ── Продажа (касса) ──
+
+/**
+ * Пробитие чека: нал/долг — сразу локально + очередь;
+ * карта/кошелёк/бонусы (онлайн) — короткий race, иначе локально.
+ * Offline V2=on: локально правит бонусы и кошелёк в сторе.
+ */
+export async function createSaleSafe(
+  input: CreateSaleSafeInput,
+): Promise<OfflineResult<PosSale & { orderId?: string; _offline?: boolean }>> {
+  const cashPaid = round2(input.cashPaid)
+  const cardPaid = round2(input.cardPaid)
+  const debtAdded = round2(input.debtAdded)
+  const walletPaid = round2(input.walletPaid || 0)
+  const spend = Math.max(0, Math.floor(Number(input.bonusSpend) || 0))
+  const earn = Math.max(0, Math.floor(Number(input.bonusEarn) || 0))
+  const client = input.client || null
+  const salePayload = { ...input.salePayload }
+
+  const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
+    useOfflineSync.getState().markOffline()
+    const offlineSaleId = newLocalId('sale')
+    await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
+
+    try {
+      const { useProducts } = await import('./store')
+      const ps = useProducts.getState()
+      for (const l of input.cart) {
+        const p = ps.products.find(x => x.id === l.productId)
+        if (!p) continue
+        const dec = l.weightKg != null ? l.weightKg : l.qty
+        ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+      }
+    } catch { /* ignore */ }
+
+    if (client) {
+      const { useClientStore } = await import('./clientStore')
+      const { useCardStore } = await import('./cardStore')
+
+      if (debtAdded > 0.001) {
+        const nextDebt = round2((Number(client.debt) || 0) + debtAdded)
+        useClientStore.getState().updateClient(
+          client.id,
+          { debt: nextDebt, debtEnabled: true },
+          { skipApi: true },
+        )
+        if (client.card) {
+          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            {
+              debt: round2((Number(currentCard?.debt) || 0) + debtAdded),
+              debtEnabled: true,
+            },
+            { skipApi: true },
+          )
+        }
+      }
+
+      if (walletPaid > 0.001) {
+        const nextWallet = round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
+        useClientStore.getState().updateClient(client.id, { wallet: nextWallet }, { skipApi: true })
+        if (client.card) {
+          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            { wallet: round2(Math.max(0, (Number(currentCard?.wallet) || Number(client.wallet) || 0) - walletPaid)) },
+            { skipApi: true },
+          )
+        }
+      }
+
+      if (client.card && (spend > 0 || earn > 0)) {
+        const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+        const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
+        const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
+        const nextBonus = Math.max(0, base - spend + earn)
+        const nextPos = Math.max(0, prevPos - spend + earn)
+        useCardStore.getState().updateCardLoyalty(
+          client.card,
+          {
+            bonus: nextBonus,
+            posCashBonus: nextPos,
+            ...(spend > 0 ? { allowBonusDecrease: true } : {}),
+          } as any,
+          { skipApi: true },
+        )
+        useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
+      }
+    }
+
+    const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
+      ...(salePayload as unknown as PosSale),
+      id: offlineSaleId,
+      orderId: String(salePayload.clientRef || ''),
+      total: input.total,
+      _offline: true,
+    }
+    usePosStore.setState(st => ({
+      sales: [offlineSale, ...st.sales],
+      shifts: st.shifts.map(sh => sh.id === input.shiftId ? {
+        ...sh,
+        salesCash: round2((sh.salesCash || 0) + cashPaid),
+        salesCard: round2((sh.salesCard || 0) + cardPaid),
+        salesCredit: round2((sh.salesCredit || 0) + debtAdded),
+        salesCount: (sh.salesCount || 0) + 1,
+        ...(walletPaid > 0.001
+          ? { salesWallet: round2((Number((sh as any).salesWallet) || 0) + walletPaid) }
+          : {}),
+      } : sh),
+    }))
+    shadowMirrorSale(offlineSale)
+    return offlineSale
+  }
+
+  const patchShiftOnline = (created: PosSale) => {
+    usePosStore.setState(st => ({
+      sales: [created, ...st.sales.filter(x => x.id !== created.id)],
+      shifts: st.shifts.map(sh => sh.id === input.shiftId ? {
+        ...sh,
+        salesCash: round2((sh.salesCash || 0) + cashPaid),
+        salesCard: round2((sh.salesCard || 0) + cardPaid),
+        salesCredit: round2((sh.salesCredit || 0) + debtAdded),
+        salesCount: (sh.salesCount || 0) + 1,
+        ...(walletPaid > 0.001
+          ? { salesWallet: round2((Number((sh as any).salesWallet) || 0) + walletPaid) }
+          : {}),
+      } : sh),
+    }))
+    void (async () => {
+      try {
+        const { useProducts } = await import('./store')
+        const ps = useProducts.getState()
+        for (const l of input.cart) {
+          const p = ps.products.find(x => x.id === l.productId)
+          if (!p) continue
+          const dec = l.weightKg != null ? l.weightKg : l.qty
+          ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+        }
+      } catch { /* ignore */ }
+    })()
+    shadowMirrorSale(created)
+  }
+
+  const apiReachable = !input.forceOffline && isOnline()
+  if (!apiReachable || !input.needsLiveServer) {
+    const data = await applyLocal()
+    return { offline: true, data }
+  }
+
+  try {
+    const created = await Promise.race([
+      api.createPosSale(salePayload as any),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new NetworkError('Медленная связь — чек сохранён локально')),
+          CASHIER_FAST_MS,
+        )
+      }),
+    ])
+    patchShiftOnline(created)
+    return { offline: false, data: created as PosSale & { orderId?: string } }
+  } catch (e) {
+    if (!isNetworkError(e)) throw e
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+}
+
 // ── Расход (FinanceModule, Offline V2) ──
 
 export async function expenseCreateSafe(input: {
@@ -482,10 +683,13 @@ export async function expenseCreateSafe(input: {
     }
     usePosStore.setState(s => ({ expenses: [exp, ...s.expenses] }))
     void persistPosSnapshot()
+    shadowMirrorPut('finance_move', `exp:${exp.id}`, exp)
     return exp
   }
 
-  return raceCashierOp(() => api.createExpense(payload), applyLocal)
+  const res = await raceCashierOp(() => api.createExpense(payload), applyLocal)
+  if (res.data) shadowMirrorPut('finance_move', `exp:${res.data.id}`, res.data)
+  return res
 }
 
 // ── Удаление движения (Offline V2) ──
