@@ -20,6 +20,7 @@ import {
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import {
   buildDebtOrderBalances,
+  buildSaleDebtStatuses,
   debtBalanceDeltaForHistoryChange,
   debtHistoryTotals,
   debtOrderIdsMatch,
@@ -33,6 +34,7 @@ import {
   subscribeDebtHistory,
   updateDebtHistoryEntry,
   type DebtHistoryEntry,
+  type SaleDebtStatus,
 } from '@/lib/clientVipCredit'
 import { resolveEffectiveDebtLimit } from '@/lib/loyaltyStatusConfig'
 import { usePosStore } from '@/lib/posStore'
@@ -172,88 +174,10 @@ function paymentMethodLabel(method: string, partial: boolean): string {
   return method || '—'
 }
 
-type SaleDebtStatus = { status: 'paid' | 'partial' | 'open'; paid: number; remain: number }
-
 function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
   return [s.id, s.orderId, s.id ? `sale-${s.id}` : '', s.orderId ? `sale-${s.orderId}` : '']
     .map(k => String(k || '').trim())
     .filter(Boolean)
-}
-
-/** Остатки по чекам: история + долг на карте (чтобы «Товары» сходились с «Итого»). */
-function buildSaleDebtStatuses(
-  sales: PosDebtSale[],
-  history: DebtHistoryEntry[],
-  cardDebt: number,
-): { saleStatus: Record<string, SaleDebtStatus>; posOriginal: number; posRemain: number; cashOnCard: number } {
-  const posOriginal = Math.round(sales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
-  const debt = Math.max(0, Math.round(cardDebt * 100) / 100)
-
-  const base: Record<string, SaleDebtStatus> = {}
-  for (const s of sales) base[s.id] = debtStatusForSale(history, s)
-
-  const locked: PosDebtSale[] = []
-  const flexible: PosDebtSale[] = []
-  for (const s of sales) {
-    const keys = saleOrderKeys(s)
-    const linked = history.some(h =>
-      (h.type === 'debt' || h.type === 'pay')
-      && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
-    )
-    if (linked) locked.push(s)
-    else flexible.push(s)
-  }
-
-  const saleStatus: Record<string, SaleDebtStatus> = {}
-  let lockedRemain = 0
-  for (const s of locked) {
-    saleStatus[s.id] = base[s.id]
-    lockedRemain += saleStatus[s.id].remain
-  }
-  lockedRemain = Math.round(lockedRemain * 100) / 100
-
-  if (lockedRemain > debt + 0.005) {
-    const scale = debt > 0.001 ? debt / lockedRemain : 0
-    lockedRemain = 0
-    for (const s of locked) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      const remain = Math.round(saleStatus[s.id].remain * scale * 100) / 100
-      const paid = Math.round((orig - remain) * 100) / 100
-      saleStatus[s.id] = {
-        remain,
-        paid,
-        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-      }
-      lockedRemain += remain
-    }
-    lockedRemain = Math.round(lockedRemain * 100) / 100
-    for (const s of flexible) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      saleStatus[s.id] = { status: 'paid', paid: orig, remain: 0 }
-    }
-  } else {
-    let budget = Math.round((debt - lockedRemain) * 100) / 100
-    const ordered = [...flexible].sort(
-      (a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0),
-    )
-    for (const s of ordered) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      const remain = Math.min(orig, Math.max(0, budget))
-      budget = Math.round((budget - remain) * 100) / 100
-      const paid = Math.round((orig - remain) * 100) / 100
-      saleStatus[s.id] = {
-        remain,
-        paid,
-        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-      }
-    }
-  }
-
-  const posRemain = Math.round(
-    Object.values(saleStatus).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
-  ) / 100
-  const cashOnCard = Math.max(0, Math.round((debt - posRemain) * 100) / 100)
-  return { saleStatus, posOriginal, posRemain, cashOnCard }
 }
 
 function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {

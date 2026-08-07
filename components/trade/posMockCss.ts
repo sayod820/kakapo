@@ -1323,7 +1323,7 @@ export const POS_MOCK_CSS = `
   .modal-card.cashier-debts-panel{padding:14px 16px 12px;gap:0;}
   .cashier-debts-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--border);flex-shrink:0;}
   .cashier-debts-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;flex-shrink:0;background:rgba(31,215,96,.15);color:var(--accent);}
-  .cashier-debts-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 10px;flex-shrink:0;}
+  .cashier-debts-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 10px;flex-shrink:0;}
   .cashier-debts-metric{padding:8px 10px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);}
   .cashier-debts-metric .kl{font-size:10px;color:var(--t3);font-weight:700;line-height:1.2;text-transform:none;}
   .cashier-debts-metric .kv{font-size:16px;font-weight:900;margin-top:2px;line-height:1.2;font-family:'JetBrains Mono',monospace;}
@@ -1346,7 +1346,7 @@ export const POS_MOCK_CSS = `
     .client-kpis-fs{grid-template-columns:1fr 1fr;}
     .modal-card.hist-card-fs{width:100%;height:100%;max-height:100%;border-radius:0;}
     .overlay.hist-fs-overlay{padding:0;}
-    .cashier-debts-metrics{grid-template-columns:1fr;}
+    .cashier-debts-metrics{grid-template-columns:1fr 1fr;}
   }
   .hist-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:3px;margin:2px 0 12px;border-radius:14px;background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;}
   .pos-root button.hist-tab{padding:10px 8px;border-radius:11px;font-size:12px;font-weight:800;color:var(--t3);display:flex;align-items:center;justify-content:center;gap:7px;}

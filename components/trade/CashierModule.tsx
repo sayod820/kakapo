@@ -31,6 +31,8 @@ import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   allocateRepaymentFifo,
   buildDebtOrderBalances,
+  buildSaleDebtStatuses,
+  debtHistoryTotals,
   debtOrderIdsMatch,
   debtStatusForSale,
   ensureDebtHistoryOrderId,
@@ -44,6 +46,7 @@ import {
   subscribeBalanceTopup,
   subscribeDebtHistory,
   topupBalanceCredit,
+  type DebtHistoryEntry,
   type DebtOrderBalance,
 } from '@/lib/clientVipCredit'
 import {
@@ -2282,7 +2285,7 @@ export default function CashierModule({
         debtAdded: x.amt,
         dateIso: x.sale.createdAtIso,
       })
-      const keys = [x.sale.id, x.sale.orderId, `sale-${x.sale.id}`]
+      const keys = [x.sale.id, x.sale.orderId, `sale-${x.sale.id}`, x.sale.orderId ? `sale-${x.sale.orderId}` : '']
         .map(k => String(k || '').trim())
         .filter(Boolean)
       const linked = history.some(h =>
@@ -2409,20 +2412,22 @@ export default function CashierModule({
 
   const cashierDebtPanel = useMemo(() => {
     void histTick
-    if (!client) {
-      return {
-        posOriginal: 0,
-        posRemain: 0,
-        cashOnCard: 0,
-        openChecks: 0,
-        totalChecks: 0,
-        cashRows: [] as ReturnType<typeof loadDebtHistory>,
-        payRows: [] as ReturnType<typeof loadDebtHistory>,
-        feed: [] as { key: string; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; balance: number; saleId?: string }[],
-        creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; status: 'open' | 'partial' | 'paid'; ts: number }[],
-      }
+    const empty = {
+      posOriginal: 0,
+      posRemain: 0,
+      cashOnCard: 0,
+      residualCash: 0,
+      openChecks: 0,
+      totalChecks: 0,
+      cashRows: [] as DebtHistoryEntry[],
+      payRows: [] as DebtHistoryEntry[],
+      feed: [] as { key: string; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; balance: number; saleId?: string }[],
+      creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; status: 'open' | 'partial' | 'paid'; ts: number }[],
     }
-    const creditSalesRaw = sales
+    if (!client) return empty
+
+    const history = client.phone ? loadDebtHistory(client.phone) : []
+    const posSales = sales
       .filter(s => {
         const matchId = client.id && s.clientId === client.id
         const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
@@ -2430,66 +2435,83 @@ export default function CashierModule({
         return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
       })
       .map(s => {
-        const debtAdded = Number(s.debtAdded) > 0 ? Number(s.debtAdded) : (Number(s.total) || 0)
-        const st = debtStatusForSale(
-          client.phone ? loadDebtHistory(client.phone) : [],
-          { id: s.id, orderId: s.orderId, debtAdded, dateIso: s.createdAtIso },
-        )
-        // Prefer reconciled remain from histActiveDebts when present
-        const active = histActiveDebts.find(r => r.saleId === s.id || r.orderId === s.id || r.orderId === s.orderId)
-        const remain = active ? (Number(active.debtRemain) || Number(active.amount) || 0) : st.remain
-        const status: 'open' | 'partial' | 'paid' = remain <= 0.001
-          ? 'paid'
-          : remain + 0.001 < debtAdded
-            ? 'partial'
-            : 'open'
-        const ts = new Date(s.createdAtIso).getTime() || 0
-        const label = s.number != null && Number(s.number) > 0
-          ? `Чек №${s.number}`
-          : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${s.id.slice(-6)}`)
-        const lines = mapSaleLines(s.items, products)
+        const debtAdded = Number(s.debtAdded) > 0
+          ? Number(s.debtAdded)
+          : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0)
         return {
           id: s.id,
-          label,
-          when: ts
-            ? `${new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-            : s.createdAtIso,
-          items: linesLabel(lines),
+          orderId: s.orderId,
+          number: s.number,
+          dateIso: s.createdAtIso,
           debtAdded,
-          remain: status === 'paid' ? 0 : remain,
-          status,
-          ts,
+          items: mapSaleLines(s.items, products),
         }
       })
-      .sort((a, b) => b.ts - a.ts)
+      .filter(s => s.debtAdded > 0)
+      .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)))
 
-    // Align remain with histActiveDebts when that list has a row for the sale
-    const remainById = new Map(histActiveDebts.filter(r => r.saleId).map(r => [r.saleId!, Number(r.debtRemain ?? r.amount) || 0]))
-    for (const row of creditSalesRaw) {
-      if (!remainById.has(row.id)) continue
-      const rem = remainById.get(row.id)!
-      row.remain = rem
-      row.status = rem <= 0.001 ? 'paid' : rem + 0.001 < row.debtAdded ? 'partial' : 'open'
-    }
+    const cardDebt = Math.max(0, Math.round(clientDebt * 100) / 100)
+    const { saleStatus, posOriginal, posRemain, cashOnCard } = buildSaleDebtStatuses(
+      posSales,
+      history,
+      cardDebt,
+    )
 
-    const posOriginal = Math.round(creditSalesRaw.reduce((s, x) => s + x.debtAdded, 0) * 100) / 100
-    const posRemain = Math.round(histActiveDebtSum * 100) / 100
-    const cashOnCard = Math.max(0, Math.round((clientDebt - posRemain) * 100) / 100)
-    const history = client.phone ? loadDebtHistory(client.phone) : []
     const manual = history.filter(isManualDebtHistoryEntry)
     const cashRows = manual.filter(r => r.type === 'debt')
-    const payRows = [
-      ...history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r)),
-      ...manual.filter(r => r.type === 'pay'),
-    ].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
+    const manualPays = manual.filter(r => r.type === 'pay')
+    const manualTotals = debtHistoryTotals(manual)
+    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
+    const residualCash = Math.max(0, Math.round((cashOnCard - Math.max(0, manualNet)) * 100) / 100)
+
+    const allPaySum = Math.round(
+      history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+    ) / 100
+    const chargeSum = Math.round((posOriginal + manualTotals.borrowed + residualCash) * 100) / 100
+    const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
+    const gapPays: DebtHistoryEntry[] = missingPay > 0.05
+      ? [{
+          id: 'gap-pay',
+          date: 'сводка',
+          time: '',
+          ts: 2,
+          desc: 'Погашения (раньше / без записи по чекам)',
+          amount: missingPay,
+          type: 'pay',
+          source: 'cashier',
+        }]
+      : []
+    const payRows = [...checkPays, ...gapPays, ...manualPays].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+
+    const creditSales = posSales.map(s => {
+      const st = saleStatus[s.id] || { status: 'open' as const, paid: 0, remain: s.debtAdded }
+      const ts = Date.parse(s.dateIso) || 0
+      const label = s.number != null && Number(s.number) > 0
+        ? `Чек №${s.number}`
+        : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${s.id.slice(-6)}`)
+      const when = ts
+        ? `${new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+        : s.dateIso
+      return {
+        id: s.id,
+        label,
+        when,
+        items: linesLabel(s.items),
+        debtAdded: s.debtAdded,
+        remain: st.remain,
+        status: st.status,
+        ts,
+      }
+    })
 
     const feedSrc: { key: string; ts: number; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; saleId?: string }[] = [
-      ...creditSalesRaw.map(s => ({
+      ...creditSales.map(s => ({
         key: `p-${s.id}`,
         ts: s.ts,
         when: s.when,
         kind: 'pos' as const,
-        desc: `${s.label}${s.status === 'paid' ? ' · погашен' : s.status === 'partial' ? ` · остаток ${fmtMoney(s.remain)}` : ' · к оплате'}${s.items ? ` · ${s.items}` : ''}`,
+        desc: `${s.label}${s.status === 'paid' ? ' · погашен' : s.status === 'partial' ? ` · остаток ${fmtMoney(s.remain)}` : ` · к оплате ${fmtMoney(s.remain)}`}${s.items ? ` · ${s.items}` : ''}`,
         amount: s.debtAdded,
         saleId: s.id,
       })),
@@ -2511,14 +2533,14 @@ export default function CashierModule({
         saleId: r.orderId?.replace(/^sale-/, ''),
       })),
     ]
-    if (cashOnCard > 0.005 && cashRows.length === 0) {
+    if (residualCash > 0.005) {
       feedSrc.push({
         key: 'residual-cash',
         ts: 1,
         when: 'раньше',
         kind: 'cash',
         desc: 'Ручной долг на карте (без записи в истории)',
-        amount: cashOnCard,
+        amount: residualCash,
       })
     }
     const chrono = [...feedSrc].sort((a, b) => a.ts - b.ts)
@@ -2532,14 +2554,15 @@ export default function CashierModule({
       posOriginal,
       posRemain,
       cashOnCard,
-      openChecks: creditSalesRaw.filter(s => s.remain > 0.001).length,
-      totalChecks: creditSalesRaw.length,
+      residualCash,
+      openChecks: creditSales.filter(s => s.remain > 0.001).length,
+      totalChecks: creditSales.length,
       cashRows,
       payRows,
       feed,
-      creditSales: creditSalesRaw,
+      creditSales,
     }
-  }, [client, sales, clientDebt, histTick, products, histActiveDebts, histActiveDebtSum])
+  }, [client, sales, clientDebt, histTick, products])
 
   async function submitCashIssue() {
     if (!client) return
@@ -8916,22 +8939,35 @@ export default function CashierModule({
               <div className="cashier-debts-metric">
                 <div className="kl">Товары</div>
                 <div className="kv" style={{ color: 'var(--blue)' }}>{fmtMoney(cashierDebtPanel.posRemain)}</div>
-                {cashierDebtPanel.posOriginal > cashierDebtPanel.posRemain + 0.05 && (
-                  <div className="kh">из {fmtMoney(cashierDebtPanel.posOriginal)}</div>
-                )}
+                <div className="kh">
+                  {cashierDebtPanel.openChecks
+                    ? `${cashierDebtPanel.openChecks} чек. к оплате`
+                    : 'Нет открытых чеков'}
+                  {cashierDebtPanel.posOriginal > cashierDebtPanel.posRemain + 0.05
+                    ? ` · из ${fmtMoney(cashierDebtPanel.posOriginal)}`
+                    : ''}
+                </div>
               </div>
               <div className="cashier-debts-metric">
                 <div className="kl">Наличные</div>
                 <div className="kv" style={{ color: 'var(--org)' }}>{fmtMoney(cashierDebtPanel.cashOnCard)}</div>
+                <div className="kh">Долг сверх чеков</div>
               </div>
               <div className="cashier-debts-metric">
                 <div className="kl">Итого</div>
                 <div className="kv" style={{ color: clientDebt > 0 ? 'var(--red)' : 'var(--t3)' }}>
                   {clientDebt > 0 ? fmtMoney(clientDebt) : '—'}
                 </div>
-                {debtLimit > 0 && (
-                  <div className="kh">доступно {fmtMoney(availableDebt)} · лимит {fmtMoney(debtLimit)}</div>
-                )}
+                <div className="kh">
+                  {debtLimit > 0
+                    ? `доступно ${fmtMoney(availableDebt)} · лимит ${fmtMoney(debtLimit)}`
+                    : 'без лимита'}
+                </div>
+              </div>
+              <div className="cashier-debts-metric">
+                <div className="kl">⭐ Бонусы</div>
+                <div className="kv" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
+                <div className="kh">погашено {fmtMoney(clientProfileStats.repaid)}</div>
               </div>
             </div>
 
@@ -8939,8 +8975,8 @@ export default function CashierModule({
               {([
                 ['history', 'История'],
                 ['pos', `Чеки (${cashierDebtPanel.openChecks}/${cashierDebtPanel.totalChecks})`],
-                ['cash', `Нал. (${cashierDebtPanel.cashRows.length + (cashierDebtPanel.cashOnCard > 0.005 && !cashierDebtPanel.cashRows.length ? 1 : 0)})`],
-                ['pay', `Оплаты (${cashierDebtPanel.payRows.length || histRepays.length})`],
+                ['cash', `Нал. (${cashierDebtPanel.cashRows.length + (cashierDebtPanel.residualCash > 0.005 ? 1 : 0)})`],
+                ['pay', `Оплаты (${cashierDebtPanel.payRows.length})`],
               ] as const).map(([id, label]) => (
                 <button
                   key={id}
@@ -9160,7 +9196,7 @@ export default function CashierModule({
                       {cashIssueBusy ? '…' : '+ Выдать'}
                     </button>
                   </div>
-                  {cashierDebtPanel.cashOnCard > 0.005 && !cashierDebtPanel.cashRows.length && (
+                  {cashierDebtPanel.residualCash > 0.005 && (
                     <div style={{
                       padding: '12px 14px', borderRadius: 12, marginBottom: 8,
                       background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)',
@@ -9170,11 +9206,11 @@ export default function CashierModule({
                           <div style={{ fontWeight: 800, color: 'var(--org)' }}>Ручной долг на карте</div>
                           <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>Без строки в истории</div>
                         </div>
-                        <div style={{ fontWeight: 900, color: 'var(--org)' }}>+{fmtMoney(cashierDebtPanel.cashOnCard)}</div>
+                        <div style={{ fontWeight: 900, color: 'var(--org)' }}>+{fmtMoney(cashierDebtPanel.residualCash)}</div>
                       </div>
                     </div>
                   )}
-                  {!cashierDebtPanel.cashRows.length && cashierDebtPanel.cashOnCard < 0.005 ? (
+                  {!cashierDebtPanel.cashRows.length && cashierDebtPanel.residualCash < 0.005 ? (
                     <div className="hist-empty">Нет выдач наличными</div>
                   ) : (
                     <div className="hist-list compact">
@@ -9199,11 +9235,11 @@ export default function CashierModule({
                   <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
                     Погашения по чекам и оплаты долга.
                   </div>
-                  {!cashierDebtPanel.payRows.length && !histRepays.length ? (
+                  {!cashierDebtPanel.payRows.length ? (
                     <div className="hist-empty">Нет оплат</div>
                   ) : (
                     <div className="hist-list compact">
-                      {(cashierDebtPanel.payRows.length ? cashierDebtPanel.payRows : []).map(r => (
+                      {cashierDebtPanel.payRows.map(r => (
                         <div key={r.id} className="hist-row tone-repay sm" style={{ cursor: 'default' }}>
                           <div className="hist-main">
                             <div className="hist-title-row"><b>{r.desc || 'Погашение долга'}</b></div>
@@ -9214,7 +9250,6 @@ export default function CashierModule({
                           </div>
                         </div>
                       ))}
-                      {!cashierDebtPanel.payRows.length && histRepays.map(row => renderHistRow(row, { compact: true }))}
                     </div>
                   )}
                 </>
@@ -9247,21 +9282,6 @@ export default function CashierModule({
               >
                 Выдать наличные
               </button>
-            </div>
-            <div className="modal-card-actions" style={{ marginTop: 8 }}>
-              <button
-                type="button"
-                className="btn-cancel"
-                onClick={() => {
-                  setHistOpen(false)
-                  setClientQ('')
-                  setClientPick(client)
-                  setClientOpen(true)
-                }}
-              >
-                Сменить клиента
-              </button>
-              <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
             </div>
           </div>
         </div>
