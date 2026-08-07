@@ -140,9 +140,11 @@ const CSS = `
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
   .k-body-pos .pos-root{flex:1;min-height:0;height:100%;}
-  .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:18px 20px}
+  .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:10px 14px}
   .k-body-debts > .k-debts-page{flex:1;min-height:0;display:flex;flex-direction:column}
-  .k-debts-page .k-page-h{flex-shrink:0;margin-bottom:12px}
+  .k-debts-page .k-page-h{flex-shrink:0;margin-bottom:8px}
+  .k-debts-page .k-page-h h1{font-size:18px}
+  .k-debts-page .k-page-h .sub{font-size:12px;margin-top:2px}
   .k-trade.pos-fs{display:block;min-height:100vh;}
   .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -238,19 +240,24 @@ const CSS = `
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
-  .k-debts-layout{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
-  .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:16px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
-  .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:10px;overscroll-behavior:contain}
-  .k-debts-row{display:flex;gap:10px;align-items:center;padding:12px;border-radius:12px;border:1px solid transparent;cursor:pointer;margin-bottom:6px;background:var(--card2)}
+  .k-debts-layout{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:10px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
+  .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
+  .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:6px 8px;overscroll-behavior:contain}
+  .k-debts-row{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid transparent;cursor:pointer;margin-bottom:4px;background:var(--card2)}
   .k-debts-row:hover{border-color:var(--border)}
   .k-debts-row.active{border-color:var(--green);background:var(--green-d)}
-  .k-debts-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;flex-shrink:0;background:rgba(31,215,96,.15);color:var(--green)}
-  .k-debts-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid var(--border);background:var(--panel)}
-  .k-debts-actions .k-btn{flex:1;min-width:120px;justify-content:center}
-  .k-debts-table{width:100%;border-collapse:collapse;font-size:13px}
-  .k-debts-table th{text-align:left;font-size:11px;color:var(--muted);font-weight:800;padding:8px 6px;border-bottom:1px solid var(--border)}
-  .k-debts-table td{padding:10px 6px;border-bottom:1px solid var(--border);vertical-align:top}
-  .k-debts-foot{padding:10px 14px;border-top:1px solid var(--border);font-size:13px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
+  .k-debts-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;flex-shrink:0;background:rgba(31,215,96,.15);color:var(--green)}
+  .k-debts-actions{display:flex;gap:8px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--border);background:var(--panel)}
+  .k-debts-actions .k-btn{flex:1;min-width:100px;justify-content:center;min-height:36px;padding:8px 12px;font-size:12px}
+  .k-debts-table{width:100%;border-collapse:collapse;font-size:12px}
+  .k-debts-table th{text-align:left;font-size:10px;color:var(--muted);font-weight:800;padding:4px 5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
+  .k-debts-table td{padding:5px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .k-debts-foot{padding:8px 10px;border-top:1px solid var(--border);font-size:12px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
+  .k-debts-head{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .k-debts-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+  .k-debts-metric{padding:6px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--border)}
+  .k-debts-metric .kl{font-size:10px;color:var(--muted);font-weight:700;line-height:1.2}
+  .k-debts-metric .kv{font-size:14px;font-weight:900;margin-top:2px;line-height:1.2}
   .k-product-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
   .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:sticky;top:0}
   .k-product-list-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}

@@ -644,35 +644,35 @@ export default function DebtsModule({
       <div className={`k-debts-layout ${detailClient ? 'detail-open' : ''}`}>
         {/* ── Список ── */}
         <aside className="k-debts-list">
-          <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid var(--border)' }}>
-            <div className="k-subtabs" style={{ marginBottom: 10 }}>
+          <div style={{ padding: '8px 8px 6px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
               {([
                 ['all', `Все (${counts.all})`],
-                ['with_debt', `С долгом (${counts.withDebt})`],
-                ['cleared', `Погашено (${counts.cleared})`],
+                ['with_debt', `Долг (${counts.withDebt})`],
+                ['cleared', `0 (${counts.cleared})`],
               ] as [ListFilter, string][]).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
                   className={`k-subtab ${filter === id ? 'active' : ''}`}
-                  style={{ padding: '6px 10px', fontSize: 12 }}
+                  style={{ padding: '4px 8px', fontSize: 11 }}
                   onClick={() => setFilter(id)}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
               <input
                 className="k-inp"
-                style={{ flex: 1 }}
-                placeholder="Поиск клиента…"
+                style={{ flex: 1, minHeight: 34, padding: '6px 8px', fontSize: 13 }}
+                placeholder="Поиск…"
                 value={q}
                 onChange={e => setQ(e.target.value)}
               />
               <select
                 className="k-sel"
-                style={{ width: 130 }}
+                style={{ width: 110, minHeight: 34, padding: '6px 8px', fontSize: 12 }}
                 value={sort}
                 onChange={e => setSort(e.target.value as SortMode)}
               >
@@ -700,17 +700,17 @@ export default function DebtsModule({
                 >
                   <div className="k-debts-av">{initials(c.name)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {c.name}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{c.phone || '—'}</div>
-                    <div style={{ fontSize: 11, marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ color: 'var(--blue)' }}>Товары: {fmtMoney(c.goodsDebt)}</span>
-                      <span style={{ color: 'var(--gold)' }}>Нал.: {fmtMoney(c.cashDebt)}</span>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{c.phone || '—'}</div>
+                    <div style={{ fontSize: 10, marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--blue)' }}>Т: {fmtMoney(c.goodsDebt)}</span>
+                      <span style={{ color: 'var(--gold)' }}>Н: {fmtMoney(c.cashDebt)}</span>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontWeight: 900, fontSize: 15, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                    <div style={{ fontWeight: 900, fontSize: 13, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
                       {debt > 0 ? fmtMoney(debt) : '—'}
                     </div>
                   </div>
@@ -735,33 +735,32 @@ export default function DebtsModule({
             </div>
           ) : (
             <>
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div className="k-debts-head">
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button
                     type="button"
                     className="k-btn k-btn-s"
-                    style={{ display: 'none', fontSize: 12, padding: '6px 10px', minHeight: 0 }}
+                    style={{ display: 'none', fontSize: 11, padding: '4px 8px', minHeight: 0 }}
                     onClick={() => setDetailId(null)}
                     id="k-debts-back"
                   >
                     ←
                   </button>
                   <style>{`@media (max-width:900px){#k-debts-back{display:inline-flex!important}}`}</style>
-                  <div className="k-debts-av" style={{ width: 48, height: 48, fontSize: 16 }}>
-                    {initials(detailClient.name)}
-                  </div>
+                  <div className="k-debts-av">{initials(detailClient.name)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <b style={{ fontSize: 18 }}>{detailClient.name}</b>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <b style={{ fontSize: 14 }}>{detailClient.name}</b>
                       <DebtStatusBadge overLimit={detailClient.overLimit} debt={cardDebt} />
                       <span className="k-badge" style={{
+                        fontSize: 10,
                         background: `${CLIENT_LEVEL_COLORS[detailClient.level] || 'var(--muted)'}22`,
                         color: CLIENT_LEVEL_COLORS[detailClient.level] || 'var(--muted)',
                       }}>
                         {levelLabel(detailClient.level)}
                       </span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                       {detailClient.phone && <span>☎ {detailClient.phone}</span>}
                       {detailClient.card && (
                         <span>
@@ -776,39 +775,37 @@ export default function DebtsModule({
                   </div>
                 </div>
 
-                <div className="k-kpis" style={{ marginTop: 14, marginBottom: 0 }}>
-                  <div className="k-kpi k-statcard">
-                    <div className="kl">Долг за товары</div>
-                    <div className="kv" style={{ color: 'var(--blue)', fontSize: 20 }}>{fmtMoney(detailData.posSum)}</div>
+                <div className="k-debts-metrics">
+                  <div className="k-debts-metric">
+                    <div className="kl">Товары</div>
+                    <div className="kv" style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</div>
                   </div>
-                  <div className="k-kpi k-statcard">
-                    <div className="kl">Наличные в долг</div>
-                    <div className="kv" style={{ color: 'var(--gold)', fontSize: 20 }}>
-                      {fmtMoney(detailData.cashOnCard)}
-                    </div>
+                  <div className="k-debts-metric">
+                    <div className="kl">Наличные</div>
+                    <div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(detailData.cashOnCard)}</div>
                   </div>
-                  <div className="k-kpi k-statcard">
-                    <div className="kl">Итого на карте</div>
-                    <div className="kv" style={{ color: cardDebt > 0 ? 'var(--red)' : 'var(--muted)', fontSize: 20 }}>
+                  <div className="k-debts-metric">
+                    <div className="kl">Итого</div>
+                    <div className="kv" style={{ color: cardDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
                       {cardDebt > 0 ? fmtMoney(cardDebt) : '—'}
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div style={{ padding: '10px 12px 0' }}>
-                <div className="k-subtabs" style={{ marginBottom: 10 }}>
+              <div style={{ padding: '6px 8px 0', flexShrink: 0 }}>
+                <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
                   {([
                     ['history', 'История'],
-                    ['pos', `Чеки в долг (${detailData.posSales.length})`],
-                    ['cash', `Наличные (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
+                    ['pos', `Чеки (${detailData.posSales.length})`],
+                    ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
                     ['pay', `Оплаты (${detailData.pays.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
                     <button
                       key={id}
                       type="button"
                       className={`k-subtab ${detailTab === id ? 'active' : ''}`}
-                      style={{ padding: '7px 12px', fontSize: 12 }}
+                      style={{ padding: '5px 10px', fontSize: 11 }}
                       onClick={() => {
                         setDetailTab(id)
                         setHistEdit(null)
@@ -822,7 +819,7 @@ export default function DebtsModule({
 
                 {histMsg && (
                   <div style={{
-                    marginBottom: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                    marginBottom: 6, padding: '5px 8px', borderRadius: 6, fontSize: 11,
                     background: msgOk ? 'rgba(20,178,79,.12)' : 'var(--alert-error-bg)',
                     color: msgOk ? 'var(--green)' : 'var(--red)',
                     border: '1px solid var(--alert-error-border)',
@@ -889,24 +886,24 @@ export default function DebtsModule({
                     <div style={{ display: 'grid', gap: 8 }}>
                       {detailData.posSales.map(s => (
                         <div key={s.id} style={{
-                          padding: '12px 14px', borderRadius: 12,
+                          padding: '8px 10px', borderRadius: 8,
                           background: 'var(--card2)', border: '1px solid var(--border)',
                         }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                             <div>
-                              <div style={{ fontWeight: 800 }}>
+                              <div style={{ fontWeight: 800, fontSize: 13 }}>
                                 Чек {s.number ? `№${s.number}` : s.id.slice(-6)}
-                                <span className="k-badge" style={{ marginLeft: 8, background: '#1a241c', color: 'var(--muted)' }}>
+                                <span className="k-badge" style={{ marginLeft: 6, fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
                                   {paymentMethodLabel(s.paymentMethod, s.partial)}
                                 </span>
                               </div>
-                              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                                 {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
                               </div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontWeight: 900, color: 'var(--blue)' }}>+{fmtMoney(s.debtAdded)}</div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
+                              <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--blue)' }}>+{fmtMoney(s.debtAdded)}</div>
+                              <div style={{ fontSize: 10, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
                             </div>
                           </div>
                         </div>
