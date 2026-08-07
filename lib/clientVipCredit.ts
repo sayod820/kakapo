@@ -616,6 +616,52 @@ export function recordStoreDebtRepayment(
   })
 }
 
+/**
+ * Погашение со списанием со старых чеков (FIFO).
+ * Пишет отдельные оплаты с orderId — остатки по чекам уменьшаются сразу.
+ */
+export function recordStoreDebtRepaymentFifo(
+  phone: string,
+  amount: number,
+  targetsOldestFirst: { orderId?: string; remain: number; label?: string }[],
+  meta?: {
+    desc?: string
+    method?: 'cash' | 'card'
+    source?: DebtHistoryEntry['source']
+  },
+): { appliedToChecks: number; residual: number } {
+  const pay = Math.max(0, Math.round(amount * 100) / 100)
+  if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0 }
+
+  let left = pay
+  let appliedToChecks = 0
+  for (const t of targetsOldestFirst) {
+    if (left <= 0.001) break
+    const need = Math.max(0, Math.round((Number(t.remain) || 0) * 100) / 100)
+    if (need <= 0.001) continue
+    const apply = Math.min(need, left)
+    const oid = String(t.orderId || '').trim()
+    recordStoreDebtRepayment(phone, apply, {
+      method: meta?.method,
+      source: meta?.source,
+      orderId: oid || undefined,
+      desc: t.label
+        ? `Погашение · ${t.label}`
+        : (meta?.desc || undefined),
+    })
+    left = Math.round((left - apply) * 100) / 100
+    appliedToChecks = Math.round((appliedToChecks + apply) * 100) / 100
+  }
+  if (left > 0.001) {
+    recordStoreDebtRepayment(phone, left, {
+      method: meta?.method,
+      source: meta?.source,
+      desc: meta?.desc || 'Погашение долга (сверх чеков)',
+    })
+  }
+  return { appliedToChecks, residual: Math.max(0, left) }
+}
+
 export function recordStoreDebtCharge(
   phone: string,
   amount: number,
