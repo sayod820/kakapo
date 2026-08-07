@@ -55,6 +55,7 @@ function emptyHistAdd(action: 'repay' | 'add' = 'add'): HistAddState {
 type PosDebtSale = {
   id: string
   number?: number
+  orderId?: string
   dateIso: string
   total: number
   paidCash: number
@@ -64,6 +65,8 @@ type PosDebtSale = {
   itemsCount: number
   note?: string
   partial: boolean
+  cashierName?: string
+  items: { name: string; qty: number; unit?: string; price: number; lineTotal: number }[]
 }
 
 type DebtClientRow = EnrichedClient & {
@@ -85,6 +88,7 @@ type FeedRow = {
   desc: string
   amount: number
   editable?: DebtHistoryEntry
+  saleId?: string
 }
 
 function levelLabel(level: ClientLevel): string {
@@ -93,6 +97,17 @@ function levelLabel(level: ClientLevel): string {
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || '?'
+}
+
+function saleLabel(s: { number?: number; orderId?: string; id: string }): string {
+  if (s.number != null && Number(s.number) > 0) return `Чек №${s.number}`
+  const oid = String(s.orderId || '').trim()
+  if (oid) {
+    const m = oid.match(/(\d+)\s*$/)
+    if (m) return `Заказ №${m[1]}`
+    return `Заказ ${oid}`
+  }
+  return `Чек ${s.id.slice(-6)}`
 }
 
 function cardForClient(client: EnrichedClient, cards: AdminCard[]): AdminCard | undefined {
@@ -118,6 +133,7 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
       return {
         id: s.id,
         number: s.number,
+        orderId: s.orderId,
         dateIso: s.createdAtIso,
         total: Number(s.total) || 0,
         paidCash,
@@ -127,6 +143,14 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
         itemsCount: s.items?.length || 0,
         note: s.note,
         partial,
+        cashierName: s.cashierName,
+        items: (s.items || []).map(it => ({
+          name: it.productName || `#${it.productId}`,
+          qty: Number(it.qty) || 0,
+          unit: it.unit,
+          price: Number(it.price) || 0,
+          lineTotal: Number(it.lineTotal) || 0,
+        })),
       }
     })
     .filter(s => s.debtAdded > 0)
@@ -202,8 +226,9 @@ function buildFeed(
       dateLabel: s.dateIso ? fmtDateTime(s.dateIso) : '—',
       kind: 'pos' as const,
       title: 'Чек в долг',
-      desc: `Чек ${s.number ? `№${s.number}` : s.id.slice(-6)}${s.partial ? ' · частично' : ''}`,
+      desc: `${saleLabel(s)}${s.partial ? ' · частично' : ''}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
       amount: Math.abs(Number(s.debtAdded) || 0),
+      saleId: s.id,
     })),
   ]
   if (residualCash > 0.005) {
@@ -252,6 +277,7 @@ export default function DebtsModule({
   const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
+  const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
 
   const refreshAll = useCallback(async () => {
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
@@ -339,6 +365,7 @@ export default function DebtsModule({
     setHistAdd(emptyHistAdd())
     setHistMsg('')
     setHistEdit(null)
+    setSaleDetailId(null)
   }
 
   function openAdd(action: 'repay' | 'add') {
@@ -839,15 +866,24 @@ export default function DebtsModule({
                         <tbody>
                           {detailData.historyFeed.map(row => {
                             const meta = kindMeta(row.kind)
+                            const clickable = row.kind === 'pos' && row.saleId
                             return (
-                              <tr key={row.key}>
+                              <tr
+                                key={row.key}
+                                onClick={() => clickable && setSaleDetailId(row.saleId!)}
+                                style={{ cursor: clickable ? 'pointer' : undefined }}
+                                title={clickable ? 'Открыть детали заказа' : undefined}
+                              >
                                 <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: 12 }}>{row.dateLabel}</td>
                                 <td>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: meta.color, fontSize: 12 }}>
                                     <span>{meta.icon}</span> {meta.label}
                                   </span>
                                 </td>
-                                <td style={{ fontSize: 13 }}>{row.desc}</td>
+                                <td style={{ fontSize: 13 }}>
+                                  {row.desc}
+                                  {clickable && <span style={{ color: 'var(--muted)', fontSize: 11 }}> · открыть</span>}
+                                </td>
                                 <td style={{
                                   textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
                                   color: row.amount < 0 ? 'var(--green)' : 'var(--gold)',
@@ -872,16 +908,22 @@ export default function DebtsModule({
                       Нет чеков кассы в долг
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'grid', gap: 6 }}>
                       {detailData.posSales.map(s => (
-                        <div key={s.id} style={{
-                          padding: '8px 10px', borderRadius: 8,
-                          background: 'var(--card2)', border: '1px solid var(--border)',
-                        }}>
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSaleDetailId(s.id)}
+                          style={{
+                            padding: '8px 10px', borderRadius: 8, textAlign: 'left',
+                            background: 'var(--card2)', border: '1px solid var(--border)',
+                            color: 'inherit', fontFamily: 'inherit', cursor: 'pointer', width: '100%',
+                          }}
+                        >
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div>
+                            <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 800, fontSize: 13 }}>
-                                Чек {s.number ? `№${s.number}` : s.id.slice(-6)}
+                                {saleLabel(s)}
                                 <span className="k-badge" style={{ marginLeft: 6, fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
                                   {paymentMethodLabel(s.paymentMethod, s.partial)}
                                 </span>
@@ -889,13 +931,18 @@ export default function DebtsModule({
                               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                                 {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
                               </div>
+                              {s.items.length > 0 && (
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {s.items.map(i => i.name).join(', ')}
+                                </div>
+                              )}
                             </div>
-                            <div style={{ textAlign: 'right' }}>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
                               <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--blue)' }}>+{fmtMoney(s.debtAdded)}</div>
                               <div style={{ fontSize: 10, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
                             </div>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )
@@ -997,6 +1044,106 @@ export default function DebtsModule({
           )}
         </section>
       </div>
+
+      {saleDetailId && detailData && (() => {
+        const s = detailData.posSales.find(x => x.id === saleDetailId)
+        if (!s) return null
+        return (
+          <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => setSaleDetailId(null)}>
+            <div className="k-modal" onClick={e => e.stopPropagation()} style={{ width: 480, maxWidth: '100%' }}>
+              <div className="k-modal-h">
+                <b>{saleLabel(s)}</b>
+                <button type="button" onClick={() => setSaleDetailId(null)}>✕</button>
+              </div>
+              <div className="k-modal-b" style={{ padding: 14 }}>
+                <div style={{ display: 'grid', gap: 6, fontSize: 13, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: 'var(--muted)' }}>Дата</span>
+                    <span style={{ fontWeight: 700 }}>{s.dateIso ? fmtDateTime(s.dateIso) : '—'}</span>
+                  </div>
+                  {s.orderId && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ color: 'var(--muted)' }}>Номер заказа</span>
+                      <span style={{ fontWeight: 800 }}>{s.orderId}</span>
+                    </div>
+                  )}
+                  {s.number != null && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ color: 'var(--muted)' }}>Номер чека</span>
+                      <span style={{ fontWeight: 800 }}>№{s.number}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ color: 'var(--muted)' }}>Оплата</span>
+                    <span style={{ fontWeight: 700 }}>{paymentMethodLabel(s.paymentMethod, s.partial)}</span>
+                  </div>
+                  {s.cashierName && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ color: 'var(--muted)' }}>Кассир</span>
+                      <span style={{ fontWeight: 700 }}>{s.cashierName}</span>
+                    </div>
+                  )}
+                  {s.note && (
+                    <div>
+                      <div style={{ color: 'var(--muted)', marginBottom: 4 }}>Описание / заметка</div>
+                      <div style={{ fontWeight: 600, lineHeight: 1.4 }}>{s.note}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>
+                  Состав ({s.items.length})
+                </div>
+                {!s.items.length ? (
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Позиции не сохранены</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 4, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
+                    {s.items.map((it, i) => (
+                      <div
+                        key={`${it.name}-${i}`}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', gap: 8,
+                          padding: '7px 8px', borderRadius: 8, background: 'var(--card2)', border: '1px solid var(--border)',
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700 }}>{it.name}</div>
+                          <div style={{ color: 'var(--muted)', marginTop: 1 }}>
+                            {it.qty}{it.unit ? ` ${it.unit}` : ''} × {fmtMoney(it.price)}
+                          </div>
+                        </div>
+                        <div style={{ fontWeight: 800, flexShrink: 0 }}>{fmtMoney(it.lineTotal)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gap: 6, fontSize: 13, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>Сумма чека</span>
+                    <span style={{ fontWeight: 800 }}>{fmtMoney(s.total)}</span>
+                  </div>
+                  {(s.paidCash > 0 || s.paidCard > 0) && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Оплачено</span>
+                      <span style={{ fontWeight: 700 }}>
+                        {s.paidCash > 0 ? `нал. ${fmtMoney(s.paidCash)}` : ''}
+                        {s.paidCash > 0 && s.paidCard > 0 ? ' + ' : ''}
+                        {s.paidCard > 0 ? `карта ${fmtMoney(s.paidCard)}` : ''}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>В долг</span>
+                    <span style={{ fontWeight: 900, color: 'var(--blue)' }}>{fmtMoney(s.debtAdded)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
