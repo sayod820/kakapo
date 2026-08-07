@@ -15,6 +15,7 @@ import {
   returnSaleSafe,
   createSaleSafe,
 } from '@/lib/offlinePosOps'
+import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
@@ -33,6 +34,7 @@ import {
   debtOrderIdsMatch,
   debtStatusForSale,
   ensureDebtHistoryOrderId,
+  isManualDebtHistoryEntry,
   loadBalanceTopups,
   loadDebtHistory,
   recordBalanceTopup,
@@ -1016,10 +1018,12 @@ export default function CashierModule({
   const [payDebtOn, setPayDebtOn] = useState(false)
   const [payDebtBuf, setPayDebtBuf] = useState('')
   const [histOpen, setHistOpen] = useState(false)
-  const [histView, setHistView] = useState<'profile' | 'history'>('profile')
-  const [histTab, setHistTab] = useState<'open' | 'pays' | 'history' | 'shop'>('open')
+  const [histTab, setHistTab] = useState<'history' | 'pos' | 'cash' | 'pay'>('history')
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
+  const [posView, setPosView] = useState<'open' | 'all'>('open')
+  const [cashIssueBuf, setCashIssueBuf] = useState('')
+  const [cashIssueBusy, setCashIssueBusy] = useState(false)
   const [payPickOpen, setPayPickOpen] = useState(false)
   const [creditNoteOpen, setCreditNoteOpen] = useState(false)
   const [creditNoteBuf, setCreditNoteBuf] = useState('')
@@ -2402,6 +2406,164 @@ export default function CashierModule({
     () => histActiveDebts.reduce((s, r) => s + (Number(r.amount) || 0), 0),
     [histActiveDebts],
   )
+
+  const cashierDebtPanel = useMemo(() => {
+    void histTick
+    if (!client) {
+      return {
+        posOriginal: 0,
+        posRemain: 0,
+        cashOnCard: 0,
+        openChecks: 0,
+        totalChecks: 0,
+        cashRows: [] as ReturnType<typeof loadDebtHistory>,
+        payRows: [] as ReturnType<typeof loadDebtHistory>,
+        feed: [] as { key: string; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; balance: number; saleId?: string }[],
+        creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; status: 'open' | 'partial' | 'paid'; ts: number }[],
+      }
+    }
+    const creditSalesRaw = sales
+      .filter(s => {
+        const matchId = client.id && s.clientId === client.id
+        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+        if (!matchId && !matchPhone) return false
+        return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+      })
+      .map(s => {
+        const debtAdded = Number(s.debtAdded) > 0 ? Number(s.debtAdded) : (Number(s.total) || 0)
+        const st = debtStatusForSale(
+          client.phone ? loadDebtHistory(client.phone) : [],
+          { id: s.id, orderId: s.orderId, debtAdded, dateIso: s.createdAtIso },
+        )
+        // Prefer reconciled remain from histActiveDebts when present
+        const active = histActiveDebts.find(r => r.saleId === s.id || r.orderId === s.id || r.orderId === s.orderId)
+        const remain = active ? (Number(active.debtRemain) || Number(active.amount) || 0) : st.remain
+        const status: 'open' | 'partial' | 'paid' = remain <= 0.001
+          ? 'paid'
+          : remain + 0.001 < debtAdded
+            ? 'partial'
+            : 'open'
+        const ts = new Date(s.createdAtIso).getTime() || 0
+        const label = s.number != null && Number(s.number) > 0
+          ? `Чек №${s.number}`
+          : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${s.id.slice(-6)}`)
+        const lines = mapSaleLines(s.items, products)
+        return {
+          id: s.id,
+          label,
+          when: ts
+            ? `${new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+            : s.createdAtIso,
+          items: linesLabel(lines),
+          debtAdded,
+          remain: status === 'paid' ? 0 : remain,
+          status,
+          ts,
+        }
+      })
+      .sort((a, b) => b.ts - a.ts)
+
+    // Align remain with histActiveDebts when that list has a row for the sale
+    const remainById = new Map(histActiveDebts.filter(r => r.saleId).map(r => [r.saleId!, Number(r.debtRemain ?? r.amount) || 0]))
+    for (const row of creditSalesRaw) {
+      if (!remainById.has(row.id)) continue
+      const rem = remainById.get(row.id)!
+      row.remain = rem
+      row.status = rem <= 0.001 ? 'paid' : rem + 0.001 < row.debtAdded ? 'partial' : 'open'
+    }
+
+    const posOriginal = Math.round(creditSalesRaw.reduce((s, x) => s + x.debtAdded, 0) * 100) / 100
+    const posRemain = Math.round(histActiveDebtSum * 100) / 100
+    const cashOnCard = Math.max(0, Math.round((clientDebt - posRemain) * 100) / 100)
+    const history = client.phone ? loadDebtHistory(client.phone) : []
+    const manual = history.filter(isManualDebtHistoryEntry)
+    const cashRows = manual.filter(r => r.type === 'debt')
+    const payRows = [
+      ...history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r)),
+      ...manual.filter(r => r.type === 'pay'),
+    ].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+
+    const feedSrc: { key: string; ts: number; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; saleId?: string }[] = [
+      ...creditSalesRaw.map(s => ({
+        key: `p-${s.id}`,
+        ts: s.ts,
+        when: s.when,
+        kind: 'pos' as const,
+        desc: `${s.label}${s.status === 'paid' ? ' · погашен' : s.status === 'partial' ? ` · остаток ${fmtMoney(s.remain)}` : ' · к оплате'}${s.items ? ` · ${s.items}` : ''}`,
+        amount: s.debtAdded,
+        saleId: s.id,
+      })),
+      ...cashRows.map(r => ({
+        key: `c-${r.id}`,
+        ts: Number(r.ts) || 0,
+        when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
+        kind: 'cash' as const,
+        desc: r.desc || 'Ручное начисление',
+        amount: Math.abs(Number(r.amount) || 0),
+      })),
+      ...payRows.map(r => ({
+        key: `pay-${r.id}`,
+        ts: Number(r.ts) || 0,
+        when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
+        kind: 'pay' as const,
+        desc: r.desc || 'Погашение долга',
+        amount: -Math.abs(Number(r.amount) || 0),
+        saleId: r.orderId?.replace(/^sale-/, ''),
+      })),
+    ]
+    if (cashOnCard > 0.005 && cashRows.length === 0) {
+      feedSrc.push({
+        key: 'residual-cash',
+        ts: 1,
+        when: 'раньше',
+        kind: 'cash',
+        desc: 'Ручной долг на карте (без записи в истории)',
+        amount: cashOnCard,
+      })
+    }
+    const chrono = [...feedSrc].sort((a, b) => a.ts - b.ts)
+    let bal = 0
+    const feed = chrono.map(row => {
+      bal = Math.round((bal + row.amount) * 100) / 100
+      return { ...row, balance: Math.max(0, bal) }
+    }).reverse()
+
+    return {
+      posOriginal,
+      posRemain,
+      cashOnCard,
+      openChecks: creditSalesRaw.filter(s => s.remain > 0.001).length,
+      totalChecks: creditSalesRaw.length,
+      cashRows,
+      payRows,
+      feed,
+      creditSales: creditSalesRaw,
+    }
+  }, [client, sales, clientDebt, histTick, products, histActiveDebts, histActiveDebtSum])
+
+  async function submitCashIssue() {
+    if (!client) return
+    const amount = Math.round((Number(cashIssueBuf) || 0) * 100) / 100
+    if (!(amount > 0)) {
+      showToast('Сумма', 'Укажите сумму')
+      return
+    }
+    setCashIssueBusy(true)
+    try {
+      await adjustClientDebtSafe(client, { action: 'charge', amount })
+      if (client.phone) {
+        // history may already be recorded by adjust; ensure charge desc if needed
+      }
+      setCashIssueBuf('')
+      setHistTick(t => t + 1)
+      void refresh()
+      showToast('Выдано наличными', `${client.name}: +${fmtMoney(amount)}`)
+    } catch (e) {
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать')
+    } finally {
+      setCashIssueBusy(false)
+    }
+  }
 
   function renderHistRow(row: ClientHistRow, opts?: { compact?: boolean }) {
     return (
@@ -7021,8 +7183,7 @@ export default function CashierModule({
             className={`client-card ${client ? 'set' : ''}`}
             onClick={() => {
               if (client) {
-                setHistView('profile')
-                setHistTab('shop')
+                setHistTab('history')
                 setHistOpen(true)
                 return
               }
@@ -8726,256 +8887,382 @@ export default function CashierModule({
 
       {histOpen && client && loyalty && (
         <div className="overlay hist-fs-overlay" onClick={() => setHistOpen(false)}>
-          <div className="modal-card hist-card hist-card-fs" onClick={e => e.stopPropagation()}>
-            {histView === 'profile' ? (
-              <>
-                <div className="hist-fs-head">
-                  <div>
-                    <h3 style={{ margin: 0 }}>👤 {client.name}</h3>
-                    <div className="client-profile-meta">
-                      <span>{client.phone || 'без телефона'}</span>
-                      {client.card ? <><span>·</span><span>{client.card}</span></> : null}
-                      <span>·</span>
-                      <span style={{ color: CLIENT_LEVEL_COLORS[loyalty.level] }}>{levelLabel(loyalty.level)}</span>
+          <div className="modal-card hist-card hist-card-fs cashier-debts-panel" onClick={e => e.stopPropagation()}>
+            <div className="cashier-debts-head">
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0, flex: 1 }}>
+                <div className="cashier-debts-av">{initialsOf(client.name)}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: 15 }}>{client.name}</b>
+                    {clientDebt > 0 ? (
+                      <span className="hist-badge open">В долгу</span>
+                    ) : (
+                      <span className="hist-badge paid">Без долга</span>
+                    )}
+                    <span className="hist-badge" style={{ background: `${CLIENT_LEVEL_COLORS[loyalty.level] || '#888'}22`, color: CLIENT_LEVEL_COLORS[loyalty.level] || '#888' }}>
+                      {levelLabel(loyalty.level)}
+                    </span>
+                  </div>
+                  <div className="client-profile-meta" style={{ marginTop: 3 }}>
+                    <span>{client.phone || 'без телефона'}</span>
+                    {client.card ? <><span>·</span><span>{client.card} · Активна</span></> : null}
+                  </div>
+                </div>
+              </div>
+              <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
+            </div>
+
+            <div className="cashier-debts-metrics">
+              <div className="cashier-debts-metric">
+                <div className="kl">Товары</div>
+                <div className="kv" style={{ color: 'var(--blue)' }}>{fmtMoney(cashierDebtPanel.posRemain)}</div>
+                {cashierDebtPanel.posOriginal > cashierDebtPanel.posRemain + 0.05 && (
+                  <div className="kh">из {fmtMoney(cashierDebtPanel.posOriginal)}</div>
+                )}
+              </div>
+              <div className="cashier-debts-metric">
+                <div className="kl">Наличные</div>
+                <div className="kv" style={{ color: 'var(--org)' }}>{fmtMoney(cashierDebtPanel.cashOnCard)}</div>
+              </div>
+              <div className="cashier-debts-metric">
+                <div className="kl">Итого</div>
+                <div className="kv" style={{ color: clientDebt > 0 ? 'var(--red)' : 'var(--t3)' }}>
+                  {clientDebt > 0 ? fmtMoney(clientDebt) : '—'}
+                </div>
+                {debtLimit > 0 && (
+                  <div className="kh">доступно {fmtMoney(availableDebt)} · лимит {fmtMoney(debtLimit)}</div>
+                )}
+              </div>
+            </div>
+
+            <div className="cashier-debts-subtabs" role="tablist">
+              {([
+                ['history', 'История'],
+                ['pos', `Чеки (${cashierDebtPanel.openChecks}/${cashierDebtPanel.totalChecks})`],
+                ['cash', `Нал. (${cashierDebtPanel.cashRows.length + (cashierDebtPanel.cashOnCard > 0.005 && !cashierDebtPanel.cashRows.length ? 1 : 0)})`],
+                ['pay', `Оплаты (${cashierDebtPanel.payRows.length || histRepays.length})`],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={histTab === id}
+                  className={`cashier-debts-subtab ${histTab === id ? 'on' : ''}`}
+                  onClick={() => setHistTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="hist-scroll hist-scroll-fs cashier-debts-body">
+              {histTab === 'history' && (
+                !cashierDebtPanel.feed.length ? (
+                  <div className="hist-empty">Пока нет движений</div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="cashier-debts-table">
+                      <thead>
+                        <tr>
+                          <th>Дата</th>
+                          <th>Тип</th>
+                          <th>Описание</th>
+                          <th style={{ textAlign: 'right' }}>Сумма</th>
+                          <th style={{ textAlign: 'right' }}>Остаток</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cashierDebtPanel.feed.map(row => {
+                          const kindLabel = row.kind === 'pos' ? 'Чек в долг' : row.kind === 'cash' ? 'Наличные' : 'Оплата'
+                          const kindColor = row.kind === 'pos' ? 'var(--blue)' : row.kind === 'cash' ? 'var(--org)' : 'var(--accent)'
+                          const kindIcon = row.kind === 'pos' ? '🧾' : row.kind === 'cash' ? '💵' : '✅'
+                          return (
+                            <tr
+                              key={row.key}
+                              onClick={() => {
+                                if (!row.saleId) return
+                                const match = histActiveDebts.find(r => r.saleId === row.saleId)
+                                  || histPaidDebts.find(r => r.id.includes(row.saleId!))
+                                  || clientHistory.find(r => r.id.includes(row.saleId!))
+                                if (match) setHistDetail(match)
+                                else {
+                                  const sale = sales.find(s => s.id === row.saleId)
+                                  if (!sale) return
+                                  const lines = mapSaleLines(sale.items, products)
+                                  setHistDetail({
+                                    id: `sale-${sale.id}`,
+                                    ts: Date.parse(sale.createdAtIso) || 0,
+                                    when: row.when,
+                                    title: row.desc.split(' · ')[0] || 'Чек',
+                                    sub: row.desc,
+                                    items: linesLabel(lines) || undefined,
+                                    lines: lines.length ? lines : undefined,
+                                    amount: Number(sale.debtAdded) || Number(sale.total) || 0,
+                                    tone: 'debt',
+                                    debtStatus: 'open',
+                                    debtRemain: Number(sale.debtAdded) || Number(sale.total) || 0,
+                                    saleId: sale.id,
+                                    orderId: sale.orderId || sale.id,
+                                  })
+                                }
+                              }}
+                              style={{ cursor: row.saleId ? 'pointer' : undefined }}
+                            >
+                              <td style={{ whiteSpace: 'nowrap', color: 'var(--t3)', fontSize: 12 }}>{row.when}</td>
+                              <td>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: kindColor, fontSize: 12 }}>
+                                  <span>{kindIcon}</span> {kindLabel}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: 13 }}>
+                                {row.desc}
+                                {row.saleId && <span style={{ color: 'var(--t3)', fontSize: 11 }}> · открыть</span>}
+                              </td>
+                              <td style={{
+                                textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
+                                color: row.amount < 0 ? 'var(--accent)' : 'var(--org)',
+                              }}>
+                                {row.amount < 0 ? '−' : '+'}{fmtMoney(Math.abs(row.amount))}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                                {fmtMoney(row.balance)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+
+              {histTab === 'pos' && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12, color: 'var(--t3)' }}>
+                      К оплате: <b style={{ color: 'var(--blue)' }}>{cashierDebtPanel.openChecks}</b>
+                      {' · '}всего {cashierDebtPanel.totalChecks}
+                      {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(cashierDebtPanel.posRemain)}</b>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {(['open', 'all'] as const).map(id => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`cashier-debts-subtab ${posView === id ? 'on' : ''}`}
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          onClick={() => setPosView(id)}
+                        >
+                          {id === 'open' ? 'К оплате' : 'Все'}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                  <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
-                </div>
-
-                <div className="client-kpis client-kpis-fs debts-layout-kpis">
-                  <div className={`client-kpi ${clientDebt > 0 ? 'warn' : ''}`}>
-                    <div className="l">Товары</div>
-                    <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(histActiveDebtSum)}</div>
-                    <div className="hint">{histActiveDebts.length ? `${histActiveDebts.length} чек. к оплате` : 'Нет открытых чеков'}</div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">Наличные</div>
-                    <div className="v" style={{ color: 'var(--org)' }}>
-                      {fmtMoney(Math.max(0, Math.round((clientDebt - histActiveDebtSum) * 100) / 100))}
-                    </div>
-                    <div className="hint">Долг сверх чеков</div>
-                  </div>
-                  <div className={`client-kpi big ${clientDebt > 0 ? 'warn' : ''}`}>
-                    <div className="l">Итого долг</div>
-                    <div className="v" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t2)' }}>{fmtMoney(clientDebt)}</div>
-                    <div className="hint">
-                      {debtLimit > 0 ? `доступно ${fmtMoney(availableDebt)} · лимит ${fmtMoney(debtLimit)}` : 'без лимита'}
-                    </div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">⭐ Бонусы</div>
-                    <div className="v" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
-                    <div className="hint">погашено {fmtMoney(clientProfileStats.repaid)}</div>
-                  </div>
-                </div>
-
-                <div className="client-profile-actions three">
-                  <button
-                    type="button"
-                    className="action-chip ac-repay"
-                    onClick={() => {
-                      if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
-                      setRepayTarget(null)
-                      setRepayBuf('')
-                      setRepayMethod('cash')
-                      setAmountPad(false)
-                      setRepayOpen(true)
-                    }}
-                  >
-                    <span className="ic-wrap">💳</span><span>Погасить долг</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="action-chip ac-topup"
-                    onClick={() => {
-                      setTopupBuf('')
-                      setAmountPad(false)
-                      setTopupOpen(true)
-                    }}
-                  >
-                    <span className="ic-wrap">⭐</span><span>Пополнить бонусы</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="action-chip ac-hist"
-                    onClick={() => {
-                      setHistTab('history')
-                      setHistView('history')
-                      setHistDetail(null)
-                    }}
-                  >
-                    <span className="ic-wrap">📋</span><span>Вся история</span>
-                  </button>
-                </div>
-
-                <div className="hist-tabs" role="tablist" style={{ marginTop: 8 }}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={histTab === 'open'}
-                    className={`hist-tab ${histTab === 'open' ? 'on' : ''}`}
-                    onClick={() => setHistTab('open')}
-                  >
-                    Чеки
-                    <span className="n">{histActiveDebts.length}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={histTab === 'pays'}
-                    className={`hist-tab ${histTab === 'pays' ? 'on' : ''}`}
-                    onClick={() => setHistTab('pays')}
-                  >
-                    Оплаты
-                    <span className="n">{histRepays.length}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={histTab === 'history'}
-                    className={`hist-tab ${histTab === 'history' ? 'on' : ''}`}
-                    onClick={() => { setHistTab('history'); setHistView('history') }}
-                  >
-                    История
-                  </button>
-                </div>
-
-                <div className="hist-section hist-section-grow">
-                  {histTab === 'open' && (
-                    <>
-                      <div className="hist-section-h">К оплате (не погашено)</div>
-                      <div className="hist-scroll profile">
-                        {!histOpenDebts.length && <div className="hist-empty">Нет долгов к оплате</div>}
-                        <div className="hist-list compact">
-                          {histOpenDebts.map(row => renderHistRow(row, { compact: true }))}
-                        </div>
+                  {(() => {
+                    const rows = cashierDebtPanel.creditSales.filter(s => posView === 'all' || s.remain > 0.001)
+                    if (!rows.length) {
+                      return <div className="hist-empty">{posView === 'open' ? 'Все чеки погашены' : 'Нет чеков'}</div>
+                    }
+                    return (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="cashier-debts-table">
+                          <thead>
+                            <tr>
+                              <th>Дата</th>
+                              <th>Статус</th>
+                              <th>Чек / состав</th>
+                              <th style={{ textAlign: 'right' }}>В долг</th>
+                              <th style={{ textAlign: 'right' }}>Остаток</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(s => {
+                              const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'К оплате'
+                              const statusColor = s.status === 'paid' ? 'var(--accent)' : s.status === 'partial' ? 'var(--org)' : 'var(--blue)'
+                              return (
+                                <tr
+                                  key={s.id}
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => {
+                                    const match = histActiveDebts.find(r => r.saleId === s.id)
+                                    if (match) { setHistDetail(match); return }
+                                    const sale = sales.find(x => x.id === s.id)
+                                    const lines = sale ? mapSaleLines(sale.items, products) : []
+                                    setHistDetail({
+                                      id: `active-sale-${s.id}`,
+                                      ts: s.ts,
+                                      when: s.when,
+                                      title: s.status === 'partial' ? `${s.label} · частично` : `${s.label} · к оплате`,
+                                      sub: s.status === 'paid' ? 'Погашен' : `Остаток ${fmtMoney(s.remain)}`,
+                                      items: s.items || undefined,
+                                      lines: lines.length ? lines : undefined,
+                                      amount: s.remain || s.debtAdded,
+                                      tone: 'debt',
+                                      debtStatus: s.status,
+                                      debtPaid: Math.max(0, s.debtAdded - s.remain),
+                                      debtRemain: s.remain,
+                                      saleId: s.id,
+                                      orderId: sale?.orderId || s.id,
+                                    })
+                                  }}
+                                >
+                                  <td style={{ whiteSpace: 'nowrap', color: 'var(--t3)', fontSize: 12 }}>{s.when}</td>
+                                  <td>
+                                    <span style={{ fontWeight: 700, color: statusColor, fontSize: 12 }}>
+                                      {s.status === 'paid' ? '✅' : s.status === 'partial' ? '◐' : '🧾'} {statusLabel}
+                                    </span>
+                                  </td>
+                                  <td style={{ fontSize: 13 }}>
+                                    <b>{s.label}</b>
+                                    <span style={{ color: 'var(--t3)', fontSize: 11 }}> · открыть</span>
+                                    {s.items && (
+                                      <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {s.items}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td style={{ textAlign: 'right', color: 'var(--t3)', fontWeight: 800, fontSize: 12 }}>{fmtMoney(s.debtAdded)}</td>
+                                  <td style={{ textAlign: 'right', fontWeight: 900, color: statusColor }}>
+                                    {s.status === 'paid' ? '—' : fmtMoney(s.remain)}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    </>
-                  )}
-                  {histTab === 'pays' && (
-                    <>
-                      <div className="hist-section-h">Оплаты / погашения</div>
-                      <div className="hist-scroll profile">
-                        {!histRepays.length && <div className="hist-empty">Пока нет оплат</div>}
-                        <div className="hist-list compact">
-                          {histRepays.map(row => renderHistRow(row, { compact: true }))}
+                    )
+                  })()}
+                </>
+              )}
+
+              {histTab === 'cash' && (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
+                    Наличные = долг на карте минус чеки.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                    <input
+                      className="kp-field"
+                      style={{ flex: 1, minWidth: 120, height: 40, fontSize: 14 }}
+                      inputMode="decimal"
+                      placeholder="Сумма выдачи"
+                      value={cashIssueBuf}
+                      onChange={e => setCashIssueBuf(sanitizeDecimalInput(e.target.value))}
+                    />
+                    <button
+                      type="button"
+                      className="btn-confirm"
+                      style={{ minWidth: 120 }}
+                      disabled={cashIssueBusy}
+                      onClick={() => void submitCashIssue()}
+                    >
+                      {cashIssueBusy ? '…' : '+ Выдать'}
+                    </button>
+                  </div>
+                  {cashierDebtPanel.cashOnCard > 0.005 && !cashierDebtPanel.cashRows.length && (
+                    <div style={{
+                      padding: '12px 14px', borderRadius: 12, marginBottom: 8,
+                      background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, color: 'var(--org)' }}>Ручной долг на карте</div>
+                          <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>Без строки в истории</div>
                         </div>
+                        <div style={{ fontWeight: 900, color: 'var(--org)' }}>+{fmtMoney(cashierDebtPanel.cashOnCard)}</div>
                       </div>
-                    </>
+                    </div>
                   )}
-                </div>
-
-                <div className="modal-card-actions" style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className="btn-cancel"
-                    onClick={() => {
-                      setHistOpen(false)
-                      setClientQ('')
-                      setClientPick(client)
-                      setClientOpen(true)
-                    }}
-                  >
-                    Сменить клиента
-                  </button>
-                  <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="hist-detail-head">
-                  <button type="button" className="hist-back" onClick={() => { setHistView('profile'); setHistTab('open') }}>← К клиенту</button>
-                  <h3>История</h3>
-                  <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
-                </div>
-
-                <div className="hist-tabs" role="tablist">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={histTab === 'history' || histTab === 'open' || histTab === 'pays'}
-                    className={`hist-tab ${(histTab === 'history' || histTab === 'open' || histTab === 'pays') ? 'on' : ''}`}
-                    onClick={() => setHistTab('history')}
-                  >
-                    Долги / оплаты
-                    <span className="n">{histActiveDebts.length + histRepays.length + histPaidDebts.length}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={histTab === 'shop'}
-                    className={`hist-tab ${histTab === 'shop' ? 'on' : ''}`}
-                    onClick={() => setHistTab('shop')}
-                  >
-                    Оплаченные чеки
-                    <span className="n">{histChecks.length + histTopups.length}</span>
-                  </button>
-                </div>
-
-                <div className="hist-scroll hist-scroll-fs">
-                  {histTab === 'shop' ? (
-                    <>
-                      {!histChecks.length && !histTopups.length && (
-                        <div className="hist-empty">Покупок пока нет</div>
-                      )}
-                      {histChecks.length > 0 && (
-                        <div className="hist-section">
-                          <div className="hist-section-h">Оплачено сразу (не в долг)</div>
-                          <div className="hist-list compact">
-                            {histChecks.map(row => renderHistRow(row))}
-                          </div>
-                        </div>
-                      )}
-                      {histTopups.length > 0 && (
-                        <div className="hist-section">
-                          <div className="hist-section-h">Пополнения бонусов</div>
-                          <div className="hist-list compact">
-                            {histTopups.map(row => renderHistRow(row))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                  {!cashierDebtPanel.cashRows.length && cashierDebtPanel.cashOnCard < 0.005 ? (
+                    <div className="hist-empty">Нет выдач наличными</div>
                   ) : (
-                    <>
-                      {!histActiveDebts.length && !histRepays.length && !histPaidDebts.length && (
-                        <div className="hist-empty">Долгов и погашений нет</div>
-                      )}
-                      <div className="hist-section">
-                        <div className="hist-section-h">Ещё должен — к оплате ({fmtMoney(histActiveDebtSum)})</div>
-                        {!histActiveDebts.length ? (
-                          <div className="hist-empty">Всё погашено</div>
-                        ) : (
-                          <div className="hist-list compact">
-                            {histActiveDebts.map(row => renderHistRow(row))}
+                    <div className="hist-list compact">
+                      {cashierDebtPanel.cashRows.map(r => (
+                        <div key={r.id} className="hist-row tone-debt sm" style={{ cursor: 'default' }}>
+                          <div className="hist-main">
+                            <div className="hist-title-row"><b>{r.desc || 'Ручное начисление'}</b></div>
+                            <span className="hist-when">{r.date} · {r.time || '—'}</span>
                           </div>
-                        )}
-                      </div>
-                      {histRepays.length > 0 && (
-                        <div className="hist-section">
-                          <div className="hist-section-h">Платежи (реально погасили)</div>
-                          <div className="hist-list compact">
-                            {histRepays.map(row => renderHistRow(row))}
+                          <div className="hist-amt-col">
+                            <div className="hist-amt">+{fmtMoney(Math.abs(r.amount))}</div>
                           </div>
                         </div>
-                      )}
-                      {histPaidDebts.length > 0 && (
-                        <div className="hist-section">
-                          <div className="hist-section-h">Закрытые долги (погашены платежом)</div>
-                          <div className="hist-list compact">
-                            {histPaidDebts.map(row => renderHistRow(row))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                      ))}
+                    </div>
                   )}
-                </div>
+                </>
+              )}
 
-                <div className="modal-card-actions" style={{ marginTop: 12 }}>
-                  <button type="button" className="btn-cancel" onClick={() => { setHistView('profile'); setHistTab('open') }}>К клиенту</button>
-                  <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
-                </div>
-              </>
-            )}
+              {histTab === 'pay' && (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
+                    Погашения по чекам и оплаты долга.
+                  </div>
+                  {!cashierDebtPanel.payRows.length && !histRepays.length ? (
+                    <div className="hist-empty">Нет оплат</div>
+                  ) : (
+                    <div className="hist-list compact">
+                      {(cashierDebtPanel.payRows.length ? cashierDebtPanel.payRows : []).map(r => (
+                        <div key={r.id} className="hist-row tone-repay sm" style={{ cursor: 'default' }}>
+                          <div className="hist-main">
+                            <div className="hist-title-row"><b>{r.desc || 'Погашение долга'}</b></div>
+                            <span className="hist-when">{r.date}{r.time ? ` · ${r.time}` : ''}</span>
+                          </div>
+                          <div className="hist-amt-col">
+                            <div className="hist-amt" style={{ color: 'var(--accent)' }}>−{fmtMoney(Math.abs(r.amount))}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {!cashierDebtPanel.payRows.length && histRepays.map(row => renderHistRow(row, { compact: true }))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="cashier-debts-actions">
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={!(clientDebt > 0)}
+                onClick={() => {
+                  if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                  setRepayTarget(null)
+                  setRepayBuf('')
+                  setRepayMethod('cash')
+                  setAmountPad(false)
+                  setRepayOpen(true)
+                }}
+              >
+                ✓ Погасить долг
+              </button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => {
+                  setHistTab('cash')
+                  setCashIssueBuf('')
+                }}
+              >
+                Выдать наличные
+              </button>
+            </div>
+            <div className="modal-card-actions" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => {
+                  setHistOpen(false)
+                  setClientQ('')
+                  setClientPick(client)
+                  setClientOpen(true)
+                }}
+              >
+                Сменить клиента
+              </button>
+              <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
+            </div>
           </div>
         </div>
       )}
