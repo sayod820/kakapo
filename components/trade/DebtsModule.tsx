@@ -23,6 +23,7 @@ import {
   debtHistoryTotals,
   isManualDebtHistoryEntry,
   loadDebtHistory,
+  recordStoreDebtCharge,
   removeDebtHistoryEntry,
   subscribeDebtHistory,
   updateDebtHistoryEntry,
@@ -141,7 +142,8 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: Pos
   const goodsDebt = Math.round(
     posDebtSalesFor(client, sales).reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100,
   ) / 100
-  const cashDebt = Math.max(0, Math.round((totals.borrowed - totals.repaid) * 100) / 100)
+  // Разница «на карте − чеки» = наличные (в т.ч. старые ручные без записи в истории)
+  const cashDebt = Math.max(0, Math.round((debt - goodsDebt) * 100) / 100)
   return {
     ...client,
     debtLimit,
@@ -175,7 +177,11 @@ function kindMeta(kind: FeedRow['kind']) {
   return { label: 'Оплата', color: 'var(--green)', icon: '✅' }
 }
 
-function buildFeed(manual: DebtHistoryEntry[], posSales: PosDebtSale[]): FeedRow[] {
+function buildFeed(
+  manual: DebtHistoryEntry[],
+  posSales: PosDebtSale[],
+  residualCash = 0,
+): FeedRow[] {
   const rows: FeedRow[] = [
     ...manual.map(row => {
       const isPay = row.type === 'pay'
@@ -200,6 +206,17 @@ function buildFeed(manual: DebtHistoryEntry[], posSales: PosDebtSale[]): FeedRow
       amount: Math.abs(Number(s.debtAdded) || 0),
     })),
   ]
+  if (residualCash > 0.005) {
+    rows.push({
+      key: 'residual-cash',
+      ts: 1,
+      dateLabel: 'раньше',
+      kind: 'cash',
+      title: 'Наличные',
+      desc: 'Ручной долг на карте (без записи в истории)',
+      amount: residualCash,
+    })
+  }
   return rows.sort((a, b) => b.ts - a.ts)
 }
 
@@ -296,7 +313,13 @@ export default function DebtsModule({
     const posSales = posDebtSalesFor(detailClient, sales)
     const manualTotals = debtHistoryTotals(manual)
     const posSum = Math.round(posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
-    const feed = buildFeed(manual, posSales)
+    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    // Всё, что на карте сверх чеков = наличные (в т.ч. старый ручной ввод)
+    const cashOnCard = Math.max(0, Math.round((cardDebt - posSum) * 100) / 100)
+    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
+    // Кусок на карте без строки в истории — показать как наличные
+    const residualCash = Math.max(0, Math.round((cashOnCard - manualNet) * 100) / 100)
+    const feed = buildFeed(manual, posSales, residualCash)
     return {
       manual,
       cash,
@@ -304,6 +327,8 @@ export default function DebtsModule({
       posSales,
       manualTotals,
       posSum,
+      cashOnCard,
+      residualCash,
       feed,
       historyFeed: withRunningBalance(feed),
     }
@@ -371,30 +396,35 @@ export default function DebtsModule({
     })
   }
 
-  async function fixCardDebtFromPosChecks() {
-    if (!detailClient || !detailData) return
-    const fromPos = detailData.posSum
-    const current = Math.max(0, Number(detailClient.debt) || 0)
-    if (Math.abs(fromPos - current) < 0.005) {
-      setHistMsg('Долг на карте уже совпадает с чеками')
-      return
-    }
+  async function documentResidualCash() {
+    if (!detailClient?.phone || !detailData || detailData.residualCash < 0.005) return
+    const amt = detailData.residualCash
     if (!window.confirm(
-      `Исправить долг на карте?\n\nСейчас: ${fmtMoney(current)}\nПо чекам: ${fmtMoney(fromPos)}`,
+      `Записать ${fmtMoney(amt)} в «Наличные»?\n\nДолг на карте не изменится — появится строка в истории.`,
+    )) return
+    recordStoreDebtCharge(detailClient.phone, amt, 'Ручное начисление (раньше на карте)', { source: 'manual' })
+    setHistMsg(`Записано в наличные: ${fmtMoney(amt)}`)
+    setHistTick(t => t + 1)
+  }
+
+  async function clearResidualCashFromCard() {
+    if (!detailClient || !detailData || detailData.residualCash < 0.005) return
+    const amt = detailData.residualCash
+    const next = Math.max(0, Math.round((Number(detailClient.debt) - amt) * 100) / 100)
+    if (!window.confirm(
+      `Убрать с карты ${fmtMoney(amt)}?\n\nОстанется долг ${fmtMoney(next)} (чеки + записанные наличные).`,
     )) return
     try {
-      const res = await adjustClientDebtSafe(detailClient, {
+      await adjustClientDebtSafe(detailClient, {
         action: 'repay',
         amount: 0,
-        absoluteDebt: fromPos,
+        absoluteDebt: next,
         skipDebtHistory: true,
       })
-      setHistMsg(res.offline
-        ? `Долг на карте: ${fmtMoney(fromPos)} (локально)`
-        : `Долг на карте исправлен: ${fmtMoney(fromPos)}`)
-      if (!res.offline) await refreshAll()
+      setHistMsg(`С карты убрано: ${fmtMoney(amt)}`)
+      await refreshAll()
     } catch (e) {
-      setHistMsg(e instanceof Error ? e.message : 'Не удалось исправить')
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось')
     }
   }
 
@@ -587,7 +617,7 @@ export default function DebtsModule({
     )
   }
 
-  const msgOk = /Удалено|обновлена|Оплата|Выдано|исправлен|Долг на карте/i.test(histMsg)
+  const msgOk = /Удалено|обновлена|Оплата|Выдано|Записано|С карты|исправлен|Долг на карте/i.test(histMsg)
   const cardDebt = detailClient ? Math.max(0, Number(detailClient.debt) || 0) : 0
 
   return (
@@ -601,20 +631,12 @@ export default function DebtsModule({
           {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
           <button
             type="button"
-            className="k-btn k-btn-s"
+            className="k-btn k-btn-g"
             style={{ fontSize: 13 }}
             disabled={!detailClient}
             onClick={() => openAdd('add')}
           >
             Выдать наличные
-          </button>
-          <button
-            type="button"
-            className="k-btn k-btn-g"
-            style={{ fontSize: 13 }}
-            onClick={() => onNavigate?.('sales')}
-          >
-            + Продажа в долг
           </button>
         </div>
       </div>
@@ -771,7 +793,7 @@ export default function DebtsModule({
                   <div className="k-kpi k-statcard">
                     <div className="kl">Наличные в долг</div>
                     <div className="kv" style={{ color: 'var(--gold)', fontSize: 20 }}>
-                      {fmtMoney(Math.max(0, detailData.manualTotals.borrowed - detailData.manualTotals.repaid))}
+                      {fmtMoney(detailData.cashOnCard)}
                     </div>
                   </div>
                   <div className="k-kpi k-statcard">
@@ -781,19 +803,6 @@ export default function DebtsModule({
                     </div>
                   </div>
                 </div>
-
-                {Math.abs(cardDebt - detailData.posSum) > 1 && detailData.manual.length === 0 && (
-                  <div style={{
-                    marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.4,
-                    background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
-                    display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between',
-                  }}>
-                    <span>Долг на карте не совпадает с чеками</span>
-                    <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 10px' }} onClick={() => void fixCardDebtFromPosChecks()}>
-                      = сумма чеков
-                    </button>
-                  </div>
-                )}
               </div>
 
               <div style={{ padding: '10px 12px 0' }}>
@@ -801,7 +810,7 @@ export default function DebtsModule({
                   {([
                     ['history', 'История'],
                     ['pos', `Чеки в долг (${detailData.posSales.length})`],
-                    ['cash', `Наличные (${detailData.cash.length})`],
+                    ['cash', `Наличные (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
                     ['pay', `Оплаты (${detailData.pays.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
                     <button
@@ -919,14 +928,54 @@ export default function DebtsModule({
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Ручные начисления (Trade / Admin). Можно изменить или удалить.
+                        Наличные = долг на карте минус чеки. Старый ручной ввод тоже здесь.
                       </div>
                       <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 12px' }} onClick={() => openAdd('add')}>
                         + Выдать
                       </button>
                     </div>
                     {renderAddForm()}
-                    {!detailData.cash.length && !histAdd.open ? (
+                    {detailData.residualCash > 0.005 && (
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 12, marginBottom: 8,
+                        background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--gold)' }}>
+                              Ручной долг на карте
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                              Раньше ввели вручную, в истории строки не было — учитываем как наличные
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontWeight: 900, color: 'var(--gold)' }}>
+                              +{fmtMoney(detailData.residualCash)}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="k-btn k-btn-s"
+                                style={{ fontSize: 12, padding: '4px 10px', minHeight: 0 }}
+                                onClick={() => void documentResidualCash()}
+                              >
+                                Записать в историю
+                              </button>
+                              <button
+                                type="button"
+                                className="k-btn k-btn-s"
+                                style={{ fontSize: 12, padding: '4px 10px', minHeight: 0, color: 'var(--red)' }}
+                                onClick={() => void clearResidualCashFromCard()}
+                              >
+                                Убрать с карты
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {!detailData.cash.length && detailData.residualCash < 0.005 && !histAdd.open ? (
                       <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                         Нет выдач наличными
                       </div>
@@ -965,9 +1014,6 @@ export default function DebtsModule({
                 </button>
                 <button type="button" className="k-btn k-btn-s" onClick={() => openAdd('add')}>
                   Выдать наличные
-                </button>
-                <button type="button" className="k-btn k-btn-s" onClick={() => onNavigate?.('sales')}>
-                  🛒 Новая продажа
                 </button>
               </div>
             </>
