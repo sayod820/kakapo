@@ -30,6 +30,9 @@ import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   allocateRepaymentFifo,
   buildDebtOrderBalances,
+  debtOrderIdsMatch,
+  debtStatusForSale,
+  ensureDebtHistoryOrderId,
   loadBalanceTopups,
   loadDebtHistory,
   recordBalanceTopup,
@@ -249,6 +252,10 @@ type ClientHistRow = {
   debtStatus?: 'open' | 'partial' | 'paid'
   debtPaid?: number
   debtRemain?: number
+  /** Привязка к чеку — погашение именно этой позиции */
+  saleId?: string
+  orderId?: string
+  debtEntryId?: string
 }
 
 function mapSaleLines(
@@ -999,6 +1006,12 @@ export default function CashierModule({
   const [repayOpen, setRepayOpen] = useState(false)
   const [repayBuf, setRepayBuf] = useState('')
   const [repayMethod, setRepayMethod] = useState<'cash' | 'card'>('cash')
+  const [repayTarget, setRepayTarget] = useState<{
+    orderId: string
+    label: string
+    maxAmount: number
+    debtEntryId?: string
+  } | null>(null)
   /** Погасить старый долг вместе с текущим чеком (только если долг > 0) */
   const [payDebtOn, setPayDebtOn] = useState(false)
   const [payDebtBuf, setPayDebtBuf] = useState('')
@@ -2226,7 +2239,7 @@ export default function CashierModule({
   )
   const histDebtsCount = histDebtOrders.length + histRepays.length
 
-  /** Активные долги только по FIFO-остатку (со старых чеков); сумма ≈ «Долг сейчас» */
+  /** Активные долги по чекам — та же логика, что в разделе «Долги» (статус по истории + долг на карте) */
   const histActiveDebts = useMemo(() => {
     void histTick
     if (!client) return [] as ClientHistRow[]
@@ -2238,72 +2251,7 @@ export default function CashierModule({
       return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
     }
 
-    const toRow = (u: DebtOrderBalance, lines: ClientHistLine[]): ClientHistRow => ({
-      id: `active-${u.id}`,
-      ts: u.ts || 0,
-      when: `${u.date}${u.time ? ` · ${u.time}` : ''}` || fmtWhen(u.ts || 0),
-      title: u.partial ? 'Чек · долг частично' : 'Чек · к оплате',
-      sub: u.partial
-        ? `Остаток ${fmtMoney(u.remainingAmount)} из ${fmtMoney(u.originalAmount)}`
-        : `Ещё не погашен · ${fmtMoney(u.remainingAmount)}`,
-      items: linesLabel(lines) || u.itemsSummary || undefined,
-      lines: lines.length ? lines : parseItemsSummary(u.itemsSummary),
-      amount: u.remainingAmount,
-      tone: 'debt',
-      debtStatus: u.partial ? 'partial' : 'open',
-      debtPaid: u.paidAmount,
-      debtRemain: u.remainingAmount,
-    })
-
-    const findSaleLines = (u: DebtOrderBalance): ClientHistLine[] => {
-      if (u.orderId) {
-        const sale = sales.find(s => s.id === u.orderId)
-        if (sale) return mapSaleLines(sale.items, products)
-      }
-      const amt = Math.abs(Number(u.amount) || 0)
-      const sale = sales.find(s => {
-        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-        const matchId = client.id && s.clientId === client.id
-        if (!matchPhone && !matchId) return false
-        if (!(s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)) return false
-        const st = new Date(s.createdAtIso).getTime() || 0
-        return Math.abs((Number(s.debtAdded) || Number(s.total) || 0) - amt) < 0.02
-          && Math.abs(st - (u.ts || 0)) < 15 * 60 * 1000
-      })
-      return sale ? mapSaleLines(sale.items, products) : parseItemsSummary(u.itemsSummary)
-    }
-
-    if (client.phone) {
-      const debtList = loadDebtHistory(client.phone)
-      const hasDebtEntries = debtList.some(h => h.type === 'debt')
-      if (hasDebtEntries) {
-        const { unpaid } = buildDebtOrderBalances(debtList)
-        const rows = unpaid
-          .filter(u => (Number(u.remainingAmount) || 0) > 0.001)
-          .slice()
-          .sort((a, b) => (a.ts || 0) - (b.ts || 0))
-          .map(u => toRow(u, findSaleLines(u)))
-        const unpaidSum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)
-        const gap = Math.round((clientDebt - unpaidSum) * 100) / 100
-        // Остаток баланса без строки в истории (старый долг / другой терминал)
-        if (gap > 0.5) {
-          rows.push({
-            id: 'active-balance-gap',
-            ts: Date.now(),
-            when: 'сейчас',
-            title: 'Прочий долг',
-            sub: `В балансе есть, в деталях истории нет · ${fmtMoney(gap)}`,
-            amount: gap,
-            tone: 'debt',
-            debtStatus: 'open',
-            debtPaid: 0,
-            debtRemain: gap,
-          })
-        }
-        return rows
-      }
-    }
-
+    const history = client.phone ? loadDebtHistory(client.phone) : []
     const creditSales = sales
       .filter(s => {
         const matchId = client.id && s.clientId === client.id
@@ -2319,38 +2267,127 @@ export default function CashierModule({
       .filter(x => x.amt > 0)
       .sort((a, b) => a.ts - b.ts)
 
-    const charged = creditSales.reduce((s, x) => s + x.amt, 0)
-    let payLeft = Math.max(0, Math.round((charged - clientDebt) * 100) / 100)
+    type St = { status: 'paid' | 'partial' | 'open'; paid: number; remain: number }
+    const locked: { saleId: string; orderId?: string; ts: number; amt: number; sale: typeof creditSales[0]['sale']; st: St }[] = []
+    const flexible: typeof locked = []
+
+    for (const x of creditSales) {
+      const st = debtStatusForSale(history, {
+        id: x.sale.id,
+        orderId: x.sale.orderId,
+        debtAdded: x.amt,
+        dateIso: x.sale.createdAtIso,
+      })
+      const keys = [x.sale.id, x.sale.orderId, `sale-${x.sale.id}`]
+        .map(k => String(k || '').trim())
+        .filter(Boolean)
+      const linked = history.some(h =>
+        (h.type === 'debt' || h.type === 'pay')
+        && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
+      )
+      const row = {
+        saleId: x.sale.id,
+        orderId: x.sale.orderId || x.sale.id,
+        ts: x.ts,
+        amt: x.amt,
+        sale: x.sale,
+        st,
+      }
+      if (linked) locked.push(row)
+      else flexible.push(row)
+    }
+
+    const debt = Math.max(0, Math.round(clientDebt * 100) / 100)
+    const statusBySale = new Map<string, St>()
+    let lockedRemain = 0
+    for (const r of locked) {
+      statusBySale.set(r.saleId, r.st)
+      lockedRemain += r.st.remain
+    }
+    lockedRemain = Math.round(lockedRemain * 100) / 100
+
+    if (lockedRemain > debt + 0.005) {
+      const scale = debt > 0.001 ? debt / lockedRemain : 0
+      for (const r of locked) {
+        const remain = Math.round(r.st.remain * scale * 100) / 100
+        const paid = Math.round((r.amt - remain) * 100) / 100
+        statusBySale.set(r.saleId, {
+          remain,
+          paid,
+          status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
+        })
+      }
+      for (const r of flexible) {
+        statusBySale.set(r.saleId, { status: 'paid', paid: r.amt, remain: 0 })
+      }
+    } else {
+      let budget = Math.round((debt - lockedRemain) * 100) / 100
+      for (const r of flexible) {
+        const remain = Math.min(r.amt, Math.max(0, budget))
+        budget = Math.round((budget - remain) * 100) / 100
+        const paid = Math.round((r.amt - remain) * 100) / 100
+        statusBySale.set(r.saleId, {
+          remain,
+          paid,
+          status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
+        })
+      }
+    }
+
+    const { unpaid } = buildDebtOrderBalances(history)
+    const findDebtEntryId = (saleId: string, orderId?: string) => {
+      const keys = [saleId, orderId, saleId ? `sale-${saleId}` : ''].filter(Boolean) as string[]
+      return unpaid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))?.id
+    }
+
     const active: ClientHistRow[] = []
     for (const x of creditSales) {
-      if (payLeft >= x.amt - 0.001) {
-        payLeft = Math.round((payLeft - x.amt) * 100) / 100
-        continue
-      }
-      const paidAmount = payLeft > 0.001 ? payLeft : 0
-      const remainingAmount = Math.round((x.amt - paidAmount) * 100) / 100
-      payLeft = 0
-      if (remainingAmount <= 0.001) continue
-      const partial = paidAmount > 0.001
+      const st = statusBySale.get(x.sale.id)
+      if (!st || st.remain <= 0.001) continue
       const lines = mapSaleLines(x.sale.items, products)
+      const partial = st.status === 'partial'
+      const checkLabel = x.sale.number != null && Number(x.sale.number) > 0
+        ? `Чек №${x.sale.number}`
+        : (x.sale.orderId ? `Заказ ${x.sale.orderId}` : `Чек ${x.sale.id.slice(-6)}`)
       active.push({
         id: `active-sale-${x.sale.id}`,
         ts: x.ts,
         when: fmtWhen(x.ts, x.sale.createdAtIso),
-        title: partial ? 'Чек · долг частично' : 'Чек · долг открыт',
+        title: partial ? `${checkLabel} · частично` : `${checkLabel} · к оплате`,
         sub: partial
-          ? `Остаток ${fmtMoney(remainingAmount)} из ${fmtMoney(x.amt)} · погашение со старых`
-          : `Не оплачен · ${fmtMoney(remainingAmount)}`,
+          ? `Остаток ${fmtMoney(st.remain)} из ${fmtMoney(x.amt)}`
+          : `Ещё не погашен · ${fmtMoney(st.remain)}`,
         items: linesLabel(lines) || undefined,
         lines: lines.length ? lines : undefined,
-        amount: remainingAmount,
-        tone: 'credit',
+        amount: st.remain,
+        tone: 'debt',
         debtStatus: partial ? 'partial' : 'open',
-        debtPaid: paidAmount,
-        debtRemain: remainingAmount,
+        debtPaid: st.paid,
+        debtRemain: st.remain,
+        saleId: x.sale.id,
+        orderId: x.sale.orderId || x.sale.id,
+        debtEntryId: findDebtEntryId(x.sale.id, x.sale.orderId),
       })
     }
-    return active
+
+    const unpaidSum = active.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+    const gap = Math.round((clientDebt - unpaidSum) * 100) / 100
+    if (gap > 0.5) {
+      active.push({
+        id: 'active-balance-gap',
+        ts: Date.now(),
+        when: 'сейчас',
+        title: 'Прочий долг',
+        sub: `В балансе есть, в деталях чеков нет · ${fmtMoney(gap)}`,
+        amount: gap,
+        tone: 'debt',
+        debtStatus: 'open',
+        debtPaid: 0,
+        debtRemain: gap,
+      })
+    }
+
+    return active.sort((a, b) => a.ts - b.ts)
   }, [client, sales, clientDebt, histTick, products])
 
   const histPaidDebts = useMemo(
@@ -5415,8 +5452,13 @@ export default function CashierModule({
     const amount = Number(repayBuf) || 0
     const prevDebt = clientDebt
     if (amount <= 0) return
-    if (amount > prevDebt + 0.001) {
-      showToast('Слишком много', `Долг клиента ${fmtMoney(prevDebt)}`)
+    const maxForTarget = repayTarget
+      ? Math.min(prevDebt, repayTarget.maxAmount)
+      : prevDebt
+    if (amount > maxForTarget + 0.001) {
+      showToast('Слишком много', repayTarget
+        ? `По этому чеку максимум ${fmtMoney(maxForTarget)}`
+        : `Долг клиента ${fmtMoney(prevDebt)}`)
       return
     }
     if (!activeShift) {
@@ -5426,11 +5468,23 @@ export default function CashierModule({
     setBusy(true)
     try {
       if (!client.card) throw new Error('У клиента нет карты')
-      const oldestActive = histActiveDebts
+      const payAmt = Math.round(Math.min(amount, maxForTarget) * 100) / 100
+      const target = repayTarget
+      if (target?.debtEntryId && client.phone && target.orderId) {
+        ensureDebtHistoryOrderId(client.phone, target.debtEntryId, target.orderId)
+      }
+      const oldestActive = (target
+        ? histActiveDebts.filter(r =>
+          r.orderId === target.orderId
+          || r.saleId === target.orderId
+          || (r.debtEntryId && r.debtEntryId === target.debtEntryId),
+        )
+        : histActiveDebts
+      )
         .slice()
         .sort((a, b) => a.ts - b.ts)
         .map(r => ({
-          id: r.id,
+          id: r.debtEntryId || r.id,
           remainingAmount: Number(r.debtRemain ?? r.amount) || 0,
           originalAmount: Number(r.amount) || 0,
           paidAmount: Number(r.debtPaid) || 0,
@@ -5441,12 +5495,15 @@ export default function CashierModule({
           desc: r.title,
           amount: -(Number(r.debtRemain ?? r.amount) || 0),
           type: 'debt' as const,
+          orderId: r.orderId,
         }))
-      const fifoPreview = allocateRepaymentFifo(oldestActive, amount)
+      const fifoPreview = allocateRepaymentFifo(oldestActive, payAmt)
       const repaid = await debtRepaySafe(client.card, {
-        amount,
+        amount: payAmt,
         method: repayMethod,
-        note: `Погашение долга · ${client.name}`,
+        note: target
+          ? `Погашение · ${target.label} · ${client.name}`
+          : `Погашение долга · ${client.name}`,
         cashierId: settings.cashierId || activeShift.cashierId,
         cashierName: settings.cashierName || activeShift.cashierName,
         shiftId: activeShift.id,
@@ -5454,12 +5511,16 @@ export default function CashierModule({
         clientId: client.id,
         prevDebt,
       })
-      const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - amount)
+      const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - payAmt)
       const repayBonus = Number(repaid.data.bonusEarned) || 0
       if (client.phone) {
-        recordStoreDebtRepayment(client.phone, amount, { method: repayMethod })
+        recordStoreDebtRepayment(client.phone, payAmt, {
+          method: repayMethod,
+          orderId: target?.orderId,
+          desc: target ? `Погашение · ${target.label}` : undefined,
+        })
         if (repayBonus > 0) {
-          recordBalanceTopup(client.phone, amount, repayBonus, 'Погашение долга наличными')
+          recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
         }
       }
       if (!repaid.offline) void refresh()
@@ -5469,13 +5530,18 @@ export default function CashierModule({
       setRepayOpen(false)
       setRepayBuf('')
       setRepayMethod('cash')
-      const fifoNote = fifoPreview.length
+      setRepayTarget(null)
+      const targetNote = target ? ` · ${target.label}` : ''
+      const fifoNote = !target && fifoPreview.length
         ? ` · списано с ${fifoPreview.length} чек${fifoPreview.length === 1 ? 'а' : 'ов'} (со старых)`
         : ''
       const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
       const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
       const offlineNote = repaid.offline ? ' · отправится в фоне' : ''
-      showToast('Долг погашен', `${client.name}: −${fmtMoney(amount)} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}${offlineNote}`)
+      showToast(
+        'Долг погашен',
+        `${client.name}: −${fmtMoney(payAmt)}${targetNote} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}${offlineNote}`,
+      )
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
@@ -8550,7 +8616,11 @@ export default function CashierModule({
       )}
 
       {repayOpen && client && (
-        <div className="overlay" onClick={() => !busy && setRepayOpen(false)}>
+        <div className="overlay" onClick={() => {
+          if (busy) return
+          setRepayOpen(false)
+          setRepayTarget(null)
+        }}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -8559,14 +8629,22 @@ export default function CashierModule({
             }
           >
           <div className="modal-card">
-            <h3>💳 Погасить долг</h3>
+            <h3>💳 {repayTarget ? 'Погасить чек' : 'Погасить долг'}</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
               Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Старый долг · текущий чек не затрагивается</div>
+              {repayTarget ? (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>
+                  Только {repayTarget.label} · макс. {fmtMoney(repayTarget.maxAmount)}
+                </div>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Старый долг · текущий чек не затрагивается</div>
+              )}
             </div>
             <div className="kp-display">
-              <div className="lbl">ТЕКУЩИЙ ДОЛГ</div>
-              <div className="val" style={{ color: 'var(--org)' }}>{clientDebt.toFixed(2)} сом</div>
+              <div className="lbl">{repayTarget ? 'ОСТАТОК ПО ЧЕКУ' : 'ТЕКУЩИЙ ДОЛГ'}</div>
+              <div className="val" style={{ color: 'var(--org)' }}>
+                {(repayTarget ? Math.min(clientDebt, repayTarget.maxAmount) : clientDebt).toFixed(2)} сом
+              </div>
             </div>
             <div className="kp-display" style={{ marginTop: -6 }}>
               <div className="lbl">СУММА ОПЛАТЫ</div>
@@ -8587,7 +8665,16 @@ export default function CashierModule({
             </div>
             <div className="qty-edit-toolbar">
               <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
-                {clientDebt > 0 && <button type="button" onClick={() => setRepayBuf(String(clientDebt))}>Весь долг</button>}
+                {(() => {
+                  const maxPay = repayTarget
+                    ? Math.min(clientDebt, repayTarget.maxAmount)
+                    : clientDebt
+                  return maxPay > 0 ? (
+                    <button type="button" onClick={() => setRepayBuf(String(maxPay))}>
+                      {repayTarget ? 'Весь чек' : 'Весь долг'}
+                    </button>
+                  ) : null
+                })()}
               </div>
               <button
                 type="button"
@@ -8613,11 +8700,20 @@ export default function CashierModule({
               </div>
             )}
             <div className="modal-card-actions">
-              <button type="button" className="btn-cancel" onClick={() => setRepayOpen(false)}>Отмена</button>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => {
+                  setRepayOpen(false)
+                  setRepayTarget(null)
+                }}
+              >
+                Отмена
+              </button>
               <button
                 type="button"
                 className="btn-confirm"
-                disabled={busy || repayAmount <= 0 || repayAmount > clientDebt + 0.001}
+                disabled={busy || repayAmount <= 0 || repayAmount > (repayTarget ? Math.min(clientDebt, repayTarget.maxAmount) : clientDebt) + 0.001}
                 onClick={() => void submitDebtRepay()}
               >
                 Погасить
@@ -8675,6 +8771,7 @@ export default function CashierModule({
                     onClick={() => {
                       setHistOpen(false)
                       if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
+                      setRepayTarget(null)
                       setRepayBuf('')
                       setRepayMethod('cash')
                       setAmountPad(false)
@@ -8899,17 +8996,33 @@ export default function CashierModule({
                   className="action-chip ac-repay"
                   style={{ width: '100%', marginTop: 16 }}
                   onClick={() => {
-                    const remain = histDetail.debtRemain ?? histDetail.amount
+                    const remain = Math.min(
+                      histDetail.debtRemain ?? histDetail.amount,
+                      clientDebt,
+                    )
+                    if (remain <= 0.001 || clientDebt <= 0) {
+                      showToast('Нет долга', 'У клиента нет задолженности')
+                      return
+                    }
+                    const label = histDetail.title.replace(/\s·\s(к оплате|частично)$/i, '').trim()
+                      || 'Чек'
                     setHistDetail(null)
-                    setHistOpen(false)
-                    if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
-                    setRepayBuf(String(Math.min(remain, clientDebt)))
+                    setRepayTarget(histDetail.orderId || histDetail.saleId
+                      ? {
+                          orderId: histDetail.orderId || histDetail.saleId!,
+                          label,
+                          maxAmount: remain,
+                          debtEntryId: histDetail.debtEntryId,
+                        }
+                      : null)
+                    setRepayBuf(String(remain))
                     setRepayMethod('cash')
                     setAmountPad(false)
                     setRepayOpen(true)
                   }}
                 >
-                  <span className="ic-wrap">💳</span><span>Погасить этот долг</span>
+                  <span className="ic-wrap">💳</span>
+                  <span>{histDetail.orderId || histDetail.saleId ? 'Погасить этот чек' : 'Погасить этот долг'}</span>
                 </button>
               )}
             </div>
