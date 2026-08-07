@@ -162,29 +162,6 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
     .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)))
 }
 
-function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {
-  const debt = Number(client.debt) || 0
-  const debtLimit = resolveEffectiveDebtLimit(client)
-  const history = client.phone ? loadDebtHistory(client.phone) : []
-  const manual = history.filter(isManualDebtHistoryEntry)
-  const totals = debtHistoryTotals(manual)
-  const goodsDebt = Math.round(
-    posDebtSalesFor(client, sales).reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100,
-  ) / 100
-  // Разница «на карте − чеки» = наличные (в т.ч. старые ручные без записи в истории)
-  const cashDebt = Math.max(0, Math.round((debt - goodsDebt) * 100) / 100)
-  return {
-    ...client,
-    debtLimit,
-    available: Math.max(0, debtLimit - debt),
-    overLimit: debtLimit > 0 && debt > debtLimit,
-    goodsDebt,
-    cashDebt,
-    borrowed: totals.borrowed,
-    repaid: totals.repaid,
-  }
-}
-
 function paymentMethodLabel(method: string, partial: boolean): string {
   if (partial) return 'Частично'
   if (method === 'credit') return 'В долг'
@@ -192,6 +169,110 @@ function paymentMethodLabel(method: string, partial: boolean): string {
   if (method === 'cash') return 'Наличные'
   if (method === 'card') return 'Карта'
   return method || '—'
+}
+
+type SaleDebtStatus = { status: 'paid' | 'partial' | 'open'; paid: number; remain: number }
+
+function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
+  return [s.id, s.orderId, s.id ? `sale-${s.id}` : '', s.orderId ? `sale-${s.orderId}` : '']
+    .map(k => String(k || '').trim())
+    .filter(Boolean)
+}
+
+/** Остатки по чекам: история + долг на карте (чтобы «Товары» сходились с «Итого»). */
+function buildSaleDebtStatuses(
+  sales: PosDebtSale[],
+  history: DebtHistoryEntry[],
+  cardDebt: number,
+): { saleStatus: Record<string, SaleDebtStatus>; posOriginal: number; posRemain: number; cashOnCard: number } {
+  const posOriginal = Math.round(sales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+  const debt = Math.max(0, Math.round(cardDebt * 100) / 100)
+
+  const base: Record<string, SaleDebtStatus> = {}
+  for (const s of sales) base[s.id] = debtStatusForSale(history, s)
+
+  const locked: PosDebtSale[] = []
+  const flexible: PosDebtSale[] = []
+  for (const s of sales) {
+    const keys = saleOrderKeys(s)
+    const linked = history.some(h =>
+      (h.type === 'debt' || h.type === 'pay')
+      && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
+    )
+    if (linked) locked.push(s)
+    else flexible.push(s)
+  }
+
+  const saleStatus: Record<string, SaleDebtStatus> = {}
+  let lockedRemain = 0
+  for (const s of locked) {
+    saleStatus[s.id] = base[s.id]
+    lockedRemain += saleStatus[s.id].remain
+  }
+  lockedRemain = Math.round(lockedRemain * 100) / 100
+
+  if (lockedRemain > debt + 0.005) {
+    const scale = debt > 0.001 ? debt / lockedRemain : 0
+    lockedRemain = 0
+    for (const s of locked) {
+      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
+      const remain = Math.round(saleStatus[s.id].remain * scale * 100) / 100
+      const paid = Math.round((orig - remain) * 100) / 100
+      saleStatus[s.id] = {
+        remain,
+        paid,
+        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
+      }
+      lockedRemain += remain
+    }
+    lockedRemain = Math.round(lockedRemain * 100) / 100
+    for (const s of flexible) {
+      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
+      saleStatus[s.id] = { status: 'paid', paid: orig, remain: 0 }
+    }
+  } else {
+    let budget = Math.round((debt - lockedRemain) * 100) / 100
+    const ordered = [...flexible].sort(
+      (a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0),
+    )
+    for (const s of ordered) {
+      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
+      const remain = Math.min(orig, Math.max(0, budget))
+      budget = Math.round((budget - remain) * 100) / 100
+      const paid = Math.round((orig - remain) * 100) / 100
+      saleStatus[s.id] = {
+        remain,
+        paid,
+        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
+      }
+    }
+  }
+
+  const posRemain = Math.round(
+    Object.values(saleStatus).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
+  ) / 100
+  const cashOnCard = Math.max(0, Math.round((debt - posRemain) * 100) / 100)
+  return { saleStatus, posOriginal, posRemain, cashOnCard }
+}
+
+function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {
+  const debt = Number(client.debt) || 0
+  const debtLimit = resolveEffectiveDebtLimit(client)
+  const history = client.phone ? loadDebtHistory(client.phone) : []
+  const manual = history.filter(isManualDebtHistoryEntry)
+  const totals = debtHistoryTotals(manual)
+  const posSales = posDebtSalesFor(client, sales)
+  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debt)
+  return {
+    ...client,
+    debtLimit,
+    available: Math.max(0, debtLimit - debt),
+    overLimit: debtLimit > 0 && debt > debtLimit,
+    goodsDebt: posRemain,
+    cashDebt: cashOnCard,
+    borrowed: totals.borrowed,
+    repaid: totals.repaid,
+  }
 }
 
 function DebtStatusBadge({ overLimit, debt }: { overLimit: boolean; debt: number }) {
@@ -211,6 +292,7 @@ function buildFeed(
   posSales: PosDebtSale[],
   residualCash = 0,
   checkPays: DebtHistoryEntry[] = [],
+  saleStatus: Record<string, SaleDebtStatus> = {},
 ): FeedRow[] {
   const rows: FeedRow[] = [
     ...manual.map(row => {
@@ -236,16 +318,27 @@ function buildFeed(
       amount: -Math.abs(Number(row.amount) || 0),
       saleId: row.orderId?.replace(/^sale-/, '') || undefined,
     })),
-    ...posSales.map(s => ({
-      key: `p-${s.id}`,
-      ts: Date.parse(s.dateIso) || 0,
-      dateLabel: s.dateIso ? fmtDateTime(s.dateIso) : '—',
-      kind: 'pos' as const,
-      title: 'Чек в долг',
-      desc: `${saleLabel(s)}${s.partial ? ' · частично' : ''}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
-      amount: Math.abs(Number(s.debtAdded) || 0),
-      saleId: s.id,
-    })),
+    ...posSales.map(s => {
+      const st = saleStatus[s.id]
+      const statusNote = !st
+        ? ''
+        : st.status === 'paid'
+          ? ' · погашен'
+          : st.status === 'partial'
+            ? ` · остаток ${fmtMoney(st.remain)}`
+            : ` · к оплате ${fmtMoney(st.remain)}`
+      return {
+        key: `p-${s.id}`,
+        ts: Date.parse(s.dateIso) || 0,
+        dateLabel: s.dateIso ? fmtDateTime(s.dateIso) : '—',
+        kind: 'pos' as const,
+        title: 'Чек в долг',
+        desc: `${saleLabel(s)}${statusNote}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
+        // В истории сумма чека = исходный долг; погашения идут отдельными строками «Оплата»
+        amount: Math.abs(Number(s.debtAdded) || 0),
+        saleId: s.id,
+      }
+    }),
   ]
   if (residualCash > 0.005) {
     rows.push({
@@ -355,31 +448,52 @@ export default function DebtsModule({
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const posSales = posDebtSalesFor(detailClient, sales)
     const manualTotals = debtHistoryTotals(manual)
-    const posSum = Math.round(posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
     const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
-    // Всё, что на карте сверх чеков = наличные (в т.ч. старый ручной ввод)
-    const cashOnCard = Math.max(0, Math.round((cardDebt - posSum) * 100) / 100)
-    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
-    // Кусок на карте без строки в истории — показать как наличные
-    const residualCash = Math.max(0, Math.round((cashOnCard - manualNet) * 100) / 100)
-    const feed = buildFeed(manual, posSales, residualCash, checkPays)
-    const saleStatus = Object.fromEntries(
-      posSales.map(s => [s.id, debtStatusForSale(history, s)]),
+    const { saleStatus, posOriginal, posRemain, cashOnCard } = buildSaleDebtStatuses(
+      posSales,
+      history,
+      cardDebt,
     )
+    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
+    const residualCash = Math.max(0, Math.round((cashOnCard - Math.max(0, manualNet)) * 100) / 100)
+
+    // Недостающие погашения: сумма чеков − оплаты в истории − долг на карте
+    const allPaySum = Math.round(
+      history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+    ) / 100
+    const chargeSum = Math.round((posOriginal + manualTotals.borrowed + residualCash) * 100) / 100
+    const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
+    const gapPays: DebtHistoryEntry[] = missingPay > 0.05
+      ? [{
+          id: 'gap-pay',
+          date: 'сводка',
+          time: '',
+          ts: 2,
+          desc: 'Погашения (раньше / без записи по чекам)',
+          amount: missingPay,
+          type: 'pay',
+          source: 'cashier',
+        }]
+      : []
+
+    const payRows = [...checkPays, ...gapPays]
+    const feed = buildFeed(manual, posSales, residualCash, payRows, saleStatus)
     return {
       history,
       manual,
       cash,
       pays,
-      checkPays,
+      checkPays: payRows,
       posSales,
       manualTotals,
-      posSum,
+      posSum: posRemain,
+      posOriginal,
       cashOnCard,
       residualCash,
       feed,
       historyFeed: withRunningBalance(feed),
       saleStatus,
+      openChecks: posSales.filter(s => (saleStatus[s.id]?.remain || 0) > 0.001).length,
     }
   }, [detailClient, histTick, sales])
 
@@ -886,6 +1000,11 @@ export default function DebtsModule({
                   <div className="k-debts-metric">
                     <div className="kl">Товары</div>
                     <div className="kv" style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</div>
+                    {detailData.posOriginal > detailData.posSum + 0.05 && (
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                        из {fmtMoney(detailData.posOriginal)}
+                      </div>
+                    )}
                   </div>
                   <div className="k-debts-metric">
                     <div className="kl">Наличные</div>
@@ -904,7 +1023,7 @@ export default function DebtsModule({
                 <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
                   {([
                     ['history', 'История'],
-                    ['pos', `Чеки (${detailData.posSales.length})`],
+                    ['pos', `Чеки (${detailData.openChecks}/${detailData.posSales.length})`],
                     ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
                     ['pay', `Оплаты (${detailData.pays.length + detailData.checkPays.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
@@ -1134,10 +1253,13 @@ export default function DebtsModule({
                         {[...detailData.checkPays]
                           .sort((a, b) => (b.ts || 0) - (a.ts || 0))
                           .map(row => {
-                            const sale = detailData.posSales.find(s =>
-                              debtOrderIdsMatch(s.id, row.orderId)
-                              || debtOrderIdsMatch(s.orderId, row.orderId),
-                            )
+                            const isGap = row.id === 'gap-pay'
+                            const sale = !isGap
+                              ? detailData.posSales.find(s =>
+                                debtOrderIdsMatch(s.id, row.orderId)
+                                || debtOrderIdsMatch(s.orderId, row.orderId),
+                              )
+                              : undefined
                             return (
                               <div
                                 key={row.id}
@@ -1153,8 +1275,10 @@ export default function DebtsModule({
                                       {row.desc || (sale ? `Погашение · ${saleLabel(sale)}` : 'Погашение чека')}
                                     </div>
                                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                                      {row.date} · {row.time || '—'}
-                                      <span style={{ color: 'var(--green)', fontWeight: 700 }}> · по чеку</span>
+                                      {row.date}{row.time ? ` · ${row.time}` : ''}
+                                      <span style={{ color: 'var(--green)', fontWeight: 700 }}>
+                                        {isGap ? ' · сводка' : ' · по чеку'}
+                                      </span>
                                     </div>
                                   </div>
                                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
