@@ -8981,7 +8981,6 @@ export default function CashierModule({
       )}
 
       {histDetail && (
-      {histDetail && (
         <div className="overlay hist-detail-overlay" onClick={() => setHistDetail(null)}>
           <div className="modal-card hist-detail-card" onClick={e => e.stopPropagation()}>
             <div className="hist-detail-head">
