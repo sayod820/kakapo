@@ -44,6 +44,7 @@ type EnrichedClient = AdminClient & { lastLabel?: string }
 type ListFilter = 'all' | 'with_debt' | 'cleared'
 type SortMode = 'debt' | 'name'
 type DetailTab = 'history' | 'pos' | 'cash' | 'pay'
+type PosViewFilter = 'open' | 'all'
 
 type HistAddState = {
   open: boolean
@@ -388,6 +389,7 @@ export default function DebtsModule({
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
   const [saleRepay, setSaleRepay] = useState<{ amount: string; saving: boolean } | null>(null)
+  const [posView, setPosView] = useState<PosViewFilter>('open')
 
   const refreshAll = useCallback(async () => {
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
@@ -1118,59 +1120,128 @@ export default function DebtsModule({
                       Нет чеков кассы в долг
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      {detailData.posSales.map(s => {
-                        const st = detailData.saleStatus[s.id]
-                        const statusLabel = st?.status === 'paid'
-                          ? 'погашен'
-                          : st?.status === 'partial'
-                            ? `остаток ${fmtMoney(st.remain)}`
-                            : `к оплате ${fmtMoney(st?.remain ?? s.debtAdded)}`
-                        const statusColor = st?.status === 'paid'
-                          ? 'var(--green)'
-                          : st?.status === 'partial'
-                            ? 'var(--gold)'
-                            : 'var(--blue)'
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => openSaleDetail(s.id)}
-                            style={{
-                              padding: '8px 10px', borderRadius: 8, textAlign: 'left',
-                              background: 'var(--card2)', border: '1px solid var(--border)',
-                              color: 'inherit', fontFamily: 'inherit', cursor: 'pointer', width: '100%',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 800, fontSize: 13 }}>
-                                  {saleLabel(s)}
-                                  <span className="k-badge" style={{ marginLeft: 6, fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
-                                    {paymentMethodLabel(s.paymentMethod, s.partial)}
-                                  </span>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                                  {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
-                                  <span style={{ color: statusColor, fontWeight: 700 }}> · {statusLabel}</span>
-                                </div>
-                                {s.items.length > 0 && (
-                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {s.items.map(i => i.name).join(', ')}
-                                  </div>
-                                )}
-                              </div>
-                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                <div style={{ fontWeight: 900, fontSize: 13, color: statusColor }}>
-                                  {st?.status === 'paid' ? '✓' : `+${fmtMoney(st?.remain ?? s.debtAdded)}`}
-                                </div>
-                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
-                              </div>
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          К оплате: <b style={{ color: 'var(--blue)' }}>{detailData.openChecks}</b>
+                          {' · '}всего {detailData.posSales.length}
+                          {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {([
+                            ['open', 'К оплате'],
+                            ['all', 'Все'],
+                          ] as [PosViewFilter, string][]).map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`k-subtab ${posView === id ? 'active' : ''}`}
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => setPosView(id)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {(() => {
+                        const rows = detailData.posSales.filter(s => {
+                          if (posView === 'all') return true
+                          return (detailData.saleStatus[s.id]?.remain || 0) > 0.001
+                        })
+                        if (!rows.length) {
+                          return (
+                            <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                              {posView === 'open' ? 'Все чеки погашены' : 'Нет чеков'}
                             </div>
-                          </button>
+                          )
+                        }
+                        return (
+                          <div style={{ overflowX: 'auto' }}>
+                            <table className="k-debts-table">
+                              <thead>
+                                <tr>
+                                  <th>Дата</th>
+                                  <th>Статус</th>
+                                  <th>Чек / состав</th>
+                                  <th style={{ textAlign: 'right' }}>В долг</th>
+                                  <th style={{ textAlign: 'right' }}>Остаток</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map(s => {
+                                  const st = detailData.saleStatus[s.id] || {
+                                    status: 'open' as const,
+                                    paid: 0,
+                                    remain: s.debtAdded,
+                                  }
+                                  const statusLabel = st.status === 'paid'
+                                    ? 'Погашен'
+                                    : st.status === 'partial'
+                                      ? 'Частично'
+                                      : 'К оплате'
+                                  const statusColor = st.status === 'paid'
+                                    ? 'var(--green)'
+                                    : st.status === 'partial'
+                                      ? 'var(--gold)'
+                                      : 'var(--blue)'
+                                  const items = s.items.length
+                                    ? s.items.slice(0, 2).map(i => i.name).join(', ') + (s.items.length > 2 ? '…' : '')
+                                    : ''
+                                  return (
+                                    <tr
+                                      key={s.id}
+                                      onClick={() => openSaleDetail(s.id)}
+                                      style={{ cursor: 'pointer' }}
+                                      title="Открыть детали и погасить"
+                                    >
+                                      <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: 12 }}>
+                                        {s.dateIso ? fmtDateTime(s.dateIso) : '—'}
+                                      </td>
+                                      <td>
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                                          fontWeight: 700, color: statusColor, fontSize: 12,
+                                        }}>
+                                          <span>{st.status === 'paid' ? '✅' : st.status === 'partial' ? '◐' : '🧾'}</span>
+                                          {statusLabel}
+                                        </span>
+                                      </td>
+                                      <td style={{ fontSize: 13 }}>
+                                        <span style={{ fontWeight: 700 }}>{saleLabel(s)}</span>
+                                        <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                                          {' · '}{s.itemsCount} поз. · открыть
+                                        </span>
+                                        {items && (
+                                          <div style={{
+                                            fontSize: 11, color: 'var(--muted)', marginTop: 2,
+                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280,
+                                          }}>
+                                            {items}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td style={{
+                                        textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap',
+                                        color: 'var(--muted)', fontSize: 12,
+                                      }}>
+                                        {fmtMoney(s.debtAdded)}
+                                      </td>
+                                      <td style={{
+                                        textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
+                                        color: statusColor,
+                                      }}>
+                                        {st.status === 'paid' ? '—' : fmtMoney(st.remain)}
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         )
-                      })}
-                    </div>
+                      })()}
+                    </>
                   )
                 )}
 
