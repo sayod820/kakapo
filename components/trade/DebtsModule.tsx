@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -47,15 +47,16 @@ type FilterMode = 'with_debt' | 'over_limit' | 'debt_section' | 'all'
 type SortMode = 'debt' | 'name' | 'recent' | 'unpaid'
 type DetailTab = 'history' | 'unpaid' | 'orders' | 'pos'
 
-type DebtFormState = {
-  action: 'repay' | 'add' | 'fix'
+type HistAddState = {
+  open: boolean
+  action: 'repay' | 'add'
   amount: string
+  desc: string
   saving: boolean
-  msg: string
 }
 
-function emptyInlineDebt(): DebtFormState {
-  return { action: 'repay', amount: '', saving: false, msg: '' }
+function emptyHistAdd(): HistAddState {
+  return { open: false, action: 'add', amount: '', desc: '', saving: false }
 }
 
 type PosDebtSale = {
@@ -195,11 +196,11 @@ export default function DebtsModule() {
   const [filter, setFilter] = useState<FilterMode>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<DetailTab>('history')
-  const [inlineDebt, setInlineDebt] = useState<DebtFormState>(emptyInlineDebt)
+  const [histAdd, setHistAdd] = useState<HistAddState>(emptyHistAdd)
+  const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
   const [orderDetail, setOrderDetail] = useState<DebtOrderBalance | DebtHistoryEntry | null>(null)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
-  const autoSyncDebtRef = useRef<string | null>(null)
 
   const refreshAll = useCallback(async () => {
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
@@ -284,149 +285,48 @@ export default function DebtsModule() {
     setDetailId(id)
     setDetailTab('history')
     setOrderDetail(null)
-    setInlineDebt(emptyInlineDebt())
+    setHistAdd(emptyHistAdd())
+    setHistMsg('')
     setHistEdit(null)
-    autoSyncDebtRef.current = null
   }
 
   function closeDetail() {
     setDetailId(null)
     setOrderDetail(null)
-    setInlineDebt(emptyInlineDebt())
+    setHistAdd(emptyHistAdd())
+    setHistMsg('')
     setHistEdit(null)
   }
 
-  async function submitInlineDebt() {
+  async function submitHistoryAdd() {
     if (!detailClient) return
-    const amount = Number(inlineDebt.amount) || 0
-
-    if (inlineDebt.action === 'fix') {
-      if (amount < 0 || Number.isNaN(amount)) {
-        setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму долга' }))
-        return
-      }
-      const current = Number(detailClient.debt) || 0
-      if (Math.abs(amount - current) < 0.005) {
-        setInlineDebt(prev => ({ ...prev, msg: 'Сумма уже совпадает с текущим долгом' }))
-        return
-      }
-      if (!window.confirm(
-        `Выровнять долг «${detailClient.name}»?\n\nСейчас: ${fmtMoney(current)}\nСтанет: ${fmtMoney(amount)}\n\nЧеки и история не удаляются. Деньги в кассу не попадут.`,
-      )) return
-
-      setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
-      try {
-        const res = await adjustClientDebtSafe(detailClient, {
-          action: 'repay',
-          amount: 0,
-          absoluteDebt: Math.round(amount * 100) / 100,
-          skipDebtHistory: true,
-        })
-        setInlineDebt(prev => ({
-          ...prev,
-          saving: false,
-          amount: '',
-          msg: res.offline
-            ? `Баланс выровнен локально: ${fmtMoney(amount)} · уйдёт при связи`
-            : `Баланс выровнен: ${fmtMoney(amount)}. Документы на месте.`,
-        }))
-        if (!res.offline) await refreshAll()
-      } catch (e) {
-        setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
-      }
-      return
-    }
-
+    const amount = Number(histAdd.amount) || 0
     if (!(amount > 0)) {
-      setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму' }))
+      setHistMsg('Укажите сумму')
       return
     }
-
-    setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
+    setHistAdd(prev => ({ ...prev, saving: true }))
+    setHistMsg('')
     try {
       const res = await adjustClientDebtSafe(detailClient, {
-        action: inlineDebt.action === 'repay' ? 'repay' : 'charge',
+        action: histAdd.action === 'repay' ? 'repay' : 'charge',
         amount,
       })
-      setInlineDebt(emptyInlineDebt())
+      const desc = histAdd.desc.trim()
+      if (desc && detailClient.phone) {
+        const latest = loadDebtHistory(detailClient.phone).find(isManualDebtHistoryEntry)
+        if (latest) updateDebtHistoryEntry(detailClient.phone, latest.id, { desc })
+      }
+      setHistAdd(emptyHistAdd())
+      setHistMsg(histAdd.action === 'repay'
+        ? `В историю: погашение ${fmtMoney(amount)}`
+        : `В историю: начисление ${fmtMoney(amount)}`)
       if (!res.offline) await refreshAll()
     } catch (e) {
-      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+      setHistAdd(prev => ({ ...prev, saving: false }))
+      setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
     }
   }
-
-  function debtDocHints() {
-    if (!detailData) return { fromPos: 0, fromUnpaid: 0, fromHistoryCharges: 0 }
-    const fromPos = Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
-    const fromUnpaid = Math.round(
-      detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
-    ) / 100
-    const fromHistoryCharges = Math.round(
-      detailData.history
-        .filter(h => h.type !== 'pay')
-        .reduce((s, h) => s + (Number(h.amount) || 0), 0) * 100,
-    ) / 100
-    return { fromPos, fromUnpaid, fromHistoryCharges }
-  }
-
-  /** Подтянуть баланс, если в истории есть ручные начисления, а «Текущий долг» отстал */
-  async function syncDebtBalanceFromHistory(silent = false) {
-    if (!detailClient?.phone) return false
-    const history = loadDebtHistory(detailClient.phone)
-    const { unpaid } = buildDebtOrderBalances(history)
-    const unpaidSum = Math.round(unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100) / 100
-    const card = cardForClient(detailClient, cards)
-    const current = Math.max(0, Number(detailClient.debt) || 0, Number(card?.debt) || 0)
-    if (unpaidSum <= current + 0.01) {
-      if (!silent) setInlineDebt(prev => ({ ...prev, msg: 'Баланс уже совпадает с историей' }))
-      return false
-    }
-    setInlineDebt(prev => ({
-      ...prev,
-      saving: true,
-      msg: silent ? `Подтягиваем долг ${fmtMoney(unpaidSum)} из истории…` : '',
-    }))
-    try {
-      const res = await adjustClientDebtSafe(detailClient, {
-        action: 'charge',
-        amount: 0,
-        absoluteDebt: unpaidSum,
-        skipDebtHistory: true,
-      })
-      setInlineDebt(prev => ({
-        ...prev,
-        saving: false,
-        amount: '',
-        msg: res.offline
-          ? `Текущий долг обновлён локально: ${fmtMoney(unpaidSum)} · отправится при связи`
-          : `Текущий долг обновлён: ${fmtMoney(unpaidSum)}`,
-      }))
-      if (!res.offline) await refreshAll()
-      return true
-    } catch (e) {
-      setInlineDebt(prev => ({
-        ...prev,
-        saving: false,
-        msg: e instanceof Error ? e.message : 'Не удалось синхронизировать',
-      }))
-      return false
-    }
-  }
-
-  // История в localStorage браузера — при открытии карточки сами поднимаем баланс
-  useEffect(() => {
-    if (!detailClient?.id || !detailClient.phone) return
-    if (autoSyncDebtRef.current === detailClient.id) return
-    const history = loadDebtHistory(detailClient.phone)
-    if (!history.length) return
-    const { unpaid } = buildDebtOrderBalances(history)
-    const unpaidSum = Math.round(unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100) / 100
-    const current = Number(detailClient.debt) || 0
-    if (unpaidSum <= current + 0.05) return
-    autoSyncDebtRef.current = detailClient.id
-    void syncDebtBalanceFromHistory(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailClient?.id, detailClient?.phone, detailClient?.debt])
 
   async function applyDebtDeltaFromHistory(delta: number) {
     if (!detailClient || Math.abs(delta) < 0.005) return
@@ -449,17 +349,16 @@ export default function DebtsModule() {
     )) return
     const removed = removeDebtHistoryEntry(detailClient.phone, row.id)
     if (!removed) {
-      setInlineDebt(prev => ({ ...prev, msg: 'Эту запись нельзя удалить (чек или заказ)' }))
+      setHistMsg('Эту запись нельзя удалить (чек или заказ)')
       return
     }
     setHistEdit(null)
     try {
-      const delta = debtBalanceDeltaForHistoryChange(removed, null)
-      await applyDebtDeltaFromHistory(delta)
-      setInlineDebt(prev => ({ ...prev, msg: `Удалено: ${label} ${fmtMoney(abs)}` }))
+      await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(removed, null))
+      setHistMsg(`Удалено: ${label} ${fmtMoney(abs)}`)
       await refreshAll()
     } catch (e) {
-      setInlineDebt(prev => ({ ...prev, msg: e instanceof Error ? e.message : 'Не удалось обновить баланс' }))
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось обновить баланс')
     }
   }
 
@@ -472,7 +371,7 @@ export default function DebtsModule() {
     }
     const amountAbs = Number(histEdit.amount) || 0
     if (!(amountAbs > 0)) {
-      setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму больше 0' }))
+      setHistMsg('Укажите сумму больше 0')
       return
     }
     setHistEdit(prev => prev ? { ...prev, saving: true } : prev)
@@ -482,14 +381,13 @@ export default function DebtsModule() {
         desc: histEdit.desc,
       })
       if (!after) throw new Error('Не удалось сохранить запись')
-      const delta = debtBalanceDeltaForHistoryChange(before, after)
-      await applyDebtDeltaFromHistory(delta)
+      await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(before, after))
       setHistEdit(null)
-      setInlineDebt(prev => ({ ...prev, msg: `Запись обновлена: ${fmtMoney(amountAbs)}` }))
+      setHistMsg(`Запись обновлена: ${fmtMoney(amountAbs)}`)
       await refreshAll()
     } catch (e) {
       setHistEdit(prev => prev ? { ...prev, saving: false } : prev)
-      setInlineDebt(prev => ({ ...prev, msg: e instanceof Error ? e.message : 'Ошибка сохранения' }))
+      setHistMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     }
   }
 
@@ -499,7 +397,7 @@ export default function DebtsModule() {
         <div>
           <h1>💳 Долги клиентов</h1>
           <div className="sub">
-            Нажмите на клиента — откроется история долгов, погашения и управление задолженностью
+            Откройте клиента — в истории можно добавить, изменить или удалить ручные записи
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -664,133 +562,11 @@ export default function DebtsModule() {
                     {detailClient.card && <span> · 💳 {detailClient.card}</span>}
                   </div>
                 )}
-                {(() => {
-                  const unpaidSum = Math.round(
-                    detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
-                  ) / 100
-                  const current = Number(detailClient.debt) || 0
-                  if (unpaidSum <= current + 0.05) return null
-                  return (
-                    <div style={{
-                      marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.4,
-                      background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
-                      display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between',
-                    }}>
-                      <span>
-                        В истории неоплачено {fmtMoney(unpaidSum)}, а текущий долг {fmtMoney(current)}.
-                        Ручные начисления не попали в баланс.
-                      </span>
-                      <button
-                        type="button"
-                        className="k-btn k-btn-g"
-                        style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                        disabled={inlineDebt.saving}
-                        onClick={() => void syncDebtBalanceFromHistory()}
-                      >
-                        {inlineDebt.saving ? '…' : `Добавить в долг ${fmtMoney(unpaidSum)}`}
-                      </button>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              <div style={{
-                padding: '14px 16px', borderRadius: 14, marginBottom: 14,
-                background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gold)', marginBottom: 6 }}>Изменить долг</div>
-                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 10, lineHeight: 1.4 }}>
-                  Погасить — клиент принёс деньги. Начислить — ручная запись. Выровнять — баланс по документам (чеки и история остаются).
-                </div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <button type="button" className={`k-subtab ${inlineDebt.action === 'repay' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'repay', msg: '' }))}>Погасить</button>
-                  <button type="button" className={`k-subtab ${inlineDebt.action === 'add' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'add', msg: '' }))}>Начислить</button>
-                  <button type="button" className={`k-subtab ${inlineDebt.action === 'fix' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => {
-                    const { fromPos, fromUnpaid } = debtDocHints()
-                    const hint = fromUnpaid > 0.01 ? fromUnpaid : fromPos
-                    setInlineDebt(prev => ({
-                      ...prev,
-                      action: 'fix',
-                      amount: hint > 0.001 ? String(hint) : String(Number(detailClient.debt) || 0),
-                      msg: '',
-                    }))
-                  }}>Выровнять</button>
-                </div>
-                {inlineDebt.action === 'fix' && (() => {
-                  const { fromPos, fromUnpaid } = debtDocHints()
-                  return (
-                    <div style={{
-                      marginBottom: 10, padding: '10px 12px', borderRadius: 10, fontSize: 11, lineHeight: 1.45,
-                      background: 'var(--card2, rgba(0,0,0,.04))', border: '1px solid var(--border)',
-                    }}>
-                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Документы (не удаляются)</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        <span>Чеки кассы: <b>{detailData.posSales.length}</b> · {fmtMoney(fromPos)}</span>
-                        <span>Неоплаченные: <b>{detailData.settlement.unpaid.length}</b> · {fmtMoney(fromUnpaid)}</span>
-                        <span>В истории: <b>{detailData.history.length}</b></span>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                        {fromPos > 0.001 && (
-                          <button
-                            type="button"
-                            className="k-btn k-btn-s"
-                            style={{ fontSize: 11 }}
-                            disabled={inlineDebt.saving}
-                            onClick={() => setInlineDebt(prev => ({ ...prev, amount: String(fromPos), msg: '' }))}
-                          >
-                            Взять с чеков {fmtMoney(fromPos)}
-                          </button>
-                        )}
-                        {fromUnpaid > 0.001 && (
-                          <button
-                            type="button"
-                            className="k-btn k-btn-s"
-                            style={{ fontSize: 11 }}
-                            disabled={inlineDebt.saving}
-                            onClick={() => setInlineDebt(prev => ({ ...prev, amount: String(fromUnpaid), msg: '' }))}
-                          >
-                            Взять с неоплаченных {fmtMoney(fromUnpaid)}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })()}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ flex: '1 1 140px' }}>
-                    <label style={{ fontSize: 11 }}>
-                      {inlineDebt.action === 'fix' ? 'Баланс долга' : inlineDebt.action === 'add' ? 'Начислить' : 'Погасить'}
-                    </label>
-                    <input className="k-inp" type="text" inputMode="decimal" value={inlineDebt.amount} onChange={e => setInlineDebt(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value), msg: '' }))} placeholder="0.00" />
-                  </div>
-                  {inlineDebt.action === 'repay' && detailClient.debt > 0 && (
-                    <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, amount: String(detailClient.debt), msg: '' }))}>
-                      Весь долг
-                    </button>
-                  )}
-                  <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12 }} disabled={inlineDebt.saving} onClick={() => void submitInlineDebt()}>
-                    {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : inlineDebt.action === 'add' ? 'Начислить' : 'Выровнять баланс'}
-                  </button>
-                </div>
-                {inlineDebt.msg && (
-                  <div style={{
-                    marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
-                    background: /обновлён|выровнен|исправлен|Подтягиваем/i.test(inlineDebt.msg)
-                      ? 'rgba(20,178,79,.12)'
-                      : 'var(--alert-error-bg)',
-                    color: /обновлён|выровнен|исправлен|Подтягиваем/i.test(inlineDebt.msg)
-                      ? 'var(--green)'
-                      : 'var(--red)',
-                    border: '1px solid var(--alert-error-border)',
-                  }}>
-                    {inlineDebt.msg}
-                  </div>
-                )}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
                 {([
-                  ['history', `Движения`],
+                  ['history', `История`],
                   ['unpaid', `Неоплаченные (${detailData.settlement.unpaid.length})`],
                   ['orders', `Заказы (${detailData.creditOrders.length})`],
                   ['pos', `Чеки кассы (${detailData.posSales.length})`],
@@ -803,9 +579,110 @@ export default function DebtsModule() {
 
               {detailTab === 'history' && (
                 <>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>
-                    Ручные записи можно править или удалить. Чеки кассы и заказы — только просмотр.
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10,
+                    marginBottom: 10, flexWrap: 'wrap',
+                  }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: '1 1 200px' }}>
+                      Ручные записи — добавить, изменить или удалить. Чеки кассы и заказы только для просмотра.
+                    </div>
+                    <button
+                      type="button"
+                      className="k-btn k-btn-g"
+                      style={{ fontSize: 12 }}
+                      onClick={() => setHistAdd(prev => ({
+                        ...emptyHistAdd(),
+                        open: !prev.open,
+                        action: 'add',
+                      }))}
+                    >
+                      {histAdd.open ? 'Скрыть форму' : '+ Добавить в историю'}
+                    </button>
                   </div>
+
+                  {histAdd.open && (
+                    <div style={{
+                      padding: '12px 14px', borderRadius: 12, marginBottom: 12,
+                      background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
+                    }}>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className={`k-subtab ${histAdd.action === 'add' ? 'active' : ''}`}
+                          style={{ padding: '6px 12px', fontSize: 12 }}
+                          onClick={() => setHistAdd(prev => ({ ...prev, action: 'add' }))}
+                        >
+                          Начислить
+                        </button>
+                        <button
+                          type="button"
+                          className={`k-subtab ${histAdd.action === 'repay' ? 'active' : ''}`}
+                          style={{ padding: '6px 12px', fontSize: 12 }}
+                          onClick={() => setHistAdd(prev => ({ ...prev, action: 'repay' }))}
+                        >
+                          Погасить
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <div style={{ flex: '1 1 120px' }}>
+                          <label style={{ fontSize: 11 }}>Сумма</label>
+                          <input
+                            className="k-inp"
+                            type="text"
+                            inputMode="decimal"
+                            value={histAdd.amount}
+                            disabled={histAdd.saving}
+                            onChange={e => setHistAdd(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))}
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div style={{ flex: '2 1 160px' }}>
+                          <label style={{ fontSize: 11 }}>Описание (необязательно)</label>
+                          <input
+                            className="k-inp"
+                            type="text"
+                            value={histAdd.desc}
+                            disabled={histAdd.saving}
+                            onChange={e => setHistAdd(prev => ({ ...prev, desc: e.target.value }))}
+                            placeholder={histAdd.action === 'repay' ? 'Погашение долга' : 'Ручное начисление'}
+                          />
+                        </div>
+                        {histAdd.action === 'repay' && detailClient.debt > 0 && (
+                          <button
+                            type="button"
+                            className="k-btn k-btn-s"
+                            style={{ fontSize: 12 }}
+                            onClick={() => setHistAdd(prev => ({ ...prev, amount: String(detailClient.debt) }))}
+                          >
+                            Весь долг
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="k-btn k-btn-g"
+                          style={{ fontSize: 12 }}
+                          disabled={histAdd.saving}
+                          onClick={() => void submitHistoryAdd()}
+                        >
+                          {histAdd.saving ? '…' : 'Записать в историю'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {histMsg && (
+                    <div style={{
+                      marginBottom: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                      background: /Удалено|обновлена|В историю/i.test(histMsg)
+                        ? 'rgba(20,178,79,.12)'
+                        : 'var(--alert-error-bg)',
+                      color: /Удалено|обновлена|В историю/i.test(histMsg) ? 'var(--green)' : 'var(--red)',
+                      border: '1px solid var(--alert-error-border)',
+                    }}>
+                      {histMsg}
+                    </div>
+                  )}
+
                   {(() => {
                     const covered = new Set(
                       detailData.history.flatMap(h => [String(h.orderId || ''), String(h.id || '')].filter(Boolean)),

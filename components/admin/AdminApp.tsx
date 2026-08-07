@@ -5403,12 +5403,13 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const [filter, setFilter] = useState<'with_debt' | 'over_limit' | 'all'>('with_debt');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<AdminCard | null>(null);
-  const [debtAction, setDebtAction] = useState<'add' | 'subtract' | 'fix'>('subtract');
-  const [debtAmount, setDebtAmount] = useState('');
   const [saveErr, setSaveErr] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
   const [histTick, setHistTick] = useState(0);
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null);
+  const [histAdd, setHistAdd] = useState<{ open: boolean; action: 'add' | 'subtract'; amount: string; desc: string }>({
+    open: false, action: 'add', amount: '', desc: '',
+  });
 
   const stats = useMemo(() => ({
     totalDebt: debtCards.reduce((s, c) => s + c.debt, 0),
@@ -5442,10 +5443,9 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
 
   const openDetail = (card: AdminCard) => {
     setDetail(card);
-    setDebtAction('subtract');
-    setDebtAmount('');
     setSaveErr('');
     setHistEdit(null);
+    setHistAdd({ open: false, action: 'add', amount: '', desc: '' });
   };
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), []);
@@ -5454,47 +5454,6 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     if (!detail?.phone) return [];
     return loadDebtHistory(detail.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 50);
   }, [detail?.phone, histTick]);
-
-  const saveDebt = async () => {
-    if (!detail) return;
-    setSaveBusy(true);
-    setSaveErr('');
-    try {
-      const client = findClientForCard(clients, detail);
-      if (debtAction === 'fix') {
-        const nextDebt = Math.max(0, Math.round((parseFloat(debtAmount) || 0) * 100) / 100);
-        if (!window.confirm(
-          `Выровнять долг «${detail.client || detail.num}»?\n\nСейчас: ${detail.debt.toLocaleString()} ЅМ\nСтанет: ${nextDebt.toLocaleString()} ЅМ\n\nИстория не удаляется. Без кассы.`,
-        )) {
-          setSaveBusy(false);
-          return;
-        }
-        const form = {
-          ...cardLoyaltyFromCard(detail, client),
-          debt: nextDebt,
-          ...(nextDebt > 0.001 ? { debtEnabled: true } : {}),
-        };
-        await saveCardLoyalty(detail, form, 'edit', { skipDebtHistory: true });
-        setDetail(null);
-        return;
-      }
-      const amount = Math.max(0, parseFloat(debtAmount) || 0);
-      if (amount <= 0) throw new Error('Укажите сумму');
-      const nextDebt = debtAction === 'add'
-        ? detail.debt + amount
-        : Math.max(0, detail.debt - amount);
-      const form = {
-        ...cardLoyaltyFromCard(detail, client),
-        debt: nextDebt,
-      };
-      await saveCardLoyalty(detail, form, 'edit');
-      setDetail(null);
-    } catch (e) {
-      setSaveErr(e instanceof Error ? e.message : 'Не удалось сохранить');
-    } finally {
-      setSaveBusy(false);
-    }
-  };
 
   const applyDebtDelta = async (delta: number) => {
     if (!detail || Math.abs(delta) < 0.005) return;
@@ -5509,6 +5468,42 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     await saveCardLoyalty(detail, form, 'edit', { skipDebtHistory: true });
     const fresh = useCardStore.getState().cards.find(c => c.num === detail.num) || { ...detail, debt: nextDebt };
     setDetail(fresh);
+  };
+
+  const submitHistoryAdd = async () => {
+    if (!detail) return;
+    const amount = Math.max(0, parseFloat(histAdd.amount) || 0);
+    if (!(amount > 0)) {
+      setSaveErr('Укажите сумму');
+      return;
+    }
+    setSaveBusy(true);
+    setSaveErr('');
+    try {
+      const client = findClientForCard(clients, detail);
+      const nextDebt = histAdd.action === 'add'
+        ? detail.debt + amount
+        : Math.max(0, detail.debt - amount);
+      const form = {
+        ...cardLoyaltyFromCard(detail, client),
+        debt: nextDebt,
+        ...(nextDebt > 0.001 ? { debtEnabled: true } : {}),
+      };
+      await saveCardLoyalty(detail, form, 'edit');
+      const desc = histAdd.desc.trim();
+      if (desc && detail.phone) {
+        const latest = loadDebtHistory(detail.phone).find(isManualDebtHistoryEntry);
+        if (latest) updateDebtHistoryEntry(detail.phone, latest.id, { desc });
+      }
+      const fresh = useCardStore.getState().cards.find(c => c.num === detail.num);
+      if (fresh) setDetail(fresh);
+      setHistAdd({ open: false, action: 'add', amount: '', desc: '' });
+      setHistTick(t => t + 1);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Не удалось сохранить');
+    } finally {
+      setSaveBusy(false);
+    }
   };
 
   const deleteManualHistory = async (row: DebtHistoryEntry) => {
@@ -5718,48 +5713,6 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
               ))}
             </div>
 
-              <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.22)', marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#FF8C00', marginBottom: 8 }}>Изменить долг</div>
-              <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 10, lineHeight: 1.45 }}>
-                Списать — после оплаты. Добавить — ручное начисление. Выровнять — баланс по факту, история сохраняется.
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
-                {[
-                  { id: 'subtract' as const, l: 'Списать', s: 'После оплаты' },
-                  { id: 'add' as const, l: 'Добавить', s: 'Вручную' },
-                  { id: 'fix' as const, l: 'Выровнять', s: 'Без кассы' },
-                ].map(action => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    onClick={() => {
-                      setDebtAction(action.id);
-                      if (action.id === 'fix') setDebtAmount(String(detail?.debt ?? 0));
-                    }}
-                    className="ab"
-                    style={{
-                      padding: '10px 10px',
-                      textAlign: 'left',
-                      background: debtAction === action.id ? 'rgba(255,140,0,.14)' : 'var(--l3)',
-                      border: `1px solid ${debtAction === action.id ? 'rgba(255,140,0,.35)' : 'var(--b1)'}`,
-                      color: debtAction === action.id ? '#FF8C00' : 'var(--t2)',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 800 }}>{action.l}</div>
-                    <div style={{ fontSize: 10, marginTop: 2, opacity: .85 }}>{action.s}</div>
-                  </button>
-                ))}
-              </div>
-              <NI lbl={debtAction === 'fix' ? 'Баланс долга ЅМ' : 'Сумма ЅМ'} val={debtAmount} set={setDebtAmount} ph="0" type="number" />
-              <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 8, lineHeight: 1.45 }}>
-                {debtAction === 'subtract'
-                  ? 'Долг уменьшится после оплаты.'
-                  : debtAction === 'add'
-                    ? 'Долг увеличится (ручная запись).'
-                    : 'Поставьте реальную сумму. Чеки и история не удаляются.'}
-              </div>
-            </div>
-
             {creditOrders.length > 0 && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 800, marginBottom: 8, textTransform: 'uppercase' }}>Заказы в долг</div>
@@ -5780,14 +5733,72 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
             )}
 
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 800, marginBottom: 8, textTransform: 'uppercase' }}>Движения долга</div>
-              <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 8, lineHeight: 1.4 }}>
-                Ручные записи — изменить/удалить. Чеки и заказы — только просмотр.
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 800, textTransform: 'uppercase' }}>История долга</div>
+                <button
+                  type="button"
+                  className="ab"
+                  onClick={() => setHistAdd(prev => ({
+                    open: !prev.open,
+                    action: 'add',
+                    amount: '',
+                    desc: '',
+                  }))}
+                  style={{ fontSize: 11, padding: '6px 10px', fontWeight: 800, background: 'rgba(255,140,0,.12)', border: '1px solid rgba(255,140,0,.3)', color: '#FF8C00' }}
+                >
+                  {histAdd.open ? 'Скрыть' : '+ Добавить в историю'}
+                </button>
               </div>
+              <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 8, lineHeight: 1.4 }}>
+                Ручные записи — добавить, изменить или удалить. Чеки и заказы — только просмотр.
+              </div>
+              {histAdd.open && (
+                <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.22)', marginBottom: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                    {[
+                      { id: 'add' as const, l: 'Начислить' },
+                      { id: 'subtract' as const, l: 'Погасить' },
+                    ].map(action => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        className="ab"
+                        onClick={() => setHistAdd(prev => ({ ...prev, action: action.id }))}
+                        style={{
+                          padding: 8, fontWeight: 800, fontSize: 12,
+                          background: histAdd.action === action.id ? 'rgba(255,140,0,.14)' : 'var(--l3)',
+                          border: `1px solid ${histAdd.action === action.id ? 'rgba(255,140,0,.35)' : 'var(--b1)'}`,
+                          color: histAdd.action === action.id ? '#FF8C00' : 'var(--t2)',
+                        }}
+                      >
+                        {action.l}
+                      </button>
+                    ))}
+                  </div>
+                  <NI lbl="Сумма ЅМ" val={histAdd.amount} set={v => setHistAdd(prev => ({ ...prev, amount: v }))} ph="0" type="number" />
+                  <div style={{ marginTop: 8 }}>
+                    <NI
+                      lbl="Описание"
+                      val={histAdd.desc}
+                      set={v => setHistAdd(prev => ({ ...prev, desc: v }))}
+                      ph={histAdd.action === 'add' ? 'Ручное начисление' : 'Погашение долга'}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="ab abp"
+                    disabled={saveBusy}
+                    onClick={() => void submitHistoryAdd()}
+                    style={{ marginTop: 10, width: '100%', padding: 10, fontWeight: 800 }}
+                  >
+                    {saveBusy ? '…' : 'Записать в историю'}
+                  </button>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
                 {debtHistory.length === 0 ? (
                   <div style={{ padding: '12px 14px', background: 'var(--l3)', border: '1px solid var(--b1)', borderRadius: 10, fontSize: 12, color: 'var(--t2)' }}>
-                    Пока пусто — после начисления или чека в долг записи появятся здесь
+                    Пока пусто — добавьте ручную запись или дождитесь чека в долг
                   </div>
                 ) : debtHistory.map((row: DebtHistoryEntry) => {
                   const isPay = row.type === 'pay';
@@ -5913,8 +5924,8 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
               <button type="button" onClick={() => setPage('cards')} className="ab" style={{ flex: 1, padding: 12, background: 'var(--l3)', border: '1px solid var(--b1)', color: 'var(--t2)', fontWeight: 700 }}>
                 💳 Карта
               </button>
-              <button type="button" onClick={saveDebt} disabled={saveBusy} className="ab abp" style={{ flex: 2, padding: 12, fontWeight: 800, opacity: saveBusy ? .7 : 1 }}>
-                {saveBusy ? '⏳ Сохраняем…' : debtAction === 'add' ? '✓ Добавить долг' : debtAction === 'fix' ? '✓ Выровнять баланс' : '✓ Списать долг'}
+              <button type="button" onClick={() => setDetail(null)} className="ab abp" style={{ flex: 2, padding: 12, fontWeight: 800 }}>
+                Готово
               </button>
             </div>
           </div>
