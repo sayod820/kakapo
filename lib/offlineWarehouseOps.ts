@@ -2,23 +2,19 @@
 // KAKAPO — склад торговой точки: приход / списание
 // Локально сразу + очередь, как чеки на кассе
 // ════════════════════════════════════════════════
-import { api, isNetworkError, NetworkError } from './api'
+import { api } from './api'
 import { isLocalId, newClientRef, newLocalId } from './offline'
+import { localFirstOp, type OfflineResult } from './localFirst'
 import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff } from './types'
 
-const WAREHOUSE_FAST_MS = 1600
-
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
 }
 
-export interface OfflineResult<T> {
-  offline: boolean
-  data: T
-}
+export type { OfflineResult }
 
 export type ReceiptItemInput = {
   productId: number
@@ -43,27 +39,12 @@ export type WriteoffPayload = {
   items: { productId: number; qty: number }[]
 }
 
+/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
 async function raceWarehouseOp<T>(
-  apiCall: () => Promise<T>,
+  _apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  try {
-    const data = await Promise.race([
-      apiCall(),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new NetworkError('Медленная связь — сохранено локально')),
-          WAREHOUSE_FAST_MS,
-        )
-      }),
-    ])
-    return { offline: false, data }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await localApply()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(localApply)
 }
 
 async function bumpProductStock(

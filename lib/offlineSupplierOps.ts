@@ -3,23 +3,19 @@
 // CRUD + оплаты долга (без кассового движения).
 // Оплата с кассы (finance_move + supplierId) — по-прежнему только онлайн.
 // ════════════════════════════════════════════════
-import { api, isNetworkError, NetworkError } from './api'
+import { api } from './api'
 import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
+import { localFirstOp, type OfflineResult } from './localFirst'
 import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { PosSupplier, SupplierPayment } from './types'
 
-const FAST_MS = 1600
-
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
 }
 
-export interface OfflineResult<T> {
-  offline: boolean
-  data: T
-}
+export type { OfflineResult }
 
 export type SupplierPayload = {
   name: string
@@ -29,25 +25,13 @@ export type SupplierPayload = {
   note?: string
 }
 
+/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
 async function raceOp<T>(
-  apiCall: () => Promise<T>,
+  _apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
-  slowMsg = 'Медленная связь — сохранено локально',
+  _slowMsg?: string,
 ): Promise<OfflineResult<T>> {
-  try {
-    const data = await Promise.race([
-      apiCall(),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new NetworkError(slowMsg)), FAST_MS)
-      }),
-    ])
-    return { offline: false, data }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await localApply()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(localApply)
 }
 
 function patchSuppliers(next: PosSupplier[]) {

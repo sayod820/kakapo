@@ -1,11 +1,11 @@
 // ════════════════════════════════════════════════
 // KAKAPO — операции кассы без интернета
-// Быстрое подтверждение: ждём сервер коротко; если медленно —
-// сразу локально + очередь (как офлайн), синхронизация в фоне
+// Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
-import { api, isNetworkError, NetworkError } from './api'
+import { api, isNetworkError } from './api'
 import { isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot } from './offline'
 import { cardNumsMatch } from './cardCrm'
+import { localFirstOp, type OfflineResult } from './localFirst'
 import { isOfflineV2Full, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
@@ -40,8 +40,8 @@ export type CreateSaleSafeInput = {
   bonusEarn?: number
 }
 
-/** Сколько ждём живой ответ сервера, прежде чем подтвердить локально */
-const CASHIER_FAST_MS = 1600
+/** @deprecated — оставлен для совместимости типов */
+export type { OfflineResult }
 
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
@@ -57,37 +57,15 @@ function shiftById(shiftId: string): PosShift | undefined {
   return usePosStore.getState().shifts.find(s => s.id === shiftId)
 }
 
-export interface OfflineResult<T> {
-  /** true — операция ушла в очередь / подтверждена локально, сервер догонит */
-  offline: boolean
-  data: T
-}
-
 /**
- * Ждём API до CASHIER_FAST_MS. Если сеть медленная или упала —
- * сразу localApply + sync в фоне (касса не «висит»).
+ * Local-first: сразу localApply (очередь + стор), сервер в фоне.
+ * apiCall игнорируется — оставлен в сигнатуре для совместимости вызовов.
  */
 async function raceCashierOp<T>(
-  apiCall: () => Promise<T>,
+  _apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  try {
-    const data = await Promise.race([
-      apiCall(),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new NetworkError('Медленная связь — сохранено локально')),
-          CASHIER_FAST_MS,
-        )
-      }),
-    ])
-    return { offline: false, data }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await localApply()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(localApply)
 }
 
 // ── Смена ──
@@ -480,8 +458,8 @@ function applyLocalReturn(
 // ── Продажа (касса) ──
 
 /**
- * Пробитие чека: нал/долг — сразу локально + очередь;
- * карта/кошелёк/бонусы (онлайн) — короткий race, иначе локально.
+ * Пробитие чека: local-first (сразу локально + очередь).
+ * Банковская карта без V2 — нужен живой сервер/терминал.
  * Offline V2=on: локально правит бонусы и кошелёк в сторе.
  */
 export async function createSaleSafe(
@@ -589,6 +567,7 @@ export async function createSaleSafe(
       } : sh),
     }))
     shadowMirrorSale(offlineSale)
+    void persistPosSnapshot()
     return offlineSale
   }
 
@@ -621,30 +600,19 @@ export async function createSaleSafe(
     shadowMirrorSale(created)
   }
 
+  // Карта терминала без V2: нужен живой ответ (деньги с банка)
   const apiReachable = !input.forceOffline && isOnline()
-  if (!apiReachable || !input.needsLiveServer) {
-    const data = await applyLocal()
-    return { offline: true, data }
+  if (input.needsLiveServer && !isOfflineV2Full() && apiReachable) {
+    try {
+      const created = await api.createPosSale(salePayload as any)
+      patchShiftOnline(created)
+      return { offline: false, data: created as PosSale & { orderId?: string } }
+    } catch (e) {
+      if (!isNetworkError(e)) throw e
+    }
   }
 
-  try {
-    const created = await Promise.race([
-      api.createPosSale(salePayload as any),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new NetworkError('Медленная связь — чек сохранён локально')),
-          CASHIER_FAST_MS,
-        )
-      }),
-    ])
-    patchShiftOnline(created)
-    return { offline: false, data: created as PosSale & { orderId?: string } }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await applyLocal()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(applyLocal)
 }
 
 // ── Расход (FinanceModule, Offline V2) ──

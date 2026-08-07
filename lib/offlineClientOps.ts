@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════
 // KAKAPO — клиенты офлайн (Offline V2)
 // ════════════════════════════════════════════════
-import { api, isNetworkError, NetworkError } from './api'
+import { api } from './api'
 import { USE_API } from './config'
 import {
   normalizeClient,
@@ -16,37 +16,18 @@ import {
 } from './clientCardSync'
 import { useClientStore } from './clientStore'
 import { cacheData, isLocalId, newClientRef, newLocalId } from './offline'
+import { localFirstOp, type OfflineResult } from './localFirst'
 import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 
-const FAST_MS = 1600
+export type { OfflineResult }
 
-export interface OfflineResult<T> {
-  offline: boolean
-  data: T
-}
-
+/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
 async function raceOp<T>(
-  apiCall: () => Promise<T>,
+  _apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  try {
-    const data = await Promise.race([
-      apiCall(),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new NetworkError('Медленная связь — клиент сохранён локально')),
-          FAST_MS,
-        )
-      }),
-    ])
-    return { offline: false, data }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await localApply()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(localApply)
 }
 
 function persistClients() {

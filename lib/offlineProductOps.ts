@@ -3,19 +3,15 @@
 // Режим on: локально сразу + очередь.
 // Режим shadow/off: обычный онлайн-путь (shadow только зеркало).
 // ════════════════════════════════════════════════
-import { api, isNetworkError, NetworkError } from './api'
+import { api } from './api'
 import { cacheProducts, newClientRef } from './offline'
+import { localFirstOp, type OfflineResult } from './localFirst'
 import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { useProducts } from './store'
 import type { Product } from './types'
 
-const PRODUCT_FAST_MS = 1600
-
-export interface OfflineResult<T> {
-  offline: boolean
-  data: T
-}
+export type { OfflineResult }
 
 function newLocalProductId(products: Product[]): number {
   let id = -Math.abs(Date.now() % 1_000_000_000_000)
@@ -29,27 +25,12 @@ function isLocalProductId(id: number | undefined | null): boolean {
   return Number.isFinite(n) && n <= 0
 }
 
+/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
 async function raceProductOp<T>(
-  apiCall: () => Promise<T>,
+  _apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  try {
-    const data = await Promise.race([
-      apiCall(),
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new NetworkError('Медленная связь — товар сохранён локально')),
-          PRODUCT_FAST_MS,
-        )
-      }),
-    ])
-    return { offline: false, data }
-  } catch (e) {
-    if (!isNetworkError(e)) throw e
-    const data = await localApply()
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data }
-  }
+  return localFirstOp(localApply)
 }
 
 function persistLocalCatalog(next: Product[]) {
