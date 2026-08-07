@@ -621,7 +621,7 @@ export default function DebtsModule({
   const cardDebt = detailClient ? Math.max(0, Number(detailClient.debt) || 0) : 0
 
   return (
-    <div>
+    <div className="k-debts-page">
       <div className="k-page-h">
         <div>
           <h1>💳 Долги клиентов</h1>
@@ -629,15 +629,6 @@ export default function DebtsModule({
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          <button
-            type="button"
-            className="k-btn k-btn-g"
-            style={{ fontSize: 13 }}
-            disabled={!detailClient}
-            onClick={() => openAdd('add')}
-          >
-            Выдать наличные
-          </button>
         </div>
       </div>
 

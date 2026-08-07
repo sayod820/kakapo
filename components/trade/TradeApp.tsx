@@ -140,6 +140,9 @@ const CSS = `
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
   .k-body-pos .pos-root{flex:1;min-height:0;height:100%;}
+  .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:18px 20px}
+  .k-body-debts > .k-debts-page{flex:1;min-height:0;display:flex;flex-direction:column}
+  .k-debts-page .k-page-h{flex-shrink:0;margin-bottom:12px}
   .k-trade.pos-fs{display:block;min-height:100vh;}
   .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -235,9 +238,9 @@ const CSS = `
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
-  .k-debts-layout{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:stretch;min-height:calc(100vh - 160px)}
-  .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:16px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
-  .k-debts-list-b,.k-debts-detail-b{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px}
+  .k-debts-layout{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
+  .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:16px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
+  .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:10px;overscroll-behavior:contain}
   .k-debts-row{display:flex;gap:10px;align-items:center;padding:12px;border-radius:12px;border:1px solid transparent;cursor:pointer;margin-bottom:6px;background:var(--card2)}
   .k-debts-row:hover{border-color:var(--border)}
   .k-debts-row.active{border-color:var(--green);background:var(--green-d)}
@@ -285,6 +288,11 @@ const CSS = `
     .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
     .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
     .k-trade:has(.k-body-pos) .k-main{height:100%!important;min-height:0!important;overflow:hidden;padding-bottom:0}
+    .k-trade:has(.k-body-debts){height:100vh;height:100dvh;overflow:hidden}
+    .k-trade:has(.k-body-debts) .k-main{
+      height:100%!important;min-height:0!important;overflow:hidden;
+      padding-bottom:calc(68px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
+    }
     .k-side{
       position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
       transform:translateX(-105%);transition:transform .25s ease;box-shadow:none
@@ -310,6 +318,12 @@ const CSS = `
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:calc(100dvh - 56px);max-height:calc(100dvh - 56px)
     }
+    .k-body-debts{
+      overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
+      height:calc(100dvh - 56px - 68px - env(safe-area-inset-bottom,0px));
+      max-height:calc(100dvh - 56px - 68px - env(safe-area-inset-bottom,0px));
+      padding:12px;display:flex;flex-direction:column
+    }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
     .k-kpis{grid-template-columns:repeat(2,1fr);gap:8px}
@@ -320,10 +334,10 @@ const CSS = `
     .k-subtabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
     .k-subtabs::-webkit-scrollbar{display:none}
     .k-subtab{flex-shrink:0;padding:8px 12px;font-size:12px}
-    .k-debts-layout{grid-template-columns:1fr;min-height:0;gap:10px}
+    .k-debts-layout{grid-template-columns:1fr;min-height:0;flex:1;gap:10px}
     .k-debts-layout.detail-open .k-debts-list{display:none}
     .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
-    .k-debts-list,.k-debts-detail{min-height:60vh}
+    .k-debts-list,.k-debts-detail{min-height:0;height:100%;max-height:100%}
     .k-btn{min-height:44px;padding:10px 14px}
     .k-inp,.k-sel,.k-ta{font-size:16px;min-height:44px}
     .k-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
@@ -781,6 +795,7 @@ function TradeAppInner({
     || defaultPage
 
   const salesActive = current === 'sales'
+  const debtsActive = current === 'debts'
   const [salesKeepAlive, setSalesKeepAlive] = useState(salesActive)
   useEffect(() => {
     if (salesActive) setSalesKeepAlive(true)
@@ -897,7 +912,7 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"
