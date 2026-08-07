@@ -2571,16 +2571,54 @@ export default function CashierModule({
       showToast('Сумма', 'Укажите сумму')
       return
     }
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Откройте смену — выдача наличных списывается с кассы')
+      return
+    }
+    if (amount > tillExpected + 0.009) {
+      showToast('Недостаточно в кассе', `В кассе только ${fmtMoney(tillExpected)}`)
+      return
+    }
     setCashIssueBusy(true)
     try {
-      await adjustClientDebtSafe(client, { action: 'charge', amount })
-      if (client.phone) {
-        // history may already be recorded by adjust; ensure charge desc if needed
+      // Сначала минус из кассы, потом долг на карте — чтобы при ошибке откатить внесение
+      const moved = await financeMoveSafe({
+        type: 'withdraw',
+        amount,
+        note: `Выдача наличных в долг · ${client.name}`,
+        reason: 'Выдача наличных в долг',
+        createdBy: settings.cashierName,
+        cashierId: settings.cashierId || activeShift.cashierId,
+        cashierName: settings.cashierName || activeShift.cashierName,
+        shiftId: activeShift.id,
+        posId: activeShift.posId || activePosPoint?.id,
+      })
+      try {
+        await adjustClientDebtSafe(client, { action: 'charge', amount })
+      } catch (debtErr) {
+        try {
+          await financeMoveSafe({
+            type: 'deposit',
+            amount,
+            note: `Откат выдачи в долг · ${client.name}`,
+            reason: 'Откат выдачи наличных в долг',
+            createdBy: settings.cashierName,
+            cashierId: settings.cashierId || activeShift.cashierId,
+            cashierName: settings.cashierName || activeShift.cashierName,
+            shiftId: activeShift.id,
+            posId: activeShift.posId || activePosPoint?.id,
+          })
+        } catch {
+          /* ignore */
+        }
+        throw debtErr
       }
+      if (!moved.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
       setCashIssueBuf('')
       setHistTick(t => t + 1)
       void refresh()
-      showToast('Выдано наличными', `${client.name}: +${fmtMoney(amount)}`)
+      showToast('Выдано наличными', `${client.name}: −${fmtMoney(amount)} из кассы`)
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать')
     } finally {
@@ -9175,7 +9213,8 @@ export default function CashierModule({
               {histTab === 'cash' && (
                 <>
                   <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
-                    Наличные = долг на карте минус чеки.
+                    Наличные = долг на карте минус чеки. Выдача списывается из кассы смены
+                    {activeShift ? ` · сейчас в кассе ${fmtMoney(tillExpected)}` : ' · смена закрыта'}.
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                     <input
