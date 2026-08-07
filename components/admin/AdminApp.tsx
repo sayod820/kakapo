@@ -5395,7 +5395,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
   const [filter, setFilter] = useState<'with_debt' | 'over_limit' | 'all'>('with_debt');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<AdminCard | null>(null);
-  const [debtAction, setDebtAction] = useState<'add' | 'subtract'>('subtract');
+  const [debtAction, setDebtAction] = useState<'add' | 'subtract' | 'fix'>('subtract');
   const [debtAmount, setDebtAmount] = useState('');
   const [saveErr, setSaveErr] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
@@ -5451,6 +5451,25 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     setSaveErr('');
     try {
       const client = findClientForCard(clients, detail);
+      if (debtAction === 'fix') {
+        const nextDebt = Math.max(0, Math.round((parseFloat(debtAmount) || 0) * 100) / 100);
+        if (!window.confirm(
+          nextDebt < 0.001
+            ? `Обнулить долг «${detail.client || detail.num}» без кассы?\nСейчас: ${detail.debt.toLocaleString()} ЅМ`
+            : `Установить долг = ${nextDebt.toLocaleString()} ЅМ без кассы?\nСейчас: ${detail.debt.toLocaleString()} ЅМ`,
+        )) {
+          setSaveBusy(false);
+          return;
+        }
+        const form = {
+          ...cardLoyaltyFromCard(detail, client),
+          debt: nextDebt,
+          ...(nextDebt > 0.001 ? { debtEnabled: true } : {}),
+        };
+        await saveCardLoyalty(detail, form, 'edit', { skipDebtHistory: true });
+        setDetail(null);
+        return;
+      }
       const amount = Math.max(0, parseFloat(debtAmount) || 0);
       if (amount <= 0) throw new Error('Укажите сумму');
       const nextDebt = debtAction === 'add'
@@ -5464,6 +5483,30 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
       setDetail(null);
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : 'Не удалось сохранить');
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  const clearDebtMistake = async () => {
+    if (!detail || !(detail.debt > 0.001)) return;
+    if (!window.confirm(
+      `Обнулить ошибочный долг без погашения через кассу?\n\n${detail.client || detail.num}\nСейчас: ${detail.debt.toLocaleString()} ЅМ`,
+    )) return;
+    setDebtAction('fix');
+    setDebtAmount('0');
+    setSaveBusy(true);
+    setSaveErr('');
+    try {
+      const client = findClientForCard(clients, detail);
+      const form = {
+        ...cardLoyaltyFromCard(detail, client),
+        debt: 0,
+      };
+      await saveCardLoyalty(detail, form, 'edit', { skipDebtHistory: true });
+      setDetail(null);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Не удалось обнулить');
     } finally {
       setSaveBusy(false);
     }
@@ -5626,15 +5669,19 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
 
             <div style={{ padding: '14px', borderRadius: 12, background: 'rgba(255,140,0,.08)', border: '1px solid rgba(255,140,0,.22)', marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#FF8C00', marginBottom: 8 }}>Изменить долг</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
                 {[
-                  { id: 'subtract' as const, l: 'Списать долг', s: 'После оплаты' },
-                  { id: 'add' as const, l: 'Добавить долг', s: 'Ручное начисление' },
+                  { id: 'subtract' as const, l: 'Списать', s: 'После оплаты' },
+                  { id: 'add' as const, l: 'Добавить', s: 'Начисление' },
+                  { id: 'fix' as const, l: 'Исправить', s: 'Без кассы' },
                 ].map(action => (
                   <button
                     key={action.id}
                     type="button"
-                    onClick={() => setDebtAction(action.id)}
+                    onClick={() => {
+                      setDebtAction(action.id);
+                      if (action.id === 'fix') setDebtAmount(String(detail?.debt ?? 0));
+                    }}
                     className="ab"
                     style={{
                       padding: '10px 10px',
@@ -5649,12 +5696,28 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                   </button>
                 ))}
               </div>
-              <NI lbl="Сумма ЅМ" val={debtAmount} set={setDebtAmount} ph="0" type="number" />
+              <NI lbl={debtAction === 'fix' ? 'Правильный долг ЅМ' : 'Сумма ЅМ'} val={debtAmount} set={setDebtAmount} ph="0" type="number" />
               <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 8, lineHeight: 1.45 }}>
                 {debtAction === 'subtract'
-                  ? 'После сохранения долг уменьшится, а клиент увидит запись о погашении через поддержку.'
-                  : 'После сохранения долг увеличится, а клиент увидит запись о новом начислении.'}
+                  ? 'После сохранения долг уменьшится (как погашение).'
+                  : debtAction === 'add'
+                    ? 'После сохранения долг увеличится.'
+                    : 'Исправление ошибки: можно поставить 0 или реальную сумму. Деньги в кассу не попадут.'}
               </div>
+              {debtAction === 'fix' && detail && detail.debt > 0.001 && (
+                <button
+                  type="button"
+                  className="ab"
+                  disabled={saveBusy}
+                  onClick={() => void clearDebtMistake()}
+                  style={{
+                    marginTop: 10, width: '100%', padding: 10, fontWeight: 800,
+                    background: 'rgba(255,69,69,.1)', border: '1px solid rgba(255,69,69,.35)', color: '#FF8080',
+                  }}
+                >
+                  Обнулить ошибочный долг
+                </button>
+              )}
             </div>
 
             {creditOrders.length > 0 && (
@@ -5712,7 +5775,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                 💳 Карта
               </button>
               <button type="button" onClick={saveDebt} disabled={saveBusy} className="ab abp" style={{ flex: 2, padding: 12, fontWeight: 800, opacity: saveBusy ? .7 : 1 }}>
-                {saveBusy ? '⏳ Сохраняем…' : debtAction === 'add' ? '✓ Добавить долг' : '✓ Списать долг'}
+                {saveBusy ? '⏳ Сохраняем…' : debtAction === 'add' ? '✓ Добавить долг' : debtAction === 'fix' ? '✓ Исправить долг' : '✓ Списать долг'}
               </button>
             </div>
           </div>

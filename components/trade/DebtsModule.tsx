@@ -44,7 +44,7 @@ type SortMode = 'debt' | 'name' | 'recent' | 'unpaid'
 type DetailTab = 'history' | 'unpaid' | 'orders' | 'pos'
 
 type DebtFormState = {
-  action: 'repay' | 'add'
+  action: 'repay' | 'add' | 'fix'
   amount: string
   saving: boolean
   msg: string
@@ -290,6 +290,41 @@ export default function DebtsModule() {
   async function submitInlineDebt() {
     if (!detailClient) return
     const amount = Number(inlineDebt.amount) || 0
+
+    if (inlineDebt.action === 'fix') {
+      if (amount < 0 || Number.isNaN(amount)) {
+        setInlineDebt(prev => ({ ...prev, msg: 'Укажите правильную сумму долга (можно 0)' }))
+        return
+      }
+      if (!window.confirm(
+        amount < 0.001
+          ? `Обнулить долг «${detailClient.name}» без приёма денег в кассу?\nСейчас: ${fmtMoney(Number(detailClient.debt) || 0)}`
+          : `Установить долг «${detailClient.name}» = ${fmtMoney(amount)} без операций кассы?\nСейчас: ${fmtMoney(Number(detailClient.debt) || 0)}`,
+      )) return
+
+      setInlineDebt(prev => ({ ...prev, saving: true, msg: '' }))
+      try {
+        const res = await adjustClientDebtSafe(detailClient, {
+          action: 'repay',
+          amount: 0,
+          absoluteDebt: Math.round(amount * 100) / 100,
+          skipDebtHistory: true,
+        })
+        setInlineDebt(prev => ({
+          ...prev,
+          saving: false,
+          amount: '',
+          msg: res.offline
+            ? `Долг исправлен локально: ${fmtMoney(amount)} · уйдёт на сервер при связи`
+            : `Долг исправлен: ${fmtMoney(amount)}`,
+        }))
+        if (!res.offline) await refreshAll()
+      } catch (e) {
+        setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+      }
+      return
+    }
+
     if (!(amount > 0)) {
       setInlineDebt(prev => ({ ...prev, msg: 'Укажите сумму' }))
       return
@@ -302,6 +337,90 @@ export default function DebtsModule() {
         amount,
       })
       setInlineDebt(emptyInlineDebt())
+      if (!res.offline) await refreshAll()
+    } catch (e) {
+      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+    }
+  }
+
+  async function clearDebtMistake() {
+    if (!detailClient || !detailData) return
+    const current = Number(detailClient.debt) || 0
+    if (!(current > 0.001)) {
+      setInlineDebt(prev => ({ ...prev, msg: 'Долг уже 0' }))
+      return
+    }
+    const fromPos = Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+    const fromUnpaid = Math.round(
+      detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
+    ) / 100
+    const realHint = fromUnpaid > 0.01 ? fromUnpaid : fromPos
+    if (realHint > 0.01) {
+      setInlineDebt(prev => ({
+        ...prev,
+        action: 'fix',
+        amount: String(realHint),
+        msg: `Не обнуляйте: есть реальный долг ~${fmtMoney(realHint)}. Нажмите «По чекам» или «Сохранить».`,
+      }))
+      return
+    }
+    if (!window.confirm(
+      `Обнулить долг без кассы?\n\nКлиент: ${detailClient.name}\nСейчас: ${fmtMoney(current)}\n\nТолько если долг целиком ошибочный и реальных чеков нет.`,
+    )) return
+    setInlineDebt(prev => ({ ...prev, action: 'fix', amount: '0', saving: true, msg: '' }))
+    try {
+      const res = await adjustClientDebtSafe(detailClient, {
+        action: 'repay',
+        amount: 0,
+        absoluteDebt: 0,
+        skipDebtHistory: true,
+      })
+      setInlineDebt(prev => ({
+        ...prev,
+        saving: false,
+        amount: '',
+        msg: res.offline
+          ? 'Долг обнулён локально · уйдёт на сервер при связи'
+          : 'Долг обнулён (без кассы)',
+      }))
+      if (!res.offline) await refreshAll()
+    } catch (e) {
+      setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
+    }
+  }
+
+  /** Исправить баланс по сумме реальных чеков в долг (касса), без обнуления */
+  async function fixDebtFromPosChecks() {
+    if (!detailClient || !detailData) return
+    const fromPos = Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+    const fromUnpaid = Math.round(
+      detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
+    ) / 100
+    const target = fromUnpaid > 0.01 ? fromUnpaid : fromPos
+    if (!(target > 0.001)) {
+      setInlineDebt(prev => ({ ...prev, action: 'fix', msg: 'Нет чеков/неоплаченных — укажите сумму вручную' }))
+      return
+    }
+    const current = Number(detailClient.debt) || 0
+    if (!window.confirm(
+      `Поставить долг по реальным чекам?\n\nСейчас (ошибка?): ${fmtMoney(current)}\nПо чекам/истории: ${fmtMoney(target)}\n\nДеньги в кассу не попадут.`,
+    )) return
+    setInlineDebt(prev => ({ ...prev, action: 'fix', amount: String(target), saving: true, msg: '' }))
+    try {
+      const res = await adjustClientDebtSafe(detailClient, {
+        action: 'repay',
+        amount: 0,
+        absoluteDebt: target,
+        skipDebtHistory: true,
+      })
+      setInlineDebt(prev => ({
+        ...prev,
+        saving: false,
+        amount: '',
+        msg: res.offline
+          ? `Долг исправлен локально: ${fmtMoney(target)} · уйдёт при связи`
+          : `Долг исправлен по чекам: ${fmtMoney(target)}`,
+      }))
       if (!res.offline) await refreshAll()
     } catch (e) {
       setInlineDebt(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка операции' }))
@@ -573,13 +692,19 @@ export default function DebtsModule() {
                 background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
               }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gold)', marginBottom: 10 }}>Изменить долг</div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                   <button type="button" className={`k-subtab ${inlineDebt.action === 'repay' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'repay', msg: '' }))}>Погасить</button>
                   <button type="button" className={`k-subtab ${inlineDebt.action === 'add' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'add', msg: '' }))}>Начислить</button>
+                  <button type="button" className={`k-subtab ${inlineDebt.action === 'fix' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setInlineDebt(prev => ({ ...prev, action: 'fix', amount: String(Number(detailClient.debt) || 0), msg: '' }))}>Исправить</button>
                 </div>
+                {inlineDebt.action === 'fix' && (
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 8, lineHeight: 1.4 }}>
+                    Реальный долг не трогаем зря: поставьте сумму по чекам кассы или введите вручную. «Обнулить» — только если чеков нет.
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div style={{ flex: '1 1 140px' }}>
-                    <label style={{ fontSize: 11 }}>Сумма</label>
+                    <label style={{ fontSize: 11 }}>{inlineDebt.action === 'fix' ? 'Правильный долг' : 'Сумма'}</label>
                     <input className="k-inp" type="text" inputMode="decimal" value={inlineDebt.amount} onChange={e => setInlineDebt(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value), msg: '' }))} placeholder="0.00" />
                   </div>
                   {inlineDebt.action === 'repay' && detailClient.debt > 0 && (
@@ -587,10 +712,48 @@ export default function DebtsModule() {
                       Весь долг
                     </button>
                   )}
+                  {inlineDebt.action === 'fix' && (() => {
+                    const fromPos = Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+                    const fromUnpaid = Math.round(
+                      detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
+                    ) / 100
+                    const hint = fromUnpaid > 0.01 ? fromUnpaid : fromPos
+                    if (!(hint > 0.001)) return null
+                    return (
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ fontSize: 12, fontWeight: 800 }}
+                        disabled={inlineDebt.saving}
+                        onClick={() => void fixDebtFromPosChecks()}
+                      >
+                        По чекам {fmtMoney(hint)}
+                      </button>
+                    )
+                  })()}
+                  {inlineDebt.action === 'fix' && (Number(detailClient.debt) || 0) > 0.001 && (
+                    <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, color: 'var(--muted)' }} disabled={inlineDebt.saving} onClick={() => void clearDebtMistake()}>
+                      Обнулить…
+                    </button>
+                  )}
                   <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12 }} disabled={inlineDebt.saving} onClick={() => void submitInlineDebt()}>
-                    {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : 'Начислить'}
+                    {inlineDebt.saving ? '…' : inlineDebt.action === 'repay' ? 'Провести' : inlineDebt.action === 'add' ? 'Начислить' : 'Сохранить'}
                   </button>
                 </div>
+                {inlineDebt.msg && (
+                  <div style={{
+                    marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+                    background: /обновлён|обнулён|исправлен|Подтягиваем/i.test(inlineDebt.msg)
+                      ? 'rgba(20,178,79,.12)'
+                      : 'var(--alert-error-bg)',
+                    color: /обновлён|обнулён|исправлен|Подтягиваем/i.test(inlineDebt.msg)
+                      ? 'var(--green)'
+                      : 'var(--red)',
+                    border: '1px solid var(--alert-error-border)',
+                  }}>
+                    {inlineDebt.msg}
+                  </div>
+                )}
                 {(() => {
                   const unpaidSum = Math.round(
                     detailData.settlement.unpaid.reduce((s, u) => s + (Number(u.remainingAmount) || 0), 0) * 100,
@@ -609,20 +772,6 @@ export default function DebtsModule() {
                     </button>
                   )
                 })()}
-                {inlineDebt.msg && (
-                  <div style={{
-                    marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
-                    background: inlineDebt.msg.includes('обновлён') || inlineDebt.msg.includes('Подтягиваем')
-                      ? 'rgba(20,178,79,.12)'
-                      : 'var(--alert-error-bg)',
-                    color: inlineDebt.msg.includes('обновлён') || inlineDebt.msg.includes('Подтягиваем')
-                      ? 'var(--green)'
-                      : 'var(--red)',
-                    border: '1px solid var(--alert-error-border)',
-                  }}>
-                    {inlineDebt.msg}
-                  </div>
-                )}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
