@@ -235,6 +235,19 @@ const CSS = `
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
+  .k-debts-layout{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:stretch;min-height:calc(100vh - 160px)}
+  .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:16px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .k-debts-list-b,.k-debts-detail-b{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px}
+  .k-debts-row{display:flex;gap:10px;align-items:center;padding:12px;border-radius:12px;border:1px solid transparent;cursor:pointer;margin-bottom:6px;background:var(--card2)}
+  .k-debts-row:hover{border-color:var(--border)}
+  .k-debts-row.active{border-color:var(--green);background:var(--green-d)}
+  .k-debts-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;flex-shrink:0;background:rgba(31,215,96,.15);color:var(--green)}
+  .k-debts-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid var(--border);background:var(--panel)}
+  .k-debts-actions .k-btn{flex:1;min-width:120px;justify-content:center}
+  .k-debts-table{width:100%;border-collapse:collapse;font-size:13px}
+  .k-debts-table th{text-align:left;font-size:11px;color:var(--muted);font-weight:800;padding:8px 6px;border-bottom:1px solid var(--border)}
+  .k-debts-table td{padding:10px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+  .k-debts-foot{padding:10px 14px;border-top:1px solid var(--border);font-size:13px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
   .k-product-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
   .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:sticky;top:0}
   .k-product-list-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -307,6 +320,10 @@ const CSS = `
     .k-subtabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
     .k-subtabs::-webkit-scrollbar{display:none}
     .k-subtab{flex-shrink:0;padding:8px 12px;font-size:12px}
+    .k-debts-layout{grid-template-columns:1fr;min-height:0;gap:10px}
+    .k-debts-layout.detail-open .k-debts-list{display:none}
+    .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
+    .k-debts-list,.k-debts-detail{min-height:60vh}
     .k-btn{min-height:44px;padding:10px 14px}
     .k-inp,.k-sel,.k-ta{font-size:16px;min-height:44px}
     .k-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
@@ -751,7 +768,7 @@ function TradeAppInner({
     if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
-    if (current === 'debts') return <DebtsModule />
+    if (current === 'debts') return <DebtsModule onNavigate={p => goTo(p as TradePage)} />
     if (current === 'reports') return <ReportsModule />
     if (current === 'finance') return <FinanceModule />
     const soon = SOON_PAGES[current]
