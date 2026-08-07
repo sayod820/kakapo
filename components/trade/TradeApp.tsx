@@ -114,7 +114,7 @@ const CSS = `
   .k-clock .day{font-size:12px;color:var(--muted)}
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-  .k-top{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .k-top{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-search{flex:1;position:relative;max-width:640px}
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
@@ -140,11 +140,8 @@ const CSS = `
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
   .k-body-pos .pos-root{flex:1;min-height:0;height:100%;}
-  .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:10px 14px}
+  .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:8px 12px}
   .k-body-debts > .k-debts-page{flex:1;min-height:0;display:flex;flex-direction:column}
-  .k-debts-page .k-page-h{flex-shrink:0;margin-bottom:8px}
-  .k-debts-page .k-page-h h1{font-size:18px}
-  .k-debts-page .k-page-h .sub{font-size:12px;margin-top:2px}
   .k-trade.pos-fs{display:block;min-height:100vh;}
   .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -885,8 +882,17 @@ function TradeAppInner({
                 ) : null}
               </div>
             ) : (
-              <div style={{ flex: 1, fontWeight: 800, color: 'var(--muted)', minWidth: 0 }}>
-                {NAV.find(n => n.id === current)?.label}
+              <div style={{ flex: 1, fontWeight: 800, color: 'var(--text)', minWidth: 0 }}>
+                {current === 'debts' ? (
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 900, lineHeight: 1.2 }}>💳 Долги клиентов</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
+                      Товары (чеки) и наличные (ручные)
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>{NAV.find(n => n.id === current)?.label}</span>
+                )}
               </div>
             )}
             <div className="k-theme-toggle" role="group" aria-label="Тема">

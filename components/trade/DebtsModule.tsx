@@ -239,7 +239,6 @@ export default function DebtsModule({
   const cards = useCardStore(s => s.cards)
   const sales = usePosStore(s => s.sales)
   const orders = useOrders(s => s.orders)
-  const apiSyncing = useClientStore(s => s.apiSyncing)
   const apiError = useClientStore(s => s.apiError)
 
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
@@ -622,19 +621,9 @@ export default function DebtsModule({
 
   return (
     <div className="k-debts-page">
-      <div className="k-page-h">
-        <div>
-          <h1>💳 Долги клиентов</h1>
-          <div className="sub">Учёт долгов по товарам (чеки) и наличным (ручные записи)</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-        </div>
-      </div>
-
       {apiError && (
         <div style={{
-          marginBottom: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13,
+          marginBottom: 8, padding: '8px 10px', borderRadius: 8, fontSize: 12, flexShrink: 0,
           background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)',
         }}>
           {apiError}
