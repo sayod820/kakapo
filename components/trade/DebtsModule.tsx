@@ -5,16 +5,10 @@ import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
   cardHasDebtSection,
-  cardLoyaltyFromCard,
   cardNumsMatch,
   type AdminCard,
-  type CardLoyaltyForm,
 } from '@/lib/cardCrm'
-import {
-  provisionLoyaltyCardForClient,
-} from '@/lib/clientCardSync'
-import { adjustClientDebtSafe, saveCardLoyaltySafe } from '@/lib/offlineLoyaltyOps'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -25,7 +19,6 @@ import {
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import {
-  buildDebtOrderBalances,
   debtBalanceDeltaForHistoryChange,
   debtHistoryTotals,
   isManualDebtHistoryEntry,
@@ -34,7 +27,6 @@ import {
   subscribeDebtHistory,
   updateDebtHistoryEntry,
   type DebtHistoryEntry,
-  type DebtOrderBalance,
 } from '@/lib/clientVipCredit'
 import { resolveEffectiveDebtLimit } from '@/lib/loyaltyStatusConfig'
 import { usePosStore } from '@/lib/posStore'
@@ -45,7 +37,7 @@ import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehou
 type EnrichedClient = AdminClient & { lastLabel?: string }
 type FilterMode = 'with_debt' | 'over_limit' | 'debt_section' | 'all'
 type SortMode = 'debt' | 'name' | 'recent' | 'unpaid'
-type DetailTab = 'history' | 'unpaid' | 'orders' | 'pos'
+type DetailTab = 'manual' | 'pos'
 
 type HistAddState = {
   open: boolean
@@ -78,7 +70,6 @@ type DebtClientRow = EnrichedClient & {
   available: number
   overLimit: boolean
   unpaidCount: number
-  partialCount: number
   borrowed: number
   repaid: number
 }
@@ -136,15 +127,14 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[]): DebtClien
   const debt = Number(client.debt) || 0
   const debtLimit = resolveEffectiveDebtLimit(client)
   const history = client.phone ? loadDebtHistory(client.phone) : []
-  const totals = debtHistoryTotals(history)
-  const { unpaid } = buildDebtOrderBalances(history)
+  const manual = history.filter(isManualDebtHistoryEntry)
+  const totals = debtHistoryTotals(manual)
   return {
     ...client,
     debtLimit,
     available: Math.max(0, debtLimit - debt),
     overLimit: debtLimit > 0 && debt > debtLimit,
-    unpaidCount: unpaid.length,
-    partialCount: unpaid.filter(u => u.partial).length,
+    unpaidCount: 0,
     borrowed: totals.borrowed,
     repaid: totals.repaid,
   }
@@ -159,9 +149,8 @@ function paymentMethodLabel(method: string, partial: boolean): string {
   return method || '—'
 }
 
-function DebtStatusBadge({ overLimit, debt, unpaidCount }: { overLimit: boolean; debt: number; unpaidCount: number }) {
+function DebtStatusBadge({ overLimit, debt }: { overLimit: boolean; debt: number }) {
   if (overLimit) return <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>⚠ Превышен лимит</span>
-  if (debt > 0 && unpaidCount > 0) return <span className="k-badge" style={{ background: 'var(--badge-debt-bg)', color: 'var(--gold)' }}>В долгу · {unpaidCount} зак.</span>
   if (debt > 0) return <span className="k-badge" style={{ background: 'var(--badge-debt-bg)', color: 'var(--gold)' }}>В долгу</span>
   return <span className="k-badge" style={{ background: 'var(--badge-debt-ok)', color: 'var(--green)' }}>Без долга</span>
 }
@@ -195,11 +184,10 @@ export default function DebtsModule() {
   const [sort, setSort] = useState<SortMode>('debt')
   const [filter, setFilter] = useState<FilterMode>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<DetailTab>('history')
+  const [detailTab, setDetailTab] = useState<DetailTab>('manual')
   const [histAdd, setHistAdd] = useState<HistAddState>(emptyHistAdd)
   const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
-  const [orderDetail, setOrderDetail] = useState<DebtOrderBalance | DebtHistoryEntry | null>(null)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
 
   const refreshAll = useCallback(async () => {
@@ -219,12 +207,8 @@ export default function DebtsModule() {
       totalDebt: withDebt.reduce((s, c) => s + (Number(c.debt) || 0), 0),
       withDebt: withDebt.length,
       overLimit: debtClients.filter(c => c.overLimit).length,
-      debtSection: debtClients.filter(c => cardHasDebtSection(cardForClient(c, cards) || {}, c)).length,
-      totalBorrowed: debtClients.reduce((s, c) => s + c.borrowed, 0),
-      totalRepaid: debtClients.reduce((s, c) => s + c.repaid, 0),
-      unpaidOrders: debtClients.reduce((s, c) => s + c.unpaidCount, 0),
     }
-  }, [debtClients, cards])
+  }, [debtClients])
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase()
@@ -241,7 +225,7 @@ export default function DebtsModule() {
     }
     const sorted = [...list]
     if (sort === 'debt') sorted.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
-    else if (sort === 'unpaid') sorted.sort((a, b) => b.unpaidCount - a.unpaidCount || (Number(b.debt) || 0) - (Number(a.debt) || 0))
+    else if (sort === 'unpaid') sorted.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
     else if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     else sorted.sort((a, b) => String(b.lastOrderAt || b.createdAt || '').localeCompare(String(a.lastOrderAt || a.createdAt || '')))
     return sorted
@@ -252,39 +236,21 @@ export default function DebtsModule() {
   const detailData = useMemo(() => {
     if (!detailClient) return null
     void histTick
-    const history = detailClient.phone ? loadDebtHistory(detailClient.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0)) : []
-    const settlement = buildDebtOrderBalances(history)
-    const creditOrders = creditOrdersFor(detailClient, orders).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    const history = detailClient.phone
+      ? loadDebtHistory(detailClient.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+      : []
+    const manual = history.filter(isManualDebtHistoryEntry)
     const posSales = posDebtSalesFor(detailClient, sales)
-    const totals = debtHistoryTotals(history)
-    return { history, settlement, creditOrders, posSales, totals }
+    const creditOrders = creditOrdersFor(detailClient, orders)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+    const manualTotals = debtHistoryTotals(manual)
+    const posSum = Math.round(posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+    return { history, manual, posSales, creditOrders, manualTotals, posSum }
   }, [detailClient, histTick, orders, sales])
-
-  async function saveLoyaltyForClient(
-    client: AdminClient,
-    patch: Partial<CardLoyaltyForm>,
-    opts?: { skipDebtHistory?: boolean },
-  ) {
-    let card = cardForClient(client, cards)
-    if (!card) {
-      if (isOfflineV2Full()) {
-        throw new Error('Нет карты лояльности — выдача карты нужна при связи')
-      }
-      const updated = await provisionLoyaltyCardForClient(client)
-      await refreshAll()
-      card = cardForClient(updated, useCardStore.getState().cards)
-    }
-    if (!card) throw new Error('Не удалось получить карту лояльности')
-    const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
-    const base = cardLoyaltyFromCard(card, freshClient)
-    const res = await saveCardLoyaltySafe(card, { ...base, ...patch }, 'edit', opts)
-    if (!res.offline) await refreshAll()
-  }
 
   function openDetail(id: string) {
     setDetailId(id)
-    setDetailTab('history')
-    setOrderDetail(null)
+    setDetailTab('manual')
     setHistAdd(emptyHistAdd())
     setHistMsg('')
     setHistEdit(null)
@@ -292,7 +258,6 @@ export default function DebtsModule() {
 
   function closeDetail() {
     setDetailId(null)
-    setOrderDetail(null)
     setHistAdd(emptyHistAdd())
     setHistMsg('')
     setHistEdit(null)
@@ -319,8 +284,8 @@ export default function DebtsModule() {
       }
       setHistAdd(emptyHistAdd())
       setHistMsg(histAdd.action === 'repay'
-        ? `В историю: погашение ${fmtMoney(amount)}`
-        : `В историю: начисление ${fmtMoney(amount)}`)
+        ? `Добавлено погашение ${fmtMoney(amount)}`
+        : `Добавлено начисление ${fmtMoney(amount)}`)
       if (!res.offline) await refreshAll()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
@@ -340,22 +305,16 @@ export default function DebtsModule() {
     })
   }
 
-  /** Сумма долга по чекам кассы — реальные документы, не поле на карте */
-  function docsDebtSum() {
-    if (!detailData) return 0
-    return Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
-  }
-
   async function fixCardDebtFromPosChecks() {
     if (!detailClient || !detailData) return
-    const fromPos = docsDebtSum()
+    const fromPos = detailData.posSum
     const current = Math.max(0, Number(detailClient.debt) || 0)
     if (Math.abs(fromPos - current) < 0.005) {
       setHistMsg('Долг на карте уже совпадает с чеками')
       return
     }
     if (!window.confirm(
-      `Исправить долг на карте?\n\nСейчас на карте: ${fmtMoney(current)}\nПо чекам кассы: ${fmtMoney(fromPos)}\n\nИстория и чеки не удаляются — меняется только число на карте.`,
+      `Исправить долг на карте?\n\nСейчас на карте: ${fmtMoney(current)}\nПо чекам кассы: ${fmtMoney(fromPos)}\n\nЧеки не удаляются — меняется только число на карте.`,
     )) return
     setHistMsg('')
     try {
@@ -366,7 +325,7 @@ export default function DebtsModule() {
         skipDebtHistory: true,
       })
       setHistMsg(res.offline
-        ? `Долг на карте: ${fmtMoney(fromPos)} (локально, уйдёт при связи)`
+        ? `Долг на карте: ${fmtMoney(fromPos)} (локально)`
         : `Долг на карте исправлен: ${fmtMoney(fromPos)}`)
       if (!res.offline) await refreshAll()
     } catch (e) {
@@ -379,11 +338,11 @@ export default function DebtsModule() {
     const abs = Math.abs(Number(row.amount) || 0)
     const label = row.type === 'pay' ? 'погашение' : 'начисление'
     if (!window.confirm(
-      `Удалить ручное ${label} ${fmtMoney(abs)}?\n\nЧеки кассы не затрагиваются. Баланс долга пересчитается.`,
+      `Удалить ручное ${label} ${fmtMoney(abs)}?\n\nЧеки кассы не затрагиваются. Долг на карте пересчитается.`,
     )) return
     const removed = removeDebtHistoryEntry(detailClient.phone, row.id)
     if (!removed) {
-      setHistMsg('Эту запись нельзя удалить (чек или заказ)')
+      setHistMsg('Эту запись нельзя удалить')
       return
     }
     setHistEdit(null)
@@ -425,13 +384,432 @@ export default function DebtsModule() {
     }
   }
 
+  // ── Полный экран клиента ──
+  if (detailClient && detailData) {
+    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    const mismatch = Math.abs(cardDebt - detailData.posSum) > 1
+    const msgOk = /Удалено|обновлена|Добавлено|исправлен|Долг на карте/i.test(histMsg)
+
+    return (
+      <div>
+        <div className="k-page-h" style={{ alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0, flex: 1 }}>
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              style={{ fontSize: 13, flexShrink: 0, marginTop: 2 }}
+              onClick={closeDetail}
+            >
+              ← Назад
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0 }}>{detailClient.name}</h1>
+                <DebtStatusBadge overLimit={detailClient.overLimit} debt={cardDebt} />
+              </div>
+              <div className="sub" style={{ marginTop: 4 }}>
+                {detailClient.phone && <span>☎ {detailClient.phone}</span>}
+                {detailClient.card && <span> · 💳 {detailClient.card}</span>}
+                {detailClient.debtLimit > 0 && (
+                  <span> · лимит {fmtMoney(detailClient.debtLimit)}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
+        </div>
+
+        <div className="k-kpis" style={{ marginBottom: 14 }}>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Долг на карте</div>
+            <div className="kv" style={{ color: cardDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
+              {cardDebt > 0 ? fmtMoney(cardDebt) : '—'}
+            </div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Ручные (начисл. − погаш.)</div>
+            <div className="kv" style={{ fontSize: 16 }}>
+              <span style={{ color: 'var(--red)' }}>{fmtMoney(detailData.manualTotals.borrowed)}</span>
+              <span style={{ color: 'var(--muted)' }}> / </span>
+              <span style={{ color: 'var(--green)' }}>{fmtMoney(detailData.manualTotals.repaid)}</span>
+            </div>
+          </div>
+          <div className="k-kpi k-statcard">
+            <div className="kl">Чеки кассы</div>
+            <div className="kv" style={{ color: detailData.posSum > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+              {detailData.posSum > 0 ? fmtMoney(detailData.posSum) : '—'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              {detailData.posSales.length} чек.
+            </div>
+          </div>
+        </div>
+
+        {mismatch && (
+          <div style={{
+            marginBottom: 14, padding: '12px 14px', borderRadius: 12, fontSize: 13, lineHeight: 1.45,
+            background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
+            display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span>
+              Долг на карте ({fmtMoney(cardDebt)}) не совпадает с чеками ({fmtMoney(detailData.posSum)}).
+            </span>
+            <button
+              type="button"
+              className="k-btn k-btn-g"
+              style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+              onClick={() => void fixCardDebtFromPosChecks()}
+            >
+              Поставить = сумма чеков
+            </button>
+          </div>
+        )}
+
+        {histMsg && (
+          <div style={{
+            marginBottom: 14, padding: '10px 14px', borderRadius: 10, fontSize: 13,
+            background: msgOk ? 'rgba(20,178,79,.12)' : 'var(--alert-error-bg)',
+            color: msgOk ? 'var(--green)' : 'var(--red)',
+            border: '1px solid var(--alert-error-border)',
+          }}>
+            {histMsg}
+          </div>
+        )}
+
+        <div className="k-subtabs" style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`k-subtab ${detailTab === 'manual' ? 'active' : ''}`}
+            onClick={() => { setDetailTab('manual'); setHistEdit(null) }}
+          >
+            Ручные ({detailData.manual.length})
+          </button>
+          <button
+            type="button"
+            className={`k-subtab ${detailTab === 'pos' ? 'active' : ''}`}
+            onClick={() => { setDetailTab('pos'); setHistAdd(emptyHistAdd()); setHistEdit(null) }}
+          >
+            Чеки кассы ({detailData.posSales.length})
+          </button>
+        </div>
+
+        {detailTab === 'manual' && (
+          <>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
+              marginBottom: 14, flexWrap: 'wrap',
+            }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45, maxWidth: 480 }}>
+                Записи из Trade или Admin. Можно добавить, изменить или удалить — долг на карте пересчитается.
+              </div>
+              <button
+                type="button"
+                className="k-btn k-btn-g"
+                style={{ fontSize: 13 }}
+                onClick={() => setHistAdd(prev => ({
+                  ...emptyHistAdd(),
+                  open: !prev.open,
+                  action: 'add',
+                }))}
+              >
+                {histAdd.open ? 'Скрыть форму' : '+ Добавить'}
+              </button>
+            </div>
+
+            {histAdd.open && (
+              <div style={{
+                padding: '14px 16px', borderRadius: 14, marginBottom: 14,
+                background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
+              }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`k-subtab ${histAdd.action === 'add' ? 'active' : ''}`}
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() => setHistAdd(prev => ({ ...prev, action: 'add' }))}
+                  >
+                    Начислить
+                  </button>
+                  <button
+                    type="button"
+                    className={`k-subtab ${histAdd.action === 'repay' ? 'active' : ''}`}
+                    style={{ padding: '6px 12px', fontSize: 12 }}
+                    onClick={() => setHistAdd(prev => ({ ...prev, action: 'repay' }))}
+                  >
+                    Погасить
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <label style={{ fontSize: 11 }}>Сумма</label>
+                    <input
+                      className="k-inp"
+                      type="text"
+                      inputMode="decimal"
+                      value={histAdd.amount}
+                      disabled={histAdd.saving}
+                      onChange={e => setHistAdd(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div style={{ flex: '2 1 180px' }}>
+                    <label style={{ fontSize: 11 }}>Описание</label>
+                    <input
+                      className="k-inp"
+                      type="text"
+                      value={histAdd.desc}
+                      disabled={histAdd.saving}
+                      onChange={e => setHistAdd(prev => ({ ...prev, desc: e.target.value }))}
+                      placeholder={histAdd.action === 'repay' ? 'Погашение долга' : 'Ручное начисление'}
+                    />
+                  </div>
+                  {histAdd.action === 'repay' && cardDebt > 0 && (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ fontSize: 12 }}
+                      onClick={() => setHistAdd(prev => ({ ...prev, amount: String(cardDebt) }))}
+                    >
+                      Весь долг
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g"
+                    style={{ fontSize: 13 }}
+                    disabled={histAdd.saving}
+                    onClick={() => void submitHistoryAdd()}
+                  >
+                    {histAdd.saving ? '…' : 'Сохранить'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!detailData.manual.length ? (
+              <div className="k-empty" style={{ padding: 28 }}>
+                Пока нет ручных записей — нажмите «+ Добавить»
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {detailData.manual.map(row => {
+                  const isPay = row.type === 'pay'
+                  const editing = histEdit?.id === row.id
+                  return (
+                    <div
+                      key={row.id}
+                      style={{
+                        padding: '14px 16px', borderRadius: 12,
+                        background: isPay ? '#122018' : 'var(--card)',
+                        border: `1px solid ${isPay ? '#1e3a28' : 'var(--border)'}`,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 800, fontSize: 14 }}>
+                              {row.desc || (isPay ? 'Погашение' : 'Ручное начисление')}
+                            </span>
+                            <span className="k-badge" style={{ fontSize: 10, background: 'var(--card2)', color: 'var(--muted)' }}>
+                              {isPay ? 'погашение' : 'начисление'} · вручную
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                            {row.date} · {row.time || '—'}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 900, fontSize: 16, color: isPay ? 'var(--green)' : 'var(--red)' }}>
+                            {isPay ? '+' : '−'}{fmtMoney(Math.abs(row.amount))}
+                          </div>
+                          {!editing && (
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                              <button
+                                type="button"
+                                className="k-btn k-btn-s"
+                                style={{ fontSize: 12, padding: '5px 10px' }}
+                                onClick={() => setHistEdit({
+                                  id: row.id,
+                                  amount: String(Math.abs(Number(row.amount) || 0)),
+                                  desc: row.desc || '',
+                                  saving: false,
+                                })}
+                              >
+                                Изменить
+                              </button>
+                              <button
+                                type="button"
+                                className="k-btn k-btn-s"
+                                style={{ fontSize: 12, padding: '5px 10px', color: 'var(--red)' }}
+                                onClick={() => void deleteManualHistory(row)}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {editing && histEdit && (
+                        <div style={{
+                          marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)',
+                          display: 'grid', gap: 10,
+                        }}>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ flex: '1 1 120px' }}>
+                              <label style={{ fontSize: 11 }}>Сумма</label>
+                              <input
+                                className="k-inp"
+                                type="text"
+                                inputMode="decimal"
+                                value={histEdit.amount}
+                                disabled={histEdit.saving}
+                                onChange={e => setHistEdit(prev => prev ? { ...prev, amount: sanitizeDecimalInput(e.target.value) } : prev)}
+                              />
+                            </div>
+                            <div style={{ flex: '2 1 180px' }}>
+                              <label style={{ fontSize: 11 }}>Описание</label>
+                              <input
+                                className="k-inp"
+                                type="text"
+                                value={histEdit.desc}
+                                disabled={histEdit.saving}
+                                onChange={e => setHistEdit(prev => prev ? { ...prev, desc: e.target.value } : prev)}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-g"
+                              style={{ fontSize: 12 }}
+                              disabled={histEdit.saving}
+                              onClick={() => void saveManualHistoryEdit()}
+                            >
+                              {histEdit.saving ? '…' : 'Сохранить'}
+                            </button>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-s"
+                              style={{ fontSize: 12 }}
+                              disabled={histEdit.saving}
+                              onClick={() => setHistEdit(null)}
+                            >
+                              Отмена
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {detailTab === 'pos' && (
+          <>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.45 }}>
+              Чеки из кассы в долг. Только просмотр — править или удалять нельзя.
+            </div>
+            {!detailData.posSales.length ? (
+              <div className="k-empty" style={{ padding: 28 }}>
+                Нет чеков кассы в долг
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {detailData.posSales.map(s => (
+                  <div
+                    key={s.id}
+                    style={{
+                      padding: '14px 16px', borderRadius: 12,
+                      background: s.partial ? 'linear-gradient(135deg, #2a2414, var(--card))' : 'var(--card)',
+                      border: `1px solid ${s.partial ? '#5a4020' : 'var(--border)'}`,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 900, fontSize: 14 }}>
+                            Чек {s.number ? `№${s.number}` : s.id.slice(-6)}
+                          </span>
+                          <span className="k-badge" style={{
+                            background: s.partial ? '#3a2a10' : '#1a241c',
+                            color: s.partial ? 'var(--gold)' : 'var(--muted)',
+                          }}>
+                            {paymentMethodLabel(s.paymentMethod, s.partial)}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                          {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
+                        </div>
+                        {s.partial && (
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                            Оплачено:
+                            {s.paidCash > 0 && ` нал. ${fmtMoney(s.paidCash)}`}
+                            {s.paidCash > 0 && s.paidCard > 0 && ' +'}
+                            {s.paidCard > 0 && ` карта ${fmtMoney(s.paidCard)}`}
+                          </div>
+                        )}
+                        {s.note && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{s.note}</div>}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--red)' }}>{fmtMoney(s.debtAdded)}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>в долг</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>чек {fmtMoney(s.total)}</div>
+                      </div>
+                    </div>
+                    {s.partial && <PartialBar paid={s.paidCash + s.paidCard} total={s.total} />}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {detailData.creditOrders.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10, color: 'var(--muted)' }}>
+                  Заказы магазина в долг ({detailData.creditOrders.length})
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {detailData.creditOrders.map(o => {
+                    const creditAmt = Number(o.creditAmount) || Math.max(0, (Number(o.total) || 0) - (Number(o.deliveryFee) || 0))
+                    return (
+                      <div key={o.id} style={{
+                        padding: '12px 14px', borderRadius: 12,
+                        background: 'var(--card)', border: '1px solid var(--border)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <div>
+                            <div style={{ fontWeight: 800 }}>{o.id}</div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                              {o.createdAt ? fmtDateTime(o.createdAt) : '—'} · {o.items?.length || 0} поз.
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 900, color: 'var(--red)' }}>{fmtMoney(creditAmt)}</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>в долг</div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Список клиентов ──
   return (
     <div>
       <div className="k-page-h">
         <div>
           <h1>💳 Долги клиентов</h1>
           <div className="sub">
-            Откройте клиента — в истории можно добавить, изменить или удалить ручные записи
+            Откройте клиента — ручные записи и чеки кассы на отдельных вкладках
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -440,7 +818,10 @@ export default function DebtsModule() {
       </div>
 
       {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>
+        <div style={{
+          marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13,
+          background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)',
+        }}>
           {apiError}
         </div>
       )}
@@ -478,7 +859,6 @@ export default function DebtsModule() {
           <button type="button" className={`k-subtab ${filter === 'debt_section' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('debt_section')}>С разделом долга</button>
           <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('all')}>Все</button>
           <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('debt')}>По долгу</button>
-          <button type="button" className={`k-subtab ${sort === 'unpaid' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('unpaid')}>По заказам</button>
           <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('name')}>По имени</button>
         </div>
       </div>
@@ -510,24 +890,33 @@ export default function DebtsModule() {
                   onClick={() => openDetail(c.id)}
                 >
                   <span style={{ fontSize: 26, flexShrink: 0 }}>{c.vip ? '⭐' : '💳'}</span>
-
                   <div style={{ flex: '1 1 200px', minWidth: 160 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 900, fontSize: 15 }}>{c.name}</span>
                       <span className="k-badge" style={{ background: `${levelColor}22`, color: levelColor }}>{levelLabel(c.level)}</span>
-                      <DebtStatusBadge overLimit={c.overLimit} debt={debt} unpaidCount={c.unpaidCount} />
+                      <DebtStatusBadge overLimit={c.overLimit} debt={debt} />
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}><span style={{ color: 'var(--muted)' }}>☎</span> {c.phone}</a>}
-                      {c.card ? <span>💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span> : <span style={{ color: 'var(--gold)' }}>⚠ без карты</span>}
+                      {c.phone && (
+                        <a
+                          href={`tel:${c.phone.replace(/\s/g, '')}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{ color: 'inherit', textDecoration: 'none' }}
+                        >
+                          ☎ {c.phone}
+                        </a>
+                      )}
+                      {c.card
+                        ? <span>💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span>
+                        : <span style={{ color: 'var(--gold)' }}>⚠ без карты</span>}
                     </div>
                     {c.debtLimit > 0 && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                        Лимит {fmtMoney(c.debtLimit)} · доступно <span style={{ color: 'var(--green)', fontWeight: 800 }}>{fmtMoney(c.available)}</span>
+                        Лимит {fmtMoney(c.debtLimit)} · доступно{' '}
+                        <span style={{ color: 'var(--green)', fontWeight: 800 }}>{fmtMoney(c.available)}</span>
                       </div>
                     )}
                   </div>
-
                   <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг</div>
@@ -541,627 +930,6 @@ export default function DebtsModule() {
               </div>
             )
           })}
-        </div>
-      )}
-
-      {/* ── Окно клиента: история и управление долгом ── */}
-      {detailClient && detailData && (
-        <div className="k-modal-bg" onClick={closeDetail}>
-          <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()}>
-            <div className="k-modal-h">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 22 }}>{detailClient.vip ? '⭐' : '💳'}</span>
-                <div>
-                  <b>{detailClient.name}</b>
-                  <DebtStatusBadge overLimit={detailClient.overLimit} debt={detailClient.debt} unpaidCount={detailClient.unpaidCount} />
-                </div>
-              </div>
-              <button type="button" onClick={closeDetail}>✕</button>
-            </div>
-            <div className="k-modal-b" style={{ padding: 16 }}>
-              <div style={{
-                borderRadius: 16, padding: '16px 18px', marginBottom: 14,
-                background: 'linear-gradient(135deg, #2a1414, var(--card))',
-                border: '1px solid #5a3030',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг на карте</div>
-                    <div style={{ fontWeight: 900, fontSize: 22, color: detailClient.debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                      {detailClient.debt > 0 ? fmtMoney(detailClient.debt) : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Лимит</div>
-                    <div style={{ fontWeight: 900, fontSize: 18 }}>{detailClient.debtLimit > 0 ? fmtMoney(detailClient.debtLimit) : '—'}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>По чекам кассы</div>
-                    <div style={{ fontWeight: 900, fontSize: 18, color: detailData.posSales.length ? 'var(--gold)' : 'var(--muted)' }}>
-                      {detailData.posSales.length ? fmtMoney(docsDebtSum()) : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>В истории (ручн.)</div>
-                    <div style={{ fontWeight: 800, fontSize: 14 }}>
-                      <span style={{ color: 'var(--red)' }}>{fmtMoney(detailData.totals.borrowed)}</span>
-                      <span style={{ color: 'var(--muted)' }}> / </span>
-                      <span style={{ color: 'var(--green)' }}>{fmtMoney(detailData.totals.repaid)}</span>
-                    </div>
-                  </div>
-                </div>
-                {detailClient.phone && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
-                    <span style={{ color: 'var(--muted)' }}>☎</span> {detailClient.phone}
-                    {detailClient.card && <span> · 💳 {detailClient.card}</span>}
-                  </div>
-                )}
-                {(() => {
-                  const fromPos = docsDebtSum()
-                  const current = Math.max(0, Number(detailClient.debt) || 0)
-                  if (!(current > fromPos + 1) && !(fromPos > current + 1)) return null
-                  return (
-                    <div style={{
-                      marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.45,
-                      background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
-                    }}>
-                      <div style={{ marginBottom: 8 }}>
-                        Число <b>{fmtMoney(current)}</b> лежит на карте клиента, а не в истории.
-                        Скорее всего ошибочно записали вручную (без строки в истории).
-                        Реальные чеки: <b>{detailData.posSales.length}</b> на {fmtMoney(fromPos)}.
-                      </div>
-                      <button
-                        type="button"
-                        className="k-btn k-btn-g"
-                        style={{ fontSize: 12 }}
-                        onClick={() => void fixCardDebtFromPosChecks()}
-                      >
-                        Поставить долг на карте = сумма чеков ({fmtMoney(fromPos)})
-                      </button>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-                {([
-                  ['history', `История`],
-                  ['unpaid', `Неоплаченные (${detailData.settlement.unpaid.length})`],
-                  ['orders', `Заказы (${detailData.creditOrders.length})`],
-                  ['pos', `Чеки кассы (${detailData.posSales.length})`],
-                ] as [DetailTab, string][]).map(([tab, label]) => (
-                  <button key={tab} type="button" className={`k-subtab ${detailTab === tab ? 'active' : ''}`} onClick={() => { setDetailTab(tab); setOrderDetail(null) }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {detailTab === 'history' && (
-                <>
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10,
-                    marginBottom: 10, flexWrap: 'wrap',
-                  }}>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4, flex: '1 1 200px' }}>
-                      Ручные записи — добавить, изменить или удалить. Чеки кассы и заказы только для просмотра.
-                    </div>
-                    <button
-                      type="button"
-                      className="k-btn k-btn-g"
-                      style={{ fontSize: 12 }}
-                      onClick={() => setHistAdd(prev => ({
-                        ...emptyHistAdd(),
-                        open: !prev.open,
-                        action: 'add',
-                      }))}
-                    >
-                      {histAdd.open ? 'Скрыть форму' : '+ Добавить в историю'}
-                    </button>
-                  </div>
-
-                  {histAdd.open && (
-                    <div style={{
-                      padding: '12px 14px', borderRadius: 12, marginBottom: 12,
-                      background: 'rgba(255,140,0,.06)', border: '1px solid rgba(255,140,0,.2)',
-                    }}>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                        <button
-                          type="button"
-                          className={`k-subtab ${histAdd.action === 'add' ? 'active' : ''}`}
-                          style={{ padding: '6px 12px', fontSize: 12 }}
-                          onClick={() => setHistAdd(prev => ({ ...prev, action: 'add' }))}
-                        >
-                          Начислить
-                        </button>
-                        <button
-                          type="button"
-                          className={`k-subtab ${histAdd.action === 'repay' ? 'active' : ''}`}
-                          style={{ padding: '6px 12px', fontSize: 12 }}
-                          onClick={() => setHistAdd(prev => ({ ...prev, action: 'repay' }))}
-                        >
-                          Погасить
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                        <div style={{ flex: '1 1 120px' }}>
-                          <label style={{ fontSize: 11 }}>Сумма</label>
-                          <input
-                            className="k-inp"
-                            type="text"
-                            inputMode="decimal"
-                            value={histAdd.amount}
-                            disabled={histAdd.saving}
-                            onChange={e => setHistAdd(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))}
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div style={{ flex: '2 1 160px' }}>
-                          <label style={{ fontSize: 11 }}>Описание (необязательно)</label>
-                          <input
-                            className="k-inp"
-                            type="text"
-                            value={histAdd.desc}
-                            disabled={histAdd.saving}
-                            onChange={e => setHistAdd(prev => ({ ...prev, desc: e.target.value }))}
-                            placeholder={histAdd.action === 'repay' ? 'Погашение долга' : 'Ручное начисление'}
-                          />
-                        </div>
-                        {histAdd.action === 'repay' && detailClient.debt > 0 && (
-                          <button
-                            type="button"
-                            className="k-btn k-btn-s"
-                            style={{ fontSize: 12 }}
-                            onClick={() => setHistAdd(prev => ({ ...prev, amount: String(detailClient.debt) }))}
-                          >
-                            Весь долг
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="k-btn k-btn-g"
-                          style={{ fontSize: 12 }}
-                          disabled={histAdd.saving}
-                          onClick={() => void submitHistoryAdd()}
-                        >
-                          {histAdd.saving ? '…' : 'Записать в историю'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {histMsg && (
-                    <div style={{
-                      marginBottom: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
-                      background: /Удалено|обновлена|В историю|исправлен|Долг на карте/i.test(histMsg)
-                        ? 'rgba(20,178,79,.12)'
-                        : 'var(--alert-error-bg)',
-                      color: /Удалено|обновлена|В историю|исправлен|Долг на карте/i.test(histMsg) ? 'var(--green)' : 'var(--red)',
-                      border: '1px solid var(--alert-error-border)',
-                    }}>
-                      {histMsg}
-                    </div>
-                  )}
-
-                  {(() => {
-                    const covered = new Set(
-                      detailData.history.flatMap(h => [String(h.orderId || ''), String(h.id || '')].filter(Boolean)),
-                    )
-                    // Чеки, уже попавшие в историю, не дублируем — сами записи истории всегда на месте
-                    const posOnly = detailData.posSales.filter(s => {
-                      const id = String(s.id || '')
-                      const num = s.number != null ? String(s.number) : ''
-                      if (covered.has(id) || (num && covered.has(num))) return false
-                      return !detailData.history.some(h => {
-                        const oid = String(h.orderId || '')
-                        return oid && (oid === id || (num && oid === num))
-                      })
-                    })
-                    type Feed =
-                      | { key: string; ts: number; kind: 'hist'; row: typeof detailData.history[0] }
-                      | { key: string; ts: number; kind: 'pos'; sale: typeof detailData.posSales[0] }
-                    const feed: Feed[] = [
-                      ...detailData.history.map(row => ({
-                        key: `h-${row.id}`,
-                        ts: Number(row.ts) || 0,
-                        kind: 'hist' as const,
-                        row,
-                      })),
-                      ...posOnly.map(sale => ({
-                        key: `p-${sale.id}`,
-                        ts: Date.parse(sale.dateIso) || 0,
-                        kind: 'pos' as const,
-                        sale,
-                      })),
-                    ].sort((a, b) => b.ts - a.ts)
-
-                    if (!feed.length) {
-                      return <div style={{ fontSize: 12, color: 'var(--muted)' }}>Пока нет записей: ни ручных, ни чеков кассы</div>
-                    }
-                    return (
-                      <div style={{ display: 'grid', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
-                        {feed.map(item => {
-                          if (item.kind === 'hist') {
-                            const row = item.row
-                            const isPay = row.type === 'pay'
-                            const desc = String(row.desc || '')
-                            const manual = isManualDebtHistoryEntry(row)
-                            const fromPos = !manual && /чек/i.test(desc)
-                            const fromOrder = !manual && (!!row.orderId || /заказ/i.test(desc))
-                            const badge = isPay
-                              ? (manual ? 'погашение · вручную' : 'погашение')
-                              : fromPos
-                                ? 'касса'
-                                : fromOrder
-                                  ? 'заказ'
-                                  : manual
-                                    ? 'вручную'
-                                    : 'история'
-                            const editing = histEdit?.id === row.id
-                            return (
-                              <div
-                                key={item.key}
-                                style={{
-                                  padding: '10px 12px', borderRadius: 10,
-                                  background: isPay ? '#122018' : 'var(--card)',
-                                  border: `1px solid ${isPay ? '#1e3a28' : 'var(--border)'}`,
-                                }}
-                              >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => row.orderId && setOrderDetail(row)}
-                                    style={{
-                                      display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1,
-                                      background: 'none', border: 0, padding: 0, cursor: row.orderId ? 'pointer' : 'default',
-                                      textAlign: 'left', color: 'inherit', fontFamily: 'inherit',
-                                    }}
-                                  >
-                                    <span>{isPay ? '💰' : fromPos ? '🧾' : manual ? '✏️' : '🛒'}</span>
-                                    <span style={{ minWidth: 0 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                        <span style={{ fontWeight: 800, fontSize: 13 }}>{desc || (isPay ? 'Погашение' : 'Заказ в долг')}</span>
-                                        <span className="k-badge" style={{ fontSize: 10, background: 'var(--card2)', color: 'var(--muted)' }}>
-                                          {badge}
-                                        </span>
-                                      </div>
-                                      {row.itemsSummary && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.itemsSummary}</div>}
-                                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.date} · {row.time || '—'}</div>
-                                    </span>
-                                  </button>
-                                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <div style={{ fontWeight: 900, color: isPay ? 'var(--green)' : 'var(--red)' }}>
-                                      {isPay ? '+' : '−'}{fmtMoney(Math.abs(row.amount))}
-                                    </div>
-                                    {manual && !editing && (
-                                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
-                                        <button
-                                          type="button"
-                                          className="k-btn k-btn-s"
-                                          style={{ fontSize: 11, padding: '4px 8px' }}
-                                          onClick={() => setHistEdit({
-                                            id: row.id,
-                                            amount: String(Math.abs(Number(row.amount) || 0)),
-                                            desc: row.desc || '',
-                                            saving: false,
-                                          })}
-                                        >
-                                          Изменить
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="k-btn k-btn-s"
-                                          style={{ fontSize: 11, padding: '4px 8px', color: 'var(--red)' }}
-                                          onClick={() => void deleteManualHistory(row)}
-                                        >
-                                          Удалить
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                {editing && histEdit && (
-                                  <div style={{
-                                    marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)',
-                                    display: 'grid', gap: 8,
-                                  }}>
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                      <div style={{ flex: '1 1 120px' }}>
-                                        <label style={{ fontSize: 11 }}>Сумма</label>
-                                        <input
-                                          className="k-inp"
-                                          type="text"
-                                          inputMode="decimal"
-                                          value={histEdit.amount}
-                                          disabled={histEdit.saving}
-                                          onChange={e => setHistEdit(prev => prev ? { ...prev, amount: sanitizeDecimalInput(e.target.value) } : prev)}
-                                        />
-                                      </div>
-                                      <div style={{ flex: '2 1 160px' }}>
-                                        <label style={{ fontSize: 11 }}>Описание</label>
-                                        <input
-                                          className="k-inp"
-                                          type="text"
-                                          value={histEdit.desc}
-                                          disabled={histEdit.saving}
-                                          onChange={e => setHistEdit(prev => prev ? { ...prev, desc: e.target.value } : prev)}
-                                        />
-                                      </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                      <button
-                                        type="button"
-                                        className="k-btn k-btn-g"
-                                        style={{ fontSize: 12 }}
-                                        disabled={histEdit.saving}
-                                        onClick={() => void saveManualHistoryEdit()}
-                                      >
-                                        {histEdit.saving ? '…' : 'Сохранить'}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="k-btn k-btn-s"
-                                        style={{ fontSize: 12 }}
-                                        disabled={histEdit.saving}
-                                        onClick={() => setHistEdit(null)}
-                                      >
-                                        Отмена
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          }
-                          const s = item.sale
-                          return (
-                            <div
-                              key={item.key}
-                              style={{
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-                                padding: '10px 12px', borderRadius: 10,
-                                background: 'var(--card)', border: '1px solid var(--border)',
-                              }}
-                            >
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                <span>🧾</span>
-                                <span>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <span style={{ fontWeight: 800, fontSize: 13 }}>
-                                      Чек {s.number ? `№${s.number}` : s.id.slice(-6)}
-                                    </span>
-                                    <span className="k-badge" style={{ fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
-                                      касса
-                                    </span>
-                                  </div>
-                                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                                    {fmtDateTime(s.dateIso)} · {s.itemsCount} поз.
-                                    {s.partial ? ' · частично' : ''}
-                                  </div>
-                                </span>
-                              </span>
-                              <span style={{ fontWeight: 900, flexShrink: 0, color: 'var(--red)', textAlign: 'right' }}>
-                                −{fmtMoney(s.debtAdded)}
-                                <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>в долг</div>
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
-                  })()}
-                </>
-              )}
-
-              {detailTab === 'unpaid' && (
-                <>
-                  {!detailData.settlement.unpaid.length ? (
-                    <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                      ✅ Нет неоплаченных заказов в долг
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                      {detailData.settlement.unpaid.map((row, i) => (
-                        <button
-                          key={row.id || `unpaid-${i}`}
-                          type="button"
-                          onClick={() => setOrderDetail(row)}
-                          style={{
-                            textAlign: 'left', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
-                            background: row.partial ? 'linear-gradient(135deg, #2a2414, var(--card))' : 'linear-gradient(135deg, #2a1414, var(--card))',
-                            border: `1px solid ${row.partial ? '#5a4020' : '#5a3030'}`,
-                            color: 'inherit', fontFamily: 'inherit', width: '100%',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                                <span style={{ fontWeight: 900, fontSize: 14 }}>{row.orderId || 'Заказ в долг'}</span>
-                                <span className="k-badge" style={{
-                                  background: row.partial ? '#3a2a10' : '#3a1414',
-                                  color: row.partial ? 'var(--gold)' : 'var(--red)',
-                                }}>
-                                  {row.partial ? 'Частично оплачен' : 'Не оплачен'}
-                                </span>
-                              </div>
-                              {row.itemsSummary && (
-                                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>{row.itemsSummary}</div>
-                              )}
-                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.date}{row.time ? ` · ${row.time}` : ''}</div>
-                              {row.partial && (
-                                <PartialBar paid={row.paidAmount} total={row.originalAmount} />
-                              )}
-                            </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--red)' }}>{fmtMoney(row.remainingAmount)}</div>
-                              <div style={{ fontSize: 10, color: 'var(--muted)' }}>{row.partial ? 'осталось' : 'в долг'}</div>
-                              {row.partial && (
-                                <div style={{ fontSize: 10, color: 'var(--muted)', textDecoration: 'line-through', marginTop: 2 }}>
-                                  из {fmtMoney(row.originalAmount)}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {detailTab === 'orders' && (
-                <>
-                  {!detailData.creditOrders.length ? (
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>Заказов в кредит из магазина пока нет</div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                      {detailData.creditOrders.map(o => {
-                        const creditAmt = Number(o.creditAmount) || Math.max(0, (Number(o.total) || 0) - (Number(o.deliveryFee) || 0))
-                        const deliveryFee = Number(o.deliveryFee) || 0
-                        const partial = deliveryFee > 0
-                        return (
-                          <div key={o.id} style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                              <div>
-                                <div style={{ fontWeight: 900, fontSize: 14, color: 'var(--green)' }}>{o.id}</div>
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{o.createdAt ? fmtDateTime(o.createdAt) : '—'}</div>
-                                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                                  {o.items?.length || 0} поз. · {o.status}
-                                </div>
-                                {partial && (
-                                  <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6, fontWeight: 700 }}>
-                                    Товары в долг · доставка наличными {fmtMoney(deliveryFee)}
-                                  </div>
-                                )}
-                              </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--red)' }}>{fmtMoney(creditAmt)}</div>
-                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>в долг</div>
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>итого {fmtMoney(o.total)}</div>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {detailTab === 'pos' && (
-                <>
-                  {!detailData.posSales.length ? (
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>Продаж в долг через кассу пока нет</div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                      {detailData.posSales.map(s => (
-                        <div key={s.id} style={{
-                          padding: '12px 14px', borderRadius: 12,
-                          background: s.partial ? 'linear-gradient(135deg, #2a2414, var(--card))' : 'var(--card)',
-                          border: `1px solid ${s.partial ? '#5a4020' : 'var(--border)'}`,
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 900 }}>Чек {s.number ? `№${s.number}` : s.id.slice(-6)}</span>
-                                <span className="k-badge" style={{ background: s.partial ? '#3a2a10' : '#1a241c', color: s.partial ? 'var(--gold)' : 'var(--muted)' }}>
-                                  {paymentMethodLabel(s.paymentMethod, s.partial)}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                                {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
-                              </div>
-                              {s.partial && (
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                                  Оплачено: {s.paidCash > 0 && `нал. ${fmtMoney(s.paidCash)}`}
-                                  {s.paidCash > 0 && s.paidCard > 0 && ' + '}
-                                  {s.paidCard > 0 && `карта ${fmtMoney(s.paidCard)}`}
-                                </div>
-                              )}
-                              {s.note && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{s.note}</div>}
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontWeight: 900, fontSize: 16, color: 'var(--red)' }}>{fmtMoney(s.debtAdded)}</div>
-                              <div style={{ fontSize: 10, color: 'var(--muted)' }}>в долг</div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>чек {fmtMoney(s.total)}</div>
-                            </div>
-                          </div>
-                          {s.partial && (
-                            <PartialBar paid={s.paidCash + s.paidCard} total={s.total} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Детали заказа в долг ── */}
-      {orderDetail && detailClient && (
-        <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => setOrderDetail(null)}>
-          <div className="k-modal" onClick={e => e.stopPropagation()}>
-            <div className="k-modal-h">
-              <b>🛒 {('orderId' in orderDetail && orderDetail.orderId) || 'Заказ в долг'}</b>
-              <button type="button" onClick={() => setOrderDetail(null)}>✕</button>
-            </div>
-            <div className="k-modal-b" style={{ padding: 16 }}>
-              {'itemsSummary' in orderDetail && orderDetail.itemsSummary && (
-                <div style={{ fontSize: 13, marginBottom: 12, lineHeight: 1.45 }}>{orderDetail.itemsSummary}</div>
-              )}
-              <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ color: 'var(--muted)' }}>Дата</span>
-                  <span style={{ fontWeight: 800 }}>{orderDetail.date}{orderDetail.time ? ` · ${orderDetail.time}` : ''}</span>
-                </div>
-                {'originalAmount' in orderDetail && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted)' }}>Сумма заказа</span>
-                      <span style={{ fontWeight: 800 }}>{fmtMoney(orderDetail.originalAmount)}</span>
-                    </div>
-                    {orderDetail.partial && (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                          <span style={{ color: 'var(--muted)' }}>Оплачено</span>
-                          <span style={{ fontWeight: 800, color: 'var(--green)' }}>{fmtMoney(orderDetail.paidAmount)}</span>
-                        </div>
-                        <PartialBar paid={orderDetail.paidAmount} total={orderDetail.originalAmount} />
-                      </>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted)' }}>Остаток в долг</span>
-                      <span style={{ fontWeight: 900, color: 'var(--red)' }}>{fmtMoney(orderDetail.remainingAmount)}</span>
-                    </div>
-                  </>
-                )}
-                {!('originalAmount' in orderDetail) && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: 'var(--muted)' }}>Сумма в долг</span>
-                    <span style={{ fontWeight: 900, color: 'var(--red)' }}>{fmtMoney(Math.abs(orderDetail.amount))}</span>
-                  </div>
-                )}
-              </div>
-              {detailClient.debt > 0 && (
-                <button type="button" className="k-btn k-btn-g" style={{ width: '100%', marginTop: 16 }} onClick={() => {
-                  setOrderDetail(null)
-                  setDetailTab('history')
-                  setHistAdd({
-                    open: true,
-                    action: 'repay',
-                    amount: String(detailClient.debt),
-                    desc: '',
-                    saving: false,
-                  })
-                }}>
-                  💰 Погасить долг клиента
-                </button>
-              )}
-            </div>
-          </div>
         </div>
       )}
     </div>
