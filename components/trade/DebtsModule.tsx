@@ -340,6 +340,40 @@ export default function DebtsModule() {
     })
   }
 
+  /** Сумма долга по чекам кассы — реальные документы, не поле на карте */
+  function docsDebtSum() {
+    if (!detailData) return 0
+    return Math.round(detailData.posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
+  }
+
+  async function fixCardDebtFromPosChecks() {
+    if (!detailClient || !detailData) return
+    const fromPos = docsDebtSum()
+    const current = Math.max(0, Number(detailClient.debt) || 0)
+    if (Math.abs(fromPos - current) < 0.005) {
+      setHistMsg('Долг на карте уже совпадает с чеками')
+      return
+    }
+    if (!window.confirm(
+      `Исправить долг на карте?\n\nСейчас на карте: ${fmtMoney(current)}\nПо чекам кассы: ${fmtMoney(fromPos)}\n\nИстория и чеки не удаляются — меняется только число на карте.`,
+    )) return
+    setHistMsg('')
+    try {
+      const res = await adjustClientDebtSafe(detailClient, {
+        action: 'repay',
+        amount: 0,
+        absoluteDebt: fromPos,
+        skipDebtHistory: true,
+      })
+      setHistMsg(res.offline
+        ? `Долг на карте: ${fmtMoney(fromPos)} (локально, уйдёт при связи)`
+        : `Долг на карте исправлен: ${fmtMoney(fromPos)}`)
+      if (!res.offline) await refreshAll()
+    } catch (e) {
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось исправить')
+    }
+  }
+
   async function deleteManualHistory(row: DebtHistoryEntry) {
     if (!detailClient?.phone || !isManualDebtHistoryEntry(row)) return
     const abs = Math.abs(Number(row.amount) || 0)
@@ -532,7 +566,7 @@ export default function DebtsModule() {
               }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12 }}>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Текущий долг</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг на карте</div>
                     <div style={{ fontWeight: 900, fontSize: 22, color: detailClient.debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
                       {detailClient.debt > 0 ? fmtMoney(detailClient.debt) : '—'}
                     </div>
@@ -542,13 +576,13 @@ export default function DebtsModule() {
                     <div style={{ fontWeight: 900, fontSize: 18 }}>{detailClient.debtLimit > 0 ? fmtMoney(detailClient.debtLimit) : '—'}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Доступно</div>
-                    <div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>
-                      {detailClient.debtLimit > 0 ? fmtMoney(detailClient.available) : '—'}
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>По чекам кассы</div>
+                    <div style={{ fontWeight: 900, fontSize: 18, color: detailData.posSales.length ? 'var(--gold)' : 'var(--muted)' }}>
+                      {detailData.posSales.length ? fmtMoney(docsDebtSum()) : '—'}
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Начислено / Погашено</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>В истории (ручн.)</div>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>
                       <span style={{ color: 'var(--red)' }}>{fmtMoney(detailData.totals.borrowed)}</span>
                       <span style={{ color: 'var(--muted)' }}> / </span>
@@ -562,6 +596,31 @@ export default function DebtsModule() {
                     {detailClient.card && <span> · 💳 {detailClient.card}</span>}
                   </div>
                 )}
+                {(() => {
+                  const fromPos = docsDebtSum()
+                  const current = Math.max(0, Number(detailClient.debt) || 0)
+                  if (!(current > fromPos + 1) && !(fromPos > current + 1)) return null
+                  return (
+                    <div style={{
+                      marginTop: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.45,
+                      background: 'rgba(255,180,0,.12)', border: '1px solid rgba(255,180,0,.35)', color: 'var(--gold)',
+                    }}>
+                      <div style={{ marginBottom: 8 }}>
+                        Число <b>{fmtMoney(current)}</b> лежит на карте клиента, а не в истории.
+                        Скорее всего ошибочно записали вручную (без строки в истории).
+                        Реальные чеки: <b>{detailData.posSales.length}</b> на {fmtMoney(fromPos)}.
+                      </div>
+                      <button
+                        type="button"
+                        className="k-btn k-btn-g"
+                        style={{ fontSize: 12 }}
+                        onClick={() => void fixCardDebtFromPosChecks()}
+                      >
+                        Поставить долг на карте = сумма чеков ({fmtMoney(fromPos)})
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div className="k-subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
@@ -673,10 +732,10 @@ export default function DebtsModule() {
                   {histMsg && (
                     <div style={{
                       marginBottom: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
-                      background: /Удалено|обновлена|В историю/i.test(histMsg)
+                      background: /Удалено|обновлена|В историю|исправлен|Долг на карте/i.test(histMsg)
                         ? 'rgba(20,178,79,.12)'
                         : 'var(--alert-error-bg)',
-                      color: /Удалено|обновлена|В историю/i.test(histMsg) ? 'var(--green)' : 'var(--red)',
+                      color: /Удалено|обновлена|В историю|исправлен|Долг на карте/i.test(histMsg) ? 'var(--green)' : 'var(--red)',
                       border: '1px solid var(--alert-error-border)',
                     }}>
                       {histMsg}
@@ -1089,7 +1148,14 @@ export default function DebtsModule() {
               {detailClient.debt > 0 && (
                 <button type="button" className="k-btn k-btn-g" style={{ width: '100%', marginTop: 16 }} onClick={() => {
                   setOrderDetail(null)
-                  setInlineDebt({ action: 'repay', amount: String(detailClient.debt), saving: false, msg: '' })
+                  setDetailTab('history')
+                  setHistAdd({
+                    open: true,
+                    action: 'repay',
+                    amount: String(detailClient.debt),
+                    desc: '',
+                    saving: false,
+                  })
                 }}>
                   💰 Погасить долг клиента
                 </button>
