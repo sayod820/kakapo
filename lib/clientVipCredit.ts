@@ -122,39 +122,76 @@ export type DebtOrderBalance = DebtHistoryEntry & {
   partial: boolean
 }
 
+/** Совпадение orderId у долга и погашения (в т.ч. sale-… / id чека). */
+export function debtOrderIdsMatch(a?: string, b?: string): boolean {
+  const x = String(a || '').trim()
+  const y = String(b || '').trim()
+  if (!x || !y) return false
+  if (x === y) return true
+  if (x === `sale-${y}` || y === `sale-${x}`) return true
+  return false
+}
+
 export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
   unpaid: DebtOrderBalance[]
   paid: DebtHistoryEntry[]
 } {
   const debts = list.filter(h => h.type === 'debt').sort((a, b) => (a.ts || 0) - (b.ts || 0))
   const pays = list.filter(h => h.type === 'pay')
-  let repayLeft = pays.reduce((s, h) => s + h.amount, 0)
+  const remain = new Map<string, number>()
+  for (const d of debts) {
+    remain.set(d.id, Math.round(Math.abs(d.amount) * 100) / 100)
+  }
 
+  // Сначала погашения, привязанные к конкретному чеку/заказу
+  let repayLeft = 0
+  for (const p of pays) {
+    const amt = Math.round(Math.abs(Number(p.amount) || 0) * 100) / 100
+    if (!(amt > 0)) continue
+    const oid = String(p.orderId || '').trim()
+    if (oid) {
+      const target = debts.find(d => debtOrderIdsMatch(d.orderId, oid) && (remain.get(d.id) || 0) > 0.001)
+      if (target) {
+        const need = remain.get(target.id) || 0
+        const apply = Math.min(need, amt)
+        remain.set(target.id, Math.round((need - apply) * 100) / 100)
+        const leftover = Math.round((amt - apply) * 100) / 100
+        if (leftover > 0.001) repayLeft += leftover
+        continue
+      }
+    }
+    repayLeft += amt
+  }
+
+  // Остаток погашений без привязки — FIFO от старых долгов
   const paid: DebtHistoryEntry[] = []
   const unpaid: DebtOrderBalance[] = []
 
   for (const d of debts) {
-    const amt = Math.round(Math.abs(d.amount) * 100) / 100
-    if (repayLeft >= amt - 0.001) {
+    const original = Math.round(Math.abs(d.amount) * 100) / 100
+    let left = remain.get(d.id) ?? original
+    if (repayLeft > 0.001 && left > 0.001) {
+      const apply = Math.min(left, repayLeft)
+      left = Math.round((left - apply) * 100) / 100
+      repayLeft = Math.round((repayLeft - apply) * 100) / 100
+    }
+    const paidAmount = Math.round((original - left) * 100) / 100
+    if (left <= 0.001) {
       paid.push(d)
-      repayLeft = Math.round((repayLeft - amt) * 100) / 100
-    } else if (repayLeft > 0.001) {
-      const paidAmount = repayLeft
-      const remainingAmount = Math.round((amt - paidAmount) * 100) / 100
+    } else if (paidAmount > 0.001) {
       unpaid.push({
         ...d,
-        originalAmount: amt,
+        originalAmount: original,
         paidAmount,
-        remainingAmount,
+        remainingAmount: left,
         partial: true,
       })
-      repayLeft = 0
     } else {
       unpaid.push({
         ...d,
-        originalAmount: amt,
+        originalAmount: original,
         paidAmount: 0,
-        remainingAmount: amt,
+        remainingAmount: left,
         partial: false,
       })
     }
@@ -165,6 +202,57 @@ export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
     unpaid: unpaid.sort(sortDesc),
     paid: paid.sort(sortDesc),
   }
+}
+
+/** Остаток долга по конкретному чеку (по orderId / сумме+времени). */
+export function debtStatusForSale(
+  list: DebtHistoryEntry[],
+  sale: { id: string; orderId?: string; debtAdded: number; dateIso?: string },
+): { status: 'paid' | 'partial' | 'open'; paid: number; remain: number } {
+  const total = Math.round(Math.abs(Number(sale.debtAdded) || 0) * 100) / 100
+  if (!(total > 0.001)) return { status: 'paid', paid: 0, remain: 0 }
+
+  const { unpaid, paid } = buildDebtOrderBalances(list)
+  const keys = [sale.id, sale.orderId, sale.id ? `sale-${sale.id}` : '', sale.orderId ? `sale-${sale.orderId}` : '']
+    .map(k => String(k || '').trim())
+    .filter(Boolean)
+
+  const byOrderUnpaid = unpaid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))
+  if (byOrderUnpaid) {
+    return {
+      status: byOrderUnpaid.partial ? 'partial' : 'open',
+      paid: byOrderUnpaid.paidAmount,
+      remain: byOrderUnpaid.remainingAmount,
+    }
+  }
+  const byOrderPaid = paid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))
+  if (byOrderPaid) {
+    const amt = Math.round(Math.abs(Number(byOrderPaid.amount) || total) * 100) / 100
+    return { status: 'paid', paid: amt, remain: 0 }
+  }
+
+  const saleTs = sale.dateIso ? Date.parse(sale.dateIso) || 0 : 0
+  const nearUnpaid = unpaid.find(d =>
+    Math.abs(Math.abs(Number(d.amount) || 0) - total) < 0.02
+    && (!saleTs || Math.abs((d.ts || 0) - saleTs) < 10 * 60 * 1000),
+  )
+  if (nearUnpaid) {
+    return {
+      status: nearUnpaid.partial ? 'partial' : 'open',
+      paid: nearUnpaid.paidAmount,
+      remain: nearUnpaid.remainingAmount,
+    }
+  }
+
+  // Прямые погашения по id чека без строки долга в истории
+  const targeted = list
+    .filter(h => h.type === 'pay' && keys.some(k => debtOrderIdsMatch(h.orderId, k)))
+    .reduce((s, h) => s + Math.abs(Number(h.amount) || 0), 0)
+  const paidAmt = Math.round(Math.min(total, targeted) * 100) / 100
+  const remain = Math.round((total - paidAmt) * 100) / 100
+  if (remain <= 0.001) return { status: 'paid', paid: total, remain: 0 }
+  if (paidAmt > 0.001) return { status: 'partial', paid: paidAmt, remain }
+  return { status: 'open', paid: 0, remain: total }
 }
 
 export function splitDebtHistoryBySettlement(
@@ -269,9 +357,10 @@ export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
 /** Ручная запись (начисление/погашение в разделе Долги) — можно править/удалить. Чеки и заказы — нет. */
 export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
   if (row.type === 'purchase') return false
+  // Привязка к чеку/заказу — не ручная правка
+  if (row.orderId) return false
   if (row.source === 'manual') return true
   if (row.source === 'pos' || row.source === 'order' || row.source === 'cashier') return false
-  if (row.orderId) return false
   const desc = String(row.desc || '')
   if (/чек/i.test(desc)) return false
   if (/^заказ\b/i.test(desc.trim())) return false
@@ -295,6 +384,19 @@ export function removeDebtHistoryEntry(phone: string, id: string): DebtHistoryEn
   if (!isManualDebtHistoryEntry(removed)) return null
   saveDebtHistoryList(phone, prev.filter(r => r.id !== id))
   return removed
+}
+
+/** Привязать запись долга к чеку (если orderId ещё нет) — для целевого погашения. */
+export function ensureDebtHistoryOrderId(phone: string, debtId: string, orderId: string): void {
+  const oid = String(orderId || '').trim()
+  if (!phone.trim() || !debtId || !oid) return
+  const prev = loadDebtHistory(phone)
+  const idx = prev.findIndex(r => r.id === debtId)
+  if (idx < 0) return
+  if (String(prev[idx].orderId || '').trim()) return
+  const list = [...prev]
+  list[idx] = { ...list[idx], orderId: oid }
+  saveDebtHistoryList(phone, list)
 }
 
 /**
@@ -403,7 +505,13 @@ export async function chargeCredit(
 export function recordStoreDebtRepayment(
   phone: string,
   amount: number,
-  meta?: { desc?: string; method?: 'cash' | 'card'; source?: DebtHistoryEntry['source'] },
+  meta?: {
+    desc?: string
+    method?: 'cash' | 'card'
+    source?: DebtHistoryEntry['source']
+    /** Привязка к чеку/заказу — погашение именно этой позиции */
+    orderId?: string
+  },
 ): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return
@@ -417,6 +525,7 @@ export function recordStoreDebtRepayment(
     amount: pay,
     type: 'pay',
     source,
+    orderId: meta?.orderId,
   })
 }
 

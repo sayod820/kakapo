@@ -19,11 +19,16 @@ import {
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import {
+  buildDebtOrderBalances,
   debtBalanceDeltaForHistoryChange,
   debtHistoryTotals,
+  debtOrderIdsMatch,
+  debtStatusForSale,
+  ensureDebtHistoryOrderId,
   isManualDebtHistoryEntry,
   loadDebtHistory,
   recordStoreDebtCharge,
+  recordStoreDebtRepayment,
   removeDebtHistoryEntry,
   subscribeDebtHistory,
   updateDebtHistoryEntry,
@@ -205,6 +210,7 @@ function buildFeed(
   manual: DebtHistoryEntry[],
   posSales: PosDebtSale[],
   residualCash = 0,
+  checkPays: DebtHistoryEntry[] = [],
 ): FeedRow[] {
   const rows: FeedRow[] = [
     ...manual.map(row => {
@@ -220,6 +226,16 @@ function buildFeed(
         editable: row,
       }
     }),
+    ...checkPays.map(row => ({
+      key: `cp-${row.id}`,
+      ts: Number(row.ts) || 0,
+      dateLabel: `${row.date}${row.time ? ` · ${row.time}` : ''}`,
+      kind: 'pay' as const,
+      title: 'Оплата',
+      desc: row.desc || 'Погашение чека',
+      amount: -Math.abs(Number(row.amount) || 0),
+      saleId: row.orderId?.replace(/^sale-/, '') || undefined,
+    })),
     ...posSales.map(s => ({
       key: `p-${s.id}`,
       ts: Date.parse(s.dateIso) || 0,
@@ -278,6 +294,7 @@ export default function DebtsModule({
   const [histTick, setHistTick] = useState(0)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
+  const [saleRepay, setSaleRepay] = useState<{ amount: string; saving: boolean } | null>(null)
 
   const refreshAll = useCallback(async () => {
     await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
@@ -335,6 +352,7 @@ export default function DebtsModule({
     const manual = history.filter(isManualDebtHistoryEntry)
     const cash = manual.filter(r => r.type === 'debt')
     const pays = manual.filter(r => r.type === 'pay')
+    const checkPays = history.filter(r => r.type === 'pay' && r.orderId && !isManualDebtHistoryEntry(r))
     const posSales = posDebtSalesFor(detailClient, sales)
     const manualTotals = debtHistoryTotals(manual)
     const posSum = Math.round(posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
@@ -344,11 +362,16 @@ export default function DebtsModule({
     const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
     // Кусок на карте без строки в истории — показать как наличные
     const residualCash = Math.max(0, Math.round((cashOnCard - manualNet) * 100) / 100)
-    const feed = buildFeed(manual, posSales, residualCash)
+    const feed = buildFeed(manual, posSales, residualCash, checkPays)
+    const saleStatus = Object.fromEntries(
+      posSales.map(s => [s.id, debtStatusForSale(history, s)]),
+    )
     return {
+      history,
       manual,
       cash,
       pays,
+      checkPays,
       posSales,
       manualTotals,
       posSum,
@@ -356,6 +379,7 @@ export default function DebtsModule({
       residualCash,
       feed,
       historyFeed: withRunningBalance(feed),
+      saleStatus,
     }
   }, [detailClient, histTick, sales])
 
@@ -366,6 +390,73 @@ export default function DebtsModule({
     setHistMsg('')
     setHistEdit(null)
     setSaleDetailId(null)
+    setSaleRepay(null)
+  }
+
+  function openSaleDetail(saleId: string) {
+    setSaleDetailId(saleId)
+    const st = detailData?.saleStatus[saleId]
+    const cardDebt = Math.max(0, Number(detailClient?.debt) || 0)
+    const remain = Math.min(st?.remain ?? 0, cardDebt)
+    setSaleRepay(remain > 0.001 ? { amount: String(remain), saving: false } : null)
+  }
+
+  async function submitSaleRepay() {
+    if (!detailClient?.phone || !saleDetailId || !saleRepay || !detailData) return
+    const s = detailData.posSales.find(x => x.id === saleDetailId)
+    if (!s) return
+    const st = detailData.saleStatus[s.id]
+    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    const maxPay = Math.min(st?.remain ?? 0, cardDebt)
+    const amount = Math.round(Math.min(Number(saleRepay.amount) || 0, maxPay) * 100) / 100
+    if (!(amount > 0.001)) {
+      setHistMsg('Укажите сумму погашения')
+      return
+    }
+    if (!(maxPay > 0.001)) {
+      setHistMsg('По этому чеку погашать нечего')
+      return
+    }
+    // Привязка к записи долга в истории (orderId чека или найденный долг)
+    const keys = [s.id, s.orderId, s.id ? `sale-${s.id}` : '', s.orderId ? `sale-${s.orderId}` : '']
+      .map(k => String(k || '').trim())
+      .filter(Boolean)
+    const { unpaid } = buildDebtOrderBalances(detailData.history)
+    const linked = unpaid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))
+      || unpaid.find(d =>
+        Math.abs(Math.abs(Number(d.amount) || 0) - Number(s.debtAdded)) < 0.02
+        && Math.abs((d.ts || 0) - (Date.parse(s.dateIso) || 0)) < 10 * 60 * 1000,
+      )
+    const linkOrderId = linked?.orderId || s.orderId || s.id
+    if (linked && !linked.orderId) {
+      ensureDebtHistoryOrderId(detailClient.phone, linked.id, linkOrderId)
+    }
+
+    setSaleRepay(prev => prev ? { ...prev, saving: true } : prev)
+    setHistMsg('')
+    try {
+      await adjustClientDebtSafe(detailClient, {
+        action: 'repay',
+        amount,
+        skipDebtHistory: true,
+      })
+      recordStoreDebtRepayment(detailClient.phone, amount, {
+        desc: `Погашение · ${saleLabel(s)}`,
+        orderId: linkOrderId,
+        source: 'manual',
+      })
+      const nextRemain = Math.round((maxPay - amount) * 100) / 100
+      setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)}`)
+      await refreshAll()
+      if (nextRemain > 0.001) {
+        setSaleRepay({ amount: String(nextRemain), saving: false })
+      } else {
+        setSaleRepay(null)
+      }
+    } catch (e) {
+      setSaleRepay(prev => prev ? { ...prev, saving: false } : prev)
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
+    }
   }
 
   function openAdd(action: 'repay' | 'add') {
@@ -870,7 +961,7 @@ export default function DebtsModule({
                             return (
                               <tr
                                 key={row.key}
-                                onClick={() => clickable && setSaleDetailId(row.saleId!)}
+                                onClick={() => clickable && openSaleDetail(row.saleId!)}
                                 style={{ cursor: clickable ? 'pointer' : undefined }}
                                 title={clickable ? 'Открыть детали заказа' : undefined}
                               >
@@ -909,41 +1000,57 @@ export default function DebtsModule({
                     </div>
                   ) : (
                     <div style={{ display: 'grid', gap: 6 }}>
-                      {detailData.posSales.map(s => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setSaleDetailId(s.id)}
-                          style={{
-                            padding: '8px 10px', borderRadius: 8, textAlign: 'left',
-                            background: 'var(--card2)', border: '1px solid var(--border)',
-                            color: 'inherit', fontFamily: 'inherit', cursor: 'pointer', width: '100%',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 800, fontSize: 13 }}>
-                                {saleLabel(s)}
-                                <span className="k-badge" style={{ marginLeft: 6, fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
-                                  {paymentMethodLabel(s.paymentMethod, s.partial)}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                                {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
-                              </div>
-                              {s.items.length > 0 && (
-                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {s.items.map(i => i.name).join(', ')}
+                      {detailData.posSales.map(s => {
+                        const st = detailData.saleStatus[s.id]
+                        const statusLabel = st?.status === 'paid'
+                          ? 'погашен'
+                          : st?.status === 'partial'
+                            ? `остаток ${fmtMoney(st.remain)}`
+                            : `к оплате ${fmtMoney(st?.remain ?? s.debtAdded)}`
+                        const statusColor = st?.status === 'paid'
+                          ? 'var(--green)'
+                          : st?.status === 'partial'
+                            ? 'var(--gold)'
+                            : 'var(--blue)'
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => openSaleDetail(s.id)}
+                            style={{
+                              padding: '8px 10px', borderRadius: 8, textAlign: 'left',
+                              background: 'var(--card2)', border: '1px solid var(--border)',
+                              color: 'inherit', fontFamily: 'inherit', cursor: 'pointer', width: '100%',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 800, fontSize: 13 }}>
+                                  {saleLabel(s)}
+                                  <span className="k-badge" style={{ marginLeft: 6, fontSize: 10, background: '#1a241c', color: 'var(--muted)' }}>
+                                    {paymentMethodLabel(s.paymentMethod, s.partial)}
+                                  </span>
                                 </div>
-                              )}
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                                  {s.dateIso ? fmtDateTime(s.dateIso) : '—'} · {s.itemsCount} поз.
+                                  <span style={{ color: statusColor, fontWeight: 700 }}> · {statusLabel}</span>
+                                </div>
+                                {s.items.length > 0 && (
+                                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {s.items.map(i => i.name).join(', ')}
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{ fontWeight: 900, fontSize: 13, color: statusColor }}>
+                                  {st?.status === 'paid' ? '✓' : `+${fmtMoney(st?.remain ?? s.debtAdded)}`}
+                                </div>
+                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
+                              </div>
                             </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--blue)' }}>+{fmtMoney(s.debtAdded)}</div>
-                              <div style={{ fontSize: 10, color: 'var(--muted)' }}>чек {fmtMoney(s.total)}</div>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        )
+                      })}
                     </div>
                   )
                 )}
@@ -1048,12 +1155,16 @@ export default function DebtsModule({
       {saleDetailId && detailData && (() => {
         const s = detailData.posSales.find(x => x.id === saleDetailId)
         if (!s) return null
+        const st = detailData.saleStatus[s.id] || { status: 'open' as const, paid: 0, remain: s.debtAdded }
+        const cardDebt = Math.max(0, Number(detailClient?.debt) || 0)
+        const maxPay = Math.min(st.remain, cardDebt)
+        const canRepay = maxPay > 0.001
         return (
-          <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => setSaleDetailId(null)}>
+          <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => { setSaleDetailId(null); setSaleRepay(null) }}>
             <div className="k-modal" onClick={e => e.stopPropagation()} style={{ width: 480, maxWidth: '100%' }}>
               <div className="k-modal-h">
                 <b>{saleLabel(s)}</b>
-                <button type="button" onClick={() => setSaleDetailId(null)}>✕</button>
+                <button type="button" onClick={() => { setSaleDetailId(null); setSaleRepay(null) }}>✕</button>
               </div>
               <div className="k-modal-b" style={{ padding: 14 }}>
                 <div style={{ display: 'grid', gap: 6, fontSize: 13, marginBottom: 12 }}>
@@ -1126,7 +1237,7 @@ export default function DebtsModule({
                   </div>
                   {(s.paidCash > 0 || s.paidCard > 0) && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--muted)' }}>Оплачено</span>
+                      <span style={{ color: 'var(--muted)' }}>Оплачено при продаже</span>
                       <span style={{ fontWeight: 700 }}>
                         {s.paidCash > 0 ? `нал. ${fmtMoney(s.paidCash)}` : ''}
                         {s.paidCash > 0 && s.paidCard > 0 ? ' + ' : ''}
@@ -1138,7 +1249,79 @@ export default function DebtsModule({
                     <span style={{ color: 'var(--muted)' }}>В долг</span>
                     <span style={{ fontWeight: 900, color: 'var(--blue)' }}>{fmtMoney(s.debtAdded)}</span>
                   </div>
+                  {st.paid > 0.001 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--muted)' }}>Уже погашено</span>
+                      <span style={{ fontWeight: 700, color: 'var(--green)' }}>{fmtMoney(st.paid)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--muted)' }}>Остаток по чеку</span>
+                    <span style={{
+                      fontWeight: 900,
+                      color: st.status === 'paid' ? 'var(--green)' : 'var(--gold)',
+                    }}>
+                      {st.status === 'paid' ? 'Погашен' : fmtMoney(st.remain)}
+                    </span>
+                  </div>
                 </div>
+
+                {canRepay ? (
+                  <div style={{
+                    marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)',
+                    display: 'grid', gap: 8,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                      Погасить этот чек
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                      <input
+                        className="k-input"
+                        inputMode="decimal"
+                        value={saleRepay?.amount ?? String(maxPay)}
+                        onChange={e => setSaleRepay({
+                          amount: sanitizeDecimalInput(e.target.value),
+                          saving: false,
+                        })}
+                        placeholder={String(maxPay)}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="k-btn k-btn-g"
+                        disabled={!!saleRepay?.saving}
+                        onClick={() => void submitSaleRepay()}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        {saleRepay?.saving ? '…' : 'Погасить'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      Макс. {fmtMoney(maxPay)} · спишется только с этого чека
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {[maxPay, Math.round(maxPay / 2 * 100) / 100].filter((v, i, a) => v > 0.001 && a.indexOf(v) === i).map(v => (
+                        <button
+                          key={v}
+                          type="button"
+                          className="k-btn"
+                          style={{ fontSize: 11, minHeight: 0, padding: '4px 10px' }}
+                          onClick={() => setSaleRepay({ amount: String(v), saving: false })}
+                        >
+                          {fmtMoney(v)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : st.status === 'paid' ? (
+                  <div style={{
+                    marginTop: 14, padding: '10px 12px', borderRadius: 8,
+                    background: 'rgba(34, 160, 90, 0.12)', color: 'var(--green)',
+                    fontWeight: 700, fontSize: 13, textAlign: 'center',
+                  }}>
+                    Чек полностью погашен
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
