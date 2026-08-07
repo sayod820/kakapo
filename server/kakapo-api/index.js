@@ -2,7 +2,16 @@ import express from 'express'
 import cors from 'cors'
 import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
-import { loadDb, scheduleSaveDb, flushDb, getDbStats, DATA_DIR } from './db.js'
+import {
+  loadDb,
+  scheduleSaveDb,
+  flushDb,
+  flushDbAsync,
+  shutdownDb,
+  initDb,
+  getDbStats,
+  DATA_DIR,
+} from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
@@ -190,6 +199,8 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
+
+await initDb()
 const db = seedIfEmpty()
 ensurePosCollections(db)
 ensureAuditLog(db)
@@ -795,12 +806,14 @@ app.get('/health', (_req, res) => {
     service: 'kakapo-api',
     version: '2.16-admin-orders-delete',
     loyaltyVip: true,
+    engine: stats.engine,
     dataDir: stats.dataDir,
     dbFile: stats.path,
     persistentDisk: persistent,
     clients: stats.clients,
     orders: stats.orders,
     cards: stats.cards,
+    products: stats.products,
     warning: process.env.NODE_ENV === 'production' && !persistent
       ? 'Подключите постоянный диск (DATA_DIR=/data) — иначе клиенты удаляются при каждом деплое'
       : undefined,
@@ -4774,7 +4787,7 @@ app.get('/admin/dashboard', (_req, res) => {
  * Остаются: сотрудники, клиенты, карты, настройки, вход админа.
  * Body: { confirm: "ОЧИСТИТЬ", currentPassword: "..." }
  */
-app.post('/admin/reset-operational', (req, res) => {
+app.post('/admin/reset-operational', async (req, res) => {
   const body = req.body || {}
   const confirm = String(body.confirm || '').trim()
   if (confirm !== 'ОЧИСТИТЬ') {
@@ -4804,7 +4817,7 @@ app.post('/admin/reset-operational', (req, res) => {
   } catch { /* ignore */ }
 
   const result = resetOperationalData(db, { reseedCategories: true })
-  flushDb()
+  await flushDbAsync()
 
   try {
     broadcastProduct({ reason: 'reset-operational', deleted: true, ids: [] })
@@ -4864,21 +4877,26 @@ const wsHeartbeat = setInterval(() => {
 }, WS_HEARTBEAT_MS)
 wsHeartbeat.unref()
 
-function shutdown(signal) {
+async function shutdown(signal) {
   console.error(`[shutdown] ${signal}`)
-  flushDb()
+  try {
+    await flushDbAsync()
+    await shutdownDb()
+  } catch (e) {
+    console.error('[shutdown] flush', e?.message || e)
+  }
   httpServer.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 5000).unref()
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'))
-process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => { void shutdown('SIGINT') })
+process.on('SIGTERM', () => { void shutdown('SIGTERM') })
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason)
 })
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err)
-  flushDb()
+  void flushDbAsync()
 })
 
 httpServer.on('upgrade', (req, socket, head) => {
@@ -4899,12 +4917,16 @@ httpServer.on('upgrade', (req, socket, head) => {
 httpServer.listen(PORT, '0.0.0.0', () => {
   const stats = getDbStats()
   console.log(`\n✅ КАКАПО Backend: http://0.0.0.0:${PORT}`)
+  console.log(`   Движок БД: ${stats.engine}`)
   console.log(`   База: ${stats.path}`)
   console.log(`   DATA_DIR: ${stats.dataDir} | persistent: ${stats.persistent ? 'yes' : 'NO'}`)
-  console.log(`   Записей: клиентов ${stats.clients}, заказов ${stats.orders}, карт ${stats.cards}`)
-  if (process.env.NODE_ENV === 'production' && !stats.persistent) {
+  console.log(`   Записей: клиентов ${stats.clients}, заказов ${stats.orders}, карт ${stats.cards}, товаров ${stats.products}`)
+  if (process.env.NODE_ENV === 'production' && stats.engine === 'json' && !stats.persistent) {
     console.error('\n⚠️  ВНИМАНИЕ: DATA_DIR не на постоянном диске — база может обнуляться при деплое!')
     console.error('   Hetzner/Docker: volume kakapo-data → /data (DATA_DIR=/data)\n')
+  }
+  if (process.env.NODE_ENV === 'production' && stats.engine !== 'postgres') {
+    console.error('\n⚠️  ВНИМАНИЕ: production без PostgreSQL (DATABASE_URL). Задайте DATABASE_URL.\n')
   }
   console.log(`   Health: http://0.0.0.0:${PORT}/health`)
   console.log(`   Updates: http://0.0.0.0:${PORT}/updates/kassa  (${UPDATES_KASSA_DIR})`)

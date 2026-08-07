@@ -1,37 +1,43 @@
-version: "3.9"
+# Локальный стек API + PostgreSQL (разработка)
+#   cd server/kakapo-api
+#   docker compose up -d postgres
+#   DATABASE_URL=postgresql://kakapo:kakapo@127.0.0.1:5432/kakapo npm run migrate:json-to-pg
+#   DATABASE_URL=postgresql://kakapo:kakapo@127.0.0.1:5432/kakapo npm run dev
 
 services:
-  db:
+  postgres:
     image: postgres:16-alpine
+    container_name: kakapo-api-postgres
     environment:
       POSTGRES_USER: kakapo
       POSTGRES_PASSWORD: kakapo
       POSTGRES_DB: kakapo
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - kakapo_api_pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kakapo"]
+      test: ["CMD-SHELL", "pg_isready -U kakapo -d kakapo"]
       interval: 5s
       timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+      retries: 10
 
   api:
     build: .
+    container_name: kakapo-api-dev
     environment:
-      DATABASE_URL: postgresql+asyncpg://kakapo:kakapo@db:5432/kakapo
-      DEBUG: "false"
+      PORT: "8000"
+      NODE_ENV: production
+      DATA_DIR: /data
+      DATABASE_URL: postgresql://kakapo:kakapo@postgres:5432/kakapo
+    volumes:
+      - kakapo_api_data:/data
     ports:
       - "8000:8000"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
 
 volumes:
-  pgdata:
+  kakapo_api_pgdata:
+  kakapo_api_data:

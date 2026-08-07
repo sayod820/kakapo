@@ -5,6 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY *.js ./
+COPY pg ./pg
 
 RUN mkdir -p /data
 ENV DATA_DIR=/data

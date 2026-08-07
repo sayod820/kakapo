@@ -1,14 +1,14 @@
-# KAKAPO API v2.2 — Node.js backend
+# KAKAPO API — Node.js backend
 
-**Express + JSON-хранилище · WebSocket · деплой на Hetzner (Docker Compose)**
+**Express + PostgreSQL (JSONB) · fallback JSON · WebSocket · Hetzner Docker Compose**
 
-Полный перенос функций из локального `kakapo/server` (уведомления, push, finance, couriers, payouts, deliveryFeeLocked).
+## Хранилище
 
-## Деплой
+- **Production:** `DATABASE_URL` → PostgreSQL (`docs` + `kv_meta`). In-memory кэш как раньше; `persist()` пишет в PG.
+- **Dev без Postgres:** без `DATABASE_URL` → `DATA_DIR/kakapo.json` (откат / локалка).
+- При первом старте с пустым PG, если есть `/data/kakapo.json`, данные **импортируются автоматически**.
 
-Этот сервис — часть общего Hetzner docker-compose стека, описанного в [`deploy/hetzner/README.md`](../../deploy/hetzner/README.md). Отдельно не деплоится: `docker-compose.yml` в корне репозитория собирает его из `server/kakapo-api` (сервис `api`, порт 8000) и монтирует volume `kakapo-data` в `/data` для персистентного хранения `kakapo.json`.
-
-## Локально
+## Локально (JSON)
 
 ```bash
 npm install
@@ -16,18 +16,56 @@ npm run dev
 # → http://localhost:8000/health
 ```
 
+## Локально (PostgreSQL)
+
+```bash
+docker compose up -d postgres
+npm install
+set DATABASE_URL=postgresql://kakapo:kakapo@127.0.0.1:5432/kakapo
+npm run migrate:json-to-pg
+npm run dev
+```
+
+PowerShell:
+
+```powershell
+$env:DATABASE_URL="postgresql://kakapo:kakapo@127.0.0.1:5432/kakapo"
+npm run migrate:json-to-pg
+npm run dev
+```
+
+### Скрипты
+
+| Команда | Назначение |
+|---------|------------|
+| `npm run migrate:json-to-pg` | `kakapo.json` → Postgres (+ `.bak-…`) |
+| `npm run export:pg-to-json` | Postgres → JSON (откат) |
+
+Повторная заливка: `MIGRATE_FORCE=1` или `--force`.
+
 ## Структура
 
 ```
 kakapo-api/
-├── index.js           # Express + WebSocket
-├── db.js              # JSON persistence (DATA_DIR)
-├── seed.js            # демо-данные
-├── ordersLogic.js
-├── restaurantStats.js
-├── deliveryFee.js
+├── index.js              # Express + WebSocket
+├── db.js                 # load/save (JSON или Postgres)
+├── pg/
+│   ├── schema.sql
+│   ├── client.js
+│   └── store.js
+├── migrateJsonToPg.js
+├── exportPgToJson.js
+├── seed.js
 └── Dockerfile
 ```
+
+## Health
+
+`GET /health` → `engine: "postgres" | "json"`, counts products/clients/…
+
+## Деплой
+
+Часть стека [`deploy/hetzner`](../../deploy/hetzner/README.md). Volume `kakapo-data` — uploads + JSON-бэкап; `kakapo-pgdata` — PostgreSQL.
 
 ## Демо-доступы
 

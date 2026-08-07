@@ -4,7 +4,7 @@
  */
 import { copyFileSync, existsSync } from 'fs'
 import { replaceCategoriesFromSeed } from './marketCategoriesSeed.js'
-import { getDbFilePath } from './db.js'
+import { backupDatabaseSnapshot, getDbFilePath } from './db.js'
 
 /** Коллекции, которые стираем */
 export const OPERATIONAL_CLEARED_KEYS = [
@@ -72,8 +72,12 @@ export function resetOperationalData(db, opts = {}) {
   }
 }
 
-/** Резервная копия kakapo.json рядом с файлом БД */
+/** Резервная копия снимка БД (JSON-файл в DATA_DIR; работает и для Postgres). */
 export function backupDatabaseFile() {
+  try {
+    const snap = backupDatabaseSnapshot()
+    if (snap) return snap
+  } catch { /* fall through */ }
   const file = getDbFilePath()
   if (!existsSync(file)) return null
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')

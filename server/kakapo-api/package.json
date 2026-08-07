@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "migrate:json-to-pg": "node migrateJsonToPg.js",
+    "export:pg-to-json": "node exportPgToJson.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^2.2.0",
+    "pg": "^8.16.3",
     "sharp": "^0.33.5",
     "ws": "^8.18.0"
   },

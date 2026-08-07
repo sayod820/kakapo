@@ -1,18 +1,41 @@
-# КАКАПО на одном сервере Hetzner: API + Next.js + nginx
+# КАКАПО на одном сервере Hetzner: API + Next.js + nginx + PostgreSQL
 # Запуск из корня репозитория:
 #   docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.env up -d --build
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kakapo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kakapo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kakapo}
+      POSTGRES_DB: ${POSTGRES_DB:-kakapo}
+    volumes:
+      - kakapo-pgdata:/var/lib/postgresql/data
+    networks:
+      - kakapo-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kakapo} -d ${POSTGRES_DB:-kakapo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: ../../server/kakapo-api
       dockerfile: Dockerfile
     container_name: kakapo-api
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       PORT: "8000"
       NODE_ENV: production
       DATA_DIR: /data
+      DATABASE_URL: ${DATABASE_URL:-postgresql://kakapo:kakapo@postgres:5432/kakapo}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
@@ -25,7 +48,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 40s
 
   web:
     build:
@@ -90,6 +113,8 @@ services:
 volumes:
   kakapo-data:
     name: kakapo-data
+  kakapo-pgdata:
+    name: kakapo-pgdata
   certbot-www:
   certbot-certs:
 

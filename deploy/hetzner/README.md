@@ -2,7 +2,8 @@
 
 Всё на **одном VPS**: API, Next.js (магазин, админка, курьер, ресторан, сборщик), nginx, SSL.
 
-Данные клиентов и бонусов хранятся в Docker volume `kakapo-data` — **не стираются** при обновлении.
+Данные клиентов и бонусов хранятся в **PostgreSQL** (volume `kakapo-pgdata`).  
+Фото и служебные файлы — в volume `kakapo-data` (`/data`). Старый `kakapo.json` используется как бэкап/импорт при первом запуске.
 
 ---
 
@@ -53,6 +54,8 @@ PUBLIC_URL=https://kakappo.shop
 WS_URL=wss://kakappo.shop
 CORS_ORIGINS=https://kakappo.shop,https://www.kakappo.shop
 CERTBOT_EMAIL=admin@kakappo.shop
+POSTGRES_PASSWORD=смените_пароль
+DATABASE_URL=postgresql://kakapo:смените_пароль@postgres:5432/kakapo
 ```
 
 Первичная установка (Docker, firewall, запуск):
@@ -116,7 +119,7 @@ git pull
 bash deploy/hetzner/deploy.sh
 ```
 
-База `kakapo.json` в volume **сохраняется**.
+База PostgreSQL в volume **сохраняется**. См. также [POSTGRES_CUTOVER.md](./POSTGRES_CUTOVER.md).
 
 ---
 
@@ -128,12 +131,15 @@ bash deploy/hetzner/deploy.sh
 0 3 * * * /opt/kakapo/deploy/hetzner/backup.sh /var/backups/kakapo
 ```
 
-Восстановление:
+Скрипт пишет `kakapo-pg-*.sql.gz` (pg_dump) и JSON-снимок при возможности.
+
+Восстановление Postgres:
 
 ```bash
-gunzip -c /var/backups/kakapo/kakapo-ДАТА.json.gz | \
-  docker compose -f deploy/hetzner/docker-compose.yml exec -T api tee /data/kakapo.json
-docker compose -f deploy/hetzner/docker-compose.yml restart api
+gunzip -c /var/backups/kakapo/kakapo-pg-ДАТА.sql.gz | \
+  docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.env \
+  exec -T postgres psql -U kakapo -d kakapo
+docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.env restart api
 ```
 
 ---
@@ -146,7 +152,8 @@ docker compose -f deploy/hetzner/docker-compose.yml restart api
             ├─ /api/*   → Next.js proxy → api:8000
             └─ /ws/*    → api:8000 (WebSocket)
 
-api:8000 → volume kakapo-data:/data/kakapo.json
+api:8000 → PostgreSQL (kakapo-pgdata)
+         → volume kakapo-data:/data (uploads, JSON backup)
 ```
 
 ---
@@ -155,7 +162,8 @@ api:8000 → volume kakapo-data:/data/kakapo.json
 
 | Переменная | Где | Назначение |
 |------------|-----|------------|
-| `DATA_DIR=/data` | API | Постоянная база |
+| `DATABASE_URL` | API | PostgreSQL (обязательно в production) |
+| `DATA_DIR=/data` | API | Uploads + JSON backup/import |
 | `KAKAPO_BACKEND_URL=http://api:8000` | Next.js | SSR и rewrites внутри Docker |
 | `NEXT_PUBLIC_WS_URL=wss://домен` | Сборка Next | WebSocket для курьера/админки |
 | `PUBLIC_URL` | Сборка Next | Публичный URL |
@@ -164,14 +172,17 @@ api:8000 → volume kakapo-data:/data/kakapo.json
 
 ## Проблемы
 
+**`/health` → `engine: "json"` на проде**  
+Задайте `DATABASE_URL` и поднимите сервис `postgres`.
+
 **`/health` → `persistent: false`**  
-Проверьте volume: `docker volume inspect kakapo-data`
+Проверьте volume: `docker volume inspect kakapo-data` / `kakapo-pgdata`
 
 **WebSocket не подключается**  
 В `.env` должен быть `WS_URL=wss://ваш-домен` и выполнен `deploy.sh` после смены.
 
 **502 Bad Gateway**  
-`docker compose -f deploy/hetzner/docker-compose.yml logs web api nginx`
+`docker compose -f deploy/hetzner/docker-compose.yml logs web api nginx postgres`
 
 ---
 
@@ -185,3 +196,4 @@ docker compose -f deploy/hetzner/docker-compose.yml --env-file deploy/hetzner/.e
 ```
 
 Откройте http://localhost/
+
