@@ -41,6 +41,7 @@ import { usePosStore } from '@/lib/posStore'
 import { useOrders } from '@/lib/store'
 import type { PosSale } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import OfflineNotice from './OfflineNotice'
 
 type EnrichedClient = AdminClient & { lastLabel?: string }
 type ListFilter = 'all' | 'with_debt' | 'cleared'
@@ -785,6 +786,7 @@ export default function DebtsModule({
 
   return (
     <div className="k-debts-page">
+      <OfflineNotice section="долги" />
       {apiError && (
         <div style={{
           marginBottom: 8, padding: '8px 10px', borderRadius: 8, fontSize: 12, flexShrink: 0,

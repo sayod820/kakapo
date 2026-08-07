@@ -1,17 +1,17 @@
 /**
  * Offline V2 — полный офлайн Trade (SQLite + автосинк).
  *
- * Режим (по умолчанию выключен — касса работает как сейчас):
+ * Режим:
  * - off     — ничего не делаем
  * - shadow  — только теневая запись в SQLite (касса не меняется)
  * - on      — полный офлайн: товары, категории, клиенты, поставщики, финансы, долги
  *
- * Включить:
- *   localStorage.setItem('kakapo-offline-v2', 'shadow')  // только зеркало
- *   localStorage.setItem('kakapo-offline-v2', 'on')      // полный офлайн разделов
- * Выключить:
- *   localStorage.setItem('kakapo-offline-v2', 'off')
- * или удалить ключ.
+ * По умолчанию:
+ * - Desktop KAKAPO Касса → on
+ * - Браузер → off
+ *
+ * Явно задать:
+ *   localStorage.setItem('kakapo-offline-v2', 'shadow' | 'on' | 'off')
  */
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 
@@ -35,7 +35,9 @@ export function getOfflineV2Mode(): OfflineV2Mode {
     const raw = String(localStorage.getItem(LS_KEY) || '').trim().toLowerCase()
     if (raw === 'shadow' || raw === 'on' || raw === 'off') return raw
   } catch { /* ignore */ }
-  return 'off'
+  // Desktop: полный офлайн по умолчанию (SQLite + очередь).
+  // Браузер: выкл — без локальной SQLite.
+  return isKakapoDesktop() ? 'on' : 'off'
 }
 
 export function setOfflineV2Mode(mode: OfflineV2Mode) {

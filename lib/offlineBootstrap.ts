@@ -9,6 +9,7 @@ import { api } from './api'
 
 const STEPS: { id: BootstrapStepId; label: string }[] = [
   { id: 'products', label: 'Товары и остатки' },
+  { id: 'categories', label: 'Категории' },
   { id: 'pos', label: 'Кассы, смены, сотрудники' },
   { id: 'clients', label: 'Клиенты' },
   { id: 'cards', label: 'Карты лояльности' },
@@ -93,6 +94,7 @@ export async function sealEmployeePasswordsForOffline(
 
 export type BootstrapStepId =
   | 'products'
+  | 'categories'
   | 'pos'
   | 'clients'
   | 'cards'
@@ -211,17 +213,29 @@ export async function runLocalBootstrap(
     await withRetries('products', () => useProducts.getState().fetchProducts())
     report(1, 'products', STEPS[0].label)
 
-    report(1, 'pos', STEPS[1].label)
+    report(1, 'categories', STEPS[1].label)
+    await withRetries('categories', async () => {
+      const { api } = await import('./api')
+      const { applyCategoriesLocal } = await import('./useCategories')
+      const { cacheCategories } = await import('./offline')
+      const data = await api.getCategories()
+      const list = Array.isArray(data) ? data : []
+      applyCategoriesLocal(list)
+      await cacheCategories(list)
+    })
+    report(2, 'categories', STEPS[1].label)
+
+    report(2, 'pos', STEPS[2].label)
     await withRetries('pos', () => syncPosFromApi())
-    report(2, 'pos', STEPS[1].label)
+    report(3, 'pos', STEPS[2].label)
 
-    report(2, 'clients', STEPS[2].label)
+    report(3, 'clients', STEPS[3].label)
     await withRetries('clients', () => syncClientsFromApi())
-    report(3, 'clients', STEPS[2].label)
+    report(4, 'clients', STEPS[3].label)
 
-    report(3, 'cards', STEPS[3].label)
+    report(4, 'cards', STEPS[4].label)
     await withRetries('cards', () => syncCardsFromApi())
-    report(4, 'cards', STEPS[3].label)
+    report(5, 'cards', STEPS[4].label)
 
     // Сотрудники с паролями — обязательно до экрана логина
     try {
@@ -237,7 +251,7 @@ export async function runLocalBootstrap(
           roleLabel: d.roleLabel,
         }))
       } catch { /* ignore */ }
-      report(4, 'pos', 'Пароли сотрудников')
+      report(5, 'pos', 'Пароли сотрудников')
       return {
         ok: false,
         error: 'Данные загружены. Введите пароли сотрудников — сохраним на ПК, затем откроется вход.',
@@ -284,6 +298,17 @@ export async function silentSyncFromServer(): Promise<void> {
     syncClientsFromApi(),
     syncCardsFromApi(),
     cacheEmployeesForOfflineLogin(),
+    (async () => {
+      try {
+        const { api } = await import('./api')
+        const { applyCategoriesLocal } = await import('./useCategories')
+        const { cacheCategories } = await import('./offline')
+        const data = await api.getCategories()
+        const list = Array.isArray(data) ? data : []
+        applyCategoriesLocal(list)
+        await cacheCategories(list)
+      } catch { /* ignore */ }
+    })(),
   ])
   await markLocalSyncAt()
 }

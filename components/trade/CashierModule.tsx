@@ -61,7 +61,7 @@ import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { getOfflineV2Mode, isOfflineV2Full, setOfflineV2Mode } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierCritical } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -6592,19 +6592,17 @@ export default function CashierModule({
 
                 <div className="pos-settings-card">
                   <h3>Офлайн Trade (V2)</h3>
-                  <p className="hint">По умолчанию выкл. «Полный» — склад, клиенты, бонусы и кошелёк без сети (карта терминала всё равно только онлайн).</p>
+                  <p className="hint">
+                    На desktop по умолчанию «Полный»: товары, склад, клиенты, долги, поставщики и финансы без сети.
+                    Карта терминала — только онлайн. В браузере по умолчанию выкл.
+                  </p>
                   <div className="pos-settings-row-btns" style={{ flexWrap: 'wrap', gap: 8 }}>
                     {([
                       { id: 'off' as const, label: 'Выкл' },
                       { id: 'shadow' as const, label: 'Тень' },
                       { id: 'on' as const, label: 'Полный' },
                     ]).map(opt => {
-                      const cur = (() => {
-                        try {
-                          const raw = String(localStorage.getItem('kakapo-offline-v2') || '').trim().toLowerCase()
-                          return raw === 'shadow' || raw === 'on' ? raw : 'off'
-                        } catch { return 'off' }
-                      })()
+                      const cur = getOfflineV2Mode()
                       const on = cur === opt.id
                       return (
                         <button
@@ -6613,9 +6611,7 @@ export default function CashierModule({
                           className="btn-switch-till"
                           style={on ? { borderColor: 'var(--green, #2a7a3a)', fontWeight: 800 } : undefined}
                           onClick={() => {
-                            try {
-                              localStorage.setItem('kakapo-offline-v2', opt.id)
-                            } catch { /* ignore */ }
+                            setOfflineV2Mode(opt.id)
                             showToast(
                               'Офлайн V2',
                               opt.id === 'off'

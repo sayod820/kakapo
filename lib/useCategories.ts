@@ -152,6 +152,9 @@ export function applyCategoriesLocal(list: Category[]) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }
+  try {
+    void import('./offline').then(m => m.cacheCategories(list))
+  } catch { /* ignore */ }
 }
 
 /** Текущий снимок категорий из памяти/кэша */
@@ -185,6 +188,10 @@ async function fetchCategoriesShared(opts?: { force?: boolean }): Promise<Catego
         const list = Array.isArray(data) ? data : []
         // Важно: пустой список с сервера принимаем — иначе удалённые «воскресают» из seed
         setMemoryCategories(list, true)
+        try {
+          const { cacheCategories } = await import('./offline')
+          void cacheCategories(list)
+        } catch { /* ignore */ }
         return list
       }
       const seed = seedToCategories()

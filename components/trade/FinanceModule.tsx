@@ -9,6 +9,11 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
 import { expenseCreateSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
+import {
+  buildLocalFinanceTruth,
+  cacheFinanceTruth,
+  readCachedFinanceTruth,
+} from '@/lib/financeTruthCache'
 import OfflineNotice from './OfflineNotice'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
@@ -73,6 +78,7 @@ export default function FinanceModule() {
   const [msg, setMsg] = useState('')
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthError, setTruthError] = useState('')
+  const [truthLocal, setTruthLocal] = useState(false)
 
   const [expOpen, setExpOpen] = useState(false)
   const [expCat, setExpCat] = useState('Прочее')
@@ -159,15 +165,37 @@ export default function FinanceModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    if (!USE_API) return
+    if (!USE_API) {
+      const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
+      setTruth(local)
+      setTruthLocal(true)
+      setTruthError('')
+      return
+    }
     setTruthError('')
     try {
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
+      setTruthLocal(false)
+      void cacheFinanceTruth(apiQuery, data)
     } catch (e) {
-      setTruthError(e instanceof Error ? e.message : 'Не удалось загрузить финансы из БД')
+      const cached = await readCachedFinanceTruth(apiQuery)
+      if (cached) {
+        setTruth(cached)
+        setTruthLocal(true)
+        setTruthError('Нет связи — показаны локальные данные · синк при подключении')
+        return
+      }
+      const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
+      setTruth(local)
+      setTruthLocal(true)
+      setTruthError(
+        e instanceof Error
+          ? `${e.message} · показан локальный расчёт`
+          : 'Показан локальный расчёт без сети',
+      )
     }
-  }, [apiQuery])
+  }, [apiQuery, shifts, financeMoves, expenses, sales])
 
   useEffect(() => {
     if (!apiReady || !USE_API) return
@@ -279,7 +307,11 @@ export default function FinanceModule() {
       <div className="k-page-h">
         <div>
           <h1>💰 Финансы</h1>
-          <div className="sub">Все суммы считаются на сервере из БД · касса, журнал, прибыль</div>
+          <div className="sub">
+            {truthLocal
+              ? 'Данные локальные · обновятся при связи'
+              : 'Все суммы считаются на сервере из БД · касса, журнал, прибыль'}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button

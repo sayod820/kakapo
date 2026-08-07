@@ -243,6 +243,14 @@ export function readCachedData<T>(key: string): Promise<T | null> {
   return kvGet<T>(`data_${key}`)
 }
 
+export function cacheCategories(categories: unknown[]): Promise<void> {
+  return cacheData('categories', categories)
+}
+
+export function readCachedCategories<T = unknown>(): Promise<T[] | null> {
+  return readCachedData<T[]>('categories')
+}
+
 /** Обновить pos_snapshot из текущего Zustand (после локальных правок поставщиков/финансов) */
 export async function persistPosSnapshot(): Promise<void> {
   try {

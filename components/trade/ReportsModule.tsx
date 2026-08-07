@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { FinanceTruthBundle } from '@/lib/types'
+import {
+  buildLocalFinanceTruth,
+  cacheFinanceTruth,
+  readCachedFinanceTruth,
+} from '@/lib/financeTruthCache'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
@@ -52,6 +57,7 @@ export default function ReportsModule() {
   const writeoffs = usePosStore(s => s.writeoffs)
   const revisions = usePosStore(s => s.revisions)
   const expenses = usePosStore(s => s.expenses)
+  const financeMoves = usePosStore(s => s.financeMoves)
   const suppliers = usePosStore(s => s.suppliers)
   const expiry = usePosStore(s => s.expiry)
   const posPoints = usePosStore(s => s.posPoints)
@@ -74,6 +80,7 @@ export default function ReportsModule() {
   const [showHelp, setShowHelp] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
+  const [truthLocal, setTruthLocal] = useState(false)
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -164,13 +171,27 @@ export default function ReportsModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    if (!USE_API) return
-    try {
-      setTruth(await api.getFinanceTruth(apiQuery))
-    } catch {
-      /* UI покажет локальные цифры */
+    if (!USE_API) {
+      setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
+      setTruthLocal(true)
+      return
     }
-  }, [apiQuery])
+    try {
+      const data = await api.getFinanceTruth(apiQuery)
+      setTruth(data)
+      setTruthLocal(false)
+      void cacheFinanceTruth(apiQuery, data)
+    } catch {
+      const cached = await readCachedFinanceTruth(apiQuery)
+      if (cached) {
+        setTruth(cached)
+        setTruthLocal(true)
+        return
+      }
+      setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
+      setTruthLocal(true)
+    }
+  }, [apiQuery, shifts, financeMoves, expenses, sales])
 
   useEffect(() => {
     if (!apiReady) return
@@ -273,7 +294,11 @@ export default function ReportsModule() {
       <div className="k-page-h">
         <div>
           <h1>📊 Отчёты</h1>
-          <div className="sub">Полная отчётность по кассе, складу, поставщикам и клиентам</div>
+          <div className="sub">
+            {truthLocal
+              ? 'Локальные данные · синк при связи'
+              : 'Полная отчётность по кассе, складу, поставщикам и клиентам'}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="k-btn k-btn-s" onClick={() => setShowHelp(v => !v)}>

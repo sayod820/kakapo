@@ -24,6 +24,7 @@ export function hydrateOfflineCaches(): Promise<void> {
       hydratePos(),
       hydrateClients(),
       hydrateCards(),
+      hydrateCategories(),
     ])
   })()
   return hydrating
@@ -59,4 +60,14 @@ async function hydrateCards() {
   const { useCardStore } = await import('./cardStore')
   if (useCardStore.getState().cards.length) return
   useCardStore.setState({ cards: cached, hydrated: true, apiReady: true })
+}
+
+async function hydrateCategories() {
+  const cached = await readCachedData<import('./types').Category[]>('categories')
+  if (!cached || !cached.length) return
+  const { applyCategoriesLocal, peekCategories } = await import('./useCategories')
+  // Не затираем уже загруженные с API
+  const current = peekCategories()
+  if (current.length && current.some(c => Number(c.id) > 0)) return
+  applyCategoriesLocal(cached)
 }

@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════
 // KAKAPO — долг / лояльность офлайн (Offline V2)
 // Ручная правка долга в DebtsModule: локально + очередь.
-// Выдача новой карты без связи — недоступна.
+// Выдача новой карты без связи — локальная заглушка + очередь (см. provisionLoyaltyCardSafe).
 // ════════════════════════════════════════════════
 import { isNetworkError, NetworkError } from './api'
 import {
@@ -159,10 +159,18 @@ export async function adjustClientDebtSafe(
 
   if (!card) {
     if (isOfflineV2Full()) {
-      throw new Error('Нет карты лояльности — выдача карты нужна при связи')
+      // Офлайн: локальная карта-заглушка + очередь на сервер
+      const { provisionLoyaltyCardSafe } = await import('./offlineClientOps')
+      const provisioned = await provisionLoyaltyCardSafe(client)
+      card = findCardForClient(
+        provisioned.data,
+        useCardStore.getState().cards,
+      ) || null
+      if (!card) throw new Error('Не удалось создать карту лояльности офлайн')
+    } else {
+      const updated = await provisionLoyaltyCardForClient(client)
+      card = findCardForClient(updated, useCardStore.getState().cards) || null
     }
-    const updated = await provisionLoyaltyCardForClient(client)
-    card = findCardForClient(updated, useCardStore.getState().cards) || null
   }
   if (!card) throw new Error('Не удалось получить карту лояльности')
 

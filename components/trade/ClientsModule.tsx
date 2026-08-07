@@ -16,6 +16,7 @@ import {
   saveCardLoyalty,
 } from '@/lib/clientCardSync'
 import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
+import OfflineNotice from '@/components/trade/OfflineNotice'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -560,6 +561,8 @@ export default function ClientsModule() {
           <button type="button" className="k-btn k-btn-g" onClick={openNewForm}>+ Новый клиент</button>
         </div>
       </div>
+
+      <OfflineNotice section="клиенты" />
 
       {apiError && (
         <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>
