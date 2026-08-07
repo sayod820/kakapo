@@ -1017,7 +1017,7 @@ export default function CashierModule({
   const [payDebtBuf, setPayDebtBuf] = useState('')
   const [histOpen, setHistOpen] = useState(false)
   const [histView, setHistView] = useState<'profile' | 'history'>('profile')
-  const [histTab, setHistTab] = useState<'checks' | 'debts'>('checks')
+  const [histTab, setHistTab] = useState<'open' | 'pays' | 'history' | 'shop'>('open')
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
@@ -7022,7 +7022,7 @@ export default function CashierModule({
             onClick={() => {
               if (client) {
                 setHistView('profile')
-                setHistTab('checks')
+                setHistTab('shop')
                 setHistOpen(true)
                 return
               }
@@ -8742,25 +8742,30 @@ export default function CashierModule({
                   <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
                 </div>
 
-                <div className="client-kpis client-kpis-fs">
+                <div className="client-kpis client-kpis-fs debts-layout-kpis">
+                  <div className={`client-kpi ${clientDebt > 0 ? 'warn' : ''}`}>
+                    <div className="l">Товары</div>
+                    <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(histActiveDebtSum)}</div>
+                    <div className="hint">{histActiveDebts.length ? `${histActiveDebts.length} чек. к оплате` : 'Нет открытых чеков'}</div>
+                  </div>
+                  <div className="client-kpi">
+                    <div className="l">Наличные</div>
+                    <div className="v" style={{ color: 'var(--org)' }}>
+                      {fmtMoney(Math.max(0, Math.round((clientDebt - histActiveDebtSum) * 100) / 100))}
+                    </div>
+                    <div className="hint">Долг сверх чеков</div>
+                  </div>
                   <div className={`client-kpi big ${clientDebt > 0 ? 'warn' : ''}`}>
-                    <div className="l">Долг сейчас — сколько должен</div>
+                    <div className="l">Итого долг</div>
                     <div className="v" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t2)' }}>{fmtMoney(clientDebt)}</div>
-                    <div className="hint">{histActiveDebts.length ? `${histActiveDebts.length} позиций к оплате · ${fmtMoney(histActiveDebtSum)}` : 'Нет открытых позиций'}</div>
+                    <div className="hint">
+                      {debtLimit > 0 ? `доступно ${fmtMoney(availableDebt)} · лимит ${fmtMoney(debtLimit)}` : 'без лимита'}
+                    </div>
                   </div>
                   <div className="client-kpi">
                     <div className="l">⭐ Бонусы</div>
                     <div className="v" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
-                    <div className="hint">1 бонус = 1 сом</div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">Уже погашено (платежи)</div>
-                    <div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(clientProfileStats.repaid)}</div>
-                    <div className="hint">Только реальные оплаты долга</div>
-                  </div>
-                  <div className="client-kpi">
-                    <div className="l">Лимит / доступно</div>
-                    <div className="v">{debtLimit > 0 ? fmtMoney(availableDebt) : '—'}</div>
+                    <div className="hint">погашено {fmtMoney(clientProfileStats.repaid)}</div>
                   </div>
                 </div>
 
@@ -8769,7 +8774,6 @@ export default function CashierModule({
                     type="button"
                     className="action-chip ac-repay"
                     onClick={() => {
-                      setHistOpen(false)
                       if (clientDebt <= 0) { showToast('Нет долга', 'У клиента нет задолженности'); return }
                       setRepayTarget(null)
                       setRepayBuf('')
@@ -8784,7 +8788,6 @@ export default function CashierModule({
                     type="button"
                     className="action-chip ac-topup"
                     onClick={() => {
-                      setHistOpen(false)
                       setTopupBuf('')
                       setAmountPad(false)
                       setTopupOpen(true)
@@ -8796,7 +8799,7 @@ export default function CashierModule({
                     type="button"
                     className="action-chip ac-hist"
                     onClick={() => {
-                      setHistTab(histActiveDebts.length ? 'debts' : 'checks')
+                      setHistTab('history')
                       setHistView('history')
                       setHistDetail(null)
                     }}
@@ -8805,19 +8808,61 @@ export default function CashierModule({
                   </button>
                 </div>
 
+                <div className="hist-tabs" role="tablist" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={histTab === 'open'}
+                    className={`hist-tab ${histTab === 'open' ? 'on' : ''}`}
+                    onClick={() => setHistTab('open')}
+                  >
+                    Чеки
+                    <span className="n">{histActiveDebts.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={histTab === 'pays'}
+                    className={`hist-tab ${histTab === 'pays' ? 'on' : ''}`}
+                    onClick={() => setHistTab('pays')}
+                  >
+                    Оплаты
+                    <span className="n">{histRepays.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={histTab === 'history'}
+                    className={`hist-tab ${histTab === 'history' ? 'on' : ''}`}
+                    onClick={() => { setHistTab('history'); setHistView('history') }}
+                  >
+                    История
+                  </button>
+                </div>
+
                 <div className="hist-section hist-section-grow">
-                  <div className="hist-section-h">К оплате (не погашено)</div>
-                  <div className="hist-scroll profile">
-                    {!histOpenDebts.length && <div className="hist-empty">Нет долгов к оплате</div>}
-                    <div className="hist-list compact">
-                      {histOpenDebts.map(row => renderHistRow(row, { compact: true }))}
-                    </div>
-                    {histDebtsCount > 0 && (
-                      <button type="button" className="hist-more" onClick={() => { setHistTab('debts'); setHistView('history') }}>
-                        Полная история долгов ({histDebtsCount}) →
-                      </button>
-                    )}
-                  </div>
+                  {histTab === 'open' && (
+                    <>
+                      <div className="hist-section-h">К оплате (не погашено)</div>
+                      <div className="hist-scroll profile">
+                        {!histOpenDebts.length && <div className="hist-empty">Нет долгов к оплате</div>}
+                        <div className="hist-list compact">
+                          {histOpenDebts.map(row => renderHistRow(row, { compact: true }))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {histTab === 'pays' && (
+                    <>
+                      <div className="hist-section-h">Оплаты / погашения</div>
+                      <div className="hist-scroll profile">
+                        {!histRepays.length && <div className="hist-empty">Пока нет оплат</div>}
+                        <div className="hist-list compact">
+                          {histRepays.map(row => renderHistRow(row, { compact: true }))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="modal-card-actions" style={{ marginTop: 12 }}>
@@ -8839,7 +8884,7 @@ export default function CashierModule({
             ) : (
               <>
                 <div className="hist-detail-head">
-                  <button type="button" className="hist-back" onClick={() => setHistView('profile')}>← К клиенту</button>
+                  <button type="button" className="hist-back" onClick={() => { setHistView('profile'); setHistTab('open') }}>← К клиенту</button>
                   <h3>История</h3>
                   <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
                 </div>
@@ -8848,27 +8893,27 @@ export default function CashierModule({
                   <button
                     type="button"
                     role="tab"
-                    aria-selected={histTab === 'checks'}
-                    className={`hist-tab ${histTab === 'checks' ? 'on' : ''}`}
-                    onClick={() => setHistTab('checks')}
+                    aria-selected={histTab === 'history' || histTab === 'open' || histTab === 'pays'}
+                    className={`hist-tab ${(histTab === 'history' || histTab === 'open' || histTab === 'pays') ? 'on' : ''}`}
+                    onClick={() => setHistTab('history')}
                   >
-                    Оплаченные чеки
-                    <span className="n">{histChecks.length + histTopups.length}</span>
+                    Долги / оплаты
+                    <span className="n">{histActiveDebts.length + histRepays.length + histPaidDebts.length}</span>
                   </button>
                   <button
                     type="button"
                     role="tab"
-                    aria-selected={histTab === 'debts'}
-                    className={`hist-tab ${histTab === 'debts' ? 'on' : ''}`}
-                    onClick={() => setHistTab('debts')}
+                    aria-selected={histTab === 'shop'}
+                    className={`hist-tab ${histTab === 'shop' ? 'on' : ''}`}
+                    onClick={() => setHistTab('shop')}
                   >
-                    Долги
-                    <span className="n">{histActiveDebts.length + histRepays.length}</span>
+                    Оплаченные чеки
+                    <span className="n">{histChecks.length + histTopups.length}</span>
                   </button>
                 </div>
 
                 <div className="hist-scroll hist-scroll-fs">
-                  {histTab === 'checks' && (
+                  {histTab === 'shop' ? (
                     <>
                       {!histChecks.length && !histTopups.length && (
                         <div className="hist-empty">Покупок пока нет</div>
@@ -8890,9 +8935,7 @@ export default function CashierModule({
                         </div>
                       )}
                     </>
-                  )}
-
-                  {histTab === 'debts' && (
+                  ) : (
                     <>
                       {!histActiveDebts.length && !histRepays.length && !histPaidDebts.length && (
                         <div className="hist-empty">Долгов и погашений нет</div>
@@ -8928,7 +8971,7 @@ export default function CashierModule({
                 </div>
 
                 <div className="modal-card-actions" style={{ marginTop: 12 }}>
-                  <button type="button" className="btn-cancel" onClick={() => setHistView('profile')}>К клиенту</button>
+                  <button type="button" className="btn-cancel" onClick={() => { setHistView('profile'); setHistTab('open') }}>К клиенту</button>
                   <button type="button" className="btn-confirm" onClick={() => setHistOpen(false)}>Закрыть</button>
                 </div>
               </>
@@ -8937,6 +8980,7 @@ export default function CashierModule({
         </div>
       )}
 
+      {histDetail && (
       {histDetail && (
         <div className="overlay hist-detail-overlay" onClick={() => setHistDetail(null)}>
           <div className="modal-card hist-detail-card" onClick={e => e.stopPropagation()}>

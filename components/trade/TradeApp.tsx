@@ -252,19 +252,9 @@ const CSS = `
   .k-debts-foot{padding:8px 10px;border-top:1px solid var(--border);font-size:12px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
   .k-debts-head{padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
   .k-debts-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
-  .k-debts-metrics-4{grid-template-columns:repeat(2,1fr)}
-  @media (min-width:1100px){.k-debts-metrics-4{grid-template-columns:repeat(4,1fr)}}
-  .k-debts-metric{padding:8px 10px;border-radius:10px;background:var(--card2);border:1px solid var(--border)}
-  .k-debts-metric .kl{font-size:10px;color:var(--muted);font-weight:700;line-height:1.2;text-transform:uppercase}
-  .k-debts-metric .kv{font-size:16px;font-weight:900;margin-top:3px;line-height:1.2}
-  .k-debts-metric .kh{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.25}
-  .k-debts-actions-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px 10px;flex-shrink:0}
-  .k-debts-chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card2);font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:inherit}
-  .k-debts-chip:disabled{opacity:.45;cursor:not-allowed}
-  .k-debts-chip.repay{background:rgba(255,140,0,.12);border-color:rgba(255,140,0,.3)}
-  .k-debts-chip.cash{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28)}
-  .k-debts-chip.hist{background:rgba(80,140,255,.1);border-color:rgba(80,140,255,.28)}
-  @media (max-width:700px){.k-debts-actions-row{grid-template-columns:1fr}}
+  .k-debts-metric{padding:6px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--border)}
+  .k-debts-metric .kl{font-size:10px;color:var(--muted);font-weight:700;line-height:1.2}
+  .k-debts-metric .kv{font-size:14px;font-weight:900;margin-top:2px;line-height:1.2}
   .k-product-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
   .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;position:sticky;top:0}
   .k-product-list-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
