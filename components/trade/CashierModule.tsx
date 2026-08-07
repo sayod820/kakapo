@@ -5114,6 +5114,7 @@ export default function CashierModule({
           recordStoreDebtCharge(client.phone, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
             orderId: created?.orderId || created?.id || undefined,
             itemsSummary,
+            source: 'pos',
           })
         }
         setHistTick(t => t + 1)

@@ -557,9 +557,9 @@ export async function saveCardLoyalty(
       // История после успешного сохранения на сервер
       if (mode === 'edit' && !opts?.skipDebtHistory) {
         if (loyalty.debt < prevDebt - 0.001) {
-          recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+          recordStoreDebtRepayment(phone, prevDebt - loyalty.debt, { source: 'manual' })
         } else if (loyalty.debt > prevDebt + 0.001) {
-          recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
+          recordStoreDebtCharge(phone, loyalty.debt - prevDebt, 'Ручное начисление', { source: 'manual' })
         }
       }
     } catch (e) {
@@ -568,9 +568,9 @@ export async function saveCardLoyalty(
     }
   } else if (mode === 'edit' && !opts?.skipDebtHistory) {
     if (loyalty.debt < prevDebt - 0.001) {
-      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt)
+      recordStoreDebtRepayment(phone, prevDebt - loyalty.debt, { source: 'manual' })
     } else if (loyalty.debt > prevDebt + 0.001) {
-      recordStoreDebtCharge(phone, loyalty.debt - prevDebt)
+      recordStoreDebtCharge(phone, loyalty.debt - prevDebt, 'Ручное начисление', { source: 'manual' })
     }
   }
 

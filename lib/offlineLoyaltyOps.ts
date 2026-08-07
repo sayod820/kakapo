@@ -101,8 +101,11 @@ export async function saveCardLoyaltySafe(
     }
 
     if (mode === 'edit' && !opts?.skipDebtHistory && phone) {
-      if (nextDebt < prevDebt - 0.001) recordStoreDebtRepayment(phone, prevDebt - nextDebt)
-      else if (nextDebt > prevDebt + 0.001) recordStoreDebtCharge(phone, nextDebt - prevDebt)
+      if (nextDebt < prevDebt - 0.001) {
+        recordStoreDebtRepayment(phone, prevDebt - nextDebt, { source: 'manual' })
+      } else if (nextDebt > prevDebt + 0.001) {
+        recordStoreDebtCharge(phone, nextDebt - prevDebt, 'Ручное начисление', { source: 'manual' })
+      }
     }
 
     await useOfflineSync.getState().queueOp(

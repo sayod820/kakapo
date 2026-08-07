@@ -36,6 +36,8 @@ export type DebtHistoryEntry = {
   itemsSummary?: string
   /** debt = в долг, pay = погашение, purchase = оплаченная покупка в магазине */
   type: 'debt' | 'pay' | 'purchase'
+  /** Откуда запись: manual — правка в разделе Долги; pos — чек кассы; order — заказ магазина; cashier — погашение на кассе */
+  source?: 'manual' | 'pos' | 'order' | 'cashier'
   /** Срок погашения (ISO) — с серверного ledger */
   dueAtIso?: string
   /** Человекочитаемый срок */
@@ -264,6 +266,87 @@ export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
   }))
 }
 
+/** Ручная запись (начисление/погашение в разделе Долги) — можно править/удалить. Чеки и заказы — нет. */
+export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
+  if (row.type === 'purchase') return false
+  if (row.source === 'manual') return true
+  if (row.source === 'pos' || row.source === 'order' || row.source === 'cashier') return false
+  if (row.orderId) return false
+  const desc = String(row.desc || '')
+  if (/чек/i.test(desc)) return false
+  if (/^заказ\b/i.test(desc.trim())) return false
+  // Погашение на кассе: «Погашение долга · наличные/карта»
+  if (/погашение долга\s*·/i.test(desc)) return false
+  return row.type === 'debt' || row.type === 'pay'
+}
+
+function saveDebtHistoryList(phone: string, list: DebtHistoryEntry[]) {
+  saveAccountJson(DEBT_HIST, list.slice(0, 100), phone)
+  emitDebtHistoryChange()
+}
+
+/** Удалить запись истории. Возвращает удалённую строку или null. */
+export function removeDebtHistoryEntry(phone: string, id: string): DebtHistoryEntry | null {
+  if (!phone.trim() || !id) return null
+  const prev = loadDebtHistory(phone)
+  const idx = prev.findIndex(r => r.id === id)
+  if (idx < 0) return null
+  const removed = prev[idx]
+  if (!isManualDebtHistoryEntry(removed)) return null
+  saveDebtHistoryList(phone, prev.filter(r => r.id !== id))
+  return removed
+}
+
+/**
+ * Изменить сумму/описание ручной записи.
+ * amountAbs — положительная сумма (как в UI).
+ */
+export function updateDebtHistoryEntry(
+  phone: string,
+  id: string,
+  patch: { amountAbs?: number; desc?: string },
+): DebtHistoryEntry | null {
+  if (!phone.trim() || !id) return null
+  const prev = loadDebtHistory(phone)
+  const idx = prev.findIndex(r => r.id === id)
+  if (idx < 0) return null
+  const row = prev[idx]
+  if (!isManualDebtHistoryEntry(row)) return null
+  if (row.type !== 'debt' && row.type !== 'pay') return null
+
+  const next = { ...row }
+  if (patch.desc != null) {
+    const d = String(patch.desc).trim()
+    if (d) next.desc = d
+  }
+  if (patch.amountAbs != null) {
+    const abs = Math.max(0, Math.round(Number(patch.amountAbs) * 100) / 100)
+    if (!(abs > 0)) return null
+    next.amount = row.type === 'pay' ? abs : -abs
+  }
+  const list = [...prev]
+  list[idx] = next
+  saveDebtHistoryList(phone, list)
+  return next
+}
+
+/**
+ * На сколько изменить баланс долга клиента при удалении/правке записи.
+ * Положительное = увеличить долг, отрицательное = уменьшить.
+ */
+export function debtBalanceDeltaForHistoryChange(
+  before: DebtHistoryEntry,
+  after: DebtHistoryEntry | null,
+): number {
+  const contrib = (row: DebtHistoryEntry | null) => {
+    if (!row) return 0
+    if (row.type === 'debt') return Math.abs(Number(row.amount) || 0)
+    if (row.type === 'pay') return -(Math.abs(Number(row.amount) || 0))
+    return 0
+  }
+  return Math.round((contrib(after) - contrib(before)) * 100) / 100
+}
+
 function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'date' | 'time' | 'ts'>) {
   const prev = loadDebtHistory(phone)
   const now = new Date()
@@ -274,8 +357,7 @@ function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'da
     time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
     ts: now.getTime(),
   }
-  saveAccountJson(DEBT_HIST, [row, ...prev].slice(0, 100), phone)
-  emitDebtHistoryChange()
+  saveDebtHistoryList(phone, [row, ...prev])
 }
 
 export async function chargeCredit(
@@ -313,6 +395,7 @@ export async function chargeCredit(
     orderId,
     itemsSummary: meta?.itemsSummary,
     type: 'debt',
+    source: 'order',
   })
   return newDebt
 }
@@ -320,34 +403,40 @@ export async function chargeCredit(
 export function recordStoreDebtRepayment(
   phone: string,
   amount: number,
-  meta?: { desc?: string; method?: 'cash' | 'card' },
+  meta?: { desc?: string; method?: 'cash' | 'card'; source?: DebtHistoryEntry['source'] },
 ): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return
   const methodLabel = meta?.method === 'card' ? 'карта' : meta?.method === 'cash' ? 'наличные' : ''
   const desc = meta?.desc
     || (methodLabel ? `Погашение долга · ${methodLabel}` : 'Погашение долга')
+  const source = meta?.source
+    ?? (meta?.method ? 'cashier' : 'manual')
   pushDebtHistory(phone, {
     desc,
     amount: pay,
     type: 'pay',
+    source,
   })
 }
 
 export function recordStoreDebtCharge(
   phone: string,
   amount: number,
-  desc = 'Начисление через поддержку',
-  meta?: { orderId?: string; itemsSummary?: string },
+  desc = 'Ручное начисление',
+  meta?: { orderId?: string; itemsSummary?: string; source?: DebtHistoryEntry['source'] },
 ): void {
   const debt = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || debt <= 0) return
+  const source = meta?.source
+    ?? (meta?.orderId ? (/^чек/i.test(desc) ? 'pos' : 'order') : 'manual')
   pushDebtHistory(phone, {
     desc,
     amount: -debt,
     type: 'debt',
     orderId: meta?.orderId,
     itemsSummary: meta?.itemsSummary,
+    source,
   })
 }
 
