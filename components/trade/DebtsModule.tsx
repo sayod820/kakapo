@@ -352,7 +352,7 @@ export default function DebtsModule({
     const manual = history.filter(isManualDebtHistoryEntry)
     const cash = manual.filter(r => r.type === 'debt')
     const pays = manual.filter(r => r.type === 'pay')
-    const checkPays = history.filter(r => r.type === 'pay' && r.orderId && !isManualDebtHistoryEntry(r))
+    const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const posSales = posDebtSalesFor(detailClient, sales)
     const manualTotals = debtHistoryTotals(manual)
     const posSum = Math.round(posSales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
@@ -906,7 +906,7 @@ export default function DebtsModule({
                     ['history', 'История'],
                     ['pos', `Чеки (${detailData.posSales.length})`],
                     ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
-                    ['pay', `Оплаты (${detailData.pays.length})`],
+                    ['pay', `Оплаты (${detailData.pays.length + detailData.checkPays.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
                     <button
                       key={id}
@@ -1118,18 +1118,67 @@ export default function DebtsModule({
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Ручные погашения. Можно изменить или удалить.
+                        Погашения по чекам и ручные оплаты.
                       </div>
                       <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 12px' }} onClick={() => openAdd('repay')}>
                         + Оплата
                       </button>
                     </div>
                     {renderAddForm()}
-                    {!detailData.pays.length && !histAdd.open ? (
+                    {!detailData.pays.length && !detailData.checkPays.length && !histAdd.open ? (
                       <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                         Нет оплат
                       </div>
-                    ) : detailData.pays.map(renderEditableRow)}
+                    ) : (
+                      <>
+                        {[...detailData.checkPays]
+                          .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+                          .map(row => {
+                            const sale = detailData.posSales.find(s =>
+                              debtOrderIdsMatch(s.id, row.orderId)
+                              || debtOrderIdsMatch(s.orderId, row.orderId),
+                            )
+                            return (
+                              <div
+                                key={row.id}
+                                style={{
+                                  padding: '12px 14px', borderRadius: 12, marginBottom: 8,
+                                  background: 'rgba(31,215,96,.06)',
+                                  border: '1px solid rgba(31,215,96,.25)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 800, fontSize: 14 }}>
+                                      {row.desc || (sale ? `Погашение · ${saleLabel(sale)}` : 'Погашение чека')}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                                      {row.date} · {row.time || '—'}
+                                      <span style={{ color: 'var(--green)', fontWeight: 700 }}> · по чеку</span>
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                    <div style={{ fontWeight: 900, color: 'var(--green)' }}>
+                                      −{fmtMoney(Math.abs(row.amount))}
+                                    </div>
+                                    {sale && (
+                                      <button
+                                        type="button"
+                                        className="k-btn k-btn-s"
+                                        style={{ fontSize: 12, padding: '4px 10px', minHeight: 0, marginTop: 8 }}
+                                        onClick={() => openSaleDetail(sale.id)}
+                                      >
+                                        Открыть чек
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        {detailData.pays.map(renderEditableRow)}
+                      </>
+                    )}
                   </>
                 )}
               </div>
