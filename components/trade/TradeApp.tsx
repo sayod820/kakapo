@@ -878,7 +878,13 @@ function TradeAppInner({
     { id: 'labels', label: 'Этикетки' },
   ]
 
-  const showSearch = current === 'products' || current === 'warehouse'
+  const showSearch =
+    current === 'warehouse'
+    || (current === 'products' && (productsSub === 'product' || productsSub === 'labels'))
+
+  useEffect(() => {
+    if (current === 'products' && productsSub === 'category') setSearch('')
+  }, [current, productsSub])
 
   function focusTradeSearch() {
     const el = searchInputRef.current
@@ -1075,6 +1081,8 @@ function TradeAppInner({
                   ) : null}
                 </div>
               </div>
+            ) : current === 'products' ? (
+              <div className="k-top-search-wrap" aria-hidden />
             ) : (
               <div style={{ flex: 1, fontWeight: 800, color: 'var(--text)', minWidth: 0 }}>
                 {current === 'debts' ? (
