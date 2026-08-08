@@ -144,8 +144,13 @@ const CSS = `
   .k-products-mod-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
   .k-products-mod-body > .k-product-edit-shell{flex:1;min-height:0;overflow:hidden}
   .k-products-mod-body > .k-cats-panel{flex:1;min-height:0;overflow:hidden}
-  .k-body-products:has(.k-product-edit-shell){overflow:hidden}
-  .k-body-products:has(.k-product-edit-shell) .k-products-mod-body{overflow:hidden}
+  .k-products-mod-body > .k-labels-shell{flex:1;min-height:0;overflow:hidden}
+  .k-body-products:has(.k-product-edit-shell),
+  .k-body-products:has(.k-cats-panel),
+  .k-body-products:has(.k-labels-shell){overflow:hidden}
+  .k-body-products:has(.k-product-edit-shell) .k-products-mod-body,
+  .k-body-products:has(.k-cats-panel) .k-products-mod-body,
+  .k-body-products:has(.k-labels-shell) .k-products-mod-body{overflow:hidden}
   .k-products-mod:has(.k-product-edit-shell) > .k-subtabs{display:none}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
@@ -364,7 +369,16 @@ const CSS = `
   .k-line-row{display:grid;gap:8px;align-items:end;margin-bottom:8px}
   .k-line-row--3{grid-template-columns:1fr 100px auto}
   .k-line-row--5{grid-template-columns:1fr 80px 80px 60px auto}
-  .k-label-layout{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  .k-label-layout{
+    flex:1;min-height:0;height:100%;
+    display:grid;grid-template-columns:minmax(280px,36%) minmax(0,1fr);gap:10px;align-items:stretch
+  }
+  .k-labels-shell{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .k-label-panel{display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}
+  .k-label-panel > .k-card-h{flex-shrink:0;padding:10px 12px}
+  .k-label-panel > .k-card-b{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:10px}
+  .k-label-list{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+  .k-label-preview-scroll{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
   .k-receipt-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   .k-mob-menu-btn{display:none}
   .k-side-overlay{display:none}
@@ -380,7 +394,12 @@ const CSS = `
     .k-product-list-body{flex:1;max-height:none}
     .k-product-form{height:auto;overflow:visible}
     .k-product-form > .k-card-b{overflow:visible;flex:none}
-    .k-label-layout{grid-template-columns:1fr}
+    .k-label-layout{grid-template-columns:1fr;height:auto;flex:none}
+    .k-labels-shell{flex:none;overflow:visible;height:auto}
+    .k-label-panel{height:auto;max-height:none}
+    .k-label-panel > .k-card-b{overflow:visible;flex:none}
+    .k-label-list{max-height:42vh;flex:none}
+    .k-label-preview-scroll{max-height:50vh;flex:none}
     .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
     .k-receipt-summary{grid-template-columns:repeat(2,1fr)}

@@ -33,11 +33,11 @@ import {
 } from './labelShared'
 
 const LABEL_CSS = `
-  .k-label-pick{border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card2);overflow:hidden}
-  .k-label-pick-head{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer}
+  .k-label-pick{border:1px solid var(--border);border-radius:8px;margin-bottom:4px;background:var(--card2);overflow:hidden}
+  .k-label-pick-head{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer}
   .k-label-pick-head input{accent-color:var(--green)}
   .k-label-pick-head:hover{background:rgba(31,215,96,.06)}
-  .k-label-layer{padding:6px 10px 6px 38px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+  .k-label-layer{padding:5px 8px 5px 32px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer}
   .k-label-layer:hover{background:rgba(31,215,96,.04)}
   .k-label-layer input{accent-color:var(--green)}
 `
@@ -359,31 +359,35 @@ export default function LabelsTab({
   }
 
   return (
-    <div>
+    <div className="k-labels-shell">
       <style>{LABEL_CSS}{printCss}</style>
-      <div className="k-page-h" style={{ marginTop: 0 }}>
-        <div>
-          <h1>🏷️ Этикетки</h1>
-          <div className="sub">Поиск, партии, дизайн, штрихкод и печать</div>
+      <div className="k-catalog-bar" style={{ marginBottom: 6, flexShrink: 0 }}>
+        <div className="k-catalog-meta">
+          <b>{selected.size}</b>
+          <span>
+            этикеток · {filtered.length} тов.
+            {' · '}{design.labelWidthMm}×{design.labelHeightMm} мм · {paperInfo}
+          </span>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto', alignItems: 'center' }}>
           {isKakapoDesktop() && (
             <>
-              <button type="button" className="k-btn k-btn-g" onClick={() => void setupXP235B()}>
-                ⚙ Настроить XP-235B
+              <button type="button" className="k-btn k-btn-g" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => void setupXP235B()}>
+                ⚙ XP-235B
               </button>
-              <button type="button" className="k-btn k-btn-s" onClick={() => setPrinterPanelOpen(v => !v)}>
-                🖨 Принтер{printerPanelOpen ? ' ▲' : ''}
+              <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setPrinterPanelOpen(v => !v)}>
+                🖨{printerPanelOpen ? ' ▲' : ''}
               </button>
             </>
           )}
-          <button type="button" className="k-btn k-btn-s" onClick={openDesign}>🎨 Дизайн</button>
-          <button type="button" className="k-btn k-btn-s" onClick={selectAll}>Выбрать все</button>
-          <button type="button" className="k-btn k-btn-s" onClick={() => setSelected(new Set())}>Сбросить</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={openDesign}>🎨</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={selectAll}>Все</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setSelected(new Set())}>Сброс</button>
           <button
             type="button"
             className="k-btn k-btn-g"
-            disabled={!chosenPicks.length}
+            style={{ padding: '6px 12px', fontSize: 12 }}
+            disabled={!chosenPicks.length || labelPrintBusy}
             onClick={() => void printLabels()}
           >
             🖨️ Печать ({chosenPicks.length})
@@ -392,18 +396,16 @@ export default function LabelsTab({
       </div>
 
       {printerPanelOpen && isKakapoDesktop() && (
-        <div className="k-card" style={{ marginBottom: 14 }}>
-          <div className="k-card-h">
+        <div className="k-card" style={{ marginBottom: 8, flexShrink: 0 }}>
+          <div className="k-card-h" style={{ padding: '8px 12px' }}>
             <b>Настройка XP-235B</b>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Товары → Этикетки (не касса)</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Товары → Этикетки</span>
           </div>
-          <div className="k-card-b" style={{ display: 'grid', gap: 12, maxWidth: 520 }}>
-            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+          <div className="k-card-b" style={{ display: 'grid', gap: 10, maxWidth: 520, padding: 12 }}>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
               <li>В Windows: драйвер XP-235B, принтер виден в списке</li>
-              <li>Ролик <b>58×40 мм</b>. В свойствах принтера бумага тоже <b>58×40</b> (не 2 этикетки)</li>
-              <li>Ниже выберите <b>XP-235B</b> → Сохранить</li>
-              <li><b>Тест этикетки</b> — должна выйти <b>1</b> наклейка</li>
-              <li>Выберите товары справа → <b>Печать</b></li>
+              <li>Ролик <b>58×40 мм</b>. В свойствах принтера бумага тоже <b>58×40</b></li>
+              <li>Ниже выберите <b>XP-235B</b> → Сохранить → Тест</li>
             </ol>
             <select
               className="k-sel"
@@ -417,14 +419,6 @@ export default function LabelsTab({
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Размер: <b>{design.labelWidthMm}×{design.labelHeightMm} мм</b>
-              {design.paperPreset === 'xp235b' ? ' · XP-235B' : ''}
-              {' · '}
-              <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={openDesign}>
-                изменить в Дизайн
-              </button>
-            </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button type="button" className="k-btn k-btn-s" disabled={labelPrintBusy} onClick={() => void saveLabelPrinter()}>
                 Сохранить
@@ -432,16 +426,19 @@ export default function LabelsTab({
               <button type="button" className="k-btn k-btn-g" disabled={labelPrintBusy || !labelPrinterName} onClick={() => void testLabelPrinter()}>
                 {labelPrintBusy ? 'Печать…' : 'Тест этикетки'}
               </button>
+              <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={openDesign}>
+                Дизайн
+              </button>
             </div>
           </div>
         </div>
       )}
 
       <div className="k-label-layout">
-        <section className="k-card">
+        <section className="k-card k-label-panel">
           <div className="k-card-h">
-            <b>Выбор товаров</b>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selected.size} этикеток</span>
+            <b>Товары</b>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selected.size} выбрано</span>
           </div>
           <div className="k-card-b">
             <input
@@ -449,9 +446,9 @@ export default function LabelsTab({
               value={labelSearch}
               onChange={e => setLabelSearch(e.target.value)}
               placeholder="Поиск: штрихкод, название, артикул…"
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 8, flexShrink: 0 }}
             />
-            <div className="k-tbl-scroll" style={{ maxHeight: '52vh' }}>
+            <div className="k-label-list">
               {filtered.map(p => {
                 const layers = layersByProduct[p.id]
                 const isOpen = expanded.has(p.id)
@@ -460,22 +457,22 @@ export default function LabelsTab({
                   <div key={p.id} className="k-label-pick">
                     <div className="k-label-pick-head">
                       <input type="checkbox" checked={isProductChecked(p)} onChange={e => toggleProduct(p, e.target.checked)} />
-                      <span style={{ fontSize: 18 }}>{p.e || '📦'}</span>
+                      <span style={{ fontSize: 15 }}>{p.e || '📦'}</span>
                       <span style={{ flex: 1, minWidth: 0 }} onClick={() => toggleExpand(p.id)}>
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        <div style={{ fontWeight: 800, fontSize: 12, lineHeight: 1.2 }}>{p.name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>
                           {p.art} · {formatLabelMoney(p.price)}
                           {layers?.length ? ` · ${layers.length} парт.` : ''}
                         </div>
                       </span>
-                      <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => toggleExpand(p.id)}>
+                      <button type="button" className="k-btn k-btn-s" style={{ padding: '2px 6px', fontSize: 10, minHeight: 0 }} onClick={() => toggleExpand(p.id)}>
                         {loading ? '…' : isOpen ? '▲' : '▼'}
                       </button>
                     </div>
                     {isOpen && (
                       <div>
                         {loading && layers === undefined && (
-                          <div style={{ padding: '8px 38px', fontSize: 11, color: 'var(--muted)' }}>Загрузка партий…</div>
+                          <div style={{ padding: '6px 32px', fontSize: 11, color: 'var(--muted)' }}>Загрузка партий…</div>
                         )}
                         {(layers || []).length === 0 && layers !== undefined && (
                           <label className="k-label-layer">
@@ -507,7 +504,7 @@ export default function LabelsTab({
           </div>
         </section>
 
-        <section className="k-card">
+        <section className="k-card k-label-panel">
           <div className="k-card-h">
             <b>Предпросмотр</b>
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -515,25 +512,27 @@ export default function LabelsTab({
             </span>
           </div>
           <div className="k-card-b">
-            <div id="k-label-print" style={previewGrid}>
-              {previewPicks.map(pick => (
-                <LabelCard
-                  key={pick.key}
-                  edit={getEdit(pick)}
-                  design={design}
-                  sizeStyle={previewCard}
-                  onEdit={() => {
-                    setEditingKey(pick.key)
-                    setDraftEdit({ ...getEdit(pick) })
-                  }}
-                />
-              ))}
-            </div>
-            {!chosenPicks.length && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>
-                ✏️ — текст этикетки · 🎨 — дизайн всех этикеток
+            <div className="k-label-preview-scroll">
+              <div id="k-label-print" style={previewGrid}>
+                {previewPicks.map(pick => (
+                  <LabelCard
+                    key={pick.key}
+                    edit={getEdit(pick)}
+                    design={design}
+                    sizeStyle={previewCard}
+                    onEdit={() => {
+                      setEditingKey(pick.key)
+                      setDraftEdit({ ...getEdit(pick) })
+                    }}
+                  />
+                ))}
               </div>
-            )}
+              {!chosenPicks.length && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                  Отметьте товары слева · ✏️ текст · 🎨 дизайн
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>
