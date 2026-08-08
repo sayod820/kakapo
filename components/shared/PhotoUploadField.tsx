@@ -1,10 +1,66 @@
 'use client'
 
-import { useRef, useState, type CSSProperties, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 
 const ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp,image/*'
+
+const PHOTO_CSS = `
+.k-photo-field{--ph-bg:var(--card2,#EAF1EC);--ph-border:var(--border,#D0DDD4);--ph-text:var(--text,#0C1A10);--ph-muted:var(--muted,#4A6B52);--ph-muted2:var(--muted2,#7A9580);--ph-green:var(--green,#129B45);--ph-green-d:var(--green-d,#D6F0DF);--ph-panel:var(--panel,#fff)}
+.k-photo-field .ph-label{font-size:11px;color:var(--ph-muted);margin-bottom:7px;font-weight:700}
+.k-photo-field.compact .ph-label{font-size:10px;margin-bottom:4px}
+.k-photo-field .ph-drop{
+  position:relative;display:block;width:100%;padding:0;overflow:hidden;
+  border-radius:14px;cursor:pointer;
+  background:var(--ph-bg);
+  border:2px dashed var(--ph-green);
+  color:var(--ph-text);
+}
+.k-photo-field .ph-drop.has-photo{border-style:solid;border-color:var(--ph-border);border-width:1px}
+.k-photo-field .ph-drop:disabled{cursor:wait}
+.k-photo-field.compact .ph-drop{border-radius:12px;width:var(--ph-size,112px);max-width:100%}
+.k-photo-field .ph-img{
+  width:100%;height:100%;object-fit:contain;object-position:center;display:block;
+  padding:10px;box-sizing:border-box;pointer-events:none;background:var(--ph-panel)
+}
+.k-photo-field.compact .ph-img{padding:4px}
+.k-photo-field .ph-empty{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;padding:6px;background:var(--ph-green-d)
+}
+.k-photo-field.compact .ph-empty{gap:2px}
+.k-photo-field .ph-empty .ico{font-size:28px;line-height:1}
+.k-photo-field.compact .ph-empty .ico{font-size:22px}
+.k-photo-field .ph-empty .ttl{font-size:14px;color:var(--ph-green);font-weight:800}
+.k-photo-field.compact .ph-empty .ttl{font-size:11px}
+.k-photo-field .ph-empty .sub{font-size:11px;color:var(--ph-muted);text-align:center;padding:0 12px}
+.k-photo-field .ph-empty .hint{font-size:10px;color:var(--ph-muted2)}
+.k-photo-field .ph-busy{
+  position:absolute;inset:0;background:color-mix(in srgb, var(--ph-panel) 82%, transparent);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px
+}
+.k-photo-field .ph-busy span{font-size:12px;color:var(--ph-text);font-weight:700}
+.k-photo-field .ph-bar{width:70%;height:5px;border-radius:99px;background:var(--ph-border);overflow:hidden}
+.k-photo-field .ph-bar>i{display:block;height:100%;width:65%;background:var(--ph-green)}
+.k-photo-field .ph-clear{
+  position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:50%;
+  background:color-mix(in srgb, var(--ph-text) 75%, transparent);border:1px solid color-mix(in srgb, var(--ph-panel) 35%, transparent);
+  color:var(--ph-panel);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center
+}
+.k-photo-field.compact .ph-clear{width:24px;height:24px}
+.k-photo-field .ph-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;width:100%}
+.k-photo-field.compact .ph-actions{gap:4px;margin-top:6px;width:var(--ph-size,112px)}
+.k-photo-field .ph-btn{
+  flex:1;min-width:90px;padding:10px 12px;font-size:12px;font-weight:700;border-radius:10px;
+  background:var(--ph-bg);border:1px solid var(--ph-border);color:var(--ph-muted);cursor:pointer
+}
+.k-photo-field .ph-btn:hover:not(:disabled){border-color:var(--ph-green);color:var(--ph-green)}
+.k-photo-field .ph-btn:disabled{opacity:.55;cursor:not-allowed}
+.k-photo-field.compact .ph-btn{min-width:0;padding:5px 4px;font-size:10px;border-radius:8px}
+.k-photo-field .ph-foot{margin-top:6px;font-size:10px;color:var(--ph-muted2)}
+.k-photo-field .ph-err{margin-top:4px;font-size:11px;color:var(--red,#DC2626)}
+`
 
 interface Props {
   value: string
@@ -104,97 +160,38 @@ export default function PhotoUploadField({
   }
 
   return (
-    <div className={compact ? 'k-photo-compact' : undefined}>
-      <div style={{
-        fontSize: compact ? 10 : 11,
-        color: '#8FB897',
-        marginBottom: compact ? 4 : 7,
-        fontWeight: 700,
-      }}
-      >
-        {label}
-      </div>
+    <div
+      className={`k-photo-field${compact ? ' compact' : ''}`}
+      style={compact ? { ['--ph-size' as string]: `${boxH}px` } : undefined}
+    >
+      <style>{PHOTO_CSS}</style>
+      <div className="ph-label">{label}</div>
       <button
         type="button"
+        className={`ph-drop${value ? ' has-photo' : ''}`}
         onClick={openGallery}
         disabled={busy}
-        style={{
-          position: 'relative',
-          display: 'block',
-          width: compact ? boxH : '100%',
-          height: boxH,
-          maxWidth: '100%',
-          padding: 0,
-          borderRadius: compact ? 12 : 14,
-          overflow: 'hidden',
-          border: value ? '1px solid var(--border, #162B1A)' : '2px dashed #1FD760',
-          cursor: busy ? 'wait' : 'pointer',
-          background: 'linear-gradient(145deg,#121f16,#0c1610)',
-          flexShrink: 0,
-        }}
+        style={{ height: boxH }}
       >
         {value ? (
-          <img
-            src={value}
-            alt=""
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              objectPosition: 'center',
-              display: 'block',
-              padding: compact ? 4 : 10,
-              boxSizing: 'border-box',
-              pointerEvents: 'none',
-            }}
-          />
+          <img src={value} alt="" className="ph-img" />
         ) : (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: compact ? 2 : 8,
-              padding: 6,
-            }}
-          >
-            <span style={{ fontSize: compact ? 22 : 28, lineHeight: 1 }}>📷</span>
-            <span style={{ fontSize: compact ? 11 : 14, color: '#1FD760', fontWeight: 800 }}>
-              {compact ? 'Фото' : 'Добавить фото'}
-            </span>
+          <div className="ph-empty">
+            <span className="ico">📷</span>
+            <span className="ttl">{compact ? 'Фото' : 'Добавить фото'}</span>
             {!compact && (
               <>
-                <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
-                  Нажмите сюда · галерея или файл
-                </span>
-                <span style={{ fontSize: 10, color: '#3D6645' }}>
-                  Сервер сохранит как WebP · без обрезки
-                </span>
+                <span className="sub">Нажмите сюда · галерея или файл</span>
+                <span className="hint">Сервер сохранит как WebP · без обрезки</span>
               </>
             )}
           </div>
         )}
 
         {busy && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(3,11,5,.78)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-            }}
-          >
-            <div style={{ fontSize: 12, color: '#EBF5ED', fontWeight: 700 }}>WebP…</div>
-            <div style={{ width: '70%', height: 5, borderRadius: 99, background: '#162B1A', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: '65%', background: '#1FD760' }} />
-            </div>
+          <div className="ph-busy">
+            <span>WebP…</span>
+            <div className="ph-bar"><i /></div>
           </div>
         )}
 
@@ -202,6 +199,7 @@ export default function PhotoUploadField({
           <span
             role="button"
             tabIndex={0}
+            className="ph-clear"
             onClick={e => {
               e.stopPropagation()
               clearPhoto()
@@ -213,43 +211,20 @@ export default function PhotoUploadField({
               }
             }}
             title="Удалить фото"
-            style={{
-              position: 'absolute',
-              top: 4,
-              right: 4,
-              width: compact ? 24 : 30,
-              height: compact ? 24 : 30,
-              borderRadius: '50%',
-              background: 'rgba(0,0,0,.75)',
-              border: '1px solid rgba(255,255,255,.2)',
-              color: 'white',
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
           >
             ✕
           </span>
         )}
       </button>
 
-      <div style={{
-        display: 'flex',
-        gap: compact ? 4 : 8,
-        marginTop: compact ? 6 : 10,
-        flexWrap: 'wrap',
-        width: compact ? boxH : '100%',
-      }}
-      >
-        <button type="button" disabled={busy} onClick={openGallery} style={btnStyle(busy, compact)}>
+      <div className="ph-actions">
+        <button type="button" className="ph-btn" disabled={busy} onClick={openGallery}>
           Галерея
         </button>
-        <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} style={btnStyle(busy, compact)}>
+        <button type="button" className="ph-btn" disabled={busy} onClick={() => fileRef.current?.click()}>
           Файл
         </button>
-        <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()} style={btnStyle(busy, compact)}>
+        <button type="button" className="ph-btn" disabled={busy} onClick={() => cameraRef.current?.click()}>
           📷
         </button>
       </div>
@@ -266,27 +241,9 @@ export default function PhotoUploadField({
       />
 
       {!compact && (
-        <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645' }}>
-          Одно фото · любой размер · сервер только конвертирует в WebP
-        </div>
+        <div className="ph-foot">Одно фото · любой размер · сервер только конвертирует в WebP</div>
       )}
-      {err && <div style={{ marginTop: 4, fontSize: 11, color: '#FF4545' }}>⚠️ {err}</div>}
+      {err && <div className="ph-err">⚠️ {err}</div>}
     </div>
   )
-}
-
-function btnStyle(busy: boolean, compact: boolean): CSSProperties {
-  return {
-    flex: 1,
-    minWidth: compact ? 0 : 90,
-    padding: compact ? '5px 4px' : '10px 12px',
-    fontSize: compact ? 10 : 12,
-    fontWeight: 700,
-    borderRadius: compact ? 8 : 10,
-    background: '#0C1C0F',
-    border: '1px solid #1D3822',
-    color: busy ? '#3D6645' : '#8FB897',
-    cursor: busy ? 'not-allowed' : 'pointer',
-    opacity: busy ? 0.6 : 1,
-  }
 }
