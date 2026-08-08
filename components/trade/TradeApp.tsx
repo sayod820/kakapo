@@ -368,6 +368,35 @@ const CSS = `
   .k-rcpt-find-h b{display:block;font-size:17px;font-weight:900}
   .k-rcpt-find-h .sub{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
   .k-rcpt-find-x{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
+  .k-rcpt-line-bg{
+    position:fixed;inset:0;z-index:250;padding:20px;
+    background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;box-sizing:border-box
+  }
+  .k-trade[data-theme="light"] .k-rcpt-line-bg{background:rgba(12,26,16,.45)}
+  .k-rcpt-line-modal{
+    width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:hidden;
+    border-radius:16px;background:var(--panel);border:1px solid var(--border);
+    box-shadow:0 20px 48px rgba(0,0,0,.35);display:flex;flex-direction:column
+  }
+  .k-rcpt-line-h{
+    flex-shrink:0;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+    padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card)
+  }
+  .k-rcpt-line-title{display:flex;align-items:flex-start;gap:10px;min-width:0}
+  .k-rcpt-line-title .emo{
+    width:40px;height:40px;border-radius:10px;background:var(--card2);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0
+  }
+  .k-rcpt-line-title b{display:block;font-size:15px;font-weight:900;line-height:1.25}
+  .k-rcpt-line-title span{display:block;font-size:11px;color:var(--muted);margin-top:3px;word-break:break-word}
+  .k-rcpt-line-body{flex:1;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+  .k-rcpt-line-grid{display:grid;grid-template-columns:1fr;gap:10px}
+  .k-rcpt-line-qty{display:flex;align-items:center;gap:6px}
+  .k-rcpt-line-qty .k-inp{text-align:center;font-weight:800}
+  .k-rcpt-line-sum{font-size:14px;color:var(--muted);font-weight:700}
+  .k-rcpt-line-sum b{color:var(--text);font-weight:900}
+  .k-rcpt-line-bulk{padding-top:4px;border-top:1px solid var(--border)}
+  .k-rcpt-line-foot{flex-shrink:0;padding:12px 16px;border-top:1px solid var(--border);background:var(--card)}
   .k-rcpt-find-body{
     flex:1;min-height:0;overflow:hidden;padding:10px 0 0;display:flex;flex-direction:column;gap:0
   }
@@ -736,6 +765,8 @@ const CSS = `
       height:100dvh!important;max-height:100dvh!important;
       border-radius:0;margin:0
     }
+    .k-rcpt-line-bg{padding:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));align-items:stretch}
+    .k-rcpt-line-modal{width:100%;max-height:none;height:100%;border-radius:14px}
     .k-rcpt-find-bg{padding:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
     .k-rcpt-find-modal{
       width:100%!important;max-width:100%!important;
