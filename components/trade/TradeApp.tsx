@@ -164,6 +164,25 @@ const CSS = `
   .k-body-pos .pos-root{flex:1;min-height:0;height:100%;}
   .k-body-debts{overflow:hidden;display:flex;flex-direction:column;padding:8px 12px}
   .k-body-debts > .k-debts-page{flex:1;min-height:0;display:flex;flex-direction:column}
+  .k-body-warehouse{padding:6px 12px 10px;display:flex;flex-direction:column;overflow:hidden}
+  .k-body-warehouse > .k-wh-shell{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .k-wh-shell > .k-wh-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .k-wh-shell > .k-wh-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+  .k-wh-shell > .k-wh-body > .k-wh-stock{flex:1;min-height:0;overflow:hidden}
+  .k-wh-stock{display:flex;flex-direction:column;min-height:0}
+  .k-wh-stock-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .k-wh-stock-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+  .k-wh-stock-body .k-tbl{min-width:720px}
+  .k-wh-stock-body .k-tbl th{padding:6px 8px;font-size:10px}
+  .k-wh-stock-body .k-tbl td{padding:5px 8px;font-size:12px}
+  .k-wh-stock-body .k-tbl tfoot td{padding:7px 8px}
+  .k-wh-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);min-width:0}
+  .k-wh-meta b{color:var(--text);font-weight:900}
+  .k-wh-money{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .k-wh-money span{white-space:nowrap}
+  .k-wh-money b{font-weight:900;color:var(--text)}
+  .k-wh-filters-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .k-wh-filters-row .k-subtab{padding:5px 10px;font-size:12px}
   .k-trade.pos-fs{display:block;min-height:100vh;}
   .k-pos-fs-host{min-height:100vh;width:100%;}
   .k-page-h{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -453,6 +472,11 @@ const CSS = `
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
+    .k-body-warehouse{padding:4px 10px 8px;overflow:visible;flex:none;height:auto}
+    .k-body-warehouse > .k-wh-shell,
+    .k-wh-shell > .k-wh-body,
+    .k-wh-shell > .k-wh-body > .k-wh-stock{flex:none;min-height:0;overflow:visible;height:auto}
+    .k-wh-stock-body{overflow:visible;border:none;border-radius:0;background:transparent}
     .k-catalog-bar{flex-wrap:wrap;gap:8px}
     .k-catalog-filters{flex:1 1 100%;order:3}
     .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
@@ -1191,7 +1215,7 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'products' ? 'k-body k-body-products' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"

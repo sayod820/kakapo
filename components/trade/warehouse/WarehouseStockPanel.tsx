@@ -109,14 +109,12 @@ export default function WarehouseStockPanel({
   const [sortDesc, setSortDesc] = useState(false)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [layersLoading, setLayersLoading] = useState(false)
-  const [layersBooted, setLayersBooted] = useState(false)
   const [arrivalsProduct, setArrivalsProduct] = useState<Product | null>(null)
   const [visibleCount, setVisibleCount] = useState(STOCK_PAGE)
 
   const loadLayers = useCallback(async () => {
     if (!USE_API) {
       setLayers([])
-      setLayersBooted(true)
       return
     }
     setLayersLoading(true)
@@ -126,7 +124,6 @@ export default function WarehouseStockPanel({
       setLayers([])
     } finally {
       setLayersLoading(false)
-      setLayersBooted(true)
     }
   }, [])
 
@@ -247,52 +244,47 @@ export default function WarehouseStockPanel({
   ]
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        {filters.map(f => (
+    <div className="k-wh-stock">
+      <div className="k-wh-stock-head">
+        <div className="k-wh-filters-row">
+          {filters.map(f => (
+            <button
+              key={f.id}
+              type="button"
+              className={`k-subtab ${filter === f.id ? 'active' : ''}`}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label} ({f.count})
+            </button>
+          ))}
           <button
-            key={f.id}
             type="button"
-            className={`k-subtab ${filter === f.id ? 'active' : ''}`}
-            style={{ padding: '7px 14px' }}
-            onClick={() => setFilter(f.id)}
+            className="k-btn k-btn-s"
+            style={{ padding: '5px 10px', fontSize: 12, marginLeft: 'auto' }}
+            disabled={layersLoading}
+            onClick={() => void loadLayers()}
+            title="Обновить партии"
           >
-            {f.label} ({f.count})
-          </button>
-        ))}
-      </div>
-
-      <div className="k-card" style={{ marginBottom: 12 }}>
-        <div className="k-card-b" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Показано: <b style={{ color: 'var(--text)' }}>{Math.min(visibleCount, totals.count)}</b>
-            {' / '}{totals.count}
-            {' · '}Остаток: <b style={{ color: 'var(--text)' }}>{totals.qtySum}</b>
-            {layersLoading ? ' · подгружаем партии…' : (layersBooted ? '' : ' · подготовка…')}
-            {q.trim() ? ` · поиск: «${q.trim()}»` : ''}
-          </div>
-          <button type="button" className="k-btn k-btn-s" disabled={layersLoading} onClick={() => void loadLayers()}>
             ↻ Партии
           </button>
         </div>
-        <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-          Поиск сверху · сначала остатки из каталога, затем партии. Нажмите на товар — откроются приходы.
-        </div>
-      </div>
 
-      <div className="k-kpis" style={{ marginBottom: 12 }}>
-        <div className="k-kpi">
-          <div className="kl">Сумма закупки на складе</div>
-          <div className="kv" style={{ fontSize: 20 }}>{fmtMoney(totals.costSum)}</div>
-        </div>
-        <div className="k-kpi">
-          <div className="kl">Сумма по рознице</div>
-          <div className="kv" style={{ fontSize: 20, color: 'var(--green)' }}>{fmtMoney(totals.retailSum)}</div>
-        </div>
-        <div className="k-kpi">
-          <div className="kl">Потенц. маржа</div>
-          <div className="kv" style={{ fontSize: 20, color: totals.retailSum >= totals.costSum ? 'var(--green)' : 'var(--red)' }}>
-            {fmtMoney(totals.retailSum - totals.costSum)}
+        <div className="k-wh-meta">
+          <span>
+            Показано <b>{Math.min(visibleCount, totals.count)}</b> / {totals.count}
+            {' · '}ост. <b>{totals.qtySum}</b>
+            {layersLoading ? ' · партии…' : ''}
+            {q.trim() ? ` · «${q.trim()}»` : ''}
+          </span>
+          <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
+            <span>Закуп <b>{fmtMoney(totals.costSum)}</b></span>
+            <span>Розн. <b style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailSum)}</b></span>
+            <span>
+              Маржа{' '}
+              <b style={{ color: totals.retailSum >= totals.costSum ? 'var(--green)' : 'var(--red)' }}>
+                {fmtMoney(totals.retailSum - totals.costSum)}
+              </b>
+            </span>
           </div>
         </div>
       </div>
@@ -300,7 +292,7 @@ export default function WarehouseStockPanel({
       {!rows.length ? (
         <div className="k-empty">Товары не найдены</div>
       ) : (
-        <div className="k-card k-tbl-scroll">
+        <div className="k-wh-stock-body">
           <table className="k-tbl">
             <thead>
               <tr>
@@ -311,8 +303,8 @@ export default function WarehouseStockPanel({
                 <th className="num" style={{ cursor: 'pointer' }} onClick={() => toggleSort('cost')}>Закуп{sortMark('cost')}</th>
                 <th className="num" style={{ cursor: 'pointer' }} onClick={() => toggleSort('retail')}>Розница{sortMark('retail')}</th>
                 <th className="num" style={{ cursor: 'pointer' }} onClick={() => toggleSort('stock')}>Кол-во{sortMark('stock')}</th>
-                <th className="num" style={{ cursor: 'pointer' }} onClick={() => toggleSort('value')}>Сумма закуп{sortMark('value')}</th>
-                <th className="num">Сумма розн.</th>
+                <th className="num" style={{ cursor: 'pointer' }} onClick={() => toggleSort('value')}>Σ закуп{sortMark('value')}</th>
+                <th className="num">Σ розн.</th>
                 <th>Статус</th>
               </tr>
             </thead>
@@ -331,27 +323,31 @@ export default function WarehouseStockPanel({
                     title="Открыть партии прихода"
                   >
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
-                        <span style={{ fontSize: 18 }}>{p.e || '📦'}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 140 }}>
+                        <span style={{ fontSize: 15, flexShrink: 0 }}>{p.e || '📦'}</span>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 800 }}>{p.name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                            {[
-                              p.brand,
-                              isWeighted(p) ? 'на развес' : null,
-                              hasBulkPricing(p) ? formatBulkPricingHint(p) : null,
-                              agg.layers.length > 1 ? `${agg.layers.length} партии` : null,
-                            ].filter(Boolean).join(' · ')}
-                          </div>
+                          <div style={{ fontWeight: 800, fontSize: 12, lineHeight: 1.25 }}>{p.name}</div>
+                          {(p.brand || isWeighted(p) || hasBulkPricing(p) || agg.layers.length > 1) && (
+                            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1, lineHeight: 1.2 }}>
+                              {[
+                                p.brand,
+                                isWeighted(p) ? 'развес' : null,
+                                hasBulkPricing(p) ? formatBulkPricingHint(p) : null,
+                                agg.layers.length > 1 ? `${agg.layers.length} парт.` : null,
+                              ].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{p.art}</td>
-                    <td><span className="k-badge k-badge-cat">{catLabel}</span></td>
-                    <td style={{ fontSize: 12 }}>{p.unit || 'шт'}</td>
-                    <td className="num">
+                    <td style={{ fontSize: 11, color: 'var(--muted)' }}>{p.art}</td>
+                    <td style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={catLabel}>
+                      {catLabel}
+                    </td>
+                    <td style={{ fontSize: 11 }}>{p.unit || 'шт'}</td>
+                    <td className="num" style={{ fontSize: 11 }}>
                       {agg.multiCost ? (
-                        <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+                        <div style={{ display: 'grid', gap: 1, justifyItems: 'end' }}>
                           {agg.groups.map(g => (
                             <span key={`c-${g.cost}-${g.retail}`}>{fmtMoney(g.cost)} × {g.qty}</span>
                           ))}
@@ -360,9 +356,9 @@ export default function WarehouseStockPanel({
                         agg.groups[0]?.cost ? fmtMoney(agg.groups[0].cost) : '—'
                       )}
                     </td>
-                    <td className="num" style={{ fontWeight: 800, color: 'var(--green)' }}>
+                    <td className="num" style={{ fontWeight: 800, color: 'var(--green)', fontSize: 12 }}>
                       {agg.multiRetail ? (
-                        <div style={{ display: 'grid', gap: 2, justifyItems: 'end' }}>
+                        <div style={{ display: 'grid', gap: 1, justifyItems: 'end' }}>
                           {agg.groups.map(g => (
                             <span key={`r-${g.retail}-${g.cost}`}>
                               {fmtMoney(g.retail)} × {g.qty}
@@ -374,10 +370,10 @@ export default function WarehouseStockPanel({
                       )}
                     </td>
                     <td className="num" style={{ fontWeight: 900, color: badge.c }}>{stock}</td>
-                    <td className="num">{agg.costSum > 0 ? fmtMoney(agg.costSum) : '—'}</td>
-                    <td className="num">{fmtMoney(agg.retailSum)}</td>
+                    <td className="num" style={{ fontSize: 11 }}>{agg.costSum > 0 ? fmtMoney(agg.costSum) : '—'}</td>
+                    <td className="num" style={{ fontSize: 11 }}>{fmtMoney(agg.retailSum)}</td>
                     <td>
-                      <span className="k-badge" style={{ background: badge.bg, color: badge.c }}>{badge.l}</span>
+                      <span className="k-badge" style={{ background: badge.bg, color: badge.c, fontSize: 10, padding: '2px 6px' }}>{badge.l}</span>
                     </td>
                   </tr>
                 )
@@ -385,7 +381,7 @@ export default function WarehouseStockPanel({
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--border)' }}>
-                <td colSpan={6} style={{ fontWeight: 800 }}>Итого ({totals.count} поз.)</td>
+                <td colSpan={6} style={{ fontWeight: 800, fontSize: 12 }}>Итого ({totals.count} поз.)</td>
                 <td className="num" style={{ fontWeight: 900 }}>{totals.qtySum}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmtMoney(totals.costSum)}</td>
                 <td className="num" style={{ fontWeight: 800, color: 'var(--green)' }}>{fmtMoney(totals.retailSum)}</td>
@@ -394,10 +390,11 @@ export default function WarehouseStockPanel({
             </tfoot>
           </table>
           {rows.length > visibleCount && (
-            <div style={{ padding: 12, textAlign: 'center' }}>
+            <div style={{ padding: 10, textAlign: 'center' }}>
               <button
                 type="button"
                 className="k-btn k-btn-s"
+                style={{ padding: '6px 12px', fontSize: 12 }}
                 onClick={() => setVisibleCount(c => c + STOCK_PAGE)}
               >
                 Показать ещё ({rows.length - visibleCount})

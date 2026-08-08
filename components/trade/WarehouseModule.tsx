@@ -113,107 +113,115 @@ export default function WarehouseModule({
   }, [refreshAll, loadExpiry, expiryDays])
 
   return (
-    <div>
-      <div className="k-page-h">
-        <div>
-          <h1>🏬 Склад</h1>
-          <div className="sub k-hide-mob">Остатки, приход, списание, инвентаризация и сроки годности</div>
+    <div className="k-wh-shell">
+      <div className="k-wh-head">
+        <div className="k-catalog-bar" style={{ marginBottom: 0 }}>
+          <div className="k-catalog-meta">
+            <b>Склад</b>
+            <span>
+              {products.length} поз. · ост. {totalStock}
+              {' · '}
+              <span style={{ color: 'var(--gold)', fontWeight: 800 }}>мало {low}</span>
+              {' · '}
+              <span style={{ color: 'var(--red)', fontWeight: 800 }}>нет {out}</span>
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexShrink: 0 }}>
+            {apiSyncing && (
+              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--muted)' }}>Обновление…</span>
+            )}
+            <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => void refreshAll()}>
+              ↻ Обновить
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {apiSyncing && <span className="k-hide-mob" style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          <button type="button" className="k-btn k-btn-s" onClick={() => void refreshAll()}>↻ Обновить</button>
+
+        {!USE_API && (
+          <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
+            Складские операции доступны только при подключении к API
+          </div>
+        )}
+
+        <OfflineNotice section="склад" mode="queue" />
+
+        {apiError && (
+          <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+            {apiError}
+          </div>
+        )}
+
+        <div className="k-subtabs" style={{ marginBottom: 0 }}>
+          {WAREHOUSE_TABS.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              className={`k-subtab ${tab === t.id ? 'active' : ''}`}
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              onClick={() => setTab(t.id)}
+            >
+              {t.icon} {t.label}
+              {t.id === 'receipts' && receipts.length > 0 && ` (${receipts.length})`}
+              {t.id === 'writeoffs' && writeoffs.length > 0 && ` (${writeoffs.length})`}
+              {t.id === 'revisions' && revisions.length > 0 && ` (${revisions.length})`}
+              {t.id === 'expiry' && expiry.length > 0 && ` (${expiry.length})`}
+            </button>
+          ))}
         </div>
       </div>
 
-      {!USE_API && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
-          Складские операции доступны только при подключении к API
-        </div>
-      )}
-
-      <OfflineNotice section="склад" mode="queue" />
-
-      {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-          {apiError}
-        </div>
-      )}
-
-      <div className="k-kpis">
-        <div className="k-kpi"><div className="kl">Позиций в каталоге</div><div className="kv">{products.length}</div></div>
-        <div className="k-kpi"><div className="kl">Суммарный остаток</div><div className="kv">{totalStock}</div></div>
-        <div className="k-kpi"><div className="kl">Мало на складе</div><div className="kv" style={{ color: 'var(--gold)' }}>{low}</div></div>
-        <div className="k-kpi"><div className="kl">Нет в наличии</div><div className="kv" style={{ color: 'var(--red)' }}>{out}</div></div>
+      <div className="k-wh-body">
+        {!bodyReady ? (
+          <div className="k-empty" style={{ padding: '20px 12px' }}>
+            Загрузка раздела…
+          </div>
+        ) : (
+          <>
+            {tab === 'stock' && (
+              <WarehouseStockPanel
+                products={products}
+                search={search}
+                onRefresh={refreshAll}
+                refreshGen={refreshGen}
+              />
+            )}
+            {tab === 'receipts' && (
+              <WarehouseReceiptsPanel
+                receipts={receipts}
+                suppliers={suppliers}
+                products={products}
+                onRefresh={refreshAll}
+              />
+            )}
+            {tab === 'writeoffs' && (
+              <WarehouseWriteoffsPanel
+                writeoffs={writeoffs}
+                products={products}
+                onRefresh={refreshAll}
+              />
+            )}
+            {tab === 'revisions' && (
+              <WarehouseRevisionsPanel
+                revisions={revisions}
+                products={products}
+                onRefresh={refreshAll}
+              />
+            )}
+            {tab === 'expiry' && (
+              expiryLoading
+                ? <div className="k-empty">Загрузка…</div>
+                : (
+                  <WarehouseExpiryPanel
+                    expiry={expiry}
+                    days={expiryDays}
+                    products={products}
+                    onDaysChange={setExpiryDays}
+                    onWriteOff={writeOffExpiredBatch}
+                  />
+                )
+            )}
+          </>
+        )}
       </div>
-
-      <div className="k-subtabs">
-        {WAREHOUSE_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            className={`k-subtab ${tab === t.id ? 'active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.icon} {t.label}
-            {t.id === 'receipts' && receipts.length > 0 && ` (${receipts.length})`}
-            {t.id === 'writeoffs' && writeoffs.length > 0 && ` (${writeoffs.length})`}
-            {t.id === 'revisions' && revisions.length > 0 && ` (${revisions.length})`}
-            {t.id === 'expiry' && expiry.length > 0 && ` (${expiry.length})`}
-          </button>
-        ))}
-      </div>
-
-      {!bodyReady ? (
-        <div className="k-empty" style={{ padding: '28px 16px' }}>
-          Загрузка раздела…
-        </div>
-      ) : (
-        <>
-          {tab === 'stock' && (
-            <WarehouseStockPanel
-              products={products}
-              search={search}
-              onRefresh={refreshAll}
-              refreshGen={refreshGen}
-            />
-          )}
-          {tab === 'receipts' && (
-            <WarehouseReceiptsPanel
-              receipts={receipts}
-              suppliers={suppliers}
-              products={products}
-              onRefresh={refreshAll}
-            />
-          )}
-          {tab === 'writeoffs' && (
-            <WarehouseWriteoffsPanel
-              writeoffs={writeoffs}
-              products={products}
-              onRefresh={refreshAll}
-            />
-          )}
-          {tab === 'revisions' && (
-            <WarehouseRevisionsPanel
-              revisions={revisions}
-              products={products}
-              onRefresh={refreshAll}
-            />
-          )}
-          {tab === 'expiry' && (
-            expiryLoading
-              ? <div className="k-empty">Загрузка…</div>
-              : (
-                <WarehouseExpiryPanel
-                  expiry={expiry}
-                  days={expiryDays}
-                  products={products}
-                  onDaysChange={setExpiryDays}
-                  onWriteOff={writeOffExpiredBatch}
-                />
-              )
-          )}
-        </>
-      )}
     </div>
   )
 }
