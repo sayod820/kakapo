@@ -147,12 +147,15 @@ const CSS = `
   .k-products-mod > .k-subtabs{flex-shrink:0}
   .k-products-mod-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
   .k-products-mod-body > .k-product-edit-shell{flex:1;min-height:0;overflow:hidden}
+  .k-products-mod-body > .k-catalog-shell{flex:1;min-height:0;overflow:hidden}
   .k-products-mod-body > .k-cats-panel{flex:1;min-height:0;overflow:hidden}
   .k-products-mod-body > .k-labels-shell{flex:1;min-height:0;overflow:hidden}
   .k-body-products:has(.k-product-edit-shell),
+  .k-body-products:has(.k-catalog-shell),
   .k-body-products:has(.k-cats-panel),
   .k-body-products:has(.k-labels-shell){overflow:hidden}
   .k-body-products:has(.k-product-edit-shell) .k-products-mod-body,
+  .k-body-products:has(.k-catalog-shell) .k-products-mod-body,
   .k-body-products:has(.k-cats-panel) .k-products-mod-body,
   .k-body-products:has(.k-labels-shell) .k-products-mod-body{overflow:hidden}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
@@ -309,11 +312,17 @@ const CSS = `
   .k-filter-chip-v{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums}
   .k-catalog-add{flex-shrink:0;padding:7px 12px;font-size:13px}
   .k-catalog-bulk{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;font-weight:800}
-  .k-cats-compact{gap:6px;margin-bottom:6px;scrollbar-width:none}
-  .k-cats-compact::-webkit-scrollbar{height:0;display:none}
+  .k-catalog-shell{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .k-catalog-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .k-catalog-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+  .k-cats-compact{
+    display:flex;gap:6px;margin:0;padding:2px 0 4px;overflow-x:auto;overflow-y:visible;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;flex-shrink:0;min-height:36px;align-items:center
+  }
+  .k-cats-compact::-webkit-scrollbar{display:none}
   .k-cats-compact .k-cat{
-    flex-direction:row;align-items:center;justify-content:center;
-    min-width:0;padding:5px 10px;border-radius:10px;gap:5px;font-size:12px
+    flex-direction:row;align-items:center;justify-content:center;flex-shrink:0;
+    min-width:max-content;height:auto;padding:6px 10px;border-radius:10px;gap:5px;font-size:12px
   }
   .k-cats-compact .k-cat .ce{font-size:14px;line-height:1}
   .k-cats-compact .k-cat .cc{font-size:10px;opacity:.75;font-weight:700}
