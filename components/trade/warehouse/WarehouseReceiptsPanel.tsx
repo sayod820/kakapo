@@ -763,60 +763,56 @@ export default function WarehouseReceiptsPanel({
   }, [filteredReceipts])
 
   return (
-    <div>
-      <div className="k-wh-cta">
-        <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-          + Новый приход
-        </button>
-        {hasDraft && !open && (
-          <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700, textAlign: 'center' }}>● Есть черновик — нажмите кнопку выше</span>
-        )}
-      </div>
-      <div className="k-wh-cta-spacer" aria-hidden />
-
-      <div className="k-wh-filters">
-        <WarehousePeriodFilter
-          from={dateFrom}
-          to={dateTo}
-          onFromChange={setDateFrom}
-          onToChange={setDateTo}
-          onClear={() => { setDateFrom(''); setDateTo('') }}
-        />
-        {(dateFrom || dateTo) && (
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Показано: <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> из {receipts.length}
-          </span>
-        )}
-      </div>
-
-      {!!filteredReceipts.length && (
-        <div className="k-kpis" style={{ marginBottom: 12 }}>
-          <div className="k-kpi k-statcard">
-            <div className="kl">Приходов</div>
-            <div className="kv">{filteredReceipts.length}</div>
-          </div>
-          <div className="k-kpi k-statcard">
-            <div className="kl">Сумма закуп</div>
-            <div className="kv">{fmtMoney(listTotals.costTotal)}</div>
-          </div>
-          <div className="k-kpi k-statcard">
-            <div className="kl">Сумма продажи</div>
-            <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(listTotals.retailTotal)}</div>
-          </div>
-          <div className="k-kpi k-statcard">
-            <div className="kl">Наценка</div>
-            <div className="kv" style={{ color: listTotals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
-              {listTotals.costTotal > 0 ? `${listTotals.markup >= 0 ? '+' : ''}${listTotals.markup.toFixed(1)}%` : '—'}
-            </div>
-          </div>
-          <div className="k-kpi k-statcard">
-            <div className="kl">Долг поставщикам</div>
-            <div className="kv" style={{ color: listTotals.debtTotal > 0 ? 'var(--gold)' : 'var(--muted)' }}>
-              {listTotals.debtTotal > 0 ? fmtMoney(listTotals.debtTotal) : '—'}
-            </div>
+    <div className="k-wh-receipts">
+      <div className="k-wh-receipts-head">
+        <div className="k-wh-filters-row">
+          <WarehousePeriodFilter
+            from={dateFrom}
+            to={dateTo}
+            onFromChange={setDateFrom}
+            onToChange={setDateTo}
+            onClear={() => { setDateFrom(''); setDateTo('') }}
+          />
+          {(dateFrom || dateTo) && (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> / {receipts.length}
+            </span>
+          )}
+          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            {hasDraft && !open && (
+              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
+            )}
+            <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+              + Новый приход
+            </button>
           </div>
         </div>
-      )}
+        <div className="k-wh-cta-spacer" aria-hidden />
+
+        {!!filteredReceipts.length && (
+          <div className="k-wh-meta">
+            <span>
+              <b>{filteredReceipts.length}</b> приходов
+            </span>
+            <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
+              <span>Закуп <b>{fmtMoney(listTotals.costTotal)}</b></span>
+              <span>Продажа <b style={{ color: 'var(--green)' }}>{fmtMoney(listTotals.retailTotal)}</b></span>
+              <span>
+                Наценка{' '}
+                <b style={{ color: listTotals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                  {listTotals.costTotal > 0 ? `${listTotals.markup >= 0 ? '+' : ''}${listTotals.markup.toFixed(1)}%` : '—'}
+                </b>
+              </span>
+              <span>
+                Долг{' '}
+                <b style={{ color: listTotals.debtTotal > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                  {listTotals.debtTotal > 0 ? fmtMoney(listTotals.debtTotal) : '—'}
+                </b>
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {!filteredReceipts.length ? (
         <div className="k-empty">{receipts.length ? 'За выбранный период приходов нет' : 'Приходов пока нет'}</div>
@@ -827,11 +823,11 @@ export default function WarehouseReceiptsPanel({
               const isOpen = expanded === r.id
               const retail = receiptRetailTotal(r)
               return (
-                <div key={r.id} className="k-wh-card">
+                <div key={r.id} className="k-wh-card" style={{ padding: 10, gap: 8 }}>
                   <div className="k-wh-card-top">
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(r.createdAtIso)}</div>
-                      <div style={{ fontWeight: 900, fontSize: 15, marginTop: 4 }}>{r.supplierName || 'Без поставщика'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(r.createdAtIso)}</div>
+                      <div style={{ fontWeight: 900, fontSize: 14, marginTop: 2 }}>{r.supplierName || 'Без поставщика'}</div>
                     </div>
                   </div>
                   <div className="k-wh-card-meta">
@@ -886,12 +882,12 @@ export default function WarehouseReceiptsPanel({
                           <div
                             key={i}
                             style={{
-                              padding: '10px 12px', borderRadius: 10,
+                              padding: '8px 10px', borderRadius: 8,
                               border: '1px solid var(--border)', background: 'var(--card2)',
                             }}
                           >
-                            <div style={{ fontWeight: 800, marginBottom: 6 }}>{it.productName}</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
+                            <div style={{ fontWeight: 800, marginBottom: 4, fontSize: 13 }}>{it.productName}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 11 }}>
                               <span style={{ color: 'var(--muted)' }}>Кол-во: <b style={{ color: 'var(--text)' }}>{it.qty}</b></span>
                               <span style={{ color: 'var(--muted)' }}>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(itemCostTotal)}</b></span>
                               <span style={{ color: 'var(--muted)' }}>Розница: <b style={{ color: 'var(--green)' }}>{it.retailPrice != null ? fmtMoney(itemRetailTotal) : '—'}</b></span>
@@ -907,15 +903,15 @@ export default function WarehouseReceiptsPanel({
             })}
           </div>
 
-          <div className="k-card k-tbl-scroll k-wh-desk-tbl">
+          <div className="k-wh-receipts-body k-wh-desk-tbl">
           <table className="k-tbl">
             <thead>
               <tr>
                 <th>Дата</th>
                 <th>Поставщик</th>
-                <th className="num">Позиций</th>
-                <th className="num">Сумма закуп</th>
-                <th className="num">Сумма продажи</th>
+                <th className="num">Поз.</th>
+                <th className="num">Σ закуп</th>
+                <th className="num">Σ продажи</th>
                 <th className="num">Оплачено</th>
                 <th className="num">Долг</th>
                 <th />
@@ -925,38 +921,38 @@ export default function WarehouseReceiptsPanel({
               {filteredReceipts.map(r => (
                 <Fragment key={r.id}>
                   <tr>
-                    <td>{fmtDateTime(r.createdAtIso)}</td>
-                    <td>{r.supplierName || '—'}</td>
+                    <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{fmtDateTime(r.createdAtIso)}</td>
+                    <td style={{ fontWeight: 700, fontSize: 12 }}>{r.supplierName || '—'}</td>
                     <td className="num">{r.items.length}</td>
                     <td className="num">{fmtMoney(r.totalCost)}</td>
-                    <td className="num" style={{ color: 'var(--green)' }}>{fmtMoney(receiptRetailTotal(r))}</td>
+                    <td className="num" style={{ color: 'var(--green)', fontWeight: 700 }}>{fmtMoney(receiptRetailTotal(r))}</td>
                     <td className="num">{fmtMoney(r.paidNow)}</td>
-                    <td className="num" style={{ color: r.debtAdded > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                    <td className="num" style={{ color: r.debtAdded > 0 ? 'var(--gold)' : 'var(--muted)', fontWeight: r.debtAdded > 0 ? 800 : 400 }}>
                       {r.debtAdded > 0 ? fmtMoney(r.debtAdded) : '—'}
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
                         <button
                           type="button"
                           className="k-btn k-btn-s"
-                          style={{ padding: '4px 10px' }}
+                          style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }}
                           title="Печать этикеток"
                           onClick={() => setLabelReceipt(r)}
                         >
                           🖨️
                         </button>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
+                        <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
                         <button
                           type="button"
                           className="k-btn k-btn-s"
-                          style={{ padding: '4px 10px', color: 'var(--red)' }}
+                          style={{ padding: '3px 8px', fontSize: 12, minHeight: 0, color: 'var(--red)' }}
                           disabled={!USE_API || deletingId === r.id}
                           onClick={() => void removeReceipt(r.id)}
                           title="Удалить"
                         >
                           {deletingId === r.id ? '…' : '🗑'}
                         </button>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
+                        <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
                           {expanded === r.id ? '▲' : '▼'}
                         </button>
                       </div>
@@ -972,8 +968,8 @@ export default function WarehouseReceiptsPanel({
                               <th className="num">Кол-во</th>
                               <th className="num">Закуп/ед.</th>
                               <th className="num">Розница/ед.</th>
-                              <th className="num">Сумма закуп</th>
-                              <th className="num">Сумма продажи</th>
+                              <th className="num">Σ закуп</th>
+                              <th className="num">Σ продажи</th>
                               <th>Срок</th>
                             </tr>
                           </thead>
@@ -984,7 +980,7 @@ export default function WarehouseReceiptsPanel({
                               const itemRetailTotal = it.retailPrice != null ? qty * Number(it.retailPrice) : 0
                               return (
                                 <tr key={i}>
-                                  <td>{it.productName}</td>
+                                  <td style={{ fontWeight: 700 }}>{it.productName}</td>
                                   <td className="num">{it.qty}</td>
                                   <td className="num">{fmtMoney(it.costPrice)}</td>
                                   <td className="num">{it.retailPrice != null ? fmtMoney(it.retailPrice) : '—'}</td>
