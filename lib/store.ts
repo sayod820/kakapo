@@ -847,8 +847,14 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       return get().products.find(p => p.id === data.id) || null
     }
     const { allocateProductCodes } = await import('@/lib/productCodes')
-    const codes = allocateProductCodes(get().products, { art: data.art, plu: data.plu })
-    const p = { ...data, ...codes, id: Date.now() } as Product
+    const needPlu = (data.sellType || 'piece') === 'weight'
+    const codes = allocateProductCodes(
+      get().products,
+      { art: data.art, plu: needPlu ? data.plu : '' },
+      null,
+      { needPlu },
+    )
+    const p = { ...data, ...codes, plu: needPlu ? codes.plu : undefined, id: Date.now() } as Product
     get().addProduct(p)
     return p
   },

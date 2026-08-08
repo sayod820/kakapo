@@ -1,6 +1,6 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
 import { nextFreeEan13, normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
-import { nextFreeProductCode, parseProductCodeNum } from '@/lib/productCodes'
+import { nextFreePlu, nextFreeProductCode } from '@/lib/productCodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
 export function money(n: number | undefined | null) {
@@ -42,22 +42,25 @@ export function emptyForm(): ProductForm {
   }
 }
 
-/** Форма нового товара с уже подставленными свободными артикулом, PLU и штрихкодом */
+/** Форма нового товара с уже подставленными свободным артикулом и штрихкодом (без PLU) */
 export function emptyFormWithNextCodes(products: Product[]): ProductForm {
   const next = nextFreeProductCode(products)
   const code = String(next)
   return {
     ...emptyForm(),
     art: code,
-    plu: next <= 9999 ? code : '',
+    plu: '',
     barcodes: [nextFreeEan13(products, next)],
   }
 }
 
-/** Дубликат: имя, штрихкод, ед. (г/шт/л) как у исходного; артикул/PLU — новые свободные. */
+/** Дубликат: имя, штрихкод, ед. как у исходного; артикул новый; PLU только если весовой. */
 export function formFromDuplicate(source: Product, products: Product[]): ProductForm {
   const next = emptyFormWithNextCodes(products)
   const codes = productBarcodes(source)
+  const sellType = source.sellType || 'piece'
+  const isWeight = sellType === 'weight'
+  const freePlu = isWeight ? nextFreePlu(products) : 0
   return {
     ...next,
     name: source.name || '',
@@ -67,7 +70,8 @@ export function formFromDuplicate(source: Product, products: Product[]): Product
     barcodes: codes.length ? [...codes] : next.barcodes,
     brand: source.brand || '',
     desc: source.desc || '',
-    sellType: source.sellType || 'piece',
+    sellType,
+    plu: isWeight && freePlu <= 9999 ? String(freePlu) : '',
     weightStep: String(source.weightStep || 1),
     unitGrams: String(source.unitGrams || 1000),
     hot: !!source.hot,
@@ -78,6 +82,7 @@ export function formFromDuplicate(source: Product, products: Product[]): Product
 }
 
 export function formFromProduct(p: Product, photo?: string): ProductForm {
+  const sellType = p.sellType || 'piece'
   return {
     name: p.name,
     art: p.art,
@@ -85,12 +90,13 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     catId: p.catId || 'veg',
     unit: p.unit || 'шт',
     barcodes: productBarcodes(p),
-    plu: p.plu || '',
+    // PLU только у весовых; у штучных в форме пусто (при сохранении сбросится в базе)
+    plu: sellType === 'weight' ? (p.plu || '') : '',
     brand: p.brand || '',
     desc: p.desc || '',
     photo: p.photo || photo || '',
     photoThumb: p.photoThumb || '',
-    sellType: p.sellType || 'piece',
+    sellType,
     weightStep: String(p.weightStep || 1),
     unitGrams: String(p.unitGrams || 1000),
     hot: !!p.hot,
@@ -112,10 +118,19 @@ export function buildProductPayload(
 ) {
   const next = nextFreeProductCode(products, existing?.id)
   const art = data.art.trim() || String(next)
-  const artNum = parseProductCodeNum(art)
-  const pluRaw = data.plu.trim()
-  const plu = pluRaw
-    || (artNum != null && artNum <= 9999 ? String(artNum) : (next <= 9999 ? String(next) : undefined))
+  const isWeight = data.sellType === 'weight'
+  let plu: string | undefined
+  if (isWeight) {
+    const raw = data.plu.trim()
+    if (raw) {
+      plu = raw
+    } else {
+      const n = nextFreePlu(products, existing?.id)
+      plu = n <= 9999 ? String(n) : undefined
+    }
+  } else {
+    plu = undefined
+  }
   const { barcode, barcodes } = normalizeBarcodes(data.barcodes)
   return {
     ...(existing || {}),
@@ -131,7 +146,7 @@ export function buildProductPayload(
     stock: existing?.stock ?? 0,
     barcode: barcode || undefined,
     barcodes: barcodes.length ? barcodes : undefined,
-    plu: plu || undefined,
+    plu: plu || null,
     brand: data.brand || undefined,
     desc: data.desc || undefined,
     photo: data.photo || null,
@@ -140,7 +155,7 @@ export function buildProductPayload(
     hot: data.hot,
     organic: data.organic,
     bulkPricing: existing?.bulkPricing,
-    ...(data.sellType === 'weight' ? {
+    ...(isWeight ? {
       weightStep: 1,
       minWeight: 1,
       unitGrams: 1000,

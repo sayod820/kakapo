@@ -919,17 +919,20 @@ app.get('/products', (_req, res) => res.json(db.products))
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
   const barcode = nextFreeEan13(db.products, next)
-  res.json({ next, art: String(next), plu: next <= 9999 ? String(next) : '', barcode })
+  // PLU только для весовых — клиент запросит при выборе «на развес»
+  res.json({ next, art: String(next), plu: '', barcode })
 })
 app.post('/products', (req, res) => {
   try {
     const clientRef = takeClientRef(req)
     if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
     const id = ++db._seq.product
+    const sellType = req.body.sellType || 'piece'
+    const needPlu = sellType === 'weight'
     const codes = allocateProductCodes(db.products, {
       art: req.body.art,
-      plu: req.body.plu,
-    })
+      plu: needPlu ? req.body.plu : '',
+    }, null, { needPlu })
     const preferSerial = Number(codes.art) || nextFreeProductCode(db.products)
     const bars = allocateProductBarcodes(db.products, {
       barcode: req.body.barcode,
@@ -944,8 +947,8 @@ app.post('/products', (req, res) => {
       desc: req.body.desc, brand: req.body.brand, country: req.body.country,
       barcode: bars.barcode,
       barcodes: bars.barcodes,
-      plu: codes.plu,
-      organic: !!req.body.organic, sellType: req.body.sellType || 'piece',
+      plu: needPlu ? (codes.plu || null) : null,
+      organic: !!req.body.organic, sellType,
       unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
       old: req.body.old ?? null,
       photo: req.body.photo ? String(req.body.photo) : undefined,
@@ -986,13 +989,16 @@ app.patch('/products/:id', (req, res) => {
     delete body.clientRef
     const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
     const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
-    if (artTouched || pluTouched) {
+    const sellTouched = Object.prototype.hasOwnProperty.call(body, 'sellType')
+    const nextSell = sellTouched ? (body.sellType || 'piece') : (p.sellType || 'piece')
+    const needPlu = nextSell === 'weight'
+    if (artTouched || pluTouched || sellTouched || !needPlu) {
       const codes = allocateProductCodes(db.products, {
         art: artTouched ? body.art : p.art,
-        plu: pluTouched ? body.plu : p.plu,
-      }, p.id)
+        plu: needPlu ? (pluTouched ? body.plu : p.plu) : '',
+      }, p.id, { needPlu })
       body.art = codes.art
-      body.plu = codes.plu
+      body.plu = needPlu ? (codes.plu || null) : null
     }
     // Остаток живёт в партиях — прямая запись stock иначе расходится со складом
     const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')

@@ -156,27 +156,11 @@ function stopUiVersionPoller() {
   }
 }
 
-/** Пока открыт локальный UI — как только сайт снова доступен, уходим на него. */
-function startRemoteRecoveryPoller(remoteUrl) {
+/** Раньше: при появлении сети уходил на сайт. Теперь local-first — только фоновый sync UI. */
+function startRemoteRecoveryPoller(_remoteUrl) {
   stopRemoteRecoveryPoller()
-  const tick = async () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    if (isRemoteTradeLoaded()) {
-      stopRemoteRecoveryPoller()
-      return
-    }
-    if (!isLocalTradeLoaded()) return
-    const online = await probeRemoteReachable(1500)
-    if (!online || !mainWindow || mainWindow.isDestroyed()) return
-    bootLog('recovery → remote (was local)', remoteUrl)
-    try { await mainWindow.webContents.session.clearCache() } catch { /* ignore */ }
-    mainWindow.loadURL(buildRemoteTarget(remoteUrl))
-    startUiVersionPoller(remoteUrl)
-    stopRemoteRecoveryPoller()
-    scheduleOfflineUiSync()
-  }
-  void tick()
-  remoteRecoveryTimer = setInterval(() => { void tick() }, 20000)
+  // Не переключаем окно на сайт — касса остаётся на локальном UI (как на схеме).
+  scheduleOfflineUiSync()
 }
 
 function stopRemoteRecoveryPoller() {
@@ -375,26 +359,18 @@ function buildAppMenu() {
           },
         },
         {
-          label: 'Обновить интерфейс с сайта',
+          label: 'Обновить локальный UI с сервера',
           click: () => {
             void (async () => {
               if (!mainWindow || mainWindow.isDestroyed()) return
-              const remoteUrl = loadConfig().tradeUrl || DEFAULT_TRADE_URL
-              if (!isRemoteTradeLoaded()) {
-                try {
-                  try { await mainWindow.webContents.session.clearCache() } catch { /* ignore */ }
-                  mainWindow.loadURL(buildRemoteTarget(remoteUrl))
-                  startUiVersionPoller(remoteUrl)
-                  stopRemoteRecoveryPoller()
-                  scheduleOfflineUiSync()
-                } catch {
-                  mainWindow.loadURL(remoteUrl)
-                }
-                return
+              await runOfflineUiSync('menu')
+              const local = localUiUrl() || await startLocalUi({ timeoutMs: 25000 }).catch(() => '')
+              if (local && mainWindow && !mainWindow.isDestroyed()) {
+                stopUiVersionPoller()
+                mainWindow.loadURL(local)
+              } else {
+                dialog.showErrorBox('Обновление', 'Не удалось обновить встроенный интерфейс. Проверьте интернет.')
               }
-              lastUiVersion = ''
-              await softRefreshRemoteUi('menu')
-              scheduleOfflineUiSync()
             })()
           },
         },
@@ -406,7 +382,6 @@ function buildAppMenu() {
               try {
                 mainWindow.loadURL(buildRemoteTarget(url))
                 startUiVersionPoller(url)
-                stopRemoteRecoveryPoller()
                 scheduleOfflineUiSync()
               } catch {
                 mainWindow.loadURL(url)
@@ -415,18 +390,23 @@ function buildAppMenu() {
           },
         },
         {
-          label: 'Вернуть встроенный интерфейс',
+          label: 'Вернуть локальную кассу',
           click: () => {
             stopUiVersionPoller()
-            const local = localUiUrl()
-            if (!local) {
-              dialog.showErrorBox('Недоступно', 'Встроенная сборка интерфейса не найдена в этой версии приложения.')
-              return
-            }
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.loadURL(local)
-              startRemoteRecoveryPoller(loadConfig().tradeUrl || DEFAULT_TRADE_URL)
-            }
+            void (async () => {
+              let local = localUiUrl()
+              if (!local) {
+                try { local = await startLocalUi({ timeoutMs: 25000 }) } catch { /* ignore */ }
+              }
+              if (!local) {
+                dialog.showErrorBox('Недоступно', 'Встроенная сборка интерфейса не найдена в этой версии приложения.')
+                return
+              }
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.loadURL(local)
+                scheduleOfflineUiSync()
+              }
+            })()
           },
         },
         {
@@ -709,7 +689,7 @@ function createWindow(localUrl = '') {
         stopRemoteRecoveryPoller()
         scheduleOfflineUiSync()
       } else if (isLocalTradeLoaded()) {
-        startRemoteRecoveryPoller(remoteUrl)
+        scheduleOfflineUiSync()
       }
     }
   })
@@ -718,70 +698,46 @@ function createWindow(localUrl = '') {
     bootLog('render-process-gone', details)
   })
 
-  // Онлайн → сайт (всегда свежий UI). Офлайн / сайт недоступен → ui-cache / встроенный UI.
-  // Локальный SQLite и данные сервера не трогаем — только какой URL открыть.
+  // Local-first (как на схеме): всегда локальный UI → очередь → сервер в фоне.
+  // Сайт — только запасной, если встроенный UI недоступен.
   void (async () => {
     const gen = ++bootGen
     await splashReady
     if (!mainWindow || mainWindow.isDestroyed() || gen !== bootGen) return
 
-    setSplashMsg('Проверка связи…')
-    const onlinePromise = probeRemoteReachable(1800)
-    // Локальный UI греем параллельно — пригодится как запасной
-    const localPromise = ensureOfflineUi(20000)
+    setSplashMsg('Запуск локальной кассы…')
+    const local = await ensureOfflineUi(25000)
+    if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
 
-    const online = await onlinePromise
+    if (local) {
+      stopUiVersionPoller()
+      stopRemoteRecoveryPoller()
+      bootLog('boot → local-first', local)
+      setSplashMsg('Локальная касса…')
+      openUrl(local)
+      // Фон: подтянуть пакет UI и данные, не уходя на сайт
+      scheduleOfflineUiSync()
+      void probeRemoteReachable(2000).then(online => {
+        if (online) scheduleOfflineUiSync()
+      })
+      return
+    }
+
+    setSplashMsg('Проверка связи…')
+    const online = await probeRemoteReachable(2000)
     if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
 
     if (online) {
-      bootLog('boot → remote first', remoteTarget)
+      bootLog('boot → remote fallback (no local UI)', remoteTarget)
       setSplashMsg('Загрузка с сервера…')
-      // Сброс только HTTP-кеша (не SQLite / не userData)
       try { await mainWindow.webContents.session.clearCache() } catch { /* ignore */ }
       openUrl(remoteTarget)
       startUiVersionPoller(remoteUrl)
       scheduleOfflineUiSync()
-      // Не уходим на старый локальный UI только из‑за медленной загрузки,
-      // если сайт всё ещё отвечает — иначе касса «залипает» на вчерашнем коде.
-      setTimeout(() => {
-        if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
-        if (!mainWindow.webContents.isLoadingMainFrame()) return
-        void (async () => {
-          const stillOnline = await probeRemoteReachable(1500)
-          if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
-          if (stillOnline) {
-            bootLog('remote slow but online → keep remote / reload')
-            openUrl(buildRemoteTarget(remoteUrl))
-            return
-          }
-          bootLog('remote slow + offline → try local')
-          const local = await localPromise
-          if (gen !== bootGen || contentShown || !mainWindow || mainWindow.isDestroyed()) return
-          if (local) {
-            stopUiVersionPoller()
-            setSplashMsg('Переход в офлайн…')
-            openUrl(local)
-            startRemoteRecoveryPoller(remoteUrl)
-          } else {
-            showLoadErrorPage(mainWindow, remoteUrl, -1, 'Сервер не отвечает')
-          }
-        })()
-      }, 20000)
       return
     }
 
-    const local = await localPromise
-    if (gen !== bootGen || !mainWindow || mainWindow.isDestroyed()) return
-    if (local) {
-      stopUiVersionPoller()
-      bootLog('boot → local (offline)', local)
-      setSplashMsg('Офлайн-касса…')
-      openUrl(local)
-      startRemoteRecoveryPoller(remoteUrl)
-      return
-    }
-
-    showLoadErrorPage(mainWindow, remoteUrl, -1, 'Нет интернета и локальный интерфейс недоступен')
+    showLoadErrorPage(mainWindow, remoteUrl, -1, 'Нет локального интерфейса и нет интернета')
   })()
 
   mainWindow.webContents.setWindowOpenHandler(({ url: openUrlExt }) => {

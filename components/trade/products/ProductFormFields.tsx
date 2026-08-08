@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
 import { nextFreeEan13 } from '@/lib/productBarcodes'
-import { parseProductCodeNum } from '@/lib/productCodes'
+import { nextFreePlu, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
 import type { SellType } from '@/lib/types'
@@ -72,16 +72,20 @@ export default function ProductFormFields({
 
   function setSellType(sellType: SellType) {
     if (sellType === 'weight') {
+      const free = nextFreePlu(products, productId ?? null)
       setForm({
         ...form,
         sellType,
         unitGrams: '1000',
         weightStep: '1',
         unit: !form.unit || form.unit === 'шт' ? 'кг' : form.unit,
+        // Всегда новый минимальный свободный PLU (старый сбрасываем)
+        plu: free <= 9999 ? String(free) : '',
       })
       return
     }
-    setForm({ ...form, sellType })
+    // Штучный — PLU не нужен
+    setForm({ ...form, sellType, plu: '' })
   }
 
   return (
@@ -214,19 +218,21 @@ export default function ProductFormFields({
           📷 Камера на телефоне подставит штрихкод сама. Или «Сгенерировать» / ввод вручную.
         </div>
       </div>
-      <div className="k-field">
-        <label>PLU-код (весы)</label>
-        <input
-          className="k-inp"
-          value={form.plu}
-          onChange={e => setForm({ ...form, plu: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-          placeholder="1–9999"
-          inputMode="numeric"
-        />
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-          Код на весах · тот же номер, что артикул (1–9999)
+      {isWeight && (
+        <div className="k-field">
+          <label>PLU-код (весы)</label>
+          <input
+            className="k-inp"
+            value={form.plu}
+            onChange={e => setForm({ ...form, plu: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+            placeholder="1–9999"
+            inputMode="numeric"
+          />
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+            Код на весах · ставится сам (минимальный свободный 1–9999)
+          </div>
         </div>
-      </div>
+      )}
       <div className="k-field">
         <label>Бренд</label>
         <input className="k-inp" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />

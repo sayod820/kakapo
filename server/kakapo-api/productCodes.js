@@ -24,11 +24,30 @@ export function collectUsedProductCodes(products, excludeId) {
   return used
 }
 
+/** Занятые только PLU (1–9999) */
+export function collectUsedPluCodes(products, excludeId) {
+  const used = new Set()
+  for (const p of products || []) {
+    if (excludeId != null && Number(p.id) === Number(excludeId)) continue
+    const pl = parseProductCodeNum(p.plu)
+    if (pl != null && pl >= 1 && pl <= 9999) used.add(pl)
+  }
+  return used
+}
+
 /** Самый маленький свободный номер после удалений */
 export function nextFreeProductCode(products, excludeId) {
   const used = collectUsedProductCodes(products, excludeId)
   let n = 1
   while (used.has(n)) n += 1
+  return n
+}
+
+/** Минимальный свободный PLU 1–9999 */
+export function nextFreePlu(products, excludeId) {
+  const used = collectUsedPluCodes(products, excludeId)
+  let n = 1
+  while (n <= 9999 && used.has(n)) n += 1
   return n
 }
 
@@ -51,42 +70,40 @@ export function isPluTaken(products, plu, excludeId) {
 }
 
 /**
- * Пустые артикул/PLU → минимальный свободный номер (оба одинаковые).
- * Удалённый товар освобождает свой номер.
+ * Артикул всегда. PLU — только needPlu (весовой).
+ * Штучный: plu сбрасывается.
  */
-export function allocateProductCodes(products, input = {}, excludeId = null) {
+export function allocateProductCodes(products, input = {}, excludeId = null, opts = {}) {
+  const needPlu = opts.needPlu === true
   const free = nextFreeProductCode(products, excludeId)
   let art = String(input.art ?? '').trim()
-  let plu = String(input.plu ?? '').trim()
+  let plu = needPlu ? String(input.plu ?? '').trim() : ''
 
-  if (!art && !plu) {
-    art = String(free)
-    plu = free <= 9999 ? String(free) : ''
-  } else if (!art) {
-    const pn = parseProductCodeNum(plu)
+  if (!art) {
+    const pn = needPlu ? parseProductCodeNum(plu) : null
     art = pn != null ? String(pn) : String(free)
-  } else if (!plu) {
-    const an = parseProductCodeNum(art)
-    if (an != null && an <= 9999) plu = String(an)
-    else if (free <= 9999) plu = String(free)
   }
 
-  if (plu) {
+  if (needPlu) {
+    if (!plu) {
+      const n = nextFreePlu(products, excludeId)
+      plu = n <= 9999 ? String(n) : ''
+    }
     const pn = parseProductCodeNum(plu)
     if (pn != null && pn > 9999) {
       throw new Error('PLU должен быть от 1 до 9999')
     }
     plu = pn != null ? String(pn) : String(plu).replace(/\D/g, '').slice(0, 4)
+    if (plu && isPluTaken(products, plu, excludeId)) {
+      throw new Error(`PLU «${plu}» уже занят`)
+    }
   }
 
   if (isArtTaken(products, art, excludeId)) {
     throw new Error(`Артикул «${art}» уже занят`)
   }
-  if (plu && isPluTaken(products, plu, excludeId)) {
-    throw new Error(`PLU «${plu}» уже занят`)
-  }
 
-  return { art, plu: plu || undefined }
+  return { art, plu: needPlu && plu ? plu : undefined }
 }
 
 /** Префикс внутренних EAN-13 (не 2x — весовые этикетки) */
