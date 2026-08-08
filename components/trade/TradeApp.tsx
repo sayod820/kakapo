@@ -138,7 +138,14 @@ const CSS = `
   .k-user .who b{display:block;font-size:13px;line-height:1.1;color:var(--text);font-weight:800}
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
-  .k-body-products{padding-top:6px;padding-bottom:12px}
+  .k-body-products{padding:6px 12px 10px;display:flex;flex-direction:column;overflow:hidden}
+  .k-body-products > .k-products-mod{flex:1;min-height:0;display:flex;flex-direction:column}
+  .k-products-mod > .k-subtabs{flex-shrink:0}
+  .k-products-mod-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
+  .k-products-mod-body > .k-product-edit-shell{flex:1;min-height:0;overflow:hidden}
+  .k-body-products:has(.k-product-edit-shell){overflow:hidden}
+  .k-body-products:has(.k-product-edit-shell) .k-products-mod-body{overflow:hidden}
+  .k-products-mod:has(.k-product-edit-shell) > .k-subtabs{display:none}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
@@ -302,18 +309,26 @@ const CSS = `
   .k-debts-metric{padding:6px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--border)}
   .k-debts-metric .kl{font-size:10px;color:var(--muted);font-weight:700;line-height:1.2}
   .k-debts-metric .kv{font-size:14px;font-weight:900;margin-top:2px;line-height:1.2}
-  .k-product-layout{display:grid;grid-template-columns:240px 1fr;gap:12px;align-items:start}
-  .k-product-list{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;position:sticky;top:0}
-  .k-product-list-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
-  .k-product-list-body{max-height:70vh;overflow:auto;padding:6px}
-  .k-product-pick{display:flex;align-items:center;gap:10px;width:100%;border:1px solid transparent;background:transparent;color:var(--text);border-radius:10px;padding:9px 10px;cursor:pointer;text-align:left;margin-bottom:4px}
+  .k-product-layout{
+    flex:1;min-height:0;height:100%;
+    display:grid;grid-template-columns:minmax(300px,38%) minmax(0,1fr);gap:10px;align-items:stretch
+  }
+  .k-product-list{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;
+    display:flex;flex-direction:column;min-height:0;height:100%;min-width:0
+  }
+  .k-product-list-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;flex-shrink:0}
+  .k-product-list-body{flex:1;min-height:0;overflow:auto;padding:6px;-webkit-overflow-scrolling:touch}
+  .k-product-pick{display:flex;align-items:center;gap:10px;width:100%;border:1px solid transparent;background:transparent;color:var(--text);border-radius:10px;padding:8px 10px;cursor:pointer;text-align:left;margin-bottom:2px}
   .k-product-pick:hover{background:var(--hover);border-color:var(--border)}
   .k-product-pick.active{background:var(--green-d);border-color:var(--green)}
   .k-product-pick .pe{font-size:18px;width:24px;text-align:center}
   .k-product-pick .pi{flex:1;min-width:0}
   .k-product-pick .pi b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .k-product-pick .pi span{font-size:11px;color:var(--muted)}
-  .k-product-form{min-height:320px}
+  .k-product-form{min-height:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+  .k-product-form > .k-card-h{flex-shrink:0}
+  .k-product-form > .k-card-b{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
   .k-tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .k-tbl-scroll .k-tbl{min-width:640px}
   .k-line-row{display:grid;gap:8px;align-items:end;margin-bottom:8px}
@@ -330,7 +345,11 @@ const CSS = `
   @media (max-width:900px){
     .k-grid2{grid-template-columns:1fr}
     .k-product-edit-hero{grid-template-columns:96px 1fr;gap:10px}
-    .k-product-layout{grid-template-columns:1fr}
+    .k-product-layout{grid-template-columns:1fr;height:auto;flex:none}
+    .k-product-list{height:auto;max-height:42vh}
+    .k-product-list-body{flex:1;max-height:none}
+    .k-product-form{height:auto;overflow:visible}
+    .k-product-form > .k-card-b{overflow:visible;flex:none}
     .k-label-layout{grid-template-columns:1fr}
     .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
@@ -365,7 +384,10 @@ const CSS = `
     .k-top-back{order:2;padding:8px 10px;font-size:12px}
     .k-top-end{order:2;gap:8px}
     .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
-    .k-body-products{padding-top:4px}
+    .k-body-products{padding:4px 10px 8px;overflow:visible;flex:none;height:auto}
+    .k-body-products > .k-products-mod,
+    .k-products-mod-body,
+    .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
     .k-catalog-bar{flex-wrap:wrap;gap:8px}
     .k-catalog-filters{flex:1 1 100%;order:3}
     .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
@@ -408,8 +430,8 @@ const CSS = `
     }
     .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-    .k-product-list{position:static}
-    .k-product-list-body{max-height:none;overflow:visible}
+    .k-product-list{position:static;height:auto;max-height:42vh}
+    .k-product-list-body{flex:1;min-height:0;max-height:none;overflow:auto}
     .k-tbl{font-size:12px}
     .k-tbl th,.k-tbl td{padding:8px 6px}
     .k-wh-cta{

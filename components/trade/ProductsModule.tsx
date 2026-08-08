@@ -229,7 +229,7 @@ export default function ProductsModule({
   }
 
   return (
-    <div>
+    <div className="k-products-mod">
       <div className="k-subtabs">
         {SUB_PAGES.map(item => (
           <button
@@ -247,6 +247,7 @@ export default function ProductsModule({
 
       {msg && <div className="k-alert" style={{ marginBottom: 12 }}>{msg}</div>}
 
+      <div className="k-products-mod-body">
       {sub === 'product' && (
         <ProductTab
           products={products}
@@ -290,6 +291,7 @@ export default function ProductsModule({
       {sub === 'labels' && (
         <LabelsTab products={products} search={search} />
       )}
+      </div>
     </div>
   )
 }

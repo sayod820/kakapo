@@ -265,7 +265,7 @@ export default function ProductTab({
     const editProduct = selectedId ? products.find(p => p.id === selectedId) || null : null
 
     return (
-      <div>
+      <div className="k-product-edit-shell">
         <div className="k-product-layout">
           <aside className="k-product-list">
             <div className="k-product-list-head">
