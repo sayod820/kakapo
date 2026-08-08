@@ -351,13 +351,56 @@ const CSS = `
   .k-rcpt-find-bg{z-index:220!important;padding:16px!important;background:rgba(0,0,0,.55)!important;align-items:center!important;justify-content:center!important}
   .k-trade[data-theme="light"] .k-rcpt-find-bg{background:rgba(12,26,16,.4)!important}
   .k-rcpt-find-modal{
-    width:min(520px,100%)!important;max-width:520px!important;
-    height:auto!important;max-height:min(80dvh,640px)!important;
-    border-radius:14px!important;margin:0;overflow:visible!important;
+    width:min(920px,100%)!important;max-width:920px!important;
+    height:min(88dvh,820px)!important;max-height:min(88dvh,820px)!important;
+    border-radius:14px!important;margin:0;overflow:hidden!important;
     display:flex!important;flex-direction:column;background:var(--panel);border:1px solid var(--border);
     box-shadow:0 20px 48px rgba(0,0,0,.35)
   }
-  .k-rcpt-find-modal .k-modal-b{overflow:visible}
+  .k-rcpt-find-body{
+    flex:1;min-height:0;overflow:hidden;padding:14px;display:flex;flex-direction:column
+  }
+  .k-rcpt-find-body .k-prod-pick-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+  .k-prod-pick-list{
+    position:absolute;top:100%;left:0;right:0;z-index:20;
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    max-height:320px;overflow:auto;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,.4)
+  }
+  .k-prod-pick-list-panel{
+    position:static;flex:1;min-height:0;max-height:none;margin-top:10px;
+    border-radius:12px;box-shadow:none;overflow:auto
+  }
+  .k-prod-pick-hint{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600}
+  .k-prod-pick-card{
+    display:block;width:100%;border:none;border-bottom:1px solid var(--tbl-line);
+    background:transparent;color:var(--text);padding:12px 12px;cursor:pointer;text-align:left
+  }
+  .k-prod-pick-card:hover{background:var(--hover)}
+  .k-prod-pick-card:last-child{border-bottom:none}
+  .k-prod-pick-card-top{display:flex;align-items:flex-start;gap:10px}
+  .k-prod-pick-card-top .emo{
+    width:40px;height:40px;border-radius:10px;background:var(--card2);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0
+  }
+  .k-prod-pick-card-top .txt{flex:1;min-width:0}
+  .k-prod-pick-card-top .txt b{display:block;font-size:14px;font-weight:900;line-height:1.25}
+  .k-prod-pick-card-top .txt span{display:block;font-size:11px;color:var(--muted);margin-top:3px;word-break:break-word}
+  .k-prod-pick-card-top .price{flex-shrink:0;text-align:right}
+  .k-prod-pick-card-top .price strong{display:block;font-size:15px;font-weight:900;color:var(--green)}
+  .k-prod-pick-card-top .price small{font-size:10px;color:var(--muted);font-weight:700}
+  .k-prod-pick-card-meta{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-top:10px
+  }
+  .k-prod-pick-card-meta > div{
+    padding:6px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--border);min-width:0
+  }
+  .k-prod-pick-card-meta .l{display:block;font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .k-prod-pick-card-meta .v{display:block;font-size:12px;font-weight:800;margin-top:2px;word-break:break-word}
+  .k-prod-pick-card-meta > div.green .v{color:var(--green)}
+  .k-prod-pick-create{
+    display:flex;align-items:center;gap:8px;width:100%;border:none;border-top:1px solid var(--border);
+    background:var(--green-d);color:var(--green);padding:12px;cursor:pointer;text-align:left;font-size:13px;font-weight:800
+  }
   .k-rcpt-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card2)}
   .k-rcpt-th{
     display:grid;grid-template-columns:36px minmax(140px,1.5fr) 110px 118px 44px 100px 90px 96px;
@@ -680,10 +723,12 @@ const CSS = `
       border-radius:0;margin:0
     }
     .k-rcpt-find-modal{
-      width:calc(100% - 24px)!important;max-width:520px!important;
-      height:auto!important;max-height:min(80dvh,640px)!important;
+      width:calc(100% - 16px)!important;max-width:100%!important;
+      height:min(92dvh,900px)!important;max-height:min(92dvh,900px)!important;
       border-radius:14px!important;margin:0
     }
+    .k-rcpt-find-bg{padding:8px!important}
+    .k-prod-pick-card-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
     .k-receipt-modal-bg{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:var(--bg)!important}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static;height:auto;max-height:42vh}

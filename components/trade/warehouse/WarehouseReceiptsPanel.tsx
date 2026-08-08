@@ -1156,7 +1156,7 @@ export default function WarehouseReceiptsPanel({
                       </div>
                       <button type="button" onClick={() => setAddOpen(false)}>✕</button>
                     </div>
-                    <div className="k-modal-b" style={{ padding: 14 }}>
+                    <div className="k-modal-b k-rcpt-find-body">
                       <WarehouseProductSelect
                         products={products}
                         value={null}
@@ -1167,11 +1167,12 @@ export default function WarehouseReceiptsPanel({
                         }}
                         placeholder="Поиск или сканер: название, артикул, штрихкод…"
                         autoFocus
+                        variant="panel"
                       />
                       <button
                         type="button"
                         className="k-btn k-btn-s"
-                        style={{ marginTop: 12, width: '100%' }}
+                        style={{ marginTop: 12, width: '100%', flexShrink: 0 }}
                         onClick={() => {
                           setAddOpen(false)
                           ensurePendingThen(() => openNewProduct(pendingKey, ''))

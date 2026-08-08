@@ -4,7 +4,41 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Product } from '@/lib/types'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
-import { formatQty, productUnitLabel } from './warehouseShared'
+import { fmtMoney, formatQty, productUnitLabel } from './warehouseShared'
+
+function productDetailChips(p: Product) {
+  const unit = productUnitLabel(p.unit)
+  const stock = Number(p.stock) || 0
+  const codes = productBarcodes(p)
+  const price = Number(p.price) || 0
+  const cost = p.costPrice != null ? Number(p.costPrice) : null
+  const grams = Number(p.unitGrams) || 0
+  const chips: { label: string; value: string; accent?: 'green' | 'muted' }[] = []
+
+  chips.push({ label: 'Продажа', value: price > 0 ? `${fmtMoney(price)}` : '—', accent: 'green' })
+  if (cost != null && cost > 0) chips.push({ label: 'Закуп', value: fmtMoney(cost) })
+  chips.push({ label: 'Остаток', value: `${formatQty(stock)} ${unit}` })
+  chips.push({ label: 'Ед.', value: unit })
+
+  if (grams > 0) {
+    chips.push({
+      label: 'Вес',
+      value: grams >= 1000 ? `${formatQty(grams / 1000)} кг` : `${formatQty(grams)} г`,
+    })
+  }
+  if (p.plu) chips.push({ label: 'PLU', value: String(p.plu) })
+  if (p.art) chips.push({ label: 'Артикул', value: p.art })
+  if (codes.length) chips.push({ label: codes.length > 1 ? 'Штрихкоды' : 'Штрихкод', value: codes.join(', ') })
+  if (p.cat) chips.push({ label: 'Категория', value: p.cat, accent: 'muted' })
+  if (p.brand) chips.push({ label: 'Бренд', value: p.brand, accent: 'muted' })
+  if (p.country) chips.push({ label: 'Страна', value: p.country, accent: 'muted' })
+  if (p.sellType === 'weight') chips.push({ label: 'Тип', value: 'Развес' })
+  else if (p.sellType === 'piece') chips.push({ label: 'Тип', value: 'Штучный' })
+  if (p.minWeight) chips.push({ label: 'Мин. вес', value: `${formatQty(p.minWeight)} г` })
+  if (p.weightStep) chips.push({ label: 'Шаг', value: `${formatQty(p.weightStep)} г` })
+
+  return chips
+}
 
 export default function WarehouseProductSelect({
   products,
@@ -13,6 +47,7 @@ export default function WarehouseProductSelect({
   onCreateNew,
   placeholder = 'Поиск: штрихкод, название, артикул…',
   autoFocus = false,
+  variant = 'dropdown',
 }: {
   products: Product[]
   value: number | null
@@ -20,13 +55,16 @@ export default function WarehouseProductSelect({
   onCreateNew?: (query: string, meta?: { barcode?: string }) => void
   placeholder?: string
   autoFocus?: boolean
+  /** panel — большой список с полными данными (окно поиска прихода) */
+  variant?: 'dropdown' | 'panel'
 }) {
   const [q, setQ] = useState('')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(variant === 'panel')
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const selected = products.find(p => p.id === value) || null
+  const isPanel = variant === 'panel'
 
   useEffect(() => {
     if (!autoFocus) return
@@ -36,14 +74,16 @@ export default function WarehouseProductSelect({
     }, 50)
     return () => window.clearTimeout(t)
   }, [autoFocus])
+
   const options = useMemo(
-    () => filterProductsBySearch(products, q || selected?.name || '', 30),
-    [products, q, selected?.name],
+    () => filterProductsBySearch(products, q || (isPanel ? '' : (selected?.name || '')), isPanel ? 80 : 30),
+    [products, q, selected?.name, isPanel],
   )
   const canCreate = onCreateNew && q.trim().length >= 2 && !options.some(p => p.name.toLowerCase() === q.trim().toLowerCase())
+  const showList = isPanel || (open && (options.length > 0 || !!canCreate))
 
   useEffect(() => {
-    if (!open || !q.trim()) return
+    if (!open || !q.trim() || isPanel) return
     const exact = pickProductBySearch(products, q)
     if (exact && productBarcodes(exact).some(c => c === q.trim())) {
       onChange(exact)
@@ -51,7 +91,7 @@ export default function WarehouseProductSelect({
       setOpen(false)
       setScanMsg('')
     }
-  }, [q, open, products, onChange])
+  }, [q, open, products, onChange, isPanel])
 
   function tryPick() {
     const best = pickProductBySearch(products, q)
@@ -98,17 +138,17 @@ export default function WarehouseProductSelect({
   }, [products, onCreateNew, onChange])
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className={isPanel ? 'k-prod-pick k-prod-pick-panel' : 'k-prod-pick'} style={{ position: 'relative' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
         <input
           ref={inputRef}
           className="k-inp"
           style={{ flex: 1, minWidth: 0 }}
-          value={open ? q : (selected ? `${selected.e || '📦'} ${selected.name}` : q)}
+          value={(!isPanel && !open && selected) ? `${selected.e || '📦'} ${selected.name}` : q}
           placeholder={placeholder}
           onChange={e => { setQ(e.target.value); setOpen(true); setScanMsg('') }}
           onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 180)}
+          onBlur={() => { if (!isPanel) setTimeout(() => setOpen(false), 180) }}
           onKeyDown={e => {
             if (e.key === 'Enter') {
               e.preventDefault()
@@ -136,16 +176,57 @@ export default function WarehouseProductSelect({
           {scanMsg}
         </div>
       )}
-      {open && (options.length > 0 || canCreate) && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
-          background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10,
-          maxHeight: 320, overflow: 'auto', marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,.4)',
-        }}>
+      {showList && (
+        <div className={isPanel ? 'k-prod-pick-list k-prod-pick-list-panel' : 'k-prod-pick-list'}>
+          {isPanel && !q.trim() && (
+            <div className="k-prod-pick-hint">Начните ввод или выберите из списка · 📷 сканер камеры</div>
+          )}
+          {isPanel && q.trim() && !options.length && !canCreate && (
+            <div className="k-prod-pick-hint">Ничего не найдено</div>
+          )}
           {options.map(p => {
-            const codes = productBarcodes(p)
+            const chips = productDetailChips(p)
+            if (isPanel) {
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="k-prod-pick-card"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => selectProduct(p)}
+                >
+                  <div className="k-prod-pick-card-top">
+                    <span className="emo">{p.e || '📦'}</span>
+                    <div className="txt">
+                      <b>{p.name}</b>
+                      <span>
+                        {[
+                          p.id ? `#${p.id}` : '',
+                          p.art || '',
+                          productBarcodes(p)[0] || '',
+                          p.plu ? `PLU ${p.plu}` : '',
+                        ].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                    <div className="price">
+                      <strong>{Number(p.price) > 0 ? fmtMoney(Number(p.price)) : '—'}</strong>
+                      <small>продажа</small>
+                    </div>
+                  </div>
+                  <div className="k-prod-pick-card-meta">
+                    {chips.map(c => (
+                      <div key={c.label} className={c.accent === 'green' ? 'green' : undefined}>
+                        <span className="l">{c.label}</span>
+                        <span className="v">{c.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              )
+            }
             const unit = productUnitLabel(p.unit)
             const stock = Number(p.stock) || 0
+            const codes = productBarcodes(p)
             return (
               <button
                 key={p.id}
@@ -164,7 +245,7 @@ export default function WarehouseProductSelect({
                     {p.name}
                   </span>
                   <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {[p.art, codes[0], p.plu ? `PLU ${p.plu}` : ''].filter(Boolean).join(' · ')}
+                    {[p.art, codes[0], p.plu ? `PLU ${p.plu}` : '', Number(p.price) > 0 ? fmtMoney(Number(p.price)) : ''].filter(Boolean).join(' · ')}
                   </span>
                 </span>
                 <span style={{
@@ -189,7 +270,8 @@ export default function WarehouseProductSelect({
           {canCreate && (
             <button
               type="button"
-              style={{
+              className={isPanel ? 'k-prod-pick-create' : undefined}
+              style={isPanel ? undefined : {
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                 border: 'none', borderTop: options.length ? '1px solid var(--border)' : 'none',
                 background: 'var(--green-d)', color: 'var(--green)',
