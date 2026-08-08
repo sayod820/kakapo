@@ -888,6 +888,23 @@ function TradeAppInner({
     }
   }, [current, productsSub])
 
+  useEffect(() => {
+    if (current !== 'products' || productsSub !== 'labels') return
+    let cancelled = false
+    const focusLabels = () => {
+      if (cancelled) return
+      const el = document.querySelector('input[data-label-search]') as HTMLInputElement | null
+      if (!el || el.disabled) return
+      try { el.focus({ preventScroll: true }) } catch { el.focus() }
+    }
+    focusLabels()
+    const timers = [0, 40, 120, 280].map(ms => window.setTimeout(focusLabels, ms))
+    return () => {
+      cancelled = true
+      timers.forEach(id => window.clearTimeout(id))
+    }
+  }, [current, productsSub])
+
   function focusTradeSearch() {
     const el = searchInputRef.current
     if (!el) return
@@ -1083,7 +1100,16 @@ function TradeAppInner({
                     role="tab"
                     aria-selected={productsSub === item.id}
                     className={`k-subtab ${productsSub === item.id ? 'active' : ''}`}
-                    onClick={() => setProductsSub(item.id)}
+                    onClick={() => {
+                      setProductsSub(item.id)
+                      if (item.id === 'labels') {
+                        window.setTimeout(() => {
+                          const el = document.querySelector('input[data-label-search]') as HTMLInputElement | null
+                          if (!el) return
+                          try { el.focus({ preventScroll: true }) } catch { el.focus() }
+                        }, 0)
+                      }
+                    }}
                   >
                     {item.label}
                   </button>

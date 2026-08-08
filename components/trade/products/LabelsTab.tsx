@@ -23,6 +23,7 @@ import {
   layerShortLabel,
   LABEL_EDITOR_PREVIEW_EDIT,
   loadLabelDesign,
+  loadLabelDesignPersistent,
   previewCardStyle,
   previewGridStyle,
   PAPER_PRESETS,
@@ -60,7 +61,9 @@ export default function LabelsTab({
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [layersByProduct, setLayersByProduct] = useState<Record<number, ProductStockLayer[]>>({})
   const [loadingLayers, setLoadingLayers] = useState<Set<number>>(new Set())
-  const [design, setDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
+  const [design, setDesign] = useState<LabelDesign>(() => (
+    typeof window !== 'undefined' ? loadLabelDesign() : DEFAULT_LABEL_DESIGN
+  ))
   const [draftDesign, setDraftDesign] = useState<LabelDesign>(DEFAULT_LABEL_DESIGN)
   const [designOpen, setDesignOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -74,35 +77,51 @@ export default function LabelsTab({
 
   function focusLabelSearch() {
     const el = labelSearchRef.current
-    if (!el) return
+    if (!el || el.disabled) return false
     try { el.focus({ preventScroll: true }) } catch { el.focus() }
+    return document.activeElement === el
   }
 
   function labelSearchBlocked() {
     if (designOpen || editingKey || printerPanelOpen) return true
-    if (document.querySelector('.modal-card, .overlay, .k-modal, .k-modal-bg')) return true
+    if (document.querySelector('.k-modal-bg, .modal-card')) return true
     return false
   }
 
   useEffect(() => {
-    setDesign(loadLabelDesign())
-    if (!isKakapoDesktop()) return
+    let cancelled = false
+    void loadLabelDesignPersistent().then(d => {
+      if (!cancelled) setDesign(d)
+    })
+    if (!isKakapoDesktop()) return () => { cancelled = true }
     const desk = getKakapoDesktop()
     void Promise.all([
       desk?.getPrinters().catch(() => [] as DesktopPrinter[]),
       desk?.getPrinterSettings().catch(() => ({ labelPrinterName: '', printerName: '' })),
     ]).then(([printers, settings]) => {
+      if (cancelled) return
       setDeskPrinters(printers || [])
       const saved = settings?.labelPrinterName || ''
       const auto = pickLabelPrinter(printers || [])
       setLabelPrinterName(saved || auto || pickReceiptPrinter(printers || []))
     })
+    return () => { cancelled = true }
   }, [])
 
+  // Сразу при входе + повторно (клик по вкладке часто оставляет фокус на кнопке)
   useEffect(() => {
     if (designOpen || editingKey || printerPanelOpen) return
-    const t = window.setTimeout(focusLabelSearch, 40)
-    return () => window.clearTimeout(t)
+    let cancelled = false
+    const tryFocus = () => {
+      if (cancelled || labelSearchBlocked()) return
+      focusLabelSearch()
+    }
+    tryFocus()
+    const timers = [0, 30, 80, 160, 320].map(ms => window.setTimeout(tryFocus, ms))
+    return () => {
+      cancelled = true
+      timers.forEach(id => window.clearTimeout(id))
+    }
   }, [designOpen, editingKey, printerPanelOpen])
 
   // Этикетки: курсор всегда в поиске (сканер / клик по окну)
@@ -111,7 +130,7 @@ export default function LabelsTab({
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (labelSearchBlocked()) return
       const active = document.activeElement as HTMLElement | null
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+      if (active && active !== labelSearchRef.current && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
         return
       }
       if (e.key.length === 1 || e.key === 'Backspace') {
@@ -123,13 +142,19 @@ export default function LabelsTab({
       if (labelSearchBlocked()) return
       const t = e.target as HTMLElement | null
       if (!t) return
-      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
-      if (t.closest('.modal-card, .overlay, .k-modal, .k-modal-bg')) return
+      if (t.closest('.k-modal-bg, .modal-card')) return
+      // Не трогаем другие поля ввода (кроме чекбоксов — после них снова поиск)
+      const inp = t.closest('input, textarea, select, [contenteditable="true"]') as HTMLElement | null
+      if (inp && inp !== labelSearchRef.current) {
+        const type = (inp as HTMLInputElement).type
+        if (inp.tagName !== 'INPUT' || (type !== 'checkbox' && type !== 'radio')) return
+      }
       window.setTimeout(() => {
         if (labelSearchBlocked()) return
         const active = document.activeElement as HTMLElement | null
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
-          return
+        if (active && active !== labelSearchRef.current && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+          const type = (active as HTMLInputElement).type
+          if (active.tagName !== 'INPUT' || (type !== 'checkbox' && type !== 'radio')) return
         }
         focusLabelSearch()
       }, 0)
@@ -501,6 +526,8 @@ export default function LabelsTab({
             <input
               ref={labelSearchRef}
               className="k-inp"
+              data-label-search
+              autoFocus
               value={labelSearch}
               onChange={e => setLabelSearch(e.target.value)}
               onFocus={e => e.currentTarget.select()}

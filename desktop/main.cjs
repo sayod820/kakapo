@@ -33,6 +33,7 @@ const APP_ICON_PATH = (() => {
   return png
 })()
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'printer-settings.json')
+const LABEL_DESIGN_PATH = () => path.join(app.getPath('userData'), 'label-design.json')
 const USER_CONFIG_PATH = () => path.join(app.getPath('userData'), 'config.json')
 const DEFAULT_TRADE_URL = 'https://kakappo.shop/trade'
 const BOOT_LOG_PATH = () => path.join(app.getPath('userData'), 'kassa-boot.log')
@@ -314,6 +315,22 @@ function savePrinterSettings(next) {
   fs.mkdirSync(path.dirname(SETTINGS_PATH()), { recursive: true })
   fs.writeFileSync(SETTINGS_PATH(), JSON.stringify(merged, null, 2), 'utf8')
   return merged
+}
+
+function loadLabelDesignFile() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(LABEL_DESIGN_PATH(), 'utf8'))
+    return raw && typeof raw === 'object' ? raw : null
+  } catch {
+    return null
+  }
+}
+
+function saveLabelDesignFile(design) {
+  if (!design || typeof design !== 'object') return { ok: false }
+  fs.mkdirSync(path.dirname(LABEL_DESIGN_PATH()), { recursive: true })
+  fs.writeFileSync(LABEL_DESIGN_PATH(), JSON.stringify(design, null, 2), 'utf8')
+  return { ok: true }
 }
 
 function broadcastCasWeight(payload) {
@@ -1291,6 +1308,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('desktop:getPrinterSettings', () => loadPrinterSettings())
 
   ipcMain.handle('desktop:savePrinterSettings', (_e, data) => savePrinterSettings(data || {}))
+
+  ipcMain.handle('desktop:getLabelDesign', () => loadLabelDesignFile())
+
+  ipcMain.handle('desktop:saveLabelDesign', (_e, design) => saveLabelDesignFile(design || null))
 
   ipcMain.handle('desktop:printHtml', async (_e, html, options) => {
     const opts = options || {}

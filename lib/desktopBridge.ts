@@ -87,6 +87,9 @@ export type KakapoDesktopApi = {
   getPrinters: () => Promise<DesktopPrinter[]>
   getPrinterSettings: () => Promise<DesktopPrinterSettings>
   savePrinterSettings: (data: Partial<DesktopPrinterSettings>) => Promise<DesktopPrinterSettings>
+  /** Макет этикеток — файл в userData, переживает обновление UI */
+  getLabelDesign?: () => Promise<unknown | null>
+  saveLabelDesign?: (design: unknown) => Promise<{ ok: boolean }>
   printHtml: (html: string, options?: DesktopPrintOptions) => Promise<{ ok: boolean }>
   printReceipt?: (payload: {
     sale: unknown

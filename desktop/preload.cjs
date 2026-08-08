@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   getPrinters: () => ipcRenderer.invoke('desktop:getPrinters'),
   getPrinterSettings: () => ipcRenderer.invoke('desktop:getPrinterSettings'),
   savePrinterSettings: data => ipcRenderer.invoke('desktop:savePrinterSettings', data),
+  getLabelDesign: () => ipcRenderer.invoke('desktop:getLabelDesign'),
+  saveLabelDesign: design => ipcRenderer.invoke('desktop:saveLabelDesign', design),
   printHtml: (html, options) => ipcRenderer.invoke('desktop:printHtml', html, options),
   printReceipt: (payload) => ipcRenderer.invoke('desktop:printReceipt', payload),
   printLabelsBatch: (items, options) => ipcRenderer.invoke('desktop:printLabelsBatch', items, options),

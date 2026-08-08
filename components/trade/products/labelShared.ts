@@ -179,6 +179,7 @@ export function updateLabelElement(
 
 export const LABEL_DESIGN_KEY = 'kakapo-label-design-v4'
 const LEGACY_DESIGN_KEYS = ['kakapo-label-design-v3', 'kakapo-label-design'] as const
+const DESKTOP_KV_KEY = 'kakapo-label-design-v4'
 
 export const DEFAULT_LABEL_DESIGN: LabelDesign = {
   layout: 'retail',
@@ -243,6 +244,25 @@ export function applyPaperPreset(preset: PaperPresetId, design: LabelDesign): La
   }
 }
 
+function parseLabelDesign(raw: unknown, fromLegacy = false): LabelDesign | null {
+  if (!raw || typeof raw !== 'object') return null
+  try {
+    const parsed = raw as Record<string, unknown>
+    return {
+      ...DEFAULT_LABEL_DESIGN,
+      ...parsed,
+      layout: parsed.layout === 'blocks' ? 'blocks' : 'retail',
+      blocks: normalizeBlocks(parsed.blocks as LabelBlockConfig[] | null),
+      elements: normalizeLabelElements(parsed.elements as LabelElement[] | null),
+      barcodeShowDigits: fromLegacy
+        ? true
+        : parsed.barcodeShowDigits !== false,
+    } as LabelDesign
+  } catch {
+    return null
+  }
+}
+
 export function loadLabelDesign(): LabelDesign {
   if (typeof window === 'undefined') return DEFAULT_LABEL_DESIGN
   try {
@@ -258,18 +278,8 @@ export function loadLabelDesign(): LabelDesign {
       }
     }
     if (!raw) return DEFAULT_LABEL_DESIGN
-    const parsed = JSON.parse(raw)
-    const design: LabelDesign = {
-      ...DEFAULT_LABEL_DESIGN,
-      ...parsed,
-      layout: parsed.layout === 'blocks' ? 'blocks' : 'retail',
-      blocks: normalizeBlocks(parsed.blocks),
-      elements: normalizeLabelElements(parsed.elements),
-      // Старые сохранения держали false — для retail включаем цифры под штрихкодом
-      barcodeShowDigits: fromLegacy
-        ? true
-        : parsed.barcodeShowDigits !== false,
-    }
+    const design = parseLabelDesign(JSON.parse(raw), fromLegacy)
+    if (!design) return DEFAULT_LABEL_DESIGN
     if (fromLegacy) {
       try { localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(design)) } catch { /* ignore */ }
     }
@@ -279,9 +289,50 @@ export function loadLabelDesign(): LabelDesign {
   }
 }
 
+/** Диск кассы (userData) + localStorage — макет не теряется после обновления UI */
+export async function loadLabelDesignPersistent(): Promise<LabelDesign> {
+  if (typeof window === 'undefined') return DEFAULT_LABEL_DESIGN
+
+  try {
+    const desk = window.kakapoDesktop
+    if (desk?.getLabelDesign) {
+      const fromFile = parseLabelDesign(await desk.getLabelDesign())
+      if (fromFile) {
+        try { localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(fromFile)) } catch { /* ignore */ }
+        return fromFile
+      }
+    }
+    if (desk?.localDbKvGet) {
+      const fromKv = parseLabelDesign(await desk.localDbKvGet(DESKTOP_KV_KEY))
+      if (fromKv) {
+        try { localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(fromKv)) } catch { /* ignore */ }
+        void desk.saveLabelDesign?.(fromKv)
+        return fromKv
+      }
+    }
+  } catch { /* fallback ниже */ }
+
+  const fromLs = loadLabelDesign()
+  if (fromLs !== DEFAULT_LABEL_DESIGN) {
+    void persistLabelDesignDisk(fromLs)
+  }
+  return fromLs
+}
+
+function persistLabelDesignDisk(design: LabelDesign) {
+  try {
+    const desk = typeof window !== 'undefined' ? window.kakapoDesktop : undefined
+    void desk?.saveLabelDesign?.(design)
+    void desk?.localDbKvSet?.(DESKTOP_KV_KEY, design)
+  } catch { /* ignore */ }
+}
+
 export function saveLabelDesign(design: LabelDesign) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(design))
+  try {
+    localStorage.setItem(LABEL_DESIGN_KEY, JSON.stringify(design))
+  } catch { /* quota / private mode */ }
+  persistLabelDesignDisk(design)
 }
 
 export function moveBlock(blocks: LabelBlockConfig[], id: LabelBlockId, dir: -1 | 1) {

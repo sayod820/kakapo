@@ -192,7 +192,7 @@ export default function LabelDesignModal({
         }}
       >
         <button type="button" className="k-btn k-btn-g" style={{ minWidth: 160, padding: '12px 18px', fontSize: 14 }} onClick={onSave}>
-          Применить ко всем этикеткам
+          Сохранить макет
         </button>
         <button
           type="button"
