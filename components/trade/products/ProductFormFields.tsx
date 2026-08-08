@@ -55,35 +55,34 @@ export default function ProductFormFields({
   }, [form, setForm])
 
   function generateBarcode() {
-    // Только в поле ввода — в карточку попадает после «+»
+    let code: string | null = null
     if (isWeight) {
       const plu = parseProductCodeNum(form.plu)
       if (plu == null || plu <= 0) {
         setScanHint('Сначала укажите PLU для весового штрихкода')
         return
       }
-      const code = buildWeightMasterBarcode(plu)
+      code = buildWeightMasterBarcode(plu)
       if (!code) {
         setScanHint('Не удалось собрать весовой штрихкод')
         return
       }
-      if (form.barcodes.includes(code)) {
-        setScanHint(`Уже есть: ${code}`)
-        setNewBarcode(code)
-        return
-      }
-      setNewBarcode(code)
-      setScanHint(`Весовой ${code} · нажмите + чтобы добавить`)
+    } else {
+      const prefer = parseProductCodeNum(form.art)
+      const draftAsProducts: Partial<Product>[] = [
+        ...products,
+        { id: -1, barcodes: form.barcodes },
+      ]
+      code = nextFreeEan13(draftAsProducts, prefer, productId ?? null)
+    }
+    if (!code) return
+    if (form.barcodes.includes(code)) {
+      setScanHint(`Уже есть: ${code}`)
       return
     }
-    const prefer = parseProductCodeNum(form.art)
-    const draftAsProducts: Partial<Product>[] = [
-      ...products,
-      { id: -1, barcodes: form.barcodes },
-    ]
-    const code = nextFreeEan13(draftAsProducts, prefer, productId ?? null)
-    setNewBarcode(code)
-    setScanHint(`Штрихкод ${code} · нажмите + чтобы добавить`)
+    setForm({ ...form, barcodes: [...form.barcodes, code] })
+    setNewBarcode('')
+    setScanHint(isWeight ? `Добавлен весовой ${code}` : `Добавлен ${code}`)
   }
 
   function removeBarcode(code: string) {
@@ -227,7 +226,7 @@ export default function ProductFormFields({
             className="k-btn k-btn-s"
             onClick={generateBarcode}
             style={{ whiteSpace: 'nowrap' }}
-            title={isWeight ? 'Сгенерировать весовой EAN-13 (21…) в поле · затем +' : 'Сгенерировать EAN-13 в поле · затем +'}
+            title={isWeight ? 'Сгенерировать весовой EAN-13 (21…) и добавить' : 'Сгенерировать EAN-13 и добавить'}
           >
             Авто
           </button>
