@@ -42,7 +42,6 @@ import {
   packInputUnitLabel,
   packRealWorld,
   parsePackUnit,
-  productUnitLabel,
   sanitizeDecimalInput,
 } from './warehouseShared'
 
@@ -277,8 +276,7 @@ export default function WarehouseReceiptsPanel({
   const [newSupplierName, setNewSupplierName] = useState('')
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
-  const [listQ, setListQ] = useState('')
-  const [addOpen, setAddOpen] = useState(true)
+  const [addOpen, setAddOpen] = useState(false)
 
   const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
 
@@ -335,7 +333,7 @@ export default function WarehouseReceiptsPanel({
   function resetForm() {
     clearReceiptDraft()
     setDraft(defaultReceiptDraft())
-    setListQ('')
+    setAddOpen(false)
     setMsg('')
   }
 
@@ -348,9 +346,8 @@ export default function WarehouseReceiptsPanel({
       }
       return { ...prev, open: true, editingId: null, formStep: prev.formStep || 'items' }
     })
-    setListQ('')
+    setAddOpen(false)
     setMsg('')
-    setAddOpen(true)
     scrollRestored.current = false
   }
 
@@ -358,9 +355,8 @@ export default function WarehouseReceiptsPanel({
     const next = receiptToDraft(receipt)
     setDraft(next)
     saveReceiptDraft(next)
-    setListQ('')
-    setMsg('')
     setAddOpen(false)
+    setMsg('')
     scrollRestored.current = false
   }
 
@@ -639,29 +635,6 @@ export default function WarehouseReceiptsPanel({
 
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
   const filledLines = useMemo(() => lines.filter(l => l.productId), [lines])
-  const listQuery = listQ.trim().toLowerCase()
-  const visibleFilledLines = useMemo(() => {
-    if (!listQuery) return filledLines
-    return filledLines.filter(line => {
-      const product = products.find(p => p.id === line.productId)
-      if (!product) return false
-      const unit = productUnitLabel(product.unit).toLowerCase()
-      if (listQuery === 'г' || listQuery === 'гр' || listQuery === 'грамм') {
-        return /г|гр|\bg\b/i.test(unit)
-      }
-      if (listQuery === 'шт' || listQuery === 'штук') {
-        return /шт|pcs/i.test(unit)
-      }
-      if (listQuery === 'л' || listQuery === 'литр') {
-        return /(^|\s)л\b|литр|\bl\b/i.test(unit)
-      }
-      const hay = [product.name, product.art, product.barcode, product.plu, product.unit, unit]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return hay.includes(listQuery) || String(product.id) === listQuery
-    })
-  }, [filledLines, listQuery, products])
 
   const filteredReceipts = useMemo(() => {
     if (!dateFrom && !dateTo) return receipts
@@ -934,7 +907,7 @@ export default function WarehouseReceiptsPanel({
         if (!pending) pending = emptyReceiptLine()
         const pendingKey = pending.key
         const pendingInDraft = lines.some(l => l.key === pendingKey)
-        const showAdd = addOpen || filledLines.length === 0
+        const showAdd = addOpen
 
         const addProduct = (p: Product) => {
           setAddOpen(false)
@@ -1066,15 +1039,25 @@ export default function WarehouseReceiptsPanel({
                 <div className="k-rcpt-main">
                   <div className="k-rcpt-main-h">
                     <b>Товары ({totals.withProduct})</b>
-                    <input
-                      className="k-inp k-rcpt-list-search"
-                      value={listQ}
-                      onChange={e => setListQ(e.target.value)}
-                      placeholder="Поиск в списке: название или штрихкод"
-                    />
-                    <button type="button" className="k-btn k-btn-g k-btn-s" onClick={() => setAddOpen(v => !v)}>
-                      {showAdd && filledLines.length ? 'Скрыть поиск' : '+ Добавить товар'}
-                    </button>
+                    <div className="k-rcpt-main-actions">
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        onClick={() => {
+                          setAddOpen(false)
+                          ensurePendingThen(() => openNewProduct(pendingKey, ''))
+                        }}
+                      >
+                        + Создать товар
+                      </button>
+                      <button
+                        type="button"
+                        className={`k-btn k-btn-g k-btn-s${addOpen ? ' is-on' : ''}`}
+                        onClick={() => setAddOpen(v => !v)}
+                      >
+                        {addOpen ? 'Скрыть поиск' : 'Найти товар'}
+                      </button>
+                    </div>
                   </div>
 
                   {showAdd && (
@@ -1089,20 +1072,15 @@ export default function WarehouseReceiptsPanel({
                         onChange={p => { if (p) addProduct(p) }}
                         onCreateNew={(name, meta) => ensurePendingThen(() => openNewProduct(pendingKey, name, meta?.barcode || ''))}
                         placeholder="Поиск или сканер: название, артикул, штрихкод…"
+                        autoFocus
                       />
-                      <button
-                        type="button"
-                        className="k-btn k-btn-s"
-                        style={{ marginTop: 8, fontSize: 12, padding: '6px 10px', minHeight: 0 }}
-                        onClick={() => ensurePendingThen(() => openNewProduct(pendingKey, ''))}
-                      >
-                        + Создать новый товар
-                      </button>
                     </div>
                   )}
 
                   {filledLines.length === 0 ? (
-                    <div className="k-rcpt-empty">Добавьте товары через поиск или сканер</div>
+                    <div className="k-rcpt-empty">
+                      Нажмите «Найти товар» (поиск / сканер) или «Создать товар»
+                    </div>
                   ) : (
                     <div className="k-rcpt-table">
                       <div className="k-rcpt-th">
@@ -1115,7 +1093,7 @@ export default function WarehouseReceiptsPanel({
                         <span>Сумма</span>
                         <span />
                       </div>
-                      {visibleFilledLines.map(line => {
+                      {filledLines.map(line => {
                         const product = products.find(p => p.id === line.productId) || null
                         if (!product) return null
                         const idx = filledLines.findIndex(l => l.key === line.key)

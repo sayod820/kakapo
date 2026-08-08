@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Product } from '@/lib/types'
 import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
@@ -12,18 +12,30 @@ export default function WarehouseProductSelect({
   onChange,
   onCreateNew,
   placeholder = 'Поиск: штрихкод, название, артикул…',
+  autoFocus = false,
 }: {
   products: Product[]
   value: number | null
   onChange: (product: Product | null) => void
   onCreateNew?: (query: string, meta?: { barcode?: string }) => void
   placeholder?: string
+  autoFocus?: boolean
 }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
   const selected = products.find(p => p.id === value) || null
+
+  useEffect(() => {
+    if (!autoFocus) return
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus()
+      setOpen(true)
+    }, 50)
+    return () => window.clearTimeout(t)
+  }, [autoFocus])
   const options = useMemo(
     () => filterProductsBySearch(products, q || selected?.name || '', 30),
     [products, q, selected?.name],
@@ -89,6 +101,7 @@ export default function WarehouseProductSelect({
     <div style={{ position: 'relative' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
         <input
+          ref={inputRef}
           className="k-inp"
           style={{ flex: 1, minWidth: 0 }}
           value={open ? q : (selected ? `${selected.e || '📦'} ${selected.name}` : q)}

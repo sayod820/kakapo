@@ -341,9 +341,10 @@ const CSS = `
     min-width:0;background:var(--card);border:1px solid var(--border);border-radius:14px;
     padding:12px;display:flex;flex-direction:column;gap:10px;align-self:start
   }
-  .k-rcpt-main-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .k-rcpt-main-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .k-rcpt-main-h b{font-size:15px;font-weight:900}
-  .k-rcpt-list-search{flex:1;min-width:160px}
+  .k-rcpt-main-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .k-rcpt-main-actions .k-btn.is-on{box-shadow:inset 0 0 0 1px var(--green)}
   .k-rcpt-add-box{
     padding:10px;border-radius:12px;border:1.5px dashed rgba(31,215,96,.45);background:rgba(31,215,96,.04)
   }
@@ -702,7 +703,8 @@ const CSS = `
     .k-rcpt-edit-grid{grid-template-columns:1fr 1fr}
     .k-rcpt-foot-stats{grid-template-columns:1fr 1fr;padding:10px 12px 12px}
     .k-rcpt-warn,.k-rcpt-msg{margin-left:12px;margin-right:12px}
-    .k-rcpt-main-h .k-rcpt-list-search{order:3;flex:1 1 100%}
+    .k-rcpt-main-actions{width:100%;margin-left:0}
+    .k-rcpt-main-actions .k-btn{flex:1;min-height:44px}
     .k-rcpt-td.prod b{white-space:normal}
     .k-wh-cta .k-btn-g{
       width:100%;min-height:50px;font-size:15px;
