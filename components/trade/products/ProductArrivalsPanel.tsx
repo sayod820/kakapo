@@ -70,7 +70,6 @@ export default function ProductArrivalsPanel({
   const [bulkPricing, setBulkPricing] = useState<BulkPricingRow[]>([])
   const [expiryDate, setExpiryDate] = useState('')
 
-  const [editCost, setEditCost] = useState('')
   const [editRetail, setEditRetail] = useState('')
   const [editBulk, setEditBulk] = useState<BulkPricingRow[]>([])
   const [addDirty, setAddDirty] = useState(false)
@@ -208,7 +207,6 @@ export default function ProductArrivalsPanel({
 
   function startEdit(layer: ProductStockLayer) {
     setEditId(layer.receiptId)
-    setEditCost(String(layer.costPrice))
     setEditRetail(String(layer.retailPrice))
     setEditBulk((layer.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })))
   }
@@ -218,7 +216,7 @@ export default function ProductArrivalsPanel({
     setMsg('')
     try {
       const res = await updateStockLayerSafe(layer.receiptId, product.id, {
-        costPrice: Number(editCost) || 0,
+        costPrice: layer.costPrice,
         retailPrice: Number(editRetail) || 0,
         bulkPricing: serializeBulkPricing(editBulk),
       })
@@ -228,7 +226,6 @@ export default function ProductArrivalsPanel({
           l.receiptId === layer.receiptId
             ? {
                 ...l,
-                costPrice: Number(editCost) || 0,
                 retailPrice: Number(editRetail) || 0,
                 bulkPricing: serializeBulkPricing(editBulk) || [],
               }
@@ -330,7 +327,7 @@ export default function ProductArrivalsPanel({
             <div className="k-empty">Загрузка партий…</div>
           ) : !layers.length && !showAdd ? (
             <div className="k-empty">
-              Нет партий. Добавьте первый приход — у каждой партии своя закупочная, розничная и оптовая цена.
+              Нет партий. Добавьте первый приход — у каждой партии свои количество, розница и опт.
             </div>
           ) : (
             <div className="k-arrivals-tbl-wrap">
@@ -340,9 +337,8 @@ export default function ProductArrivalsPanel({
                     <th style={{ width: 44 }}>#</th>
                     <th>Статус</th>
                     <th>Поставщик</th>
-                    <th className="num">Приход</th>
+                    <th className="num">Количество</th>
                     <th className="num">Остаток</th>
-                    <th className="num">Закуп</th>
                     <th className="num">Розница</th>
                     <th>Опт</th>
                     <th>Срок</th>
@@ -364,9 +360,8 @@ export default function ProductArrivalsPanel({
                           </span>
                         </td>
                         <td style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
-                        <td className="num">{layer.qty}</td>
+                        <td className="num" style={{ fontWeight: 800 }}>{layer.qty}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
-                        <td className="num">{money(layer.costPrice)}</td>
                         <td className="num" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
                         <td style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
                         <td style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
@@ -390,11 +385,11 @@ export default function ProductArrivalsPanel({
                       </tr>
                       {editId === layer.receiptId && (
                         <tr>
-                          <td colSpan={11} style={{ background: 'var(--card2)', padding: 14 }}>
+                          <td colSpan={10} style={{ background: 'var(--card2)', padding: 14 }}>
                             <div className="k-grid2" style={{ marginBottom: 10, maxWidth: 640 }}>
                               <div className="k-field">
-                                <label>Закупочная</label>
-                                <input className="k-inp" type="text" inputMode="decimal" value={editCost} onChange={e => setEditCost(sanitizeDecimal(e.target.value))} />
+                                <label>Количество</label>
+                                <input className="k-inp" type="text" value={String(layer.qty)} readOnly disabled />
                               </div>
                               <div className="k-field">
                                 <label>Розничная</label>
