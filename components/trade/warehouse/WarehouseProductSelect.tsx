@@ -6,38 +6,18 @@ import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import { fmtMoney, formatQty, productUnitLabel } from './warehouseShared'
 
-function productDetailChips(p: Product) {
-  const unit = productUnitLabel(p.unit)
-  const stock = Number(p.stock) || 0
+function productDetailLine(p: Product) {
   const codes = productBarcodes(p)
-  const price = Number(p.price) || 0
-  const cost = p.costPrice != null ? Number(p.costPrice) : null
-  const grams = Number(p.unitGrams) || 0
-  const chips: { label: string; value: string; accent?: 'green' | 'muted' }[] = []
-
-  chips.push({ label: 'Продажа', value: price > 0 ? `${fmtMoney(price)}` : '—', accent: 'green' })
-  if (cost != null && cost > 0) chips.push({ label: 'Закуп', value: fmtMoney(cost) })
-  chips.push({ label: 'Остаток', value: `${formatQty(stock)} ${unit}` })
-  chips.push({ label: 'Ед.', value: unit })
-
-  if (grams > 0) {
-    chips.push({
-      label: 'Вес',
-      value: grams >= 1000 ? `${formatQty(grams / 1000)} кг` : `${formatQty(grams)} г`,
-    })
-  }
-  if (p.plu) chips.push({ label: 'PLU', value: String(p.plu) })
-  if (p.art) chips.push({ label: 'Артикул', value: p.art })
-  if (codes.length) chips.push({ label: codes.length > 1 ? 'Штрихкоды' : 'Штрихкод', value: codes.join(', ') })
-  if (p.cat) chips.push({ label: 'Категория', value: p.cat, accent: 'muted' })
-  if (p.brand) chips.push({ label: 'Бренд', value: p.brand, accent: 'muted' })
-  if (p.country) chips.push({ label: 'Страна', value: p.country, accent: 'muted' })
-  if (p.sellType === 'weight') chips.push({ label: 'Тип', value: 'Развес' })
-  else if (p.sellType === 'piece') chips.push({ label: 'Тип', value: 'Штучный' })
-  if (p.minWeight) chips.push({ label: 'Мин. вес', value: `${formatQty(p.minWeight)} г` })
-  if (p.weightStep) chips.push({ label: 'Шаг', value: `${formatQty(p.weightStep)} г` })
-
-  return chips
+  const parts = [
+    codes[0] ? `ШК: ${codes[0]}${codes.length > 1 ? ` +${codes.length - 1}` : ''}` : '',
+    p.plu ? `PLU ${p.plu}` : '',
+    Number(p.unitGrams) > 0
+      ? (Number(p.unitGrams) >= 1000
+        ? `${formatQty(Number(p.unitGrams) / 1000)} кг`
+        : `${formatQty(Number(p.unitGrams))} г`)
+      : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
 }
 
 export default function WarehouseProductSelect({
@@ -178,95 +158,122 @@ export default function WarehouseProductSelect({
       )}
       {showList && (
         <div className={isPanel ? 'k-prod-pick-list-panel' : 'k-prod-pick-list'}>
-          {isPanel && !q.trim() && (
-            <div className="k-prod-pick-hint">Начните ввод или выберите из списка · 📷 сканер камеры</div>
-          )}
-          {isPanel && q.trim() && !options.length && !canCreate && (
-            <div className="k-prod-pick-hint">Ничего не найдено</div>
-          )}
-          {options.map(p => {
-            const chips = productDetailChips(p)
-            if (isPanel) {
+          {isPanel ? (
+            <>
+              {q.trim() && !options.length && !canCreate && (
+                <div className="k-prod-pick-hint">Ничего не найдено</div>
+              )}
+              {!!options.length && (
+                <div className="k-prod-pick-tbl-wrap">
+                  <table className="k-tbl k-tbl-compact k-prod-pick-tbl">
+                    <thead>
+                      <tr>
+                        <th>Артикул</th>
+                        <th>Товар</th>
+                        <th>Категория</th>
+                        <th className="num">Цена</th>
+                        <th className="num">Себест.</th>
+                        <th>Ед.</th>
+                        <th className="num">Остаток</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {options.map(p => {
+                        const unit = productUnitLabel(p.unit)
+                        const stock = Number(p.stock) || 0
+                        const detail = productDetailLine(p)
+                        const weighted = p.sellType === 'weight' || /кг|г|л/i.test(unit)
+                        return (
+                          <tr
+                            key={p.id}
+                            className="k-prodrow"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => selectProduct(p)}
+                          >
+                            <td>
+                              <span className="k-prod-pick-art">{p.art || p.id}</span>
+                            </td>
+                            <td>
+                              <div className="k-prod-pick-name">
+                                <span className="emo">{p.e || '📦'}</span>
+                                <div>
+                                  <b>{p.name}</b>
+                                  {detail && <span>{detail}</span>}
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="k-badge k-badge-cat">{p.cat || '—'}</span>
+                            </td>
+                            <td className="num" style={{ color: 'var(--green)', fontWeight: 900 }}>
+                              {Number(p.price) > 0 ? fmtMoney(Number(p.price)) : '—'}
+                            </td>
+                            <td className="num">
+                              {p.costPrice != null && Number(p.costPrice) > 0 ? fmtMoney(Number(p.costPrice)) : '—'}
+                            </td>
+                            <td style={{ color: 'var(--muted)' }}>
+                              {unit}{weighted ? ' ⚖️' : ''}
+                            </td>
+                            <td className="num" style={{ fontWeight: 800, color: stock > 0 ? 'var(--green)' : 'var(--red)' }}>
+                              {formatQty(stock)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!q.trim() && !options.length && (
+                <div className="k-prod-pick-hint">Начните ввод или сканер 📷</div>
+              )}
+            </>
+          ) : (
+            options.map(p => {
+              const unit = productUnitLabel(p.unit)
+              const stock = Number(p.stock) || 0
+              const codes = productBarcodes(p)
               return (
                 <button
                   key={p.id}
                   type="button"
-                  className="k-prod-pick-card"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    border: 'none', background: 'transparent', color: 'var(--text)',
+                    padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
+                  }}
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => selectProduct(p)}
                 >
-                  <div className="k-prod-pick-card-top">
-                    <span className="emo">{p.e || '📦'}</span>
-                    <div className="txt">
-                      <b>{p.name}</b>
-                      <span>
-                        {[
-                          p.id ? `#${p.id}` : '',
-                          p.art || '',
-                          productBarcodes(p)[0] || '',
-                          p.plu ? `PLU ${p.plu}` : '',
-                        ].filter(Boolean).join(' · ')}
-                      </span>
-                    </div>
-                    <div className="price">
-                      <strong>{Number(p.price) > 0 ? fmtMoney(Number(p.price)) : '—'}</strong>
-                      <small>продажа</small>
-                    </div>
-                  </div>
-                  <div className="k-prod-pick-card-meta">
-                    {chips.map(c => (
-                      <div key={c.label} className={c.accent === 'green' ? 'green' : undefined}>
-                        <span className="l">{c.label}</span>
-                        <span className="v">{c.value}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <span>{p.e || '📦'}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                      {p.name}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {[p.art, codes[0], p.plu ? `PLU ${p.plu}` : '', Number(p.price) > 0 ? fmtMoney(Number(p.price)) : ''].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <span style={{
+                    flexShrink: 0, textAlign: 'right', minWidth: 72,
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
+                  }}>
+                    <span style={{
+                      fontSize: 12, fontWeight: 900, color: 'var(--green)',
+                      background: 'var(--green-d)', border: '1px solid var(--green)',
+                      borderRadius: 6, padding: '2px 7px', lineHeight: 1.3,
+                    }}>
+                      {unit}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)' }}>
+                      {formatQty(stock)} {unit}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>на складе</span>
+                  </span>
                 </button>
               )
-            }
-            const unit = productUnitLabel(p.unit)
-            const stock = Number(p.stock) || 0
-            const codes = productBarcodes(p)
-            return (
-              <button
-                key={p.id}
-                type="button"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  border: 'none', background: 'transparent', color: 'var(--text)',
-                  padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
-                }}
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => selectProduct(p)}
-              >
-                <span>{p.e || '📦'}</span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
-                    {p.name}
-                  </span>
-                  <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {[p.art, codes[0], p.plu ? `PLU ${p.plu}` : '', Number(p.price) > 0 ? fmtMoney(Number(p.price)) : ''].filter(Boolean).join(' · ')}
-                  </span>
-                </span>
-                <span style={{
-                  flexShrink: 0, textAlign: 'right', minWidth: 72,
-                  display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2,
-                }}>
-                  <span style={{
-                    fontSize: 12, fontWeight: 900, color: 'var(--green)',
-                    background: 'var(--green-d)', border: '1px solid var(--green)',
-                    borderRadius: 6, padding: '2px 7px', lineHeight: 1.3,
-                  }}>
-                    {unit}
-                  </span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)' }}>
-                    {formatQty(stock)} {unit}
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>на складе</span>
-                </span>
-              </button>
-            )
-          })}
+            })
+          )}
           {canCreate && (
             <button
               type="button"
@@ -281,7 +288,7 @@ export default function WarehouseProductSelect({
               onClick={() => {
                 const code = q.trim()
                 const asBarcode = /^\d{8,}$/.test(code)
-                onCreateNew(asBarcode ? '' : code, asBarcode ? { barcode: code } : undefined)
+                onCreateNew?.(asBarcode ? '' : code, asBarcode ? { barcode: code } : undefined)
                 setOpen(false)
               }}
             >

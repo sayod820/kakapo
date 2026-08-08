@@ -383,32 +383,23 @@ const CSS = `
     border:1px solid var(--border);background:var(--card)
   }
   .k-prod-pick-hint{padding:16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600;border-bottom:1px solid var(--border)}
-  .k-prod-pick-card{
-    display:block;width:100%;border:none;border-bottom:1px solid var(--tbl-line);
-    background:transparent;color:var(--text);padding:12px 12px;cursor:pointer;text-align:left
+  .k-prod-pick-tbl-wrap{overflow:auto;min-height:0}
+  .k-prod-pick-tbl{width:100%;margin:0}
+  .k-prod-pick-tbl thead th{
+    position:sticky;top:0;z-index:2;background:var(--card);font-size:10px;text-transform:uppercase;
+    letter-spacing:.03em;color:var(--muted);font-weight:800;white-space:nowrap
   }
-  .k-prod-pick-card:hover{background:var(--hover)}
-  .k-prod-pick-card:last-child{border-bottom:none}
-  .k-prod-pick-card-top{display:flex;align-items:flex-start;gap:10px}
-  .k-prod-pick-card-top .emo{
-    width:40px;height:40px;border-radius:10px;background:var(--card2);border:1px solid var(--border);
-    display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0
+  .k-prod-pick-tbl tbody tr{cursor:pointer}
+  .k-prod-pick-tbl tbody tr:nth-child(even){background:var(--card2)}
+  .k-prod-pick-tbl tbody tr:hover{background:var(--hover)}
+  .k-prod-pick-art{font-size:12px;color:var(--gold);font-weight:800}
+  .k-prod-pick-name{display:flex;align-items:center;gap:8px;min-width:0}
+  .k-prod-pick-name .emo{
+    width:32px;height:32px;border-radius:8px;background:var(--card2);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0
   }
-  .k-prod-pick-card-top .txt{flex:1;min-width:0}
-  .k-prod-pick-card-top .txt b{display:block;font-size:14px;font-weight:900;line-height:1.25}
-  .k-prod-pick-card-top .txt span{display:block;font-size:11px;color:var(--muted);margin-top:3px;word-break:break-word}
-  .k-prod-pick-card-top .price{flex-shrink:0;text-align:right}
-  .k-prod-pick-card-top .price strong{display:block;font-size:15px;font-weight:900;color:var(--green)}
-  .k-prod-pick-card-top .price small{font-size:10px;color:var(--muted);font-weight:700}
-  .k-prod-pick-card-meta{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin-top:10px
-  }
-  .k-prod-pick-card-meta > div{
-    padding:6px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--border);min-width:0
-  }
-  .k-prod-pick-card-meta .l{display:block;font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
-  .k-prod-pick-card-meta .v{display:block;font-size:12px;font-weight:800;margin-top:2px;word-break:break-word}
-  .k-prod-pick-card-meta > div.green .v{color:var(--green)}
+  .k-prod-pick-name b{display:block;font-size:13px;font-weight:800;line-height:1.2}
+  .k-prod-pick-name span{display:block;font-size:10px;color:var(--muted);margin-top:2px}
   .k-prod-pick-create{
     display:flex;align-items:center;gap:8px;width:100%;border:none;border-top:1px solid var(--border);
     background:var(--green-d);color:var(--green);padding:12px;cursor:pointer;text-align:left;font-size:13px;font-weight:800;
@@ -737,7 +728,9 @@ const CSS = `
     }
     .k-rcpt-find-bg{padding:0}
     .k-rcpt-find-modal{border-radius:0}
-    .k-prod-pick-card-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .k-prod-pick-tbl{font-size:12px}
+    .k-prod-pick-tbl th:nth-child(3),
+    .k-prod-pick-tbl td:nth-child(3){display:none}
     .k-receipt-modal-bg{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:var(--bg)!important}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static;height:auto;max-height:42vh}
