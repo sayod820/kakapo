@@ -56,7 +56,11 @@ export default function WarehouseProductSelect({
   }, [autoFocus])
 
   const options = useMemo(
-    () => filterProductsBySearch(products, q || (isPanel ? '' : (selected?.name || '')), isPanel ? 80 : 30),
+    () => filterProductsBySearch(
+      products,
+      q || (isPanel ? '' : (selected?.name || '')),
+      isPanel ? Math.max(products.length, 1) : 30,
+    ),
     [products, q, selected?.name, isPanel],
   )
   const canCreate = onCreateNew && q.trim().length >= 2 && !options.some(p => p.name.toLowerCase() === q.trim().toLowerCase())
