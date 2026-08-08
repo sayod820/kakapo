@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
 import ProductImage from '@/components/shared/ProductImage'
 import ProductArrivalsPanel from './ProductArrivalsPanel'
@@ -62,6 +62,7 @@ export default function ProductTab({
   onDeleteProducts,
   onOpenEdit,
   onRefreshProducts,
+  onBackToCatalogChange,
 }: {
   products: Product[]
   loaded: boolean
@@ -82,6 +83,7 @@ export default function ProductTab({
   onDeleteProducts: (ids: number[]) => Promise<void> | void
   onOpenEdit: (id: number) => void
   onRefreshProducts?: () => void
+  onBackToCatalogChange?: (handler: (() => void) | null) => void
 }) {
   const [view, setView] = useState<'catalog' | 'edit'>('catalog')
   const [arrivalsOpen, setArrivalsOpen] = useState(false)
@@ -244,10 +246,17 @@ export default function ProductTab({
     setView('edit')
   }
 
-  function backToCatalog() {
+  const backToCatalog = useCallback(() => {
     if (formDirty && !confirm('Есть несохранённые изменения. Вернуться к каталогу без сохранения?')) return
     setView('catalog')
-  }
+  }, [formDirty])
+
+  useEffect(() => {
+    if (!onBackToCatalogChange) return
+    if (view === 'edit') onBackToCatalogChange(backToCatalog)
+    else onBackToCatalogChange(null)
+    return () => onBackToCatalogChange(null)
+  }, [view, backToCatalog, onBackToCatalogChange])
 
   if (view === 'edit') {
     const qList = search.trim()
@@ -261,9 +270,6 @@ export default function ProductTab({
 
     return (
       <div>
-        <div className="k-page-h" style={{ marginTop: 0, marginBottom: 12 }}>
-          <button type="button" className="k-btn k-btn-s" onClick={backToCatalog}>← К каталогу</button>
-        </div>
         <div className="k-product-layout">
           <aside className="k-product-list">
             <div className="k-product-list-head">

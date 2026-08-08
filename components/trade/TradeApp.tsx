@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
@@ -115,7 +115,9 @@ const CSS = `
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
-  .k-search{flex:1;position:relative;max-width:640px}
+  .k-top-back{flex-shrink:0;white-space:nowrap}
+  .k-top-end{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+  .k-search{flex:1;position:relative;max-width:640px;min-width:0}
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
   .k-search .mag{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
@@ -136,6 +138,7 @@ const CSS = `
   .k-user .who b{display:block;font-size:13px;line-height:1.1;color:var(--text);font-weight:800}
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
+  .k-body-products{padding-top:10px;padding-bottom:14px}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
@@ -250,7 +253,7 @@ const CSS = `
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
   .k-modal-b{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-  .k-subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .k-subtabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
@@ -332,7 +335,10 @@ const CSS = `
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
     .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
+    .k-top-back{order:2;padding:8px 10px;font-size:12px}
+    .k-top-end{order:2;gap:8px}
     .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
+    .k-body-products{padding-top:8px}
     .k-user .who{display:none}
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
     .k-body{padding:12px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
@@ -705,6 +711,10 @@ function TradeAppInner({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
+  const [catalogBack, setCatalogBack] = useState<(() => void) | null>(null)
+  const onBackToCatalogChange = useCallback((handler: (() => void) | null) => {
+    setCatalogBack(() => handler)
+  }, [])
 
   function applyTheme(next: TradeTheme) {
     onThemeChange(next)
@@ -734,6 +744,10 @@ function TradeAppInner({
       setPage(defaultPage)
     }
   }, [session.permissions, page, defaultPage, setPage])
+
+  useEffect(() => {
+    if (current !== 'products') onBackToCatalogChange(null)
+  }, [current, onBackToCatalogChange])
 
   const showSearch = current === 'products' || current === 'warehouse'
 
@@ -800,7 +814,7 @@ function TradeAppInner({
       return <div className="k-empty">Нет доступа к этому разделу</div>
     }
     if (!loaded && current === 'products') return <div className="k-empty">Загрузка товаров…</div>
-    if (current === 'products') return <ProductsModule search={search} />
+    if (current === 'products') return <ProductsModule search={search} onBackToCatalogChange={onBackToCatalogChange} />
     if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
@@ -874,6 +888,11 @@ function TradeAppInner({
         {!posFullscreen && current !== 'sales' && (
           <header className="k-top">
             <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+            {catalogBack ? (
+              <button type="button" className="k-btn k-btn-s k-top-back" onClick={catalogBack}>
+                ← К каталогу
+              </button>
+            ) : null}
             {showSearch ? (
               <div className="k-search">
                 <span className="mag">🔍</span>
@@ -913,37 +932,39 @@ function TradeAppInner({
                 )}
               </div>
             )}
-            <div className="k-theme-toggle" role="group" aria-label="Тема">
-              <button
-                type="button"
-                className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
-                title="Тёмная тема"
-                onClick={() => applyTheme('dark')}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
-                title="Светлая тема"
-                onClick={() => applyTheme('light')}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
+            <div className="k-top-end">
+              <div className="k-theme-toggle" role="group" aria-label="Тема">
+                <button
+                  type="button"
+                  className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
+                  title="Тёмная тема"
+                  onClick={() => applyTheme('dark')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
+                  title="Светлая тема"
+                  onClick={() => applyTheme('light')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
+                <div className="av">{initials(session.name)}</div>
+                <div className="who"><b>{session.name}</b><span>Выйти</span></div>
               </button>
             </div>
-            <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
-              <div className="av">{initials(session.name)}</div>
-              <div className="who"><b>{session.name}</b><span>Выйти</span></div>
-            </button>
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'products' ? 'k-body k-body-products' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"

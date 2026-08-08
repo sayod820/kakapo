@@ -31,10 +31,12 @@ export default function ProductsModule({
   search,
   subPage: controlledSub,
   onSubPageChange,
+  onBackToCatalogChange,
 }: {
   search: string
   subPage?: ProductsSubPage
   onSubPageChange?: (p: ProductsSubPage) => void
+  onBackToCatalogChange?: (handler: (() => void) | null) => void
 }) {
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
@@ -56,6 +58,10 @@ export default function ProductsModule({
   const [internalSub, setInternalSub] = useState<ProductsSubPage>('product')
   const sub = controlledSub ?? internalSub
   const setSub = onSubPageChange ?? setInternalSub
+
+  useEffect(() => {
+    if (sub !== 'product') onBackToCatalogChange?.(null)
+  }, [sub, onBackToCatalogChange])
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [isNew, setIsNew] = useState(false)
@@ -262,6 +268,7 @@ export default function ProductsModule({
           onDeleteProducts={ids => handleDeleteProducts(ids)}
           onOpenEdit={openProduct}
           onRefreshProducts={() => void refreshAfterArrivals()}
+          onBackToCatalogChange={onBackToCatalogChange}
         />
       )}
 
