@@ -138,7 +138,7 @@ const CSS = `
   .k-user .who b{display:block;font-size:13px;line-height:1.1;color:var(--text);font-weight:800}
   .k-user .who span{font-size:11px;color:var(--muted)}
   .k-body{flex:1;min-height:0;overflow:auto;padding:18px 20px}
-  .k-body-products{padding-top:10px;padding-bottom:14px}
+  .k-body-products{padding-top:6px;padding-bottom:12px}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
@@ -253,30 +253,32 @@ const CSS = `
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
   .k-modal-b{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-  .k-subtabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-  .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
+  .k-subtabs{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:8px 14px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
-  .k-catalog-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
-  .k-catalog-meta{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:13px;color:var(--muted)}
-  .k-catalog-meta b{font-size:18px;font-weight:900;color:var(--text);line-height:1}
-  .k-catalog-filters{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .k-catalog-bar{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:nowrap}
+  .k-catalog-meta{display:flex;align-items:baseline;gap:6px;flex-shrink:0;font-size:13px;color:var(--muted)}
+  .k-catalog-meta b{font-size:17px;font-weight:900;color:var(--text);line-height:1}
+  .k-catalog-filters{flex:1;display:flex;gap:6px;min-width:0;margin:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
   .k-catalog-filters::-webkit-scrollbar{display:none}
   .k-filter-chip{
-    flex-shrink:0;display:inline-flex;align-items:center;gap:6px;
+    flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;
     border:1px solid var(--border);background:var(--card);color:var(--text);
-    border-radius:999px;padding:5px 10px;cursor:pointer;font:inherit;line-height:1.1
+    border-radius:999px;padding:6px 8px;cursor:pointer;font:inherit;line-height:1.1;min-width:0
   }
   .k-filter-chip:hover{border-color:var(--muted2);background:var(--hover)}
   .k-filter-chip.active{background:var(--green-d);border-color:var(--green)}
-  .k-filter-chip-l{font-size:11px;font-weight:700;color:var(--muted)}
+  .k-filter-chip-l{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
   .k-filter-chip.active .k-filter-chip-l{color:var(--green)}
   .k-filter-chip-v{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums}
-  .k-catalog-bulk{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;font-weight:800}
-  .k-cats-compact{gap:6px;margin-bottom:8px}
+  .k-catalog-add{flex-shrink:0;padding:7px 12px;font-size:13px}
+  .k-catalog-bulk{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;font-weight:800}
+  .k-cats-compact{gap:6px;margin-bottom:6px;scrollbar-width:none}
+  .k-cats-compact::-webkit-scrollbar{height:0;display:none}
   .k-cats-compact .k-cat{
     flex-direction:row;align-items:center;justify-content:center;
-    min-width:0;padding:6px 10px;border-radius:10px;gap:5px;font-size:12px
+    min-width:0;padding:5px 10px;border-radius:10px;gap:5px;font-size:12px
   }
   .k-cats-compact .k-cat .ce{font-size:14px;line-height:1}
   .k-cats-compact .k-cat .cc{font-size:10px;opacity:.75;font-weight:700}
@@ -363,7 +365,11 @@ const CSS = `
     .k-top-back{order:2;padding:8px 10px;font-size:12px}
     .k-top-end{order:2;gap:8px}
     .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
-    .k-body-products{padding-top:8px}
+    .k-body-products{padding-top:4px}
+    .k-catalog-bar{flex-wrap:wrap;gap:8px}
+    .k-catalog-filters{flex:1 1 100%;order:3}
+    .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
+    .k-catalog-add{margin-left:auto}
     .k-user .who{display:none}
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
     .k-body{padding:12px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}

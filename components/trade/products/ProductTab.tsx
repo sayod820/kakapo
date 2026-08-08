@@ -352,21 +352,20 @@ export default function ProductTab({
             {!loaded ? ' · загрузка…' : ''}
           </span>
         </div>
-        <button type="button" className="k-btn k-btn-g" style={{ padding: '7px 12px', fontSize: 13 }} onClick={startNew}>
+        <div className="k-catalog-filters">
+          <FilterChip label="Все" value={stats.total} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
+          <FilterChip label="В наличии" value={stats.inStock} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
+          <FilterChip label="Мало" value={stats.low} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
+          <FilterChip label="Нет" value={stats.out} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
+          <FilterChip label="Хиты" value={stats.hot} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
+          <FilterChip label="Опт" value={stats.bulk} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
+        </div>
+        <button type="button" className="k-btn k-btn-g k-catalog-add" onClick={startNew}>
           + Добавить
         </button>
       </div>
 
-      <div className="k-catalog-filters">
-        <FilterChip label="Все" value={stats.total} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
-        <FilterChip label="В наличии" value={stats.inStock} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
-        <FilterChip label="Мало" value={stats.low} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
-        <FilterChip label="Нет" value={stats.out} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
-        <FilterChip label="Хиты" value={stats.hot} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
-        <FilterChip label="Опт" value={stats.bulk} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
-      </div>
-
-      <div className="k-cats k-cats-compact" style={{ marginBottom: subcategories.length ? 6 : 8 }}>
+      <div className="k-cats k-cats-compact" style={{ marginBottom: subcategories.length ? 4 : 6 }}>
         <button type="button" className={`k-cat ${catFlt === 'all' ? 'active' : ''}`} onClick={() => pickCategory('all')}>
           <span className="ce">🏪</span>Все<span className="cc">{stats.total}</span>
         </button>
@@ -384,7 +383,7 @@ export default function ProductTab({
       </div>
 
       {subcategories.length > 0 && activeRoot && (
-        <div className="k-cats k-cats-compact" style={{ marginBottom: 8 }}>
+        <div className="k-cats k-cats-compact" style={{ marginBottom: 6 }}>
           <button
             type="button"
             className={`k-cat ${catFlt === categorySlug(activeRoot) ? 'active' : ''}`}
