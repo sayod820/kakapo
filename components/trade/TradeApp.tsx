@@ -894,6 +894,12 @@ function TradeAppInner({
     try { el.focus({ preventScroll: true }) } catch { el.focus() }
   }
 
+  function tradeSearchBlocked() {
+    if (catalogBack) return true
+    if (document.querySelector('.modal-card, .overlay, .k-modal, .k-modal-bg')) return true
+    return false
+  }
+
   useEffect(() => {
     if (!showSearch) return
     setSearch('')
@@ -901,23 +907,51 @@ function TradeAppInner({
     return () => window.clearTimeout(t)
   }, [current, showSearch])
 
-  // Пока в Товар/Склад — печать с клавиатуры/сканера сразу в поиск
+  useEffect(() => {
+    if (!showSearch || catalogBack) return
+    const t = window.setTimeout(focusTradeSearch, 40)
+    return () => window.clearTimeout(t)
+  }, [catalogBack, showSearch])
+
+  // Товар/Склад: курсор всегда в поиске (сканер / повторный клик по окну)
   useEffect(() => {
     if (!showSearch) return
+
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (tradeSearchBlocked()) return
       const active = document.activeElement as HTMLElement | null
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
         return
       }
-      if (active?.closest?.('.modal-card, .overlay, .k-modal, .k-modal-bg')) return
       if (e.key.length === 1 || e.key === 'Backspace') {
         focusTradeSearch()
       }
     }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (tradeSearchBlocked()) return
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (t.closest('.modal-card, .overlay, .k-modal, .k-modal-bg')) return
+      window.setTimeout(() => {
+        if (tradeSearchBlocked()) return
+        const active = document.activeElement as HTMLElement | null
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+          return
+        }
+        focusTradeSearch()
+      }, 0)
+    }
+
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [showSearch])
+    window.addEventListener('pointerup', onPointerUp, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+    }
+  }, [showSearch, catalogBack])
 
   const posFullscreen = current === 'sales' && posSurface === 'register'
 

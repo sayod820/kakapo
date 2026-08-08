@@ -66,10 +66,23 @@ export default function LabelsTab({
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [draftEdit, setDraftEdit] = useState<LabelEdit | null>(null)
   const loadingRef = useRef<Set<number>>(new Set())
+  const labelSearchRef = useRef<HTMLInputElement | null>(null)
   const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
   const [labelPrinterName, setLabelPrinterName] = useState('')
   const [labelPrintBusy, setLabelPrintBusy] = useState(false)
   const [printerPanelOpen, setPrinterPanelOpen] = useState(false)
+
+  function focusLabelSearch() {
+    const el = labelSearchRef.current
+    if (!el) return
+    try { el.focus({ preventScroll: true }) } catch { el.focus() }
+  }
+
+  function labelSearchBlocked() {
+    if (designOpen || editingKey || printerPanelOpen) return true
+    if (document.querySelector('.modal-card, .overlay, .k-modal, .k-modal-bg')) return true
+    return false
+  }
 
   useEffect(() => {
     setDesign(loadLabelDesign())
@@ -85,6 +98,50 @@ export default function LabelsTab({
       setLabelPrinterName(saved || auto || pickReceiptPrinter(printers || []))
     })
   }, [])
+
+  useEffect(() => {
+    if (designOpen || editingKey || printerPanelOpen) return
+    const t = window.setTimeout(focusLabelSearch, 40)
+    return () => window.clearTimeout(t)
+  }, [designOpen, editingKey, printerPanelOpen])
+
+  // Этикетки: курсор всегда в поиске (сканер / клик по окну)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (labelSearchBlocked()) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+        return
+      }
+      if (e.key.length === 1 || e.key === 'Backspace') {
+        focusLabelSearch()
+      }
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (labelSearchBlocked()) return
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (t.closest('.modal-card, .overlay, .k-modal, .k-modal-bg')) return
+      window.setTimeout(() => {
+        if (labelSearchBlocked()) return
+        const active = document.activeElement as HTMLElement | null
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) {
+          return
+        }
+        focusLabelSearch()
+      }, 0)
+    }
+
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerup', onPointerUp, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+    }
+  }, [designOpen, editingKey, printerPanelOpen])
 
   const printCss = useMemo(() => buildPrintCss(design), [design])
   const previewGrid = useMemo(() => previewGridStyle(design), [design])
@@ -442,9 +499,11 @@ export default function LabelsTab({
           </div>
           <div className="k-card-b">
             <input
+              ref={labelSearchRef}
               className="k-inp"
               value={labelSearch}
               onChange={e => setLabelSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               placeholder="Поиск: штрихкод, название, артикул…"
               style={{ marginBottom: 8, flexShrink: 0 }}
             />
