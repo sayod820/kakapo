@@ -335,7 +335,6 @@ export default function ProductTab({
             open={arrivalsOpen}
             onClose={() => setArrivalsOpen(false)}
             onUpdated={() => onRefreshProducts?.()}
-            onEditProduct={() => setArrivalsOpen(false)}
           />
         )}
       </div>

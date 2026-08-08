@@ -8,6 +8,7 @@ import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPr
 import type { Product, ProductStockLayer, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from './BulkPricingFields'
 import { money, sanitizeDecimal } from './productFormShared'
+import ProductEditModal from './ProductEditModal'
 import ReceiptLabelPrintModal from '@/components/trade/warehouse/ReceiptLabelPrintModal'
 
 function formatDate(iso: string) {
@@ -51,14 +52,11 @@ export default function ProductArrivalsPanel({
   open,
   onClose,
   onUpdated,
-  onEditProduct,
 }: {
   product: Product
   open: boolean
   onClose: () => void
   onUpdated?: () => void
-  /** Открыть карточку товара (название, цена, штрихкод и т.д.) */
-  onEditProduct?: () => void
 }) {
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [loading, setLoading] = useState(false)
@@ -66,6 +64,7 @@ export default function ProductArrivalsPanel({
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
+  const [editProductOpen, setEditProductOpen] = useState(false)
 
   const [qty, setQty] = useState('')
   const [retailPrice, setRetailPrice] = useState(String(product.price ?? ''))
@@ -115,6 +114,7 @@ export default function ProductArrivalsPanel({
     void loadLayers()
     setShowAdd(false)
     setEditId(null)
+    setEditProductOpen(false)
     setMsg('')
     initAddForm()
   }, [open, product.id, loadLayers])
@@ -287,19 +287,17 @@ export default function ProductArrivalsPanel({
               <span style={{ marginLeft: 12 }}>· партий: {layers.length}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {onEditProduct && (
-                <button
-                  type="button"
-                  className="k-btn k-btn-s"
-                  onClick={() => {
-                    if (addDirty && !window.confirm('Есть несохранённый приход. Перейти к редактированию товара?')) return
-                    onEditProduct()
-                  }}
-                  title="Редактировать название, цену, штрихкод и другие поля товара"
-                >
-                  ✎ Товар
-                </button>
-              )}
+              <button
+                type="button"
+                className="k-btn k-btn-s"
+                onClick={() => {
+                  if (addDirty && !window.confirm('Есть несохранённый приход. Открыть редактирование товара?')) return
+                  setEditProductOpen(true)
+                }}
+                title="Редактировать название, цену, штрихкод и другие поля товара"
+              >
+                ✎ Товар
+              </button>
               <button type="button" className="k-btn k-btn-g" onClick={toggleAddForm}>
                 {showAdd ? 'Отмена' : '+ Приход'}
               </button>
@@ -431,6 +429,15 @@ export default function ProductArrivalsPanel({
           )}
         </div>
       </div>
+
+      <ProductEditModal
+        open={editProductOpen}
+        product={product}
+        onClose={() => setEditProductOpen(false)}
+        onSaved={() => {
+          onUpdated?.()
+        }}
+      />
 
       <ReceiptLabelPrintModal
         open={!!labelReceipt}

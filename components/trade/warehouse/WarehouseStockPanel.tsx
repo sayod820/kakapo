@@ -93,14 +93,12 @@ export default function WarehouseStockPanel({
   search = '',
   onRefresh,
   refreshGen = 0,
-  onEditProduct,
 }: {
   products: Product[]
   search?: string
   onRefresh?: () => void
   /** Инкремент с кнопки «Обновить» — перезагрузить партии без привязки к products */
   refreshGen?: number
-  onEditProduct?: (productId: number) => void
 }) {
   const { categories } = useCategories()
   const q = search
@@ -408,18 +406,13 @@ export default function WarehouseStockPanel({
 
       {arrivalsProduct && (
         <ProductArrivalsPanel
-          product={arrivalsProduct}
+          product={products.find(p => p.id === arrivalsProduct.id) || arrivalsProduct}
           open
           onClose={() => setArrivalsProduct(null)}
           onUpdated={() => {
             void loadLayers()
             onRefresh?.()
           }}
-          onEditProduct={onEditProduct ? () => {
-            const id = arrivalsProduct.id
-            setArrivalsProduct(null)
-            onEditProduct(id)
-          } : undefined}
         />
       )}
     </div>

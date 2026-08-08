@@ -19,11 +19,9 @@ import { WAREHOUSE_TABS, type WarehouseTab } from './warehouse/warehouseShared'
 export default function WarehouseModule({
   products,
   search = '',
-  onEditProduct,
 }: {
   products: Product[]
   search?: string
-  onEditProduct?: (productId: number) => void
 }) {
   const [tab, setTab] = useState<WarehouseTab>(() => loadWarehouseTab() || 'stock')
   const [expiryDays, setExpiryDays] = useState(14)
@@ -184,7 +182,6 @@ export default function WarehouseModule({
                 search={search}
                 onRefresh={refreshAll}
                 refreshGen={refreshGen}
-                onEditProduct={onEditProduct}
               />
             )}
             {tab === 'receipts' && (

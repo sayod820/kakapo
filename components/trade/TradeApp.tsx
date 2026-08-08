@@ -890,20 +890,10 @@ function TradeAppInner({
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
   const [productsSub, setProductsSub] = useState<ProductsSubPage>('product')
-  const [pendingProductEditId, setPendingProductEditId] = useState<number | null>(null)
   const [catalogBack, setCatalogBack] = useState<(() => void) | null>(null)
   const onBackToCatalogChange = useCallback((handler: (() => void) | null) => {
     setCatalogBack(() => handler)
   }, [])
-  const onOpenProductConsumed = useCallback(() => {
-    setPendingProductEditId(null)
-  }, [])
-
-  function editProductFromWarehouse(productId: number) {
-    setPendingProductEditId(productId)
-    setProductsSub('product')
-    goTo('products')
-  }
 
   function applyTheme(next: TradeTheme) {
     onThemeChange(next)
@@ -1079,20 +1069,10 @@ function TradeAppInner({
           onSubPageChange={setProductsSub}
           hideSubtabs
           onBackToCatalogChange={onBackToCatalogChange}
-          openProductId={pendingProductEditId}
-          onOpenProductConsumed={onOpenProductConsumed}
         />
       )
     }
-    if (current === 'warehouse') {
-      return (
-        <WarehouseModule
-          products={products}
-          search={search}
-          onEditProduct={editProductFromWarehouse}
-        />
-      )
-    }
+    if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
     if (current === 'debts') return <DebtsModule onNavigate={p => goTo(p as TradePage)} />
