@@ -1052,30 +1052,13 @@ export default function WarehouseReceiptsPanel({
                       </button>
                       <button
                         type="button"
-                        className={`k-btn k-btn-g k-btn-s${addOpen ? ' is-on' : ''}`}
-                        onClick={() => setAddOpen(v => !v)}
+                        className="k-btn k-btn-g k-btn-s"
+                        onClick={() => setAddOpen(true)}
                       >
-                        {addOpen ? 'Скрыть поиск' : 'Найти товар'}
+                        Найти товар
                       </button>
                     </div>
                   </div>
-
-                  {showAdd && (
-                    <div
-                      className="k-rcpt-add-box"
-                      data-receipt-pending="1"
-                      ref={el => { if (pending) lineRefs.current[pending.key] = el }}
-                    >
-                      <WarehouseProductSelect
-                        products={products}
-                        value={null}
-                        onChange={p => { if (p) addProduct(p) }}
-                        onCreateNew={(name, meta) => ensurePendingThen(() => openNewProduct(pendingKey, name, meta?.barcode || ''))}
-                        placeholder="Поиск или сканер: название, артикул, штрихкод…"
-                        autoFocus
-                      />
-                    </div>
-                  )}
 
                   {filledLines.length === 0 ? (
                     <div className="k-rcpt-empty">
@@ -1152,6 +1135,54 @@ export default function WarehouseReceiptsPanel({
                   <span>Остаток к оплате</span>
                 </div>
               </div>
+
+              {showAdd && (
+                <div
+                  className="k-modal-bg k-rcpt-find-bg"
+                  onClick={e => { e.stopPropagation(); setAddOpen(false) }}
+                >
+                  <div
+                    className="k-modal k-rcpt-find-modal"
+                    onClick={e => e.stopPropagation()}
+                    data-receipt-pending="1"
+                    ref={el => { if (pending) lineRefs.current[pending.key] = el }}
+                  >
+                    <div className="k-modal-h">
+                      <div>
+                        <b>Найти товар</b>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
+                          Поиск по базе или сканер камеры
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setAddOpen(false)}>✕</button>
+                    </div>
+                    <div className="k-modal-b" style={{ padding: 14 }}>
+                      <WarehouseProductSelect
+                        products={products}
+                        value={null}
+                        onChange={p => { if (p) addProduct(p) }}
+                        onCreateNew={(name, meta) => {
+                          setAddOpen(false)
+                          ensurePendingThen(() => openNewProduct(pendingKey, name, meta?.barcode || ''))
+                        }}
+                        placeholder="Поиск или сканер: название, артикул, штрихкод…"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ marginTop: 12, width: '100%' }}
+                        onClick={() => {
+                          setAddOpen(false)
+                          ensurePendingThen(() => openNewProduct(pendingKey, ''))
+                        }}
+                      >
+                        + Создать новый товар
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )

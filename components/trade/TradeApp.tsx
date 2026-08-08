@@ -348,6 +348,16 @@ const CSS = `
   .k-rcpt-add-box{
     padding:10px;border-radius:12px;border:1.5px dashed rgba(31,215,96,.45);background:rgba(31,215,96,.04)
   }
+  .k-rcpt-find-bg{z-index:220!important;padding:16px!important;background:rgba(0,0,0,.55)!important;align-items:center!important;justify-content:center!important}
+  .k-trade[data-theme="light"] .k-rcpt-find-bg{background:rgba(12,26,16,.4)!important}
+  .k-rcpt-find-modal{
+    width:min(520px,100%)!important;max-width:520px!important;
+    height:auto!important;max-height:min(80dvh,640px)!important;
+    border-radius:14px!important;margin:0;overflow:visible!important;
+    display:flex!important;flex-direction:column;background:var(--panel);border:1px solid var(--border);
+    box-shadow:0 20px 48px rgba(0,0,0,.35)
+  }
+  .k-rcpt-find-modal .k-modal-b{overflow:visible}
   .k-rcpt-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card2)}
   .k-rcpt-th{
     display:grid;grid-template-columns:36px minmax(140px,1.5fr) 110px 118px 44px 100px 90px 96px;
@@ -668,6 +678,11 @@ const CSS = `
       height:100vh!important;max-height:100vh!important;
       height:100dvh!important;max-height:100dvh!important;
       border-radius:0;margin:0
+    }
+    .k-rcpt-find-modal{
+      width:calc(100% - 24px)!important;max-width:520px!important;
+      height:auto!important;max-height:min(80dvh,640px)!important;
+      border-radius:14px!important;margin:0
     }
     .k-receipt-modal-bg{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:var(--bg)!important}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
