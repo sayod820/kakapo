@@ -14,6 +14,8 @@ interface Props {
   productId?: number | null
   label?: string
   height?: number
+  /** Компактный квадрат + мелкие кнопки (редактор товара) */
+  compact?: boolean
 }
 
 type Stage = 'idle' | 'upload' | 'done'
@@ -24,8 +26,9 @@ export default function PhotoUploadField({
   onThumbChange,
   onUploaded,
   productId,
-  label = 'Фото товара',
+  label = 'Фото',
   height = 200,
+  compact = false,
 }: Props) {
   const [err, setErr] = useState('')
   const [stage, setStage] = useState<Stage>('idle')
@@ -33,6 +36,7 @@ export default function PhotoUploadField({
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const busy = stage === 'upload'
+  const boxH = compact ? Math.min(height, 120) : height
 
   async function blobToDataUrl(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -100,8 +104,16 @@ export default function PhotoUploadField({
   }
 
   return (
-    <div>
-      <div style={{ fontSize: 11, color: '#8FB897', marginBottom: 7, fontWeight: 700 }}>{label}</div>
+    <div className={compact ? 'k-photo-compact' : undefined}>
+      <div style={{
+        fontSize: compact ? 10 : 11,
+        color: '#8FB897',
+        marginBottom: compact ? 4 : 7,
+        fontWeight: 700,
+      }}
+      >
+        {label}
+      </div>
       <button
         type="button"
         onClick={openGallery}
@@ -109,14 +121,16 @@ export default function PhotoUploadField({
         style={{
           position: 'relative',
           display: 'block',
-          width: '100%',
-          height,
+          width: compact ? boxH : '100%',
+          height: boxH,
+          maxWidth: '100%',
           padding: 0,
-          borderRadius: 14,
+          borderRadius: compact ? 12 : 14,
           overflow: 'hidden',
-          border: value ? '1px solid #162B1A' : '2px dashed #1FD760',
+          border: value ? '1px solid var(--border, #162B1A)' : '2px dashed #1FD760',
           cursor: busy ? 'wait' : 'pointer',
           background: 'linear-gradient(145deg,#121f16,#0c1610)',
+          flexShrink: 0,
         }}
       >
         {value ? (
@@ -129,7 +143,7 @@ export default function PhotoUploadField({
               objectFit: 'contain',
               objectPosition: 'center',
               display: 'block',
-              padding: 10,
+              padding: compact ? 4 : 10,
               boxSizing: 'border-box',
               pointerEvents: 'none',
             }}
@@ -143,17 +157,24 @@ export default function PhotoUploadField({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: compact ? 2 : 8,
+              padding: 6,
             }}
           >
-            <span style={{ fontSize: 28, lineHeight: 1 }}>📷</span>
-            <span style={{ fontSize: 14, color: '#1FD760', fontWeight: 800 }}>Добавить фото</span>
-            <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
-              Нажмите сюда · галерея или файл
+            <span style={{ fontSize: compact ? 22 : 28, lineHeight: 1 }}>📷</span>
+            <span style={{ fontSize: compact ? 11 : 14, color: '#1FD760', fontWeight: 800 }}>
+              {compact ? 'Фото' : 'Добавить фото'}
             </span>
-            <span style={{ fontSize: 10, color: '#3D6645' }}>
-              Сервер сохранит как WebP · без обрезки
-            </span>
+            {!compact && (
+              <>
+                <span style={{ fontSize: 11, color: '#8FB897', textAlign: 'center', padding: '0 16px' }}>
+                  Нажмите сюда · галерея или файл
+                </span>
+                <span style={{ fontSize: 10, color: '#3D6645' }}>
+                  Сервер сохранит как WebP · без обрезки
+                </span>
+              </>
+            )}
           </div>
         )}
 
@@ -167,11 +188,11 @@ export default function PhotoUploadField({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 10,
+              gap: 8,
             }}
           >
-            <div style={{ fontSize: 13, color: '#EBF5ED', fontWeight: 700 }}>Обработка WebP…</div>
-            <div style={{ width: '70%', height: 6, borderRadius: 99, background: '#162B1A', overflow: 'hidden' }}>
+            <div style={{ fontSize: 12, color: '#EBF5ED', fontWeight: 700 }}>WebP…</div>
+            <div style={{ width: '70%', height: 5, borderRadius: 99, background: '#162B1A', overflow: 'hidden' }}>
               <div style={{ height: '100%', width: '65%', background: '#1FD760' }} />
             </div>
           </div>
@@ -194,15 +215,15 @@ export default function PhotoUploadField({
             title="Удалить фото"
             style={{
               position: 'absolute',
-              top: 8,
-              right: 8,
-              width: 30,
-              height: 30,
+              top: 4,
+              right: 4,
+              width: compact ? 24 : 30,
+              height: compact ? 24 : 30,
               borderRadius: '50%',
               background: 'rgba(0,0,0,.75)',
               border: '1px solid rgba(255,255,255,.2)',
               color: 'white',
-              fontSize: 14,
+              fontSize: 12,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -214,15 +235,22 @@ export default function PhotoUploadField({
         )}
       </button>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <button type="button" disabled={busy} onClick={openGallery} style={btnStyle(busy)}>
+      <div style={{
+        display: 'flex',
+        gap: compact ? 4 : 8,
+        marginTop: compact ? 6 : 10,
+        flexWrap: 'wrap',
+        width: compact ? boxH : '100%',
+      }}
+      >
+        <button type="button" disabled={busy} onClick={openGallery} style={btnStyle(busy, compact)}>
           Галерея
         </button>
-        <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} style={btnStyle(busy)}>
+        <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} style={btnStyle(busy, compact)}>
           Файл
         </button>
-        <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()} style={btnStyle(busy)}>
-          Камера
+        <button type="button" disabled={busy} onClick={() => cameraRef.current?.click()} style={btnStyle(busy, compact)}>
+          📷
         </button>
       </div>
 
@@ -237,22 +265,24 @@ export default function PhotoUploadField({
         style={{ display: 'none' }}
       />
 
-      <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645' }}>
-        Одно фото · любой размер · сервер только конвертирует в WebP
-      </div>
-      {err && <div style={{ marginTop: 5, fontSize: 11, color: '#FF4545' }}>⚠️ {err}</div>}
+      {!compact && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#3D6645' }}>
+          Одно фото · любой размер · сервер только конвертирует в WebP
+        </div>
+      )}
+      {err && <div style={{ marginTop: 4, fontSize: 11, color: '#FF4545' }}>⚠️ {err}</div>}
     </div>
   )
 }
 
-function btnStyle(busy: boolean): CSSProperties {
+function btnStyle(busy: boolean, compact: boolean): CSSProperties {
   return {
     flex: 1,
-    minWidth: 90,
-    padding: '10px 12px',
-    fontSize: 12,
+    minWidth: compact ? 0 : 90,
+    padding: compact ? '5px 4px' : '10px 12px',
+    fontSize: compact ? 10 : 12,
     fontWeight: 700,
-    borderRadius: 10,
+    borderRadius: compact ? 8 : 10,
     background: '#0C1C0F',
     border: '1px solid #1D3822',
     color: busy ? '#3D6645' : '#8FB897',
