@@ -246,10 +246,7 @@ function ReceiptTableRow({
   onEdit,
   onDuplicate,
   onRemove,
-  onQty,
-  onCost,
   cardRef,
-  qtyRef,
 }: {
   line: ReceiptDraftLine
   idx: number
@@ -257,53 +254,57 @@ function ReceiptTableRow({
   onEdit: () => void
   onDuplicate: () => void
   onRemove: () => void
-  onQty: (v: string) => void
-  onCost: (v: string) => void
   cardRef: (el: HTMLDivElement | null) => void
-  qtyRef: (el: HTMLInputElement | null) => void
 }) {
   const lineCost = linePurchaseSum(line)
+  const qtyNum = Number(line.qty) || 0
+  const costNum = Number(line.costPrice) || 0
+  const retailNum = Number(line.retailPrice) || 0
+  const markup = line.markupPct !== ''
+    ? Number(line.markupPct) || 0
+    : (costNum > 0 && retailNum > 0 ? markupFromRetail(costNum, retailNum) : null)
   const packInfo = parsePackUnit(product.unit)
   const inputUnitLabel = packInputUnitLabel(packInfo)
+  const qtyLabel = qtyNum > 0 ? `${formatQty(qtyNum)} ${inputUnitLabel}` : '—'
 
   return (
     <div ref={cardRef} className="k-rcpt-tr">
-      <div className="k-rcpt-tr-main">
+      <div
+        className="k-rcpt-tr-main"
+        role="button"
+        tabIndex={0}
+        onClick={onEdit}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onEdit()
+          }
+        }}
+      >
         <span className="k-rcpt-td idx">{idx + 1}</span>
-        <button type="button" className="k-rcpt-td prod" onClick={onEdit}>
+        <div className="k-rcpt-td prod">
           <span className="emo">{product.e || '📦'}</span>
           <span className="txt">
             <b>{product.name}</b>
-            <small>{product.art || '—'}</small>
+            <small>
+              {[product.art, product.barcode].filter(Boolean).join(' · ') || '—'}
+            </small>
           </span>
-        </button>
-        <span className="k-rcpt-td code">{product.barcode || '—'}</span>
-        <div className="k-rcpt-td qty">
-          <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty, -1))} aria-label="−">−</button>
-          <input
-            ref={qtyRef}
-            className="k-inp"
-            type="text"
-            inputMode="decimal"
-            value={line.qty}
-            onChange={e => onQty(sanitizeDecimalInput(e.target.value))}
-          />
-          <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty || '0', 1))} aria-label="+">+</button>
         </div>
-        <span className="k-rcpt-td unit">{inputUnitLabel}</span>
-        <div className="k-rcpt-td price">
-          <input
-            className="k-inp"
-            type="text"
-            inputMode="decimal"
-            value={line.costPrice}
-            onChange={e => onCost(sanitizeDecimalInput(e.target.value))}
-            placeholder="0"
-          />
+        <div className="k-rcpt-td-metrics">
+          <span className="k-rcpt-td qty" data-label="Кол-во">{qtyLabel}</span>
+          <span className="k-rcpt-td cost" data-label="Закуп">{costNum > 0 ? fmtMoney(costNum) : '—'}</span>
+          <span className="k-rcpt-td retail" data-label="Продажа">{retailNum > 0 ? fmtMoney(retailNum) : '—'}</span>
+          <span className="k-rcpt-td sum" data-label="Сумма">{fmtMoney(lineCost)}</span>
+          <span className="k-rcpt-td markup" data-label="Наценка">
+            {markup != null ? (
+              <b style={{ color: markup >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {markup >= 0 ? '+' : ''}{markup}%
+              </b>
+            ) : '—'}
+          </span>
         </div>
-        <span className="k-rcpt-td sum">{fmtMoney(lineCost)}</span>
-        <div className="k-rcpt-td acts">
-          <button type="button" className="k-btn k-btn-s" title="Изменить" onClick={onEdit}>✎</button>
+        <div className="k-rcpt-td acts" onClick={e => e.stopPropagation()}>
           <button type="button" className="k-btn k-btn-s" title="Дублировать" onClick={onDuplicate}>⧉</button>
           <button type="button" className="k-btn k-btn-s" title="Удалить" style={{ color: 'var(--red)' }} onClick={onRemove}>🗑</button>
         </div>
@@ -328,7 +329,6 @@ export default function WarehouseReceiptsPanel({
   const scrollRestored = useRef(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const [draft, setDraft] = useState<ReceiptDraft>(() => defaultReceiptDraft())
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -603,8 +603,6 @@ export default function WarehouseReceiptsPanel({
     setAddOpen(false)
     requestAnimationFrame(() => {
       scrollLineIntoBody(key)
-      qtyRefs.current[key]?.focus()
-      qtyRefs.current[key]?.select()
     })
   }
 
@@ -1008,8 +1006,7 @@ export default function WarehouseReceiptsPanel({
               lines: ensureTrailingEmptyLine([...prev.lines, fillLineFromProduct({ ...pending!, productId: null }, p)]),
             }))
             requestAnimationFrame(() => {
-              qtyRefs.current[pendingKey]?.focus()
-              qtyRefs.current[pendingKey]?.select()
+              scrollLineIntoBody(pendingKey)
             })
             return
           }
@@ -1160,11 +1157,11 @@ export default function WarehouseReceiptsPanel({
                       <div className="k-rcpt-th">
                         <span>№</span>
                         <span>Товар</span>
-                        <span>Штрихкод</span>
                         <span>Кол-во</span>
-                        <span>Ед.</span>
-                        <span>Цена закупки</span>
+                        <span>Закуп</span>
+                        <span>Продажа</span>
                         <span>Сумма</span>
+                        <span>Наценка</span>
                         <span />
                       </div>
                       {filledLines.map(line => {
@@ -1184,10 +1181,7 @@ export default function WarehouseReceiptsPanel({
                               lines: prev.lines.filter(l => l.key !== line.key),
                               activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                             }))}
-                            onQty={v => setLineQty(line.key, v)}
-                            onCost={v => setLineCost(line.key, v)}
                             cardRef={el => { lineRefs.current[line.key] = el }}
-                            qtyRef={el => { qtyRefs.current[line.key] = el }}
                           />
                         )
                       })}
