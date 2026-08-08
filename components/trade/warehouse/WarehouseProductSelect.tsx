@@ -177,7 +177,7 @@ export default function WarehouseProductSelect({
         </div>
       )}
       {showList && (
-        <div className={isPanel ? 'k-prod-pick-list k-prod-pick-list-panel' : 'k-prod-pick-list'}>
+        <div className={isPanel ? 'k-prod-pick-list-panel' : 'k-prod-pick-list'}>
           {isPanel && !q.trim() && (
             <div className="k-prod-pick-hint">Начните ввод или выберите из списка · 📷 сканер камеры</div>
           )}
