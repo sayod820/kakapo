@@ -7,7 +7,7 @@ import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
 import { useProducts } from '@/lib/store'
-import ProductsModule from '@/components/trade/ProductsModule'
+import ProductsModule, { type ProductsSubPage } from '@/components/trade/ProductsModule'
 import WarehouseModule from '@/components/trade/WarehouseModule'
 import SuppliersModule from '@/components/trade/SuppliersModule'
 import ClientsModule from '@/components/trade/ClientsModule'
@@ -114,9 +114,13 @@ const CSS = `
   .k-clock .day{font-size:12px;color:var(--muted)}
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-  .k-top{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-top-back{flex-shrink:0;white-space:nowrap}
-  .k-top-end{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+  .k-top-subtabs{display:flex;gap:6px;flex-shrink:0;align-items:center}
+  .k-top-subtabs .k-subtab{padding:7px 12px;font-size:12px;margin:0}
+  .k-top-search-wrap{flex:1;display:flex;justify-content:center;min-width:0}
+  .k-top-search-wrap .k-search{flex:1;max-width:560px;width:100%}
+  .k-top-end{display:flex;align-items:center;gap:12px;flex-shrink:0}
   .k-search{flex:1;position:relative;max-width:640px;min-width:0}
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
@@ -151,7 +155,6 @@ const CSS = `
   .k-body-products:has(.k-product-edit-shell) .k-products-mod-body,
   .k-body-products:has(.k-cats-panel) .k-products-mod-body,
   .k-body-products:has(.k-labels-shell) .k-products-mod-body{overflow:hidden}
-  .k-products-mod:has(.k-product-edit-shell) > .k-subtabs{display:none}
   .k-body-pos{padding:0;overflow:hidden;display:flex;flex-direction:column;}
   .k-body-pos > .pos-host{flex:1;min-height:0;display:flex;flex-direction:column;height:100%;}
   .k-body-pos > .pos-host > .pos-root,
@@ -430,9 +433,13 @@ const CSS = `
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
     .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
+    .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+    .k-top-subtabs::-webkit-scrollbar{display:none}
     .k-top-back{order:2;padding:8px 10px;font-size:12px}
-    .k-top-end{order:2;gap:8px}
-    .k-search{max-width:none;min-width:0;order:3;flex:1 1 100%}
+    .k-top-end{order:2;gap:8px;margin-left:auto}
+    .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch}
+    .k-top-search-wrap .k-search{max-width:none}
+    .k-search{max-width:none;min-width:0;flex:1 1 100%}
     .k-body-products{padding:4px 10px 8px;overflow:visible;flex:none;height:auto}
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
@@ -464,6 +471,7 @@ const CSS = `
     .k-subtabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
     .k-subtabs::-webkit-scrollbar{display:none}
     .k-subtab{flex-shrink:0;padding:8px 12px;font-size:12px}
+    .k-top-subtabs .k-subtab{padding:7px 10px;font-size:12px;min-height:0}
     .k-debts-layout{grid-template-columns:1fr;min-height:0;flex:1;gap:10px}
     .k-debts-layout.detail-open .k-debts-list{display:none}
     .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
@@ -813,6 +821,7 @@ function TradeAppInner({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
+  const [productsSub, setProductsSub] = useState<ProductsSubPage>('product')
   const [catalogBack, setCatalogBack] = useState<(() => void) | null>(null)
   const onBackToCatalogChange = useCallback((handler: (() => void) | null) => {
     setCatalogBack(() => handler)
@@ -848,8 +857,17 @@ function TradeAppInner({
   }, [session.permissions, page, defaultPage, setPage])
 
   useEffect(() => {
-    if (current !== 'products') onBackToCatalogChange(null)
+    if (current !== 'products') {
+      onBackToCatalogChange(null)
+      setProductsSub('product')
+    }
   }, [current, onBackToCatalogChange])
+
+  const PRODUCTS_SUBS: { id: ProductsSubPage; label: string }[] = [
+    { id: 'product', label: 'Товар' },
+    { id: 'category', label: 'Категория' },
+    { id: 'labels', label: 'Этикетки' },
+  ]
 
   const showSearch = current === 'products' || current === 'warehouse'
 
@@ -916,7 +934,17 @@ function TradeAppInner({
       return <div className="k-empty">Нет доступа к этому разделу</div>
     }
     if (!loaded && current === 'products') return <div className="k-empty">Загрузка товаров…</div>
-    if (current === 'products') return <ProductsModule search={search} onBackToCatalogChange={onBackToCatalogChange} />
+    if (current === 'products') {
+      return (
+        <ProductsModule
+          search={search}
+          subPage={productsSub}
+          onSubPageChange={setProductsSub}
+          hideSubtabs
+          onBackToCatalogChange={onBackToCatalogChange}
+        />
+      )
+    }
     if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
     if (current === 'suppliers') return <SuppliersModule />
     if (current === 'clients') return <ClientsModule />
@@ -995,30 +1023,48 @@ function TradeAppInner({
                 ← К каталогу
               </button>
             ) : null}
-            {showSearch ? (
-              <div className="k-search">
-                <span className="mag">🔍</span>
-                <input
-                  ref={searchInputRef}
-                  placeholder="Поиск по названию, артикулу, штрихкоду…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  onFocus={e => e.currentTarget.select()}
-                />
-                {search.trim() ? (
+            {current === 'products' && !catalogBack ? (
+              <div className="k-top-subtabs" role="tablist" aria-label="Разделы товаров">
+                {PRODUCTS_SUBS.map(item => (
                   <button
+                    key={item.id}
                     type="button"
-                    className="k-search-clear"
-                    aria-label="Очистить поиск"
-                    title="Очистить"
-                    onClick={() => {
-                      setSearch('')
-                      window.setTimeout(focusTradeSearch, 0)
-                    }}
+                    role="tab"
+                    aria-selected={productsSub === item.id}
+                    className={`k-subtab ${productsSub === item.id ? 'active' : ''}`}
+                    onClick={() => setProductsSub(item.id)}
                   >
-                    ✕
+                    {item.label}
                   </button>
-                ) : null}
+                ))}
+              </div>
+            ) : null}
+            {showSearch ? (
+              <div className="k-top-search-wrap">
+                <div className="k-search">
+                  <span className="mag">🔍</span>
+                  <input
+                    ref={searchInputRef}
+                    placeholder="Поиск по названию, артикулу, штрихкоду…"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    onFocus={e => e.currentTarget.select()}
+                  />
+                  {search.trim() ? (
+                    <button
+                      type="button"
+                      className="k-search-clear"
+                      aria-label="Очистить поиск"
+                      title="Очистить"
+                      onClick={() => {
+                        setSearch('')
+                        window.setTimeout(focusTradeSearch, 0)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <div style={{ flex: 1, fontWeight: 800, color: 'var(--text)', minWidth: 0 }}>

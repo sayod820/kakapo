@@ -32,11 +32,13 @@ export default function ProductsModule({
   subPage: controlledSub,
   onSubPageChange,
   onBackToCatalogChange,
+  hideSubtabs = false,
 }: {
   search: string
   subPage?: ProductsSubPage
   onSubPageChange?: (p: ProductsSubPage) => void
   onBackToCatalogChange?: (handler: (() => void) | null) => void
+  hideSubtabs?: boolean
 }) {
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
@@ -230,18 +232,20 @@ export default function ProductsModule({
 
   return (
     <div className="k-products-mod">
-      <div className="k-subtabs">
-        {SUB_PAGES.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`k-subtab ${sub === item.id ? 'active' : ''}`}
-            onClick={() => setSub(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {!hideSubtabs && (
+        <div className="k-subtabs">
+          {SUB_PAGES.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`k-subtab ${sub === item.id ? 'active' : ''}`}
+              onClick={() => setSub(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <OfflineNotice section="товары" />
 
