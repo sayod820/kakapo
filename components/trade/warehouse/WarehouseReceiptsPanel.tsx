@@ -501,12 +501,12 @@ export default function WarehouseReceiptsPanel({
         if (l.key !== key) return l
         const next = { ...l, qty }
         const q = Number(qty) || 0
-        const purchaseTotal = Number(l.purchaseTotal) || 0
-        // Пересчитываем себестоимость из уже введённой общей суммы закупа — но не наоборот:
-        // поле «Общая сумма закуп» не должно само меняться, иначе введённую сумму не удержать.
-        if (q > 0 && purchaseTotal > 0) {
-          const cost = costFromPurchaseTotal(q, purchaseTotal)
-          return applyCostKeepingTotal(next, String(cost))
+        const cost = Number(l.costPrice) || 0
+        // Кол-во меняется → себестоимость за единицу не трогаем, пересчитываем общую сумму закупа.
+        if (q > 0 && cost > 0) {
+          next.purchaseTotal = String(roundMoney(q * cost))
+        } else if (!(q > 0)) {
+          next.purchaseTotal = ''
         }
         return next
       }),
