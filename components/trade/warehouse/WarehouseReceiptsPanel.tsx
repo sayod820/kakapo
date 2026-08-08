@@ -1170,17 +1170,6 @@ export default function WarehouseReceiptsPanel({
                     autoFocus
                     variant="panel"
                   />
-                  <button
-                    type="button"
-                    className="k-btn k-btn-s"
-                    style={{ marginTop: 12, width: '100%', flexShrink: 0 }}
-                    onClick={() => {
-                      setAddOpen(false)
-                      ensurePendingThen(() => openNewProduct(pendingKey, ''))
-                    }}
-                  >
-                    + Создать новый товар
-                  </button>
                 </div>
               </div>
             </div>

@@ -225,7 +225,7 @@ export default function WarehouseProductSelect({
                 </div>
               )}
               {!q.trim() && !options.length && (
-                <div className="k-prod-pick-hint">Начните ввод или сканер 📷</div>
+                <div className="k-prod-pick-hint">Начните ввод названия, артикула или штрихкода</div>
               )}
             </>
           ) : (

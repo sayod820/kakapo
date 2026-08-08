@@ -369,9 +369,10 @@ const CSS = `
   .k-rcpt-find-h .sub{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
   .k-rcpt-find-x{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
   .k-rcpt-find-body{
-    flex:1;min-height:0;overflow:hidden;padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px
+    flex:1;min-height:0;overflow:hidden;padding:10px 0 0;display:flex;flex-direction:column;gap:0
   }
-  .k-rcpt-find-body .k-prod-pick-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+  .k-rcpt-find-body .k-prod-pick-panel{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 12px}
+  .k-rcpt-find-body .k-prod-pick-panel > div:first-child{padding:0 0 0;margin:0 0 0}
   .k-prod-pick-list{
     position:absolute;top:100%;left:0;right:0;z-index:20;
     background:var(--panel);border:1px solid var(--border);border-radius:10px;
@@ -380,23 +381,27 @@ const CSS = `
   .k-prod-pick-list-panel{
     position:relative!important;top:auto!important;left:auto!important;right:auto!important;
     flex:1 1 auto!important;min-height:0!important;max-height:none!important;height:100%;
-    margin-top:10px!important;border-radius:12px;box-shadow:none!important;overflow:auto!important;
-    border:1px solid var(--border);background:var(--card);padding-right:4px
+    margin:10px -12px 0!important;border-radius:0;box-shadow:none!important;overflow:auto!important;
+    border:none;border-top:1px solid var(--border);background:var(--card);padding-right:0
   }
-  .k-prod-pick-tbl-wrap{overflow:auto;min-height:0;padding-right:6px}
+  .k-prod-pick-tbl-wrap{overflow:auto;min-height:0;padding-right:0}
   .k-prod-pick-hint{padding:16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600;border-bottom:1px solid var(--border)}
   .k-prod-pick-tbl{width:100%;margin:0}
   .k-prod-pick-tbl thead th{
     position:sticky;top:0;z-index:2;background:var(--card);font-size:10px;text-transform:uppercase;
     letter-spacing:.03em;color:var(--muted);font-weight:800;white-space:nowrap
   }
+  .k-prod-pick-tbl th:first-child,
+  .k-prod-pick-tbl td:first-child{padding-left:14px!important}
+  .k-prod-pick-tbl th:last-child,
+  .k-prod-pick-tbl td:last-child{padding-right:16px!important}
+  .k-prod-pick-tbl th.num,
+  .k-prod-pick-tbl td.num{padding-right:14px}
   .k-prod-pick-tbl tbody tr{cursor:pointer}
   .k-prod-pick-tbl tbody tr:nth-child(even){background:var(--card2)}
   .k-prod-pick-tbl tbody tr:hover{background:var(--hover)}
-  .k-prod-pick-tbl th:last-child,
-  .k-prod-pick-tbl td:last-child{padding-right:18px!important}
-  .k-prod-pick-tbl th.num,
-  .k-prod-pick-tbl td.num{padding-right:14px}
+  /* Сканер камеры только на мобилке */
+  .k-rcpt-find-modal .k-cam-scan-btn{display:none!important}
   .k-prod-pick-art{font-size:12px;color:var(--gold);font-weight:800}
   .k-prod-pick-name{display:flex;align-items:center;gap:8px;min-width:0}
   .k-prod-pick-name .emo{
@@ -737,7 +742,10 @@ const CSS = `
       height:auto!important;max-height:calc(100dvh - 24px - env(safe-area-inset-bottom,0px))!important;
       border-radius:14px
     }
-    .k-rcpt-find-body{padding:12px 12px 14px}
+    .k-rcpt-find-body{padding:10px 0 0}
+    .k-rcpt-find-body .k-prod-pick-panel{padding:0 10px}
+    .k-prod-pick-list-panel{margin:10px -10px 0!important}
+    .k-rcpt-find-modal .k-cam-scan-btn{display:flex!important}
     .k-prod-pick-tbl{font-size:12px}
     .k-prod-pick-tbl th:nth-child(3),
     .k-prod-pick-tbl td:nth-child(3){display:none}
