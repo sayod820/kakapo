@@ -381,10 +381,10 @@ const CSS = `
     position:relative!important;top:auto!important;left:auto!important;right:auto!important;
     flex:1 1 auto!important;min-height:0!important;max-height:none!important;height:100%;
     margin-top:10px!important;border-radius:12px;box-shadow:none!important;overflow:auto!important;
-    border:1px solid var(--border);background:var(--card)
+    border:1px solid var(--border);background:var(--card);padding-right:4px
   }
+  .k-prod-pick-tbl-wrap{overflow:auto;min-height:0;padding-right:6px}
   .k-prod-pick-hint{padding:16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600;border-bottom:1px solid var(--border)}
-  .k-prod-pick-tbl-wrap{overflow:auto;min-height:0}
   .k-prod-pick-tbl{width:100%;margin:0}
   .k-prod-pick-tbl thead th{
     position:sticky;top:0;z-index:2;background:var(--card);font-size:10px;text-transform:uppercase;
@@ -393,6 +393,10 @@ const CSS = `
   .k-prod-pick-tbl tbody tr{cursor:pointer}
   .k-prod-pick-tbl tbody tr:nth-child(even){background:var(--card2)}
   .k-prod-pick-tbl tbody tr:hover{background:var(--hover)}
+  .k-prod-pick-tbl th:last-child,
+  .k-prod-pick-tbl td:last-child{padding-right:18px!important}
+  .k-prod-pick-tbl th.num,
+  .k-prod-pick-tbl td.num{padding-right:14px}
   .k-prod-pick-art{font-size:12px;color:var(--gold);font-weight:800}
   .k-prod-pick-name{display:flex;align-items:center;gap:8px;min-width:0}
   .k-prod-pick-name .emo{
