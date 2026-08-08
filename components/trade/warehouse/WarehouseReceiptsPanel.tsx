@@ -143,7 +143,7 @@ function ReceiptLineEditModal({
         <div className="k-rcpt-line-body">
           <div className="k-rcpt-line-grid">
             <div className="k-field k-rcpt-line-span2">
-              <label>Кол-во ({inputUnitLabel})</label>
+              <label>Количество ({inputUnitLabel})</label>
               <div className="k-rcpt-line-qty">
                 <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty, -1))}>−</button>
                 <input
@@ -162,7 +162,7 @@ function ReceiptLineEditModal({
             </div>
 
             <div className="k-field">
-              <label>Сумма закупа</label>
+              <label>Общая сумма закупа</label>
               <input
                 className="k-inp"
                 type="text"
@@ -174,7 +174,7 @@ function ReceiptLineEditModal({
             </div>
 
             <div className="k-field">
-              <label>Себест. / {inputUnitLabel}</label>
+              <label>Себестоимость за {inputUnitLabel}</label>
               <input
                 className="k-inp"
                 type="text"
@@ -211,8 +211,8 @@ function ReceiptLineEditModal({
           </div>
 
           <div className="k-rcpt-line-sum">
-            <span>Закуп <b>{fmtMoney(lineCost)}</b></span>
-            <span>Продажа <b style={{ color: 'var(--green)' }}>{fmtMoney(lineSale)}</b></span>
+            <span>Итого закуп: <b>{fmtMoney(lineCost)}</b></span>
+            <span>Итого продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineSale)}</b></span>
           </div>
 
           <BulkPricingFields
