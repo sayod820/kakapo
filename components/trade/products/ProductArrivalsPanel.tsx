@@ -358,7 +358,7 @@ export default function ProductArrivalsPanel({
                         <td style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.qty}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
-                        <td className="num">{money(layer.costPrice)}</td>
+                        <td className="num" style={{ color: 'var(--red)', fontWeight: 800 }}>{money(layer.costPrice)}</td>
                         <td className="num" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
                         <td style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
                         <td style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
