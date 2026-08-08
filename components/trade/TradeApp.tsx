@@ -349,26 +349,27 @@ const CSS = `
     padding:10px;border-radius:12px;border:1.5px dashed rgba(31,215,96,.45);background:rgba(31,215,96,.04)
   }
   .k-rcpt-find-bg{
-    position:fixed;inset:0;z-index:240;padding:12px;
-    background:rgba(0,0,0,.55);display:flex;align-items:stretch;justify-content:stretch
+    position:fixed;inset:0;z-index:240;padding:24px;
+    background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;
+    box-sizing:border-box
   }
   .k-trade[data-theme="light"] .k-rcpt-find-bg{background:rgba(12,26,16,.45)}
   .k-rcpt-find-modal{
-    width:100%!important;max-width:100%!important;
-    height:100%!important;max-height:100%!important;
-    border-radius:14px;margin:0;overflow:hidden;
+    width:min(1100px,100%)!important;max-width:1100px!important;
+    height:min(860px,calc(100dvh - 48px))!important;max-height:calc(100dvh - 48px)!important;
+    border-radius:16px;margin:0;overflow:hidden;
     display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border);
-    box-shadow:0 20px 48px rgba(0,0,0,.35)
+    box-shadow:0 20px 48px rgba(0,0,0,.35);box-sizing:border-box
   }
   .k-rcpt-find-h{
     flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;
-    padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card)
+    padding:14px 18px;border-bottom:1px solid var(--border);background:var(--card)
   }
   .k-rcpt-find-h b{display:block;font-size:17px;font-weight:900}
   .k-rcpt-find-h .sub{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
   .k-rcpt-find-x{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
   .k-rcpt-find-body{
-    flex:1;min-height:0;overflow:hidden;padding:14px;display:flex;flex-direction:column
+    flex:1;min-height:0;overflow:hidden;padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px
   }
   .k-rcpt-find-body .k-prod-pick-panel{flex:1;min-height:0;display:flex;flex-direction:column}
   .k-prod-pick-list{
@@ -726,8 +727,13 @@ const CSS = `
       height:100dvh!important;max-height:100dvh!important;
       border-radius:0;margin:0
     }
-    .k-rcpt-find-bg{padding:0}
-    .k-rcpt-find-modal{border-radius:0}
+    .k-rcpt-find-bg{padding:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+    .k-rcpt-find-modal{
+      width:100%!important;max-width:100%!important;
+      height:auto!important;max-height:calc(100dvh - 24px - env(safe-area-inset-bottom,0px))!important;
+      border-radius:14px
+    }
+    .k-rcpt-find-body{padding:12px 12px 14px}
     .k-prod-pick-tbl{font-size:12px}
     .k-prod-pick-tbl th:nth-child(3),
     .k-prod-pick-tbl td:nth-child(3){display:none}
