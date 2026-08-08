@@ -99,34 +99,50 @@ function ReceiptLineSummary({
   active?: boolean
 }) {
   const lineCost = linePurchaseSum(line)
-  const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
   const qty = Number(line.qty) || 0
   const packInfo = parsePackUnit(product.unit)
   const inputUnitLabel = packInputUnitLabel(packInfo)
   const real = packRealWorld(qty, packInfo)
-  const qtyText = real ? `${formatQty(qty)} ${inputUnitLabel} = ${formatQty(real.value)} ${real.label}` : `${formatQty(qty)} ${inputUnitLabel}`
+  const qtyText = real
+    ? `${formatQty(qty)} ${inputUnitLabel} = ${formatQty(real.value)} ${real.label}`
+    : `${formatQty(qty)} ${inputUnitLabel}`
 
   return (
     <div
       ref={cardRef}
-      className={`k-rcpt-row${active ? ' is-active' : ''}`}
+      className={`k-rcpt-item${active ? ' is-active' : ''}`}
       onClick={onActivate}
       role="button"
       tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate() } }}
     >
-      <span className="idx">{idx + 1}</span>
-      <div className="k-rcpt-name">
-        <b>{product.e || '📦'} {product.name}</b>
-        <span>{qtyText}{line.expiryDate ? ` · срок ${line.expiryDate}` : ''}</span>
+      <div className="k-rcpt-item-main">
+        <span className="idx">{idx + 1}</span>
+        <div className="k-rcpt-name">
+          <b>{product.e || '📦'} {product.name}</b>
+          <span>{qtyText}{line.expiryDate ? ` · срок ${line.expiryDate}` : ''}</span>
+        </div>
+        <div className="k-rcpt-acts" onClick={e => e.stopPropagation()}>
+          <button type="button" className="k-btn k-btn-s" title="Дублировать" onClick={onDuplicate}>⧉</button>
+          <button type="button" className="k-btn k-btn-s" title="Удалить" onClick={onRemove}>✕</button>
+        </div>
       </div>
-      <div className="num">{formatQty(qty)}</div>
-      <div className="num">{fmtMoney(lineCost)}</div>
-      <div className="num" style={{ color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</div>
-      <div className="k-rcpt-acts" onClick={e => e.stopPropagation()}>
-        <button type="button" className="k-btn k-btn-s" title="Дублировать" onClick={onDuplicate}>⧉</button>
-        <button type="button" className="k-btn k-btn-s" title="Изменить" onClick={onActivate}>✎</button>
-        <button type="button" className="k-btn k-btn-s" title="Удалить" onClick={onRemove}>✕</button>
+      <div className="k-rcpt-item-meta">
+        <div>
+          <span className="l">Кол-во</span>
+          <span className="v">{formatQty(qty)} {inputUnitLabel}</span>
+        </div>
+        <div>
+          <span className="l">Закуп</span>
+          <span className="v">{fmtMoney(lineCost)}</span>
+        </div>
+        <div>
+          <span className="l">Розница</span>
+          <span className="v green">
+            {Number(line.retailPrice) > 0 ? fmtMoney(Number(line.retailPrice)) : '—'}
+            <small>/ед.</small>
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -183,7 +199,7 @@ function ReceiptLineCard({
     : null
 
   return (
-    <div ref={cardRef} className="k-rcpt-edit">
+    <div ref={cardRef} className="k-rcpt-sheet-body">
       <div className="k-rcpt-edit-h">
         <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)' }}>#{idx + 1}</span>
         <span style={{ fontSize: 20 }}>{product.e || '📦'}</span>
@@ -320,7 +336,7 @@ export default function WarehouseReceiptsPanel({
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
   const [listQ, setListQ] = useState('')
 
-  const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
+  const { open, supplierId, paidNow, lines, activeLineKey, editingId, formStep } = draft
 
   useEffect(() => {
     if (hydrated.current) return
@@ -384,9 +400,9 @@ export default function WarehouseReceiptsPanel({
     setDraft(prev => {
       if (prev.editingId) {
         clearReceiptDraft()
-        return { ...defaultReceiptDraft(), open: true, editingId: null }
+        return { ...defaultReceiptDraft(), open: true, editingId: null, formStep: 'items' }
       }
-      return { ...prev, open: true, editingId: null }
+      return { ...prev, open: true, editingId: null, formStep: prev.formStep || 'items' }
     })
     setListQ('')
     setMsg('')
@@ -404,6 +420,26 @@ export default function WarehouseReceiptsPanel({
 
   function setActiveLine(key: string | null) {
     setDraft(prev => ({ ...prev, activeLineKey: key }))
+  }
+
+  function goSummary() {
+    const filled = lines.filter(l => l.productId)
+    if (!filled.length) {
+      setMsg('Добавьте хотя бы один товар')
+      return
+    }
+    const incomplete = filled.find(l => !(Number(l.qty) > 0))
+    if (incomplete) {
+      setMsg('Укажите количество у всех товаров')
+      setActiveLine(incomplete.key)
+      return
+    }
+    setMsg('')
+    setDraft(prev => ({ ...prev, formStep: 'summary', activeLineKey: null }))
+  }
+
+  function goItems() {
+    setDraft(prev => ({ ...prev, formStep: 'items' }))
   }
 
   function onBodyScroll() {
@@ -556,16 +592,6 @@ export default function WarehouseReceiptsPanel({
       scrollLineIntoBody(key)
       qtyRefs.current[key]?.focus()
       qtyRefs.current[key]?.select()
-      // После добавления чуть ниже виден блок «+ Добавить товар»
-      requestAnimationFrame(() => {
-        const pending = bodyRef.current?.querySelector<HTMLElement>('[data-receipt-pending="1"]')
-        if (!pending || !bodyRef.current) return
-        const br = bodyRef.current.getBoundingClientRect()
-        const er = pending.getBoundingClientRect()
-        if (er.bottom > br.bottom - 8) {
-          bodyRef.current.scrollTop += er.bottom - br.bottom + 20
-        }
-      })
     })
   }
 
@@ -630,6 +656,7 @@ export default function WarehouseReceiptsPanel({
       }))
     if (!items.length) {
       setMsg('Добавьте товар и укажите количество')
+      setDraft(prev => ({ ...prev, formStep: 'items' }))
       return
     }
     setSaving(true)
@@ -972,7 +999,38 @@ export default function WarehouseReceiptsPanel({
         </>
       )}
 
-      {open && (
+      {open && (() => {
+        let pending = [...lines].reverse().find(l => !l.productId)
+        if (!pending) {
+          pending = emptyReceiptLine()
+        }
+        const pendingKey = pending.key
+        const pendingInDraft = lines.some(l => l.key === pendingKey)
+        const pendingIdx = filledLines.length
+        const activeLine = activeLineKey ? lines.find(l => l.key === activeLineKey) : null
+        const activeProduct = activeLine?.productId
+          ? products.find(p => p.id === activeLine.productId) || null
+          : null
+        const editingSheet = !!(activeLine && activeProduct)
+        const supplierName = suppliers.find(s => s.id === supplierId)?.name || ''
+
+        const addProduct = (p: Product) => {
+          if (!pendingInDraft) {
+            setDraft(prev => ({
+              ...prev,
+              activeLineKey: pendingKey,
+              lines: ensureTrailingEmptyLine([...prev.lines, fillLineFromProduct({ ...pending!, productId: null }, p)]),
+            }))
+            requestAnimationFrame(() => {
+              qtyRefs.current[pendingKey]?.focus()
+              qtyRefs.current[pendingKey]?.select()
+            })
+            return
+          }
+          selectProduct(pendingKey, p)
+        }
+
+        return (
         <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
           <div
             className="k-modal k-receipt-modal"
@@ -981,104 +1039,163 @@ export default function WarehouseReceiptsPanel({
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
-                <b>{editingId ? 'Редактирование прихода' : 'Новый приход'}</b>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  {editingId ? 'Изменения пересчитают остатки на складе' : 'Добавьте товары, укажите количество и цены'}
-                </div>
-              </div>
-              <button type="button" onClick={closeForm}>✕</button>
-            </div>
-
-            <div className="k-rcpt-top">
-              {editingReceipt && receiptHasConsumption(editingReceipt) && (
-                <div className="k-rcpt-warn" style={{ margin: 0 }}>
-                  ⚠ Часть товара уже списана — при сохранении остатки пересчитаются
-                </div>
-              )}
-              <div className="k-rcpt-top-row">
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Поставщик</label>
-                  <WarehouseSupplierSelect
-                    suppliers={suppliers}
-                    value={supplierId}
-                    onChange={id => setDraftPatch({ supplierId: id })}
-                    onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
-                    onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
-                  />
-                </div>
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Оплачено сейчас</label>
-                  <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
-                </div>
-              </div>
-              <div className="k-rcpt-totals">
-                <div className="k-rcpt-total">
-                  <div className="l">Товаров</div>
-                  <div className="v">{totals.withProduct}</div>
-                </div>
-                <div className="k-rcpt-total">
-                  <div className="l">Закуп</div>
-                  <div className="v">{fmtMoney(totals.costTotal)}</div>
-                </div>
-                <div className="k-rcpt-total">
-                  <div className="l">Продажа</div>
-                  <div className="v" style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div>
-                </div>
-                <div className="k-rcpt-total">
-                  <div className="l">Наценка</div>
-                  <div className="v" style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
-                    {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              ref={bodyRef}
-              className="k-rcpt-body"
-              onScroll={onBodyScroll}
-            >
-                {filledLines.length > 0 && (
-                  <div className="k-rcpt-tools">
-                    <input
-                      className="k-inp"
-                      value={listQ}
-                      onChange={e => setListQ(e.target.value)}
-                      placeholder="Найти в списке: название, артикул, штрихкод…"
-                    />
-                    {listQuery && (
-                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {visibleFilledLines.length}/{filledLines.length}
-                      </span>
-                    )}
+                <b>
+                  {editingSheet
+                    ? 'Товар в приходе'
+                    : editingId
+                      ? 'Редактирование прихода'
+                      : 'Новый приход'}
+                </b>
+                {!editingSheet && (
+                  <div className="k-rcpt-steps">
+                    <button
+                      type="button"
+                      className={`k-rcpt-step${formStep === 'items' ? ' is-on' : ''}`}
+                      onClick={goItems}
+                    >
+                      1. Товары
+                    </button>
+                    <span className="k-rcpt-step-sep">→</span>
+                    <button
+                      type="button"
+                      className={`k-rcpt-step${formStep === 'summary' ? ' is-on' : ''}`}
+                      onClick={goSummary}
+                    >
+                      2. Итог
+                    </button>
                   </div>
                 )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editingSheet) setActiveLine(null)
+                  else closeForm()
+                }}
+              >
+                ✕
+              </button>
+            </div>
 
-                {filledLines.length === 0 ? (
-                  <div className="k-rcpt-empty">Список пуст — добавьте первый товар ниже</div>
-                ) : (
-                  <div className="k-rcpt-list">
-                    <div className="k-rcpt-list-h">
-                      <span>#</span>
-                      <span>Товар</span>
-                      <span className="num" style={{ textAlign: 'right' }}>Кол-во</span>
-                      <span className="num" style={{ textAlign: 'right' }}>Закуп</span>
-                      <span className="num" style={{ textAlign: 'right' }}>Продажа</span>
-                      <span />
+            {editingReceipt && receiptHasConsumption(editingReceipt) && !editingSheet && (
+              <div className="k-rcpt-warn">
+                Часть товара уже списана — при сохранении остатки пересчитаются
+              </div>
+            )}
+
+            {editingSheet ? (
+              <>
+                <div className="k-rcpt-body" style={{ paddingTop: 8 }}>
+                  <ReceiptLineCard
+                    line={activeLine!}
+                    idx={filledLines.findIndex(l => l.key === activeLine!.key)}
+                    product={activeProduct!}
+                    canRemove={filledLines.length > 0}
+                    onClear={() => selectProduct(activeLine!.key, null)}
+                    onDuplicate={() => openDuplicateProduct(activeProduct!)}
+                    onRemove={() => setDraft(prev => ({
+                      ...prev,
+                      lines: prev.lines.filter(l => l.key !== activeLine!.key),
+                      activeLineKey: null,
+                    }))}
+                    onDone={() => setActiveLine(null)}
+                    onQty={v => setLineQty(activeLine!.key, v)}
+                    onPurchaseTotal={v => setLinePurchaseTotal(activeLine!.key, v)}
+                    onCost={v => setLineCost(activeLine!.key, v)}
+                    onMarkup={v => setLineMarkup(activeLine!.key, v)}
+                    onRetail={v => setLineRetail(activeLine!.key, v)}
+                    onExpiry={v => updateLine(activeLine!.key, { expiryDate: v })}
+                    onBulkPricing={tiers => updateLine(activeLine!.key, { bulkPricing: tiers })}
+                    onQuickMarkup={p => setLineMarkup(activeLine!.key, String(p))}
+                    cardRef={el => { lineRefs.current[`${activeLine!.key}-edit`] = el }}
+                    qtyRef={el => { qtyRefs.current[activeLine!.key] = el }}
+                  />
+                </div>
+                <div className="k-receipt-modal-actions">
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g k-btn-primary-wide"
+                    disabled={!(Number(activeLine!.qty) > 0)}
+                    onClick={() => setActiveLine(null)}
+                  >
+                    ✓ Готово · к списку
+                  </button>
+                </div>
+              </>
+            ) : formStep === 'items' ? (
+              <>
+                <div
+                  className="k-rcpt-add k-rcpt-add-top"
+                  data-receipt-pending="1"
+                  ref={el => { if (pending) lineRefs.current[pending.key] = el }}
+                >
+                  <div className="k-rcpt-add-h">
+                    {filledLines.length ? `Добавить товар · ${pendingIdx + 1}` : 'Добавить первый товар'}
+                  </div>
+                  <WarehouseProductSelect
+                    products={products}
+                    value={null}
+                    onChange={p => { if (p) addProduct(p) }}
+                    onCreateNew={(name, meta) => {
+                      if (!pendingInDraft) {
+                        setDraft(prev => ({ ...prev, lines: [...prev.lines, pending!] }))
+                      }
+                      openNewProduct(pendingKey, name, meta?.barcode || '')
+                    }}
+                    placeholder="Поиск или сканер: название, артикул, штрихкод…"
+                  />
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    style={{ marginTop: 8, fontSize: 12, padding: '6px 10px', minHeight: 0 }}
+                    onClick={() => {
+                      if (!pendingInDraft) {
+                        setDraft(prev => ({ ...prev, lines: [...prev.lines, pending!] }))
+                      }
+                      openNewProduct(pendingKey, '')
+                    }}
+                  >
+                    + Создать новый товар
+                  </button>
+                </div>
+
+                <div
+                  ref={bodyRef}
+                  className="k-rcpt-body"
+                  onScroll={onBodyScroll}
+                >
+                  {filledLines.length > 1 && (
+                    <div className="k-rcpt-tools">
+                      <input
+                        className="k-inp"
+                        value={listQ}
+                        onChange={e => setListQ(e.target.value)}
+                        placeholder="Найти в списке…"
+                      />
+                      {listQuery && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {visibleFilledLines.length}/{filledLines.length}
+                        </span>
+                      )}
                     </div>
-                    {visibleFilledLines.map((line) => {
-                      const product = products.find(p => p.id === line.productId) || null
-                      if (!product) return null
-                      const idx = filledLines.findIndex(l => l.key === line.key)
-                      const isActive = activeLineKey === line.key
-                      return (
-                        <Fragment key={line.key}>
+                  )}
+
+                  {filledLines.length === 0 ? (
+                    <div className="k-rcpt-empty">Список пуст — найдите товар сверху (или сканером)</div>
+                  ) : (
+                    <div className="k-rcpt-items">
+                      {visibleFilledLines.map(line => {
+                        const product = products.find(p => p.id === line.productId) || null
+                        if (!product) return null
+                        const idx = filledLines.findIndex(l => l.key === line.key)
+                        return (
                           <ReceiptLineSummary
+                            key={line.key}
                             line={line}
                             idx={idx}
                             product={product}
-                            active={isActive}
-                            onActivate={() => setActiveLine(isActive ? null : line.key)}
+                            active={false}
+                            onActivate={() => setActiveLine(line.key)}
                             onDuplicate={() => openDuplicateProduct(product)}
                             onRemove={() => setDraft(prev => ({
                               ...prev,
@@ -1087,96 +1204,147 @@ export default function WarehouseReceiptsPanel({
                             }))}
                             cardRef={el => { lineRefs.current[line.key] = el }}
                           />
-                          {isActive && (
-                            <ReceiptLineCard
-                              line={line}
-                              idx={idx}
-                              product={product}
-                              canRemove={filledLines.length > 0}
-                              onClear={() => selectProduct(line.key, null)}
-                              onDuplicate={() => openDuplicateProduct(product)}
-                              onRemove={() => setDraft(prev => ({
-                                ...prev,
-                                lines: prev.lines.filter(l => l.key !== line.key),
-                                activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                              }))}
-                              onDone={() => setActiveLine(null)}
-                              onQty={v => setLineQty(line.key, v)}
-                              onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
-                              onCost={v => setLineCost(line.key, v)}
-                              onMarkup={v => setLineMarkup(line.key, v)}
-                              onRetail={v => setLineRetail(line.key, v)}
-                              onExpiry={v => updateLine(line.key, { expiryDate: v })}
-                              onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
-                              onQuickMarkup={p => setLineMarkup(line.key, String(p))}
-                              cardRef={el => { lineRefs.current[`${line.key}-edit`] = el }}
-                              qtyRef={el => { qtyRefs.current[line.key] = el }}
-                            />
-                          )}
-                        </Fragment>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {msg && <div className="k-rcpt-msg">{msg}</div>}
+
+                <div className="k-receipt-modal-actions">
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g k-btn-primary-wide"
+                    disabled={!filledLines.length}
+                    onClick={goSummary}
+                  >
+                    Далее · Итог
+                    {totals.withProduct > 0 ? ` · ${totals.withProduct} поз. · ${fmtMoney(totals.costTotal)}` : ''}
+                  </button>
+                  <div className="k-btn-row">
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      disabled={saving}
+                      onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}
+                    >
+                      {editingId ? 'Отмена' : 'Очистить'}
+                    </button>
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="k-rcpt-body">
+                  <div className="k-rcpt-summary-block">
+                    <div className="k-field">
+                      <label>Поставщик</label>
+                      <WarehouseSupplierSelect
+                        suppliers={suppliers}
+                        value={supplierId}
+                        onChange={id => setDraftPatch({ supplierId: id })}
+                        onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
+                        onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
+                      />
+                    </div>
+                    <div className="k-field">
+                      <label>Оплачено сейчас</label>
+                      <input
+                        className="k-inp"
+                        type="text"
+                        inputMode="decimal"
+                        value={paidNow}
+                        onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="k-rcpt-totals">
+                    <div className="k-rcpt-total">
+                      <div className="l">Товаров</div>
+                      <div className="v">{totals.withProduct}</div>
+                    </div>
+                    <div className="k-rcpt-total">
+                      <div className="l">Закуп</div>
+                      <div className="v">{fmtMoney(totals.costTotal)}</div>
+                    </div>
+                    <div className="k-rcpt-total">
+                      <div className="l">Продажа</div>
+                      <div className="v" style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div>
+                    </div>
+                    <div className="k-rcpt-total">
+                      <div className="l">Наценка</div>
+                      <div className="v" style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                        {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="k-rcpt-preview-h">
+                    Состав прихода
+                    {supplierName ? ` · ${supplierName}` : ''}
+                  </div>
+                  <div className="k-rcpt-items">
+                    {filledLines.map((line, idx) => {
+                      const product = products.find(p => p.id === line.productId)
+                      if (!product) return null
+                      return (
+                        <ReceiptLineSummary
+                          key={line.key}
+                          line={line}
+                          idx={idx}
+                          product={product}
+                          onActivate={() => setActiveLine(line.key)}
+                          onDuplicate={() => openDuplicateProduct(product)}
+                          onRemove={() => setDraft(prev => ({
+                            ...prev,
+                            lines: prev.lines.filter(l => l.key !== line.key),
+                            formStep: prev.lines.filter(l => l.productId && l.key !== line.key).length ? prev.formStep : 'items',
+                          }))}
+                          cardRef={el => { lineRefs.current[line.key] = el }}
+                        />
                       )
                     })}
                   </div>
-                )}
-            </div>
-
-              {(() => {
-                const pending = [...lines].reverse().find(l => !l.productId)!
-                const pendingIdx = lines.filter(l => l.productId).length
-                return (
-                  <div
-                    className="k-rcpt-add"
-                    data-receipt-pending="1"
-                    ref={el => { if (pending) lineRefs.current[pending.key] = el }}
-                  >
-                    <div className="k-rcpt-add-h">
-                      {filledLines.length ? `Добавить товар · ${pendingIdx + 1}` : 'Добавить первый товар'}
-                    </div>
-                    <WarehouseProductSelect
-                      products={products}
-                      value={null}
-                      onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
-                      placeholder="Поиск или сканер: название, артикул, штрихкод…"
-                    />
-                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 8, fontSize: 12, padding: '6px 10px', minHeight: 0 }} onClick={() => openNewProduct(pending.key, '')}>
-                      + Создать новый товар
-                    </button>
-                  </div>
-                )
-              })()}
-
-              {msg && (
-                <div style={{ margin: '0 14px 12px', padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-                  {msg}
                 </div>
-              )}
 
-            <div className="k-receipt-modal-actions">
-              <button type="button" className="k-btn k-btn-g k-btn-primary-wide" disabled={saving} onClick={() => void submit()}>
-                {saving ? 'Сохранение…' : editingId
-                  ? `Сохранить изменения${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
-                  : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
-              </button>
-              <div className="k-btn-row">
-                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
-                {editingId && (
+                {msg && <div className="k-rcpt-msg">{msg}</div>}
+
+                <div className="k-receipt-modal-actions">
                   <button
                     type="button"
-                    className="k-btn k-btn-s"
-                    style={{ color: 'var(--red)' }}
-                    disabled={saving || deletingId === editingId}
-                    onClick={() => void removeReceipt(editingId)}
+                    className="k-btn k-btn-g k-btn-primary-wide"
+                    disabled={saving}
+                    onClick={() => void submit()}
                   >
-                    {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                    {saving ? 'Сохранение…' : editingId
+                      ? `Сохранить изменения${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
+                      : `Провести приход${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
                   </button>
-                )}
-                <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
-              </div>
-            </div>
+                  <div className="k-btn-row">
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={goItems}>← К товарам</button>
+                    {editingId && (
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ color: 'var(--red)' }}
+                        disabled={saving || deletingId === editingId}
+                        onClick={() => void removeReceipt(editingId)}
+                      >
+                        {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                      </button>
+                    )}
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       <WarehouseNewProductModal
         open={newProductOpen}

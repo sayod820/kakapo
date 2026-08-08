@@ -13,6 +13,8 @@ export type ReceiptDraftLine = {
   bulkPricing: { minQty: string; price: string }[]
 }
 
+export type ReceiptFormStep = 'items' | 'summary'
+
 export type ReceiptDraft = {
   open: boolean
   /** Если задан — сохранение идёт как UPDATE, не как новый приход */
@@ -22,6 +24,8 @@ export type ReceiptDraft = {
   lines: ReceiptDraftLine[]
   activeLineKey: string | null
   scrollTop: number
+  /** Мастер: товары → итог */
+  formStep: ReceiptFormStep
 }
 
 export function emptyReceiptLine(): ReceiptDraftLine {
@@ -47,6 +51,7 @@ export function defaultReceiptDraft(): ReceiptDraft {
     lines: [emptyReceiptLine()],
     activeLineKey: null,
     scrollTop: 0,
+    formStep: 'items',
   }
 }
 
@@ -56,12 +61,14 @@ export function loadReceiptDraft(): ReceiptDraft {
     const raw = localStorage.getItem(RECEIPT_DRAFT_KEY) || localStorage.getItem('kakapo-receipt-draft-v1')
     if (!raw) return defaultReceiptDraft()
     const parsed = JSON.parse(raw) as Partial<ReceiptDraft>
+    const formStep = parsed.formStep === 'summary' ? 'summary' : 'items'
     return {
       ...defaultReceiptDraft(),
       ...parsed,
       editingId: parsed.editingId ? String(parsed.editingId) : null,
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
+      formStep,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
         ? parsed.lines.map(l => ({
           ...emptyReceiptLine(),
@@ -163,6 +170,7 @@ export function receiptToDraft(receipt: import('@/lib/types').StockReceipt): Rec
     ],
     activeLineKey: null,
     scrollTop: 0,
+    formStep: 'items',
   }
 }
 
