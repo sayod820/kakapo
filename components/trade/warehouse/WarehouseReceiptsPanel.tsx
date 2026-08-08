@@ -109,39 +109,33 @@ function ReceiptLineSummary({
       ref={cardRef}
       onClick={onActivate}
       style={{
-        padding: '10px 14px',
-        borderRadius: 12,
+        padding: '6px 10px',
+        borderRadius: 8,
         border: '1px solid var(--border)',
         background: 'var(--card2)',
-        marginBottom: 8,
+        marginBottom: 5,
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 8,
         cursor: 'pointer',
         flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 20 }}>{idx + 1}</span>
-      <span style={{ fontSize: 22, flexShrink: 0 }}>{product.e || '📦'}</span>
-      <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.name}</div>
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+      <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)', minWidth: 16 }}>{idx + 1}</span>
+      <span style={{ fontSize: 16, flexShrink: 0 }}>{product.e || '📦'}</span>
+      <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>{product.name}</div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
           {qtyText}{line.expiryDate && <> · срок {line.expiryDate}</>}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 16, flexShrink: 0 }}>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 10, color: 'var(--muted)' }}>Сумма закуп</div>
-          <div style={{ fontWeight: 800, fontSize: 13 }}>{fmtMoney(lineCost)}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 10, color: 'var(--muted)' }}>Сумма продажи</div>
-          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</div>
-        </div>
+      <div style={{ display: 'flex', gap: 12, flexShrink: 0, fontSize: 12 }}>
+        <b>{fmtMoney(lineCost)}</b>
+        <b style={{ color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</b>
       </div>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} title="Дублировать товар" onClick={e => { e.stopPropagation(); onDuplicate() }}>⧉</button>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 10px', flexShrink: 0 }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} title="Дублировать товар" onClick={e => { e.stopPropagation(); onDuplicate() }}>⧉</button>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
+      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
     </div>
   )
 }
@@ -200,41 +194,41 @@ function ReceiptLineCard({
     <div
       ref={cardRef}
       style={{
-        padding: 14,
-        borderRadius: 12,
+        padding: 10,
+        borderRadius: 10,
         border: '1px solid var(--green)',
         background: 'rgba(31,215,96,.06)',
-        marginBottom: 10,
+        marginBottom: 6,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 22, paddingTop: 4 }}>{idx + 1}</span>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 28 }}>{product.e || '📦'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)', minWidth: 16 }}>{idx + 1}</span>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 18 }}>{product.e || '📦'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {product.art} · на складе {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
+            <div style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.25 }}>{product.name}</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
+              {product.art} · склад {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
             </div>
           </div>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onDuplicate} title="Дублировать товар">⧉ Дубль</button>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={onClear}>Сменить</button>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '4px 8px', minHeight: 0 }} onClick={onDuplicate} title="Дублировать товар">⧉</button>
+          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '4px 8px', minHeight: 0 }} onClick={onClear}>Сменить</button>
         </div>
         {canRemove && (
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={onRemove}>✕</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', minHeight: 0 }} onClick={onRemove}>✕</button>
         )}
       </div>
 
-      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10 }}>
+      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 6 }}>
         <div className="k-field" style={{ marginBottom: 0 }}>
           <label>Кол-во ({inputUnitLabel})</label>
           <input ref={qtyRef} className="k-inp" type="text" inputMode="decimal" value={line.qty} onChange={e => onQty(sanitizeDecimalInput(e.target.value))} />
           {realWorld && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>= {formatQty(realWorld.value)} {realWorld.label}</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>= {formatQty(realWorld.value)} {realWorld.label}</div>
           )}
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Общая сумма закуп</label>
+          <label>Σ закуп</label>
           <input
             className="k-inp"
             type="text"
@@ -245,7 +239,7 @@ function ReceiptLineCard({
           />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>За {unit} (себест.)</label>
+          <label>За {unit}</label>
           <input className="k-inp" type="text" inputMode="decimal" value={line.costPrice} onChange={e => onCost(sanitizeDecimalInput(e.target.value))} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
@@ -253,21 +247,21 @@ function ReceiptLineCard({
           <input className="k-inp" type="text" inputMode="decimal" value={line.markupPct} onChange={e => onMarkup(sanitizeDecimalInput(e.target.value))} placeholder="30" />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Розница (сом)</label>
+          <label>Розница</label>
           <input className="k-inp" type="text" inputMode="decimal" value={line.retailPrice} onChange={e => onRetail(sanitizeDecimalInput(e.target.value))} />
         </div>
         <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Срок годности</label>
+          <label>Срок</label>
           <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} />
         </div>
       </div>
 
       {costHint && (
-        <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 8, fontWeight: 700 }}>↳ {costHint}</div>
+        <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>↳ {costHint}</div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Быстрая наценка:</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700 }}>%</span>
         {QUICK_MARKUPS.map(p => (
           <button
             key={p}
@@ -277,7 +271,7 @@ function ReceiptLineCard({
               border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
               background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
               color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
-              borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer',
             }}
           >
             {p}%
@@ -285,7 +279,7 @@ function ReceiptLineCard({
         ))}
       </div>
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 8 }}>
         <BulkPricingFields
           tiers={line.bulkPricing}
           onChange={onBulkPricing}
@@ -294,7 +288,7 @@ function ReceiptLineCard({
       </div>
 
       {(lineCost > 0 || lineRetail > 0) && (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b></span>
           <span>Продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b></span>
           {lineCost > 0 && lineRetail > 0 && (
@@ -306,11 +300,11 @@ function ReceiptLineCard({
       <button
         type="button"
         className="k-btn k-btn-g"
-        style={{ marginTop: 14, width: '100%' }}
+        style={{ marginTop: 8, width: '100%', padding: '8px 12px', fontSize: 13 }}
         disabled={!(Number(line.qty) > 0)}
         onClick={onDone}
       >
-        ✓ Готово — добавить в приход
+        ✓ Готово
       </button>
     </div>
   )
@@ -1013,8 +1007,8 @@ export default function WarehouseReceiptsPanel({
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
                 <b>{editingId ? '✎ Редактирование прихода' : '📥 Новый приход'}</b>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  {editingId ? 'Измените данные и сохраните — остатки пересчитаются' : 'Выберите товар → поля заполнятся сами → укажите количество'}
+                <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, marginTop: 1 }}>
+                  {editingId ? 'Сохраните — остатки пересчитаются' : 'Товар → количество → провести'}
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
@@ -1026,13 +1020,13 @@ export default function WarehouseReceiptsPanel({
               onScroll={onBodyScroll}
             >
               {editingReceipt && receiptHasConsumption(editingReceipt) && (
-                <div style={{ padding: '10px 0', marginBottom: 10, color: 'var(--gold)', fontSize: 12, fontWeight: 700 }}>
-                  ⚠ Часть товара из этого прихода уже списана. При сохранении остатки будут пересчитаны.
+                <div style={{ padding: '6px 0', marginBottom: 6, color: 'var(--gold)', fontSize: 11, fontWeight: 700 }}>
+                  ⚠ Часть товара уже списана — остатки пересчитаются
                 </div>
               )}
 
-              <div style={{ padding: '12px 0', marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
-                <div className="k-grid2" style={{ marginBottom: 0 }}>
+              <div style={{ padding: '0 0 8px', marginBottom: 6, borderBottom: '1px solid var(--border)' }}>
+                <div className="k-grid2" style={{ marginBottom: 0, gap: 8 }}>
                   <div className="k-field" style={{ marginBottom: 0 }}>
                     <label>Поставщик</label>
                     <WarehouseSupplierSelect
@@ -1044,7 +1038,7 @@ export default function WarehouseReceiptsPanel({
                     />
                   </div>
                   <div className="k-field" style={{ marginBottom: 0 }}>
-                    <label>Оплачено сейчас (сом)</label>
+                    <label>Оплачено сейчас</label>
                     <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
                   </div>
                 </div>
@@ -1052,32 +1046,32 @@ export default function WarehouseReceiptsPanel({
 
               <div className="k-receipt-summary" style={{
                 position: 'sticky', top: 0, zIndex: 2,
-                margin: '0 -16px 12px', padding: '10px 16px',
+                margin: '0 -12px 8px', padding: '6px 12px',
                 borderBottom: '1px solid var(--border)', background: 'var(--panel)',
               }}>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Товаров</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.withProduct}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма закуп</div><div style={{ fontWeight: 900, fontSize: 18 }}>{fmtMoney(totals.costTotal)}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма продажи</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
+                <div><div>Товаров</div><div>{totals.withProduct}</div></div>
+                <div><div>Закуп</div><div>{fmtMoney(totals.costTotal)}</div></div>
+                <div><div>Продажа</div><div style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Наценка</div>
-                  <div style={{ fontWeight: 900, fontSize: 18, color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                  <div>Наценка</div>
+                  <div style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
                     {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
                   </div>
                 </div>
               </div>
 
               {filledLines.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8 }}>
                   <input
                     className="k-inp"
                     value={listQ}
                     onChange={e => setListQ(e.target.value)}
-                    placeholder="Поиск в приходе: название, артикул, штрихкод или г / шт / л…"
+                    placeholder="Поиск в приходе…"
+                    style={{ padding: '7px 10px', fontSize: 13 }}
                   />
                   {listQuery && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                      Найдено: <b style={{ color: 'var(--text)' }}>{visibleFilledLines.length}</b> из {filledLines.length}
-                      {visibleFilledLines.length === 0 ? ' — ничего не найдено' : ''}
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Найдено: <b style={{ color: 'var(--text)' }}>{visibleFilledLines.length}</b> / {filledLines.length}
                     </div>
                   )}
                 </div>
@@ -1143,15 +1137,15 @@ export default function WarehouseReceiptsPanel({
                     data-receipt-pending="1"
                     ref={el => { if (pending) lineRefs.current[pending.key] = el }}
                     style={{
-                      padding: 16,
-                      borderRadius: 12,
-                      border: '2px dashed var(--green)',
+                      padding: 10,
+                      borderRadius: 10,
+                      border: '1.5px dashed var(--green)',
                       background: 'rgba(31,215,96,.04)',
-                      marginTop: listQuery ? 12 : 0,
-                      marginBottom: 8,
+                      marginTop: listQuery ? 8 : 0,
+                      marginBottom: 6,
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--green)', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--green)', marginBottom: 6 }}>
                       {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите или создайте товар'}
                     </div>
                     <WarehouseProductSelect
@@ -1159,9 +1153,9 @@ export default function WarehouseReceiptsPanel({
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
                       onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
-                      placeholder="Поиск: название, артикул, штрихкод — в списке г / шт / л…"
+                      placeholder="Поиск: название, артикул, штрихкод…"
                     />
-                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 10, fontSize: 12 }} onClick={() => openNewProduct(pending.key, '')}>
+                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 6, fontSize: 11, padding: '5px 10px', minHeight: 0 }} onClick={() => openNewProduct(pending.key, '')}>
                       + Создать новый товар
                     </button>
                   </div>

@@ -303,8 +303,20 @@ const CSS = `
   .k-receipt-scroll{
     flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-    padding:12px 16px 28px
+    padding:8px 12px 16px
   }
+  .k-receipt-modal .k-modal-h{padding:8px 12px}
+  .k-receipt-modal .k-modal-h b{font-size:14px}
+  .k-receipt-modal .k-field label{font-size:11px;margin-bottom:3px}
+  .k-receipt-modal .k-inp,
+  .k-receipt-modal .k-sel{padding:7px 9px;font-size:13px;border-radius:8px}
+  .k-receipt-modal-actions{
+    flex-shrink:0;padding:8px 12px;border-top:1px solid var(--border);background:var(--panel);
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center
+  }
+  .k-receipt-modal-actions .k-btn-primary-wide{flex:1;min-width:180px;padding:10px 14px;font-size:13px}
+  .k-receipt-modal-actions .k-btn-row{display:flex;gap:6px;flex-wrap:wrap}
+  .k-receipt-modal-actions .k-btn-s{padding:8px 12px;font-size:12px;min-height:0}
   .k-wh-cta{
     display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px
   }
@@ -327,12 +339,6 @@ const CSS = `
   .k-wh-card-actions{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
   .k-wh-card-actions .k-btn{min-height:44px;width:100%}
   .k-wh-card-detail{border-top:1px solid var(--border);padding-top:10px;display:grid;gap:8px}
-  .k-receipt-modal-actions{
-    flex-shrink:0;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);
-    display:flex;gap:8px;flex-wrap:wrap;align-items:center
-  }
-  .k-receipt-modal-actions .k-btn-primary-wide{flex:1;min-width:180px}
-  .k-receipt-modal-actions .k-btn-row{display:flex;gap:8px;flex-wrap:wrap}
   .k-modal-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .k-modal-h b{font-size:16px;font-weight:900}
   .k-modal-h button{border:none;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
@@ -437,7 +443,10 @@ const CSS = `
   .k-label-panel > .k-card-b{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:10px}
   .k-label-list{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
   .k-label-preview-scroll{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
-  .k-receipt-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .k-receipt-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .k-receipt-summary > div{display:flex;align-items:baseline;gap:5px;min-width:0}
+  .k-receipt-summary > div > div:first-child{font-size:11px;color:var(--muted);font-weight:700}
+  .k-receipt-summary > div > div:last-child{font-size:14px;font-weight:900;color:var(--text)}
   .k-mob-menu-btn{display:none}
   .k-side-overlay{display:none}
   .k-bottom-nav{display:none}
@@ -460,7 +469,6 @@ const CSS = `
     .k-label-preview-scroll{max-height:50vh;flex:none}
     .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
-    .k-receipt-summary{grid-template-columns:repeat(2,1fr)}
     .k-hide-mob{display:none!important}
     .k-hide-desk{display:block}
     .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
@@ -607,14 +615,13 @@ const CSS = `
 
   @media (max-width:600px){
     .k-kpis{grid-template-columns:1fr 1fr}
-    .k-receipt-summary{grid-template-columns:1fr}
+    .k-receipt-summary{gap:8px}
     .k-theme-toggle{order:2}
     .k-user{padding:4px}
   }
 
   @media (max-width:480px){
     .k-kpis{grid-template-columns:1fr 1fr}
-    .k-receipt-summary{grid-template-columns:1fr 1fr}
     .k-mob-menu-btn{width:38px;height:38px}
     .k-body{padding:10px}
   }
