@@ -216,6 +216,25 @@ const CSS = `
   .k-trade[data-theme="light"] .k-modal-bg{background:rgba(12,26,16,.45)}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
+  .k-modal-fs-bg{padding:0;align-items:stretch;justify-content:stretch;z-index:90}
+  .k-modal-fs{
+    width:100%!important;max-width:100%!important;
+    height:100vh!important;max-height:100vh!important;
+    height:100dvh!important;max-height:100dvh!important;
+    margin:0;border-radius:0;display:flex!important;flex-direction:column;overflow:hidden!important;min-height:0
+  }
+  .k-modal-fs > .k-modal-h{flex-shrink:0}
+  .k-modal-fs > .k-modal-b{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+  .k-arrivals-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;flex-shrink:0}
+  .k-arrivals-tbl-wrap{flex:1;min-height:0;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+  .k-arrivals-tbl{width:100%;min-width:0;border-collapse:collapse}
+  .k-arrivals-tbl th{
+    text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;
+    padding:10px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1;white-space:nowrap
+  }
+  .k-arrivals-tbl td{padding:10px 12px;border-bottom:1px solid var(--tbl-line);font-size:13px;vertical-align:middle}
+  .k-arrivals-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+  .k-arrivals-tbl tbody tr:hover{background:var(--hover)}
   .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch;z-index:180}
   .k-receipt-modal{
     border-radius:0;width:100%!important;max-width:100%!important;

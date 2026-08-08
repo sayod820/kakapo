@@ -257,12 +257,12 @@ export default function ProductArrivalsPanel({
   })
 
   return (
-    <div className="k-modal-bg" onClick={requestClose}>
-      <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
+    <div className="k-modal-bg k-modal-fs-bg" onClick={requestClose}>
+      <div className="k-modal k-modal-fs" onClick={e => e.stopPropagation()}>
         <div className="k-modal-h">
           <div>
             <b>📦 Партии и приходы · {product.name}</b>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontWeight: 500 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, fontWeight: 500 }}>
               На кассе при нескольких партиях кассир выбирает цену вручную. Без выбора списание идёт FIFO (активная партия).
             </div>
             {addDirty && (
@@ -271,20 +271,21 @@ export default function ProductArrivalsPanel({
               </div>
             )}
           </div>
-          <button type="button" onClick={requestClose}>✕</button>
+          <button type="button" onClick={requestClose} aria-label="Закрыть">✕</button>
         </div>
 
         <div className="k-modal-b" style={{ padding: 16 }}>
-          {msg && <div className="k-alert" style={{ marginBottom: 12 }}>{msg}</div>}
+          {msg && <div className="k-alert" style={{ marginBottom: 12, flexShrink: 0 }}>{msg}</div>}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Остаток по партиям: <b style={{ color: 'var(--green)' }}>{totalQty}</b>
+          <div className="k-arrivals-toolbar">
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Остаток по партиям: <b style={{ color: 'var(--green)', fontSize: 16 }}>{totalQty}</b>
               {product.stock != null && totalQty !== Number(product.stock) && (
                 <span style={{ marginLeft: 8, color: 'var(--gold)' }}>
                   (в карточке: {product.stock})
                 </span>
               )}
+              <span style={{ marginLeft: 12 }}>· партий: {layers.length}</span>
             </div>
             <button type="button" className="k-btn k-btn-g" onClick={toggleAddForm}>
               {showAdd ? 'Отмена' : '+ Приход'}
@@ -293,10 +294,10 @@ export default function ProductArrivalsPanel({
 
           {showAdd && (
             <div style={{
-              marginBottom: 16, padding: 14, borderRadius: 10,
+              marginBottom: 14, padding: 14, borderRadius: 12, flexShrink: 0,
               background: 'var(--green-d)', border: '1px solid rgba(31,215,96,.25)',
             }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--green)', marginBottom: 10 }}>Новый приход</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--green)', marginBottom: 10 }}>Новый приход</div>
               <div className="k-grid2">
                 <div className="k-field">
                   <label>Количество *</label>
@@ -332,18 +333,21 @@ export default function ProductArrivalsPanel({
               Нет партий. Добавьте первый приход — у каждой партии своя закупочная, розничная и оптовая цена.
             </div>
           ) : (
-            <div className="k-tbl-scroll">
-              <table className="k-tbl">
+            <div className="k-arrivals-tbl-wrap">
+              <table className="k-arrivals-tbl">
                 <thead>
                   <tr>
-                    <th>#</th>
+                    <th style={{ width: 44 }}>#</th>
                     <th>Статус</th>
+                    <th>Поставщик</th>
+                    <th className="num">Приход</th>
                     <th className="num">Остаток</th>
                     <th className="num">Закуп</th>
                     <th className="num">Розница</th>
                     <th>Опт</th>
+                    <th>Срок</th>
                     <th>Дата</th>
-                    <th />
+                    <th style={{ width: 140 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -359,23 +363,26 @@ export default function ProductArrivalsPanel({
                             {layer.isActive ? '● Активная' : `Очередь ${layer.queueIndex + 1}`}
                           </span>
                         </td>
+                        <td style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
+                        <td className="num">{layer.qty}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
                         <td className="num">{money(layer.costPrice)}</td>
-                        <td className="num" style={{ color: 'var(--green)' }}>{money(layer.retailPrice)}</td>
-                        <td style={{ fontSize: 11, color: 'var(--gold)' }}>{bulkSummary(layer)}</td>
-                        <td style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDate(layer.createdAtIso)}</td>
+                        <td className="num" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
+                        <td style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
+                        <td style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
+                        <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDate(layer.createdAtIso)}</td>
                         <td>
-                          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button
                               type="button"
                               className="k-btn k-btn-s"
-                              style={{ padding: '4px 8px', fontSize: 11 }}
+                              style={{ padding: '6px 10px', fontSize: 12 }}
                               title="Печать этикеток"
                               onClick={() => setLabelReceipt(receiptFromLayer(product, layer))}
                             >
                               🖨️
                             </button>
-                            <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => startEdit(layer)}>
+                            <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => startEdit(layer)}>
                               {editId === layer.receiptId ? '▼' : 'Изменить'}
                             </button>
                           </div>
@@ -383,8 +390,8 @@ export default function ProductArrivalsPanel({
                       </tr>
                       {editId === layer.receiptId && (
                         <tr>
-                          <td colSpan={8} style={{ background: 'var(--card2)', padding: 12 }}>
-                            <div className="k-grid2" style={{ marginBottom: 10 }}>
+                          <td colSpan={11} style={{ background: 'var(--card2)', padding: 14 }}>
+                            <div className="k-grid2" style={{ marginBottom: 10, maxWidth: 640 }}>
                               <div className="k-field">
                                 <label>Закупочная</label>
                                 <input className="k-inp" type="text" inputMode="decimal" value={editCost} onChange={e => setEditCost(sanitizeDecimal(e.target.value))} />
@@ -394,7 +401,9 @@ export default function ProductArrivalsPanel({
                                 <input className="k-inp" type="text" inputMode="decimal" value={editRetail} onChange={e => setEditRetail(sanitizeDecimal(e.target.value))} />
                               </div>
                             </div>
-                            <BulkPricingFields tiers={editBulk} onChange={setEditBulk} sellType={product.sellType || 'piece'} />
+                            <div style={{ maxWidth: 720 }}>
+                              <BulkPricingFields tiers={editBulk} onChange={setEditBulk} sellType={product.sellType || 'piece'} />
+                            </div>
                             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                               <button type="button" className="k-btn k-btn-g" disabled={saving} onClick={() => void handleSaveEdit(layer)}>
                                 Сохранить партию
