@@ -93,12 +93,14 @@ export default function WarehouseStockPanel({
   search = '',
   onRefresh,
   refreshGen = 0,
+  onEditProduct,
 }: {
   products: Product[]
   search?: string
   onRefresh?: () => void
   /** Инкремент с кнопки «Обновить» — перезагрузить партии без привязки к products */
   refreshGen?: number
+  onEditProduct?: (productId: number) => void
 }) {
   const { categories } = useCategories()
   const q = search
@@ -413,6 +415,11 @@ export default function WarehouseStockPanel({
             void loadLayers()
             onRefresh?.()
           }}
+          onEditProduct={onEditProduct ? () => {
+            const id = arrivalsProduct.id
+            setArrivalsProduct(null)
+            onEditProduct(id)
+          } : undefined}
         />
       )}
     </div>

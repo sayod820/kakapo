@@ -33,12 +33,17 @@ export default function ProductsModule({
   onSubPageChange,
   onBackToCatalogChange,
   hideSubtabs = false,
+  openProductId = null,
+  onOpenProductConsumed,
 }: {
   search: string
   subPage?: ProductsSubPage
   onSubPageChange?: (p: ProductsSubPage) => void
   onBackToCatalogChange?: (handler: (() => void) | null) => void
   hideSubtabs?: boolean
+  /** Открыть карточку товара (например со склада → партии → ✎ Товар) */
+  openProductId?: number | null
+  onOpenProductConsumed?: () => void
 }) {
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
@@ -126,6 +131,16 @@ export default function ProductsModule({
     setFormDirty(false)
     setSub('product')
   }
+
+  useEffect(() => {
+    if (openProductId == null) return
+    formLoadedForId.current = null
+    setSelectedId(openProductId)
+    setIsNew(false)
+    setFormDirty(false)
+    setSub('product')
+    onOpenProductConsumed?.()
+  }, [openProductId, onOpenProductConsumed, setSub])
 
   function startNewProduct(catId?: string) {
     if (!confirmDiscardChanges()) return

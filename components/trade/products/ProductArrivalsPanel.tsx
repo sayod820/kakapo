@@ -51,11 +51,14 @@ export default function ProductArrivalsPanel({
   open,
   onClose,
   onUpdated,
+  onEditProduct,
 }: {
   product: Product
   open: boolean
   onClose: () => void
   onUpdated?: () => void
+  /** Открыть карточку товара (название, цена, штрихкод и т.д.) */
+  onEditProduct?: () => void
 }) {
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [loading, setLoading] = useState(false)
@@ -283,9 +286,24 @@ export default function ProductArrivalsPanel({
               )}
               <span style={{ marginLeft: 12 }}>· партий: {layers.length}</span>
             </div>
-            <button type="button" className="k-btn k-btn-g" onClick={toggleAddForm}>
-              {showAdd ? 'Отмена' : '+ Приход'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {onEditProduct && (
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  onClick={() => {
+                    if (addDirty && !window.confirm('Есть несохранённый приход. Перейти к редактированию товара?')) return
+                    onEditProduct()
+                  }}
+                  title="Редактировать название, цену, штрихкод и другие поля товара"
+                >
+                  ✎ Товар
+                </button>
+              )}
+              <button type="button" className="k-btn k-btn-g" onClick={toggleAddForm}>
+                {showAdd ? 'Отмена' : '+ Приход'}
+              </button>
+            </div>
           </div>
 
           {showAdd && (
