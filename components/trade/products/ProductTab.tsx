@@ -23,21 +23,17 @@ type StatFilter = 'all' | 'inStock' | 'low' | 'out' | 'hot' | 'bulk'
 /** Сначала рисуем часть таблицы — полный каталог без виртуализации вешает UI */
 const CATALOG_PAGE = 80
 
-function StatCard({ label, value, color, active, onClick }: {
+function FilterChip({ label, value, color, active, onClick }: {
   label: string; value: number; color?: string; active?: boolean; onClick: () => void
 }) {
   return (
     <button
       type="button"
-      className="k-kpi k-statcard"
-      style={{
-        cursor: 'pointer', textAlign: 'left', borderColor: active ? 'var(--green)' : undefined,
-        background: active ? 'var(--green-d)' : undefined,
-      }}
+      className={`k-filter-chip ${active ? 'active' : ''}`}
       onClick={onClick}
     >
-      <div className="kl">{label}</div>
-      <div className="kv" style={{ color: color || undefined }}>{value}</div>
+      <span className="k-filter-chip-l">{label}</span>
+      <span className="k-filter-chip-v" style={color ? { color } : undefined}>{value}</span>
     </button>
   )
 }
@@ -347,27 +343,32 @@ export default function ProductTab({
 
   return (
     <>
-      <div className="k-page-h" style={{ marginTop: 0 }}>
-        <div>
-          <h1>📦 Товар</h1>
-          <div className="sub">Все товары KAKAPO · фильтр по категории и подкатегории · общие данные для всех приложений</div>
+      <div className="k-catalog-bar">
+        <div className="k-catalog-meta">
+          <b>{filtered.length}</b>
+          <span>
+            {filtered.length !== products.length ? `из ${products.length}` : 'товаров'}
+            {catFlt !== 'all' ? ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}` : ''}
+            {!loaded ? ' · загрузка…' : ''}
+          </span>
         </div>
-        <button type="button" className="k-btn k-btn-g" onClick={startNew}>+ Добавить товар</button>
+        <button type="button" className="k-btn k-btn-g" style={{ padding: '7px 12px', fontSize: 13 }} onClick={startNew}>
+          + Добавить
+        </button>
       </div>
 
-      <div className="k-kpis">
-        <StatCard label="Всего позиций" value={stats.total} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
-        <StatCard label="В наличии" value={stats.inStock} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
-        <StatCard label="Мало (≤5)" value={stats.low} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
-        <StatCard label="Нет в наличии" value={stats.out} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
-        <StatCard label="Хиты" value={stats.hot} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
-        <StatCard label="С оптом" value={stats.bulk} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
+      <div className="k-catalog-filters">
+        <FilterChip label="Все" value={stats.total} active={statFlt === 'all' && catFlt === 'all'} onClick={() => { setStatFlt('all'); setCatFlt('all') }} />
+        <FilterChip label="В наличии" value={stats.inStock} color="var(--green)" active={statFlt === 'inStock'} onClick={() => setStatFlt(s => s === 'inStock' ? 'all' : 'inStock')} />
+        <FilterChip label="Мало" value={stats.low} color="var(--gold)" active={statFlt === 'low'} onClick={() => setStatFlt(s => s === 'low' ? 'all' : 'low')} />
+        <FilterChip label="Нет" value={stats.out} color="var(--red)" active={statFlt === 'out'} onClick={() => setStatFlt(s => s === 'out' ? 'all' : 'out')} />
+        <FilterChip label="Хиты" value={stats.hot} color="var(--gold)" active={statFlt === 'hot'} onClick={() => setStatFlt(s => s === 'hot' ? 'all' : 'hot')} />
+        <FilterChip label="Опт" value={stats.bulk} color="#FF8C00" active={statFlt === 'bulk'} onClick={() => setStatFlt(s => s === 'bulk' ? 'all' : 'bulk')} />
       </div>
 
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>Категории</div>
-      <div className="k-cats" style={{ marginBottom: subcategories.length ? 8 : 16 }}>
+      <div className="k-cats k-cats-compact" style={{ marginBottom: subcategories.length ? 6 : 8 }}>
         <button type="button" className={`k-cat ${catFlt === 'all' ? 'active' : ''}`} onClick={() => pickCategory('all')}>
-          <span className="ce">🏪</span>Все<div style={{ fontSize: 10, opacity: 0.75 }}>{stats.total}</div>
+          <span className="ce">🏪</span>Все<span className="cc">{stats.total}</span>
         </button>
         {roots.map(c => {
           const slug = categorySlug(c)
@@ -376,71 +377,57 @@ export default function ProductTab({
           return (
             <button key={c.id} type="button" className={`k-cat ${active ? 'active' : ''}`} onClick={() => pickCategory(slug)}>
               <span className="ce">{c.emoji || '📦'}</span>{c.name.split(' ')[0]}
-              <div style={{ fontSize: 10, opacity: 0.75 }}>{count}</div>
+              <span className="cc">{count}</span>
             </button>
           )
         })}
       </div>
 
       {subcategories.length > 0 && activeRoot && (
-        <>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>
-            Подкатегории · {activeRoot.name}
-          </div>
-          <div className="k-cats" style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              className={`k-cat ${catFlt === categorySlug(activeRoot) ? 'active' : ''}`}
-              onClick={() => pickCategory(categorySlug(activeRoot))}
-              style={{ minWidth: 90 }}
-            >
-              <span className="ce">{activeRoot.emoji || '📦'}</span>Все
-              <div style={{ fontSize: 10, opacity: 0.75 }}>{catCounts.countFor(categorySlug(activeRoot))}</div>
-            </button>
-            {subcategories.map(sub => {
-              const slug = categorySlug(sub)
-              const count = catCounts.countFor(slug)
-              return (
-                <button key={sub.id} type="button" className={`k-cat ${catFlt === slug ? 'active' : ''}`} onClick={() => pickCategory(slug)} style={{ minWidth: 90 }}>
-                  <span className="ce">{sub.emoji || '📦'}</span>{sub.name.split(' ')[0]}
-                  <div style={{ fontSize: 10, opacity: 0.75 }}>{count}</div>
-                </button>
-              )
-            })}
-          </div>
-        </>
+        <div className="k-cats k-cats-compact" style={{ marginBottom: 8 }}>
+          <button
+            type="button"
+            className={`k-cat ${catFlt === categorySlug(activeRoot) ? 'active' : ''}`}
+            onClick={() => pickCategory(categorySlug(activeRoot))}
+          >
+            <span className="ce">{activeRoot.emoji || '📦'}</span>Все · {activeRoot.name.split(' ')[0]}
+            <span className="cc">{catCounts.countFor(categorySlug(activeRoot))}</span>
+          </button>
+          {subcategories.map(sub => {
+            const slug = categorySlug(sub)
+            const count = catCounts.countFor(slug)
+            return (
+              <button key={sub.id} type="button" className={`k-cat ${catFlt === slug ? 'active' : ''}`} onClick={() => pickCategory(slug)}>
+                <span className="ce">{sub.emoji || '📦'}</span>{sub.name.split(' ')[0]}
+                <span className="cc">{count}</span>
+              </button>
+            )
+          })}
+        </div>
       )}
 
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <span>
-          Показано {Math.min(visibleCount, filtered.length)} из {filtered.length}
-          {filtered.length !== products.length ? ` (фильтр · всего ${products.length})` : ''}
-          {catFlt !== 'all' && ` · ${categoryDisplayLabel(categories, catFlt, catFlt)}`}
-          {!loaded && ' · загрузка…'}
-        </span>
-        {checked.size > 0 && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-            <span style={{ fontWeight: 800, color: 'var(--text)' }}>Выбрано {checked.size}</span>
-            <button
-              type="button"
-              className="k-btn k-btn-s"
-              style={{ color: 'var(--red)' }}
-              disabled={bulkDeleting}
-              onClick={() => void deleteChecked()}
-            >
-              {bulkDeleting ? 'Удаление…' : 'Удалить отмеченные'}
-            </button>
-            <button type="button" className="k-btn k-btn-s" disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
-              Снять
-            </button>
-          </span>
-        )}
-      </div>
+      {checked.size > 0 && (
+        <div className="k-catalog-bulk">
+          <span>Выбрано {checked.size}</span>
+          <button
+            type="button"
+            className="k-btn k-btn-s"
+            style={{ color: 'var(--red)' }}
+            disabled={bulkDeleting}
+            onClick={() => void deleteChecked()}
+          >
+            {bulkDeleting ? 'Удаление…' : 'Удалить'}
+          </button>
+          <button type="button" className="k-btn k-btn-s" disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
+            Снять
+          </button>
+        </div>
+      )}
 
       <section className="k-card">
         <div className="k-card-b" style={{ padding: 0 }}>
           <div className="k-tbl-scroll">
-            <table className="k-tbl">
+            <table className="k-tbl k-tbl-compact">
               <thead>
                 <tr>
                   <th style={{ width: 36 }} onClick={e => e.stopPropagation()}>
@@ -485,12 +472,12 @@ export default function ProductTab({
                       </td>
                       <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <ProductImage product={p} preferThumb getPhoto={getPhoto} size={44} radius={10} plate="theme" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <ProductImage product={p} preferThumb getPhoto={getPhoto} size={32} radius={8} plate="theme" />
                           <div>
-                            <div style={{ fontWeight: 800 }}>{p.name}</div>
+                            <div style={{ fontWeight: 800, fontSize: 13, lineHeight: 1.2 }}>{p.name}</div>
                             {codes.length > 0 && (
-                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                              <div style={{ fontSize: 10, color: 'var(--muted)' }}>
                                 ШК: {codes[0]}{codes.length > 1 ? ` +${codes.length - 1}` : ''}
                               </div>
                             )}
@@ -507,7 +494,7 @@ export default function ProductTab({
                       <td className="num" style={{ fontWeight: 800, color: sc.c }}>{p.stock}</td>
                       <td><span className="k-badge" style={{ background: sc.bg, color: sc.c }}>{sc.l}</span></td>
                       <td onClick={e => e.stopPropagation()}>
-                        <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)' }} onClick={() => onDeleteProduct(p.id, p.name)}>✕</button>
+                        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 12, color: 'var(--red)' }} onClick={() => onDeleteProduct(p.id, p.name)}>✕</button>
                       </td>
                     </tr>
                   )
@@ -516,7 +503,7 @@ export default function ProductTab({
             </table>
             {!filtered.length && <div className="k-empty">{loaded ? 'Товары не найдены' : 'Загрузка товаров…'}</div>}
             {filtered.length > visibleCount && (
-              <div style={{ padding: 12, textAlign: 'center' }}>
+              <div style={{ padding: 10, textAlign: 'center' }}>
                 <button
                   type="button"
                   className="k-btn k-btn-s"

@@ -257,6 +257,31 @@ const CSS = `
   .k-subtab{border:1px solid var(--border);background:var(--card);color:var(--muted);border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer}
   .k-subtab:hover{color:var(--text);border-color:var(--muted2)}
   .k-subtab.active{background:var(--green-d);border-color:var(--green);color:var(--green)}
+  .k-catalog-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  .k-catalog-meta{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:13px;color:var(--muted)}
+  .k-catalog-meta b{font-size:18px;font-weight:900;color:var(--text);line-height:1}
+  .k-catalog-filters{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .k-catalog-filters::-webkit-scrollbar{display:none}
+  .k-filter-chip{
+    flex-shrink:0;display:inline-flex;align-items:center;gap:6px;
+    border:1px solid var(--border);background:var(--card);color:var(--text);
+    border-radius:999px;padding:5px 10px;cursor:pointer;font:inherit;line-height:1.1
+  }
+  .k-filter-chip:hover{border-color:var(--muted2);background:var(--hover)}
+  .k-filter-chip.active{background:var(--green-d);border-color:var(--green)}
+  .k-filter-chip-l{font-size:11px;font-weight:700;color:var(--muted)}
+  .k-filter-chip.active .k-filter-chip-l{color:var(--green)}
+  .k-filter-chip-v{font-size:13px;font-weight:900;font-variant-numeric:tabular-nums}
+  .k-catalog-bulk{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;font-weight:800}
+  .k-cats-compact{gap:6px;margin-bottom:8px}
+  .k-cats-compact .k-cat{
+    flex-direction:row;align-items:center;justify-content:center;
+    min-width:0;padding:6px 10px;border-radius:10px;gap:5px;font-size:12px
+  }
+  .k-cats-compact .k-cat .ce{font-size:14px;line-height:1}
+  .k-cats-compact .k-cat .cc{font-size:10px;opacity:.75;font-weight:700}
+  .k-tbl-compact th{padding:7px 8px;font-size:10px}
+  .k-tbl-compact td{padding:6px 8px;font-size:12px}
   .k-debts-layout{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:10px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
   .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
   .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:6px 8px;overscroll-behavior:contain}
