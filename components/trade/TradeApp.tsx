@@ -334,7 +334,7 @@ const CSS = `
   .k-rcpt-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
   .k-rcpt-meta{flex-shrink:0;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-rcpt-layout{
-    flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:minmax(0,1fr) 280px;
+    flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:280px minmax(0,1fr);
     gap:14px;padding:14px 18px;-webkit-overflow-scrolling:touch
   }
   .k-rcpt-main{
@@ -679,7 +679,8 @@ const CSS = `
     .k-rcpt-head-actions .k-btn{flex:1}
     .k-rcpt-meta{padding:10px 12px}
     .k-rcpt-layout{grid-template-columns:1fr;padding:10px 12px;gap:10px}
-    .k-rcpt-side{position:static}
+    .k-rcpt-main{order:1}
+    .k-rcpt-side{position:static;order:2}
     .k-rcpt-th{display:none}
     .k-rcpt-tr-main{
       grid-template-columns:28px minmax(0,1fr) auto;

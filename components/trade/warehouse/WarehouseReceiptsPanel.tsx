@@ -1024,6 +1024,48 @@ export default function WarehouseReceiptsPanel({
                 className="k-rcpt-layout"
                 onScroll={onBodyScroll}
               >
+                <aside className="k-rcpt-side">
+                  <b className="k-rcpt-side-h">Оплата поставщику</b>
+                  <div className="k-rcpt-side-total">
+                    <span>Общая сумма</span>
+                    <strong>{fmtMoney(totals.costTotal)}</strong>
+                  </div>
+                  <div className="k-field">
+                    <label>Оплачено</label>
+                    <input
+                      className="k-inp"
+                      type="text"
+                      inputMode="decimal"
+                      value={paidNow}
+                      onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className={`k-rcpt-side-debt${totals.debt > 0 ? ' due' : ''}`}>
+                    Остаток к оплате <b>{fmtMoney(totals.debt)}</b>
+                  </div>
+                  <div className="k-rcpt-side-extra">
+                    <div><span>Продажа</span><b style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</b></div>
+                    <div>
+                      <span>Наценка</span>
+                      <b style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+                        {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
+                      </b>
+                    </div>
+                  </div>
+                  {editingId && (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ color: 'var(--red)', width: '100%', marginTop: 12 }}
+                      disabled={saving || deletingId === editingId}
+                      onClick={() => void removeReceipt(editingId)}
+                    >
+                      {deletingId === editingId ? 'Удаление…' : 'Удалить приход'}
+                    </button>
+                  )}
+                </aside>
+
                 <div className="k-rcpt-main">
                   <div className="k-rcpt-main-h">
                     <b>Товары ({totals.withProduct})</b>
@@ -1113,48 +1155,6 @@ export default function WarehouseReceiptsPanel({
                     </div>
                   )}
                 </div>
-
-                <aside className="k-rcpt-side">
-                  <b className="k-rcpt-side-h">Оплата поставщику</b>
-                  <div className="k-rcpt-side-total">
-                    <span>Общая сумма</span>
-                    <strong>{fmtMoney(totals.costTotal)}</strong>
-                  </div>
-                  <div className="k-field">
-                    <label>Оплачено</label>
-                    <input
-                      className="k-inp"
-                      type="text"
-                      inputMode="decimal"
-                      value={paidNow}
-                      onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className={`k-rcpt-side-debt${totals.debt > 0 ? ' due' : ''}`}>
-                    Остаток к оплате <b>{fmtMoney(totals.debt)}</b>
-                  </div>
-                  <div className="k-rcpt-side-extra">
-                    <div><span>Продажа</span><b style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</b></div>
-                    <div>
-                      <span>Наценка</span>
-                      <b style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
-                        {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
-                      </b>
-                    </div>
-                  </div>
-                  {editingId && (
-                    <button
-                      type="button"
-                      className="k-btn k-btn-s"
-                      style={{ color: 'var(--red)', width: '100%', marginTop: 12 }}
-                      disabled={saving || deletingId === editingId}
-                      onClick={() => void removeReceipt(editingId)}
-                    >
-                      {deletingId === editingId ? 'Удаление…' : 'Удалить приход'}
-                    </button>
-                  )}
-                </aside>
               </div>
 
               {msg && <div className="k-rcpt-msg">{msg}</div>}
