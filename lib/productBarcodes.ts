@@ -93,6 +93,18 @@ export function nextFreeEan13(
   return buildEan13(INTERNAL_EAN_PREFIX + String(stamp).padStart(9, '0'))
 }
 
+/**
+ * Мастер-штрихкод весового товара (CAS / весы):
+ * 21 + PLU(5) + 00000 + контрольная.
+ * Вес на этикетке печатают весы; в карточке храним «нулевой» вес.
+ */
+export function buildWeightMasterBarcode(plu: number | string): string | null {
+  const n = typeof plu === 'number' ? plu : Number(String(plu || '').replace(/\D/g, ''))
+  if (!Number.isFinite(n) || n <= 0 || n > 99999) return null
+  const item = String(Math.floor(n)).padStart(5, '0')
+  return buildEan13(`21${item}00000`)
+}
+
 export function productBarcodeSearchText(p: Partial<Product>): string {
   return productBarcodes(p).join(' ')
 }

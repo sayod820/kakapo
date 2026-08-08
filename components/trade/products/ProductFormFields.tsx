@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
-import { nextFreeEan13 } from '@/lib/productBarcodes'
+import { buildWeightMasterBarcode, nextFreeEan13 } from '@/lib/productBarcodes'
 import { nextFreePlu, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
@@ -38,6 +38,7 @@ export default function ProductFormFields({
     }
     setForm({ ...form, barcodes: [...form.barcodes, code] })
     setNewBarcode('')
+    setScanHint(`Добавлен штрихкод ${code}`)
   }
 
   const onBarcodeScanned = useCallback((code: string) => {
@@ -54,16 +55,35 @@ export default function ProductFormFields({
   }, [form, setForm])
 
   function generateBarcode() {
-    const prefer = parseProductCodeNum(form.art) ?? parseProductCodeNum(form.plu)
-    // Учитываем уже добавленные в форму коды (ещё не сохранённые)
+    // Только в поле ввода — в карточку попадает после «+»
+    if (isWeight) {
+      const plu = parseProductCodeNum(form.plu)
+      if (plu == null || plu <= 0) {
+        setScanHint('Сначала укажите PLU для весового штрихкода')
+        return
+      }
+      const code = buildWeightMasterBarcode(plu)
+      if (!code) {
+        setScanHint('Не удалось собрать весовой штрихкод')
+        return
+      }
+      if (form.barcodes.includes(code)) {
+        setScanHint(`Уже есть: ${code}`)
+        setNewBarcode(code)
+        return
+      }
+      setNewBarcode(code)
+      setScanHint(`Весовой ${code} · нажмите + чтобы добавить`)
+      return
+    }
+    const prefer = parseProductCodeNum(form.art)
     const draftAsProducts: Partial<Product>[] = [
       ...products,
       { id: -1, barcodes: form.barcodes },
     ]
     const code = nextFreeEan13(draftAsProducts, prefer, productId ?? null)
-    if (form.barcodes.includes(code)) return
-    setForm({ ...form, barcodes: [...form.barcodes, code] })
-    setNewBarcode('')
+    setNewBarcode(code)
+    setScanHint(`Штрихкод ${code} · нажмите + чтобы добавить`)
   }
 
   function removeBarcode(code: string) {
@@ -207,7 +227,7 @@ export default function ProductFormFields({
             className="k-btn k-btn-s"
             onClick={generateBarcode}
             style={{ whiteSpace: 'nowrap' }}
-            title="Сгенерировать уникальный EAN-13"
+            title={isWeight ? 'Сгенерировать весовой EAN-13 (21…) в поле · затем +' : 'Сгенерировать EAN-13 в поле · затем +'}
           >
             Авто
           </button>

@@ -155,8 +155,8 @@ export function nextFreeEan13(products, preferSerial, excludeId = null) {
   return buildEan13(INTERNAL_EAN_PREFIX + String(stamp).padStart(9, '0'))
 }
 
-/** Нормализация barcodes из тела запроса; пусто → авто EAN-13 */
-export function allocateProductBarcodes(products, input = {}, preferSerial = null, excludeId = null) {
+/** Нормализация barcodes из тела запроса; пусто → без авто (кроме opts.autoIfEmpty) */
+export function allocateProductBarcodes(products, input = {}, preferSerial = null, excludeId = null, opts = {}) {
   let list = []
   if (Array.isArray(input.barcodes)) {
     list = input.barcodes.map(b => String(b).trim()).filter(Boolean)
@@ -166,7 +166,7 @@ export function allocateProductBarcodes(products, input = {}, preferSerial = nul
     if (one) list.unshift(one)
   }
   list = [...new Set(list)]
-  if (!list.length) {
+  if (!list.length && opts.autoIfEmpty) {
     list = [nextFreeEan13(products, preferSerial, excludeId)]
   }
   const used = collectUsedBarcodes(products, excludeId)
@@ -175,5 +175,5 @@ export function allocateProductBarcodes(products, input = {}, preferSerial = nul
       throw new Error(`Штрихкод «${code}» уже занят`)
     }
   }
-  return { barcode: list[0], barcodes: list }
+  return { barcode: list[0] || undefined, barcodes: list }
 }

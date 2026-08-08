@@ -1,5 +1,5 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
-import { nextFreeEan13, normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
+import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
 import { nextFreePlu, nextFreeProductCode } from '@/lib/productCodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
@@ -42,7 +42,7 @@ export function emptyForm(): ProductForm {
   }
 }
 
-/** Форма нового товара с уже подставленными свободным артикулом и штрихкодом (без PLU) */
+/** Форма нового товара со свободным артикулом (штрихкод не подставляем — только по «Авто» / скану) */
 export function emptyFormWithNextCodes(products: Product[]): ProductForm {
   const next = nextFreeProductCode(products)
   const code = String(next)
@@ -50,7 +50,7 @@ export function emptyFormWithNextCodes(products: Product[]): ProductForm {
     ...emptyForm(),
     art: code,
     plu: '',
-    barcodes: [nextFreeEan13(products, next)],
+    barcodes: [],
   }
 }
 

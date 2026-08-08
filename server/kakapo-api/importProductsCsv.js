@@ -500,6 +500,8 @@ function main() {
           barcodes: sourceBars.slice(1),
         },
         Number(art),
+        null,
+        { autoIfEmpty: true },
       )
       barcode = bars.barcode
       barcodes = bars.barcodes || []
@@ -511,7 +513,7 @@ function main() {
       }
       if (sourceBars.length > 1) stats.extraBarcodes += sourceBars.length - 1
     } catch {
-      const bars = allocateProductBarcodes(db.products, { barcode: '' }, Number(art))
+      const bars = allocateProductBarcodes(db.products, { barcode: '' }, Number(art), null, { autoIfEmpty: true })
       barcode = bars.barcode
       barcodes = bars.barcodes || []
       stats.duplicateBarcode += 1
