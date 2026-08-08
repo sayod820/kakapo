@@ -1006,19 +1006,6 @@ export default function WarehouseReceiptsPanel({
                 <div className="k-rcpt-warn">Часть товара уже списана — при сохранении остатки пересчитаются</div>
               )}
 
-              <div className="k-rcpt-meta">
-                <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Поставщик</label>
-                  <WarehouseSupplierSelect
-                    suppliers={suppliers}
-                    value={supplierId}
-                    onChange={id => setDraftPatch({ supplierId: id })}
-                    onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
-                    onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
-                  />
-                </div>
-              </div>
-
               <div
                 ref={bodyRef}
                 className="k-rcpt-layout"
@@ -1026,6 +1013,16 @@ export default function WarehouseReceiptsPanel({
               >
                 <aside className="k-rcpt-side">
                   <b className="k-rcpt-side-h">Оплата поставщику</b>
+                  <div className="k-field" style={{ marginBottom: 0 }}>
+                    <label>Поставщик</label>
+                    <WarehouseSupplierSelect
+                      suppliers={suppliers}
+                      value={supplierId}
+                      onChange={id => setDraftPatch({ supplierId: id })}
+                      onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
+                      onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
+                    />
+                  </div>
                   <div className="k-rcpt-side-total">
                     <span>Общая сумма</span>
                     <strong>{fmtMoney(totals.costTotal)}</strong>
