@@ -16,10 +16,12 @@ export default function BulkPricingFields({
   tiers,
   onChange,
   sellType,
+  compact = false,
 }: {
   tiers: BulkPricingRow[]
   onChange: (tiers: BulkPricingRow[]) => void
   sellType: SellType
+  compact?: boolean
 }) {
   const rows = tiers.length ? tiers : []
   const unit = sellType === 'weight' ? 'г' : 'шт'
@@ -30,30 +32,34 @@ export default function BulkPricingFields({
 
   return (
     <div style={{
-      padding: '12px 14px', borderRadius: 10, background: 'var(--green-d)',
+      padding: compact ? '8px 10px' : '12px 14px', borderRadius: 10, background: 'var(--green-d)',
       border: '1px solid rgba(31,215,96,.25)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: rows.length || !compact ? 8 : 0 }}>
         <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 800 }}>📦 Оптовые цены</div>
         <button
           type="button"
           className="k-btn k-btn-g"
-          style={{ padding: '4px 10px', fontSize: 11 }}
+          style={{ padding: '4px 10px', fontSize: 11, minHeight: 0 }}
           onClick={() => onChange([...rows, { minQty: '', price: '' }])}
         >
           + Уровень
         </button>
       </div>
-      <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.45 }}>
-        При достижении количества цена за {sellType === 'weight' ? 'порцию' : 'шт'} меняется для всей позиции.
-        Пример: кекс — от 24 шт по 1.8 сом.
-      </div>
-      {!rows.length ? (
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Одна розничная цена. Нажмите «+ Уровень» для опта.
+      {!compact && (
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.45 }}>
+          При достижении количества цена за {sellType === 'weight' ? 'порцию' : 'шт'} меняется для всей позиции.
+          Пример: кекс — от 24 шт по 1.8 сом.
         </div>
+      )}
+      {!rows.length ? (
+        compact ? null : (
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            Одна розничная цена. Нажмите «+ Уровень» для опта.
+          </div>
+        )
       ) : rows.map((row, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: i < rows.length - 1 ? 8 : 0 }}>
           <div>
             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>От ({unit})</div>
             <input
@@ -79,7 +85,7 @@ export default function BulkPricingFields({
           <button
             type="button"
             className="k-btn k-btn-s"
-            style={{ alignSelf: 'end', padding: '8px 10px', fontSize: 11, color: 'var(--red)' }}
+            style={{ alignSelf: 'end', padding: '8px 10px', fontSize: 11, color: 'var(--red)', minHeight: 0 }}
             onClick={() => onChange(rows.filter((_, idx) => idx !== i))}
           >
             ✕

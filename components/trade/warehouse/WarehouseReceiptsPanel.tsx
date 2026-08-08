@@ -89,6 +89,8 @@ function ReceiptLineEditModal({
   onQty,
   onCost,
   onPurchaseTotal,
+  onRetail,
+  onSaleTotal,
   onBulkPricing,
 }: {
   line: ReceiptDraftLine
@@ -97,15 +99,20 @@ function ReceiptLineEditModal({
   onQty: (v: string) => void
   onCost: (v: string) => void
   onPurchaseTotal: (v: string) => void
+  onRetail: (v: string) => void
+  onSaleTotal: (v: string) => void
   onBulkPricing: (tiers: BulkPricingRow[]) => void
 }) {
   const lineCost = linePurchaseSum(line)
+  const qtyNum = Number(line.qty) || 0
+  const retailNum = Number(line.retailPrice) || 0
+  const lineSale = roundMoney(qtyNum * retailNum)
   const packInfo = parsePackUnit(product.unit)
   const inputUnitLabel = packInputUnitLabel(packInfo)
-  const qtyNum = Number(line.qty) || 0
   const realWorld = qtyNum > 0 ? packRealWorld(qtyNum, packInfo) : null
   const unitCost = Number(line.costPrice) || 0
   const qtyRef = useRef<HTMLInputElement>(null)
+  const saleTotalStr = qtyNum > 0 && retailNum > 0 ? String(lineSale) : (line.retailPrice ? String(lineSale) : '')
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -135,8 +142,8 @@ function ReceiptLineEditModal({
 
         <div className="k-rcpt-line-body">
           <div className="k-rcpt-line-grid">
-            <div className="k-field">
-              <label>Количество ({inputUnitLabel})</label>
+            <div className="k-field k-rcpt-line-span2">
+              <label>Кол-во ({inputUnitLabel})</label>
               <div className="k-rcpt-line-qty">
                 <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty, -1))}>−</button>
                 <input
@@ -150,14 +157,12 @@ function ReceiptLineEditModal({
                 <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty || '0', 1))}>+</button>
               </div>
               {realWorld && (
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  = {formatQty(realWorld.value)} {realWorld.label}
-                </div>
+                <div className="k-rcpt-line-hint">= {formatQty(realWorld.value)} {realWorld.label}</div>
               )}
             </div>
 
             <div className="k-field">
-              <label>Общая сумма закупа</label>
+              <label>Сумма закупа</label>
               <input
                 className="k-inp"
                 type="text"
@@ -169,7 +174,7 @@ function ReceiptLineEditModal({
             </div>
 
             <div className="k-field">
-              <label>Себестоимость за {inputUnitLabel}</label>
+              <label>Себест. / {inputUnitLabel}</label>
               <input
                 className="k-inp"
                 type="text"
@@ -179,26 +184,50 @@ function ReceiptLineEditModal({
                 placeholder="0"
               />
             </div>
+
+            <div className="k-field">
+              <label>Цена продажи</label>
+              <input
+                className="k-inp"
+                type="text"
+                inputMode="decimal"
+                value={line.retailPrice}
+                onChange={e => onRetail(sanitizeDecimalInput(e.target.value))}
+                placeholder="0"
+              />
+            </div>
+
+            <div className="k-field">
+              <label>Сумма продажи</label>
+              <input
+                className="k-inp"
+                type="text"
+                inputMode="decimal"
+                value={saleTotalStr}
+                onChange={e => onSaleTotal(sanitizeDecimalInput(e.target.value))}
+                placeholder={qtyNum > 0 && retailNum > 0 ? String(lineSale) : '0'}
+              />
+            </div>
           </div>
 
           <div className="k-rcpt-line-sum">
-            Итого закуп: <b>{fmtMoney(lineCost)}</b>
+            <span>Закуп <b>{fmtMoney(lineCost)}</b></span>
+            <span>Продажа <b style={{ color: 'var(--green)' }}>{fmtMoney(lineSale)}</b></span>
           </div>
 
-          <div className="k-rcpt-line-bulk">
-            <BulkPricingFields
-              tiers={line.bulkPricing}
-              onChange={onBulkPricing}
-              sellType={product.sellType || 'piece'}
-            />
-          </div>
+          <BulkPricingFields
+            tiers={line.bulkPricing}
+            onChange={onBulkPricing}
+            sellType={product.sellType || 'piece'}
+            compact
+          />
         </div>
 
         <div className="k-rcpt-line-foot">
           <button
             type="button"
             className="k-btn k-btn-g"
-            style={{ width: '100%' }}
+            style={{ width: '100%', minHeight: 44 }}
             disabled={!(Number(line.qty) > 0)}
             onClick={onClose}
           >
@@ -532,6 +561,27 @@ export default function WarehouseReceiptsPanel({
           return { ...l, retailPrice, markupPct: String(markupFromRetail(cost, retail)) }
         }
         return { ...l, retailPrice }
+      }),
+    }))
+  }
+
+  /** Сумма продажи → цена за единицу (как сумма закупа → себестоимость). */
+  function setLineSaleTotal(key: string, saleTotal: string) {
+    setDraft(prev => ({
+      ...prev,
+      lines: prev.lines.map(l => {
+        if (l.key !== key) return l
+        const qty = Number(l.qty) || 0
+        const total = Number(saleTotal) || 0
+        if (qty > 0 && saleTotal !== '') {
+          const retail = String(roundMoney(total / qty))
+          const cost = Number(l.costPrice) || 0
+          if (cost > 0) {
+            return { ...l, retailPrice: retail, markupPct: String(markupFromRetail(cost, Number(retail) || 0)) }
+          }
+          return { ...l, retailPrice: retail }
+        }
+        return l
       }),
     }))
   }
@@ -1222,6 +1272,8 @@ export default function WarehouseReceiptsPanel({
                 onQty={v => setLineQty(editLine.key, v)}
                 onCost={v => setLineCost(editLine.key, v)}
                 onPurchaseTotal={v => setLinePurchaseTotal(editLine.key, v)}
+                onRetail={v => setLineRetail(editLine.key, v)}
+                onSaleTotal={v => setLineSaleTotal(editLine.key, v)}
                 onBulkPricing={tiers => updateLine(editLine.key, { bulkPricing: tiers })}
               />
             )
