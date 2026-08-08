@@ -325,6 +325,31 @@ export default function MarketCategoriesPanel({
     }
   }
 
+  async function setCategoryPosition(cat: Category, posRaw: string) {
+    if (!onReorder) return
+    const siblings = siblingsOf(cat)
+    const idx = siblings.findIndex(c => c.id === cat.id)
+    if (idx < 0) return
+    const parsed = Number(String(posRaw).replace(/\D/g, ''))
+    if (!Number.isFinite(parsed) || parsed < 1) return
+    const target = Math.max(0, Math.min(siblings.length - 1, Math.floor(parsed) - 1))
+    if (target === idx) return
+    const next = [...siblings]
+    const [item] = next.splice(idx, 1)
+    next.splice(target, 0, item)
+    const items = next.map((c, i) => ({ id: c.id, order: i + 1 }))
+    setSaving(true)
+    setMsg('')
+    try {
+      await onReorder(items)
+      setMsg(`Порядок: ${target + 1}`)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось изменить порядок')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function CatRow({ cat, depth = 0 }: { cat: Category; depth?: number }) {
     const kids = childrenOf(cat.id)
     const isOpen = !collapsed[cat.id]
@@ -336,7 +361,7 @@ export default function MarketCategoriesPanel({
     const canDown = onReorder && pos >= 0 && pos < siblings.length - 1
 
     const nameCell = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: depth * 22 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isAdmin ? 6 : 5, paddingLeft: depth * (isAdmin ? 22 : 14) }}>
         {kids.length > 0 ? (
           <button
             type="button"
@@ -345,35 +370,35 @@ export default function MarketCategoriesPanel({
             style={isAdmin ? {
               width: 20, height: 20, padding: 0, background: 'var(--b1)', border: 'none', color: 'var(--t2)',
               fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5,
-            } : { width: 24, height: 24, padding: 0, fontSize: 11 }}
+            } : { width: 22, height: 22, minHeight: 0, padding: 0, fontSize: 10 }}
           >
             {isOpen ? '▾' : '▸'}
           </button>
         ) : (
-          <div style={{ width: isAdmin ? 20 : 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isAdmin ? 'var(--b2)' : 'var(--muted)', fontSize: 11 }}>
+          <div style={{ width: isAdmin ? 20 : 22, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isAdmin ? 'var(--b2)' : 'var(--muted)', fontSize: 11 }}>
             {depth > 0 ? '└' : ''}
           </div>
         )}
         <div style={{
-          width: isAdmin ? 32 : 36, height: isAdmin ? 32 : 36, borderRadius: isAdmin ? 9 : 10, flexShrink: 0,
+          width: isAdmin ? 32 : 26, height: isAdmin ? 32 : 26, borderRadius: isAdmin ? 9 : 7, flexShrink: 0,
           background: depth > 0 ? 'rgba(31,215,96,.08)' : 'rgba(31,215,96,.12)',
           border: '1px solid rgba(31,215,96,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: isAdmin ? 17 : 18,
+          fontSize: isAdmin ? 17 : 14,
         }}>
           {cat.emoji || '📦'}
         </div>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: depth > 0 ? 600 : 700 }}>{cat.name}</div>
-          {cat.desc && <div style={{ fontSize: 10, color: isAdmin ? 'var(--t3)' : 'var(--muted)' }}>{cat.desc}</div>}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: isAdmin ? 13 : 12, fontWeight: depth > 0 ? 600 : 800, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</div>
+          {isAdmin && cat.desc && <div style={{ fontSize: 10, color: 'var(--t3)' }}>{cat.desc}</div>}
         </div>
       </div>
     )
 
-    const orderCell = (
+    const orderCell = isAdmin ? (
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{
           minWidth: 22, textAlign: 'center', fontSize: 12, fontWeight: 800,
-          color: isAdmin ? 'var(--t2)' : 'var(--muted)',
+          color: 'var(--t2)',
         }}>
           {pos >= 0 ? pos + 1 : '—'}
         </span>
@@ -383,13 +408,10 @@ export default function MarketCategoriesPanel({
               type="button"
               disabled={!canUp || saving}
               onClick={() => void moveCategory(cat, -1)}
-              className={isAdmin ? 'ab' : 'k-btn k-btn-s'}
-              style={isAdmin ? {
+              className="ab"
+              style={{
                 width: 22, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
                 opacity: canUp ? 1 : 0.35, cursor: canUp ? 'pointer' : 'default',
-              } : {
-                width: 24, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
-                opacity: canUp ? 1 : 0.35,
               }}
               title="Выше"
               aria-label={`Поднять «${cat.name}» выше`}
@@ -400,16 +422,71 @@ export default function MarketCategoriesPanel({
               type="button"
               disabled={!canDown || saving}
               onClick={() => void moveCategory(cat, 1)}
-              className={isAdmin ? 'ab' : 'k-btn k-btn-s'}
-              style={isAdmin ? {
+              className="ab"
+              style={{
                 width: 22, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
                 opacity: canDown ? 1 : 0.35, cursor: canDown ? 'pointer' : 'default',
-              } : {
-                width: 24, height: 18, padding: 0, fontSize: 10, lineHeight: 1,
-                opacity: canDown ? 1 : 0.35,
               }}
               title="Ниже"
               aria-label={`Опустить «${cat.name}» ниже`}
+            >
+              ▼
+            </button>
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="k-cat-order" onClick={e => e.stopPropagation()}>
+        {onReorder ? (
+          <input
+            className="k-cat-order-inp"
+            type="text"
+            inputMode="numeric"
+            defaultValue={pos >= 0 ? String(pos + 1) : ''}
+            key={`${cat.id}-${pos}`}
+            disabled={saving}
+            title="Номер порядка · Enter"
+            aria-label={`Порядок «${cat.name}»`}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void setCategoryPosition(cat, (e.target as HTMLInputElement).value)
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+            onBlur={e => {
+              const v = e.target.value.trim()
+              const cur = pos >= 0 ? String(pos + 1) : ''
+              if (v !== cur) void setCategoryPosition(cat, v)
+              else e.target.value = cur
+            }}
+          />
+        ) : (
+          <span style={{ minWidth: 22, textAlign: 'center', fontSize: 12, fontWeight: 800, color: 'var(--muted)' }}>
+            {pos >= 0 ? pos + 1 : '—'}
+          </span>
+        )}
+        {onReorder && (
+          <div className="k-cat-order-btns">
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              disabled={!canUp || saving}
+              onClick={() => void moveCategory(cat, -1)}
+              title="Выше"
+              aria-label={`Поднять «${cat.name}» выше`}
+              style={{ opacity: canUp ? 1 : 0.35 }}
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              disabled={!canDown || saving}
+              onClick={() => void moveCategory(cat, 1)}
+              title="Ниже"
+              aria-label={`Опустить «${cat.name}» ниже`}
+              style={{ opacity: canDown ? 1 : 0.35 }}
             >
               ▼
             </button>
@@ -447,11 +524,11 @@ export default function MarketCategoriesPanel({
 
     const countCell = (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 900, color: selfCount > 0 ? '#FFB800' : (isAdmin ? 'var(--t3)' : 'var(--muted)') }}>
+        <span style={{ fontSize: isAdmin ? 13 : 12, fontWeight: 900, color: selfCount > 0 ? '#FFB800' : (isAdmin ? 'var(--t3)' : 'var(--muted)') }}>
           {selfCount}
         </span>
-        {kids.length > 0 && (
-          <span style={{ fontSize: 10, color: isAdmin ? 'var(--t3)' : 'var(--muted)' }}>
+        {isAdmin && kids.length > 0 && (
+          <span style={{ fontSize: 10, color: 'var(--t3)' }}>
             (+{childTotal} в подкатегориях)
           </span>
         )}
@@ -459,12 +536,12 @@ export default function MarketCategoriesPanel({
     )
 
     const actionsCell = (
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: isAdmin ? 6 : 4, flexWrap: 'wrap', justifyContent: isAdmin ? undefined : 'flex-end' }}>
         <button
           type="button"
           onClick={() => openEdit(cat)}
           className={isAdmin ? 'ab abg' : 'k-btn k-btn-s'}
-          style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : undefined}
+          style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { padding: '4px 8px', fontSize: 12, minHeight: 0 }}
           title="Редактировать"
         >
           ✏️
@@ -477,16 +554,17 @@ export default function MarketCategoriesPanel({
             style={isAdmin ? {
               padding: '4px 9px', fontSize: 11, background: 'rgba(59,142,240,.1)',
               border: '1px solid rgba(59,142,240,.3)', color: '#3B8EF0',
-            } : { color: 'var(--blue)' }}
+            } : { color: 'var(--blue)', padding: '4px 8px', fontSize: 11, minHeight: 0 }}
+            title="Добавить подкатегорию"
           >
-            + Подкат.
+            {isAdmin ? '+ Подкат.' : '+'}
           </button>
         )}
         <button
           type="button"
           onClick={() => void handleDelete(cat)}
           className={isAdmin ? 'ab abd' : 'k-btn k-btn-s'}
-          style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { color: 'var(--red)' }}
+          style={isAdmin ? { padding: '4px 9px', fontSize: 11 } : { color: 'var(--red)', padding: '4px 8px', fontSize: 12, minHeight: 0 }}
           title="Удалить"
         >
           🗑
@@ -498,7 +576,7 @@ export default function MarketCategoriesPanel({
       return (
         <>
           <tr style={{ background: depth > 0 ? 'rgba(31,215,96,.03)' : 'transparent' }}>
-            <td style={{ width: 64 }}>{orderCell}</td>
+            <td style={{ width: isAdmin ? 64 : 110 }}>{orderCell}</td>
             <td>{nameCell}</td>
             <td>{typeCell}</td>
             <td>{countCell}</td>
@@ -528,7 +606,7 @@ export default function MarketCategoriesPanel({
               aria-label={`Выбрать ${cat.name}`}
             />
           </td>
-          <td style={{ width: 64 }}>{orderCell}</td>
+          <td style={{ width: isAdmin ? 64 : 110 }}>{orderCell}</td>
           <td>{nameCell}</td>
           <td>{typeCell}</td>
           <td className="num">{countCell}</td>
@@ -546,52 +624,58 @@ export default function MarketCategoriesPanel({
       <div className="sc"><div className="sl">Активных</div><div className="sv" style={{ color: '#FFB800' }}>{activeCount}</div></div>
       <div className="sc"><div className="sl">Товаров всего</div><div className="sv">{products.length}</div></div>
     </div>
-  ) : (
-    <div className="k-kpis">
-      <div className="k-kpi"><div className="kl">Родительских</div><div className="kv" style={{ color: 'var(--green)' }}>{roots.length}</div></div>
-      <div className="k-kpi"><div className="kl">Подкатегорий</div><div className="kv" style={{ color: 'var(--blue)' }}>{subCount}</div></div>
-      <div className="k-kpi"><div className="kl">Всего</div><div className="kv">{categories.length}</div></div>
-      <div className="k-kpi"><div className="kl">Товаров</div><div className="kv" style={{ color: 'var(--gold)' }}>{products.length}</div></div>
-    </div>
-  )
+  ) : null
 
   const allChecked = categories.length > 0 && categories.every(c => checked.has(c.id))
   const someChecked = categories.some(c => checked.has(c.id))
 
-  const toolbar = (
+  const toolbar = isAdmin ? (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-      <div style={{ fontSize: 12, color: isAdmin ? 'var(--t3)' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span>
-          Порядок: <span style={{ fontWeight: 700 }}>▲ ▼</span>
-          {' · '}
-          <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> — подкатегория
-        </span>
-        {!isAdmin && checked.size > 0 && (
-          <>
-            <span style={{ fontWeight: 800, color: 'var(--text)' }}>Выбрано {checked.size}</span>
-            <button
-              type="button"
-              className="k-btn k-btn-s"
-              style={{ color: 'var(--red)' }}
-              disabled={bulkDeleting}
-              onClick={() => void handleDeleteChecked()}
-            >
-              {bulkDeleting ? 'Удаление…' : 'Удалить отмеченные'}
-            </button>
-            <button type="button" className="k-btn k-btn-s" disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
-              Снять
-            </button>
-          </>
-        )}
+      <div style={{ fontSize: 12, color: 'var(--t3)' }}>
+        Порядок: <span style={{ fontWeight: 700 }}>▲ ▼</span>
+        {' · '}
+        <span style={{ color: '#3B8EF0', fontWeight: 700 }}>+ Подкат.</span> — подкатегория
       </div>
       <button
         type="button"
         onClick={openAddRoot}
-        className={isAdmin ? 'ab abp' : 'k-btn k-btn-g'}
-        style={isAdmin ? { display: 'flex', alignItems: 'center', gap: 6 } : undefined}
+        className="ab abp"
+        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
       >
         + Родительская категория
       </button>
+    </div>
+  ) : (
+    <div className="k-catalog-bar" style={{ marginBottom: 6 }}>
+      <div className="k-catalog-meta">
+        <b>{categories.length}</b>
+        <span>
+          кат. · {roots.length} родит. · {subCount} подкат. · {products.length} тов.
+          {onReorder ? ' · № / ▲▼ — порядок' : ''}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 'auto' }}>
+        {checked.size > 0 && (
+          <>
+            <span style={{ fontSize: 12, fontWeight: 800 }}>Выбрано {checked.size}</span>
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              style={{ color: 'var(--red)', padding: '6px 10px', fontSize: 12, minHeight: 0 }}
+              disabled={bulkDeleting}
+              onClick={() => void handleDeleteChecked()}
+            >
+              {bulkDeleting ? '…' : 'Удалить'}
+            </button>
+            <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12, minHeight: 0 }} disabled={bulkDeleting} onClick={() => setChecked(new Set())}>
+              Снять
+            </button>
+          </>
+        )}
+        <button type="button" onClick={openAddRoot} className="k-btn k-btn-g k-catalog-add">
+          + Родительская
+        </button>
+      </div>
     </div>
   )
 
@@ -679,57 +763,51 @@ export default function MarketCategoriesPanel({
   )
 
   return (
-    <div>
+    <div className={isAdmin ? undefined : 'k-cats-panel'}>
       {headerExtra}
       {stats}
       {msg && (
-        <div className={isAdmin ? undefined : 'k-alert'} style={isAdmin ? { marginBottom: 12, fontSize: 12, color: '#1FD760' } : { marginBottom: 12 }}>
+        <div className={isAdmin ? undefined : 'k-alert'} style={isAdmin ? { marginBottom: 12, fontSize: 12, color: '#1FD760' } : { marginBottom: 8 }}>
           {msg}
         </div>
       )}
       {toolbar}
       {addModal}
-      <div className={isAdmin ? 'ac' : undefined}>
-        <div className={!isAdmin ? 'k-card' : undefined}>
-          <div className={!isAdmin ? 'k-card-b' : undefined} style={!isAdmin ? { padding: 0 } : undefined}>
-            <div style={!isAdmin ? { maxHeight: '52vh', overflow: 'auto' } : undefined}>
-              <table className={isAdmin ? 'at' : 'k-tbl'}>
-                <thead>
-                  <tr>
-                    {!isAdmin && (
-                      <th style={{ width: 36 }}>
-                        <input
-                          type="checkbox"
-                          checked={allChecked}
-                          ref={el => {
-                            if (el) el.indeterminate = someChecked && !allChecked
-                          }}
-                          onChange={e => toggleAllCategories(e.target.checked)}
-                          title="Выбрать все"
-                          aria-label="Выбрать все категории"
-                        />
-                      </th>
-                    )}
-                    <th style={{ width: 64 }}>№</th>
-                    <th>Категория</th>
-                    <th>Тип / Родитель</th>
-                    <th className={!isAdmin ? 'num' : undefined}>Товаров</th>
-                    {showStatus && <th>Статус</th>}
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {roots.map(cat => <CatRow key={cat.id} cat={cat} />)}
-                </tbody>
-              </table>
-              {!roots.length && (
-                <div className={isAdmin ? undefined : 'k-empty'} style={isAdmin ? { padding: 20, color: 'var(--t3)' } : undefined}>
-                  {loaded ? 'Категорий пока нет — создайте первую' : 'Загрузка…'}
-                </div>
+      <div className={isAdmin ? 'ac' : 'k-cats-panel-tbl'}>
+        <table className={isAdmin ? 'at' : 'k-tbl k-tbl-compact'}>
+          <thead>
+            <tr>
+              {!isAdmin && (
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={el => {
+                      if (el) el.indeterminate = someChecked && !allChecked
+                    }}
+                    onChange={e => toggleAllCategories(e.target.checked)}
+                    title="Выбрать все"
+                    aria-label="Выбрать все категории"
+                  />
+                </th>
               )}
-            </div>
+              <th style={{ width: isAdmin ? 64 : 110 }}>№</th>
+              <th>Категория</th>
+              <th>Тип / Родитель</th>
+              <th className={!isAdmin ? 'num' : undefined} style={!isAdmin ? { width: 64 } : undefined}>Товаров</th>
+              {showStatus && <th>Статус</th>}
+              <th style={!isAdmin ? { width: 100 } : undefined}>Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roots.map(cat => <CatRow key={cat.id} cat={cat} />)}
+          </tbody>
+        </table>
+        {!roots.length && (
+          <div className={isAdmin ? undefined : 'k-empty'} style={isAdmin ? { padding: 20, color: 'var(--t3)' } : undefined}>
+            {loaded ? 'Категорий пока нет — создайте первую' : 'Загрузка…'}
           </div>
-        </div>
+        )}
       </div>
       {editModal}
     </div>

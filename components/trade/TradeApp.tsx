@@ -143,6 +143,7 @@ const CSS = `
   .k-products-mod > .k-subtabs{flex-shrink:0}
   .k-products-mod-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
   .k-products-mod-body > .k-product-edit-shell{flex:1;min-height:0;overflow:hidden}
+  .k-products-mod-body > .k-cats-panel{flex:1;min-height:0;overflow:hidden}
   .k-body-products:has(.k-product-edit-shell){overflow:hidden}
   .k-body-products:has(.k-product-edit-shell) .k-products-mod-body{overflow:hidden}
   .k-products-mod:has(.k-product-edit-shell) > .k-subtabs{display:none}
@@ -310,6 +311,16 @@ const CSS = `
   .k-cats-compact .k-cat .cc{font-size:10px;opacity:.75;font-weight:700}
   .k-tbl-compact th{padding:7px 8px;font-size:10px}
   .k-tbl-compact td{padding:6px 8px;font-size:12px}
+  .k-cats-panel{display:flex;flex-direction:column;flex:1;min-height:0;gap:0}
+  .k-cats-panel-tbl{flex:1;min-height:0;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+  .k-cat-order{display:inline-flex;align-items:center;gap:4px}
+  .k-cat-order-inp{
+    width:42px;padding:4px 4px;text-align:center;font-size:12px;font-weight:800;
+    background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);outline:none
+  }
+  .k-cat-order-inp:focus{border-color:var(--green)}
+  .k-cat-order-btns{display:flex;gap:2px}
+  .k-cat-order-btns .k-btn{width:26px;height:26px;min-height:0;padding:0;font-size:11px;line-height:1}
   .k-debts-layout{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:10px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
   .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
   .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:6px 8px;overscroll-behavior:contain}
