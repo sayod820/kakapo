@@ -293,12 +293,17 @@ const CSS = `
   .k-arrivals-tbl td{padding:10px 12px;border-bottom:1px solid var(--tbl-line);font-size:13px;vertical-align:middle}
   .k-arrivals-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-arrivals-tbl tbody tr:hover{background:var(--hover)}
-  .k-receipt-modal-bg{padding:12px;align-items:center;justify-content:center;z-index:180;background:rgba(0,0,0,.45)}
+  .k-receipt-modal-bg{
+    padding:0!important;align-items:stretch!important;justify-content:stretch!important;
+    z-index:180;background:var(--bg)!important;inset:0
+  }
+  .k-trade[data-theme="light"] .k-receipt-modal-bg{background:var(--bg)!important}
   .k-receipt-modal{
-    border-radius:16px;width:min(1180px,100%)!important;max-width:1180px!important;
-    height:min(920px,calc(100dvh - 24px))!important;max-height:min(920px,calc(100dvh - 24px))!important;
-    margin:0;display:flex!important;flex-direction:column;overflow:hidden!important;min-height:0;
-    background:var(--panel);border:1px solid var(--border);box-shadow:0 24px 64px rgba(0,0,0,.35)
+    border-radius:0!important;width:100%!important;max-width:100%!important;
+    height:100vh!important;max-height:100vh!important;
+    height:100dvh!important;max-height:100dvh!important;
+    margin:0!important;display:flex!important;flex-direction:column;overflow:hidden!important;min-height:0;
+    background:var(--panel);border:none;box-shadow:none
   }
   .k-receipt-scroll{
     flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden;
@@ -663,7 +668,7 @@ const CSS = `
       height:100dvh!important;max-height:100dvh!important;
       border-radius:0;margin:0
     }
-    .k-receipt-modal-bg{padding:0;align-items:stretch;justify-content:stretch;background:rgba(0,0,0,.35)}
+    .k-receipt-modal-bg{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:var(--bg)!important}
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static;height:auto;max-height:42vh}
     .k-product-list-body{flex:1;min-height:0;max-height:none;overflow:auto}
