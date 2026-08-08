@@ -880,10 +880,12 @@ function TradeAppInner({
 
   const showSearch =
     current === 'warehouse'
-    || (current === 'products' && (productsSub === 'product' || productsSub === 'labels'))
+    || (current === 'products' && productsSub === 'product')
 
   useEffect(() => {
-    if (current === 'products' && productsSub === 'category') setSearch('')
+    if (current === 'products' && (productsSub === 'category' || productsSub === 'labels')) {
+      setSearch('')
+    }
   }, [current, productsSub])
 
   function focusTradeSearch() {
