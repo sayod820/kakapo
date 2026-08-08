@@ -169,24 +169,40 @@ const CSS = `
   .k-wh-shell > .k-wh-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
   .k-wh-shell > .k-wh-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
   .k-wh-shell > .k-wh-body > .k-wh-stock{flex:1;min-height:0;overflow:hidden}
-  .k-wh-shell > .k-wh-body > .k-wh-receipts{flex:1;min-height:0;overflow:hidden}
-  .k-wh-stock{display:flex;flex-direction:column;min-height:0}
-  .k-wh-receipts{display:flex;flex-direction:column;min-height:0}
+  .k-wh-shell > .k-wh-body > .k-wh-receipts,
+  .k-wh-shell > .k-wh-body > .k-wh-writeoffs,
+  .k-wh-shell > .k-wh-body > .k-wh-revisions,
+  .k-wh-shell > .k-wh-body > .k-wh-expiry{flex:1;min-height:0;overflow:hidden}
+  .k-wh-stock,
+  .k-wh-receipts,
+  .k-wh-writeoffs,
+  .k-wh-revisions,
+  .k-wh-expiry{display:flex;flex-direction:column;min-height:0}
   .k-wh-stock-head,
-  .k-wh-receipts-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .k-wh-receipts-head,
+  .k-wh-panel-head{flex-shrink:0;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
   .k-wh-stock-body,
-  .k-wh-receipts-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+  .k-wh-receipts-body,
+  .k-wh-panel-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:12px;background:var(--card)}
   .k-wh-stock-body .k-tbl,
-  .k-wh-receipts-body .k-tbl{min-width:720px}
+  .k-wh-receipts-body .k-tbl,
+  .k-wh-panel-body .k-tbl{min-width:640px}
   .k-wh-stock-body .k-tbl th,
-  .k-wh-receipts-body .k-tbl th{padding:6px 8px;font-size:10px}
+  .k-wh-receipts-body .k-tbl th,
+  .k-wh-panel-body .k-tbl th{padding:6px 8px;font-size:10px}
   .k-wh-stock-body .k-tbl td,
-  .k-wh-receipts-body .k-tbl td{padding:5px 8px;font-size:12px}
+  .k-wh-receipts-body .k-tbl td,
+  .k-wh-panel-body .k-tbl td{padding:5px 8px;font-size:12px}
   .k-wh-stock-body .k-tbl tfoot td{padding:7px 8px}
-  .k-wh-receipts .k-wh-cta{margin-bottom:0;align-items:center}
-  .k-wh-receipts .k-wh-cta .k-btn-g{min-height:36px;padding:8px 14px;font-size:13px}
-  .k-wh-receipts .k-wh-cta-spacer{display:none}
+  .k-wh-receipts .k-wh-cta,
+  .k-wh-writeoffs .k-wh-cta{margin-bottom:0;align-items:center}
+  .k-wh-receipts .k-wh-cta .k-btn-g,
+  .k-wh-writeoffs .k-wh-cta .k-btn-g,
+  .k-wh-revisions .k-wh-cta .k-btn-g{min-height:36px;padding:8px 14px;font-size:13px}
+  .k-wh-receipts .k-wh-cta-spacer,
+  .k-wh-writeoffs .k-wh-cta-spacer{display:none}
   .k-wh-period .k-inp{padding:6px 8px;font-size:12px;min-height:0;border-radius:8px}
+  .k-wh-expiry-list{display:flex;flex-direction:column;gap:6px;padding:8px}
   .k-wh-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);min-width:0}
   .k-wh-meta b{color:var(--text);font-weight:900}
   .k-wh-money{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
@@ -487,10 +503,15 @@ const CSS = `
     .k-body-warehouse > .k-wh-shell,
     .k-wh-shell > .k-wh-body,
     .k-wh-shell > .k-wh-body > .k-wh-stock,
-    .k-wh-shell > .k-wh-body > .k-wh-receipts{flex:none;min-height:0;overflow:visible;height:auto}
+    .k-wh-shell > .k-wh-body > .k-wh-receipts,
+    .k-wh-shell > .k-wh-body > .k-wh-writeoffs,
+    .k-wh-shell > .k-wh-body > .k-wh-revisions,
+    .k-wh-shell > .k-wh-body > .k-wh-expiry{flex:none;min-height:0;overflow:visible;height:auto}
     .k-wh-stock-body,
-    .k-wh-receipts-body{overflow:visible;border:none;border-radius:0;background:transparent}
-    .k-wh-receipts .k-wh-cta-spacer{display:block}
+    .k-wh-receipts-body,
+    .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
+    .k-wh-receipts .k-wh-cta-spacer,
+    .k-wh-writeoffs .k-wh-cta-spacer{display:block}
     .k-catalog-bar{flex-wrap:wrap;gap:8px}
     .k-catalog-filters{flex:1 1 100%;order:3}
     .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}

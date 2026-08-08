@@ -78,59 +78,54 @@ function ExpiryCard({
   return (
     <div
       style={{
-        padding: '12px 14px',
-        borderRadius: 12,
+        padding: '8px 10px',
+        borderRadius: 10,
         border: `1px solid ${urgency === 'ok' ? 'var(--border)' : meta.color + '55'}`,
         background: urgency === 'ok' ? 'var(--card2)' : meta.bg,
-        marginBottom: 10,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 28, flexShrink: 0 }}>{product?.e || '📦'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 20, flexShrink: 0 }}>{product?.e || '📦'}</span>
 
-        <div style={{ flex: '1 1 200px', minWidth: 160 }}>
-          <div style={{ fontWeight: 900, fontSize: 15 }}>{row.productName}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ flex: '1 1 160px', minWidth: 140 }}>
+          <div style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.25 }}>{row.productName}</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {product?.art && <span>{product.art}</span>}
             {barcode && <span>· 🏷 {barcode}</span>}
             {row.receiptCreatedAtIso && <span>· приход {fmtDate(row.receiptCreatedAtIso)}</span>}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            Партия: <b style={{ color: 'var(--text)' }}>{row.qty}</b> {product?.unit || 'шт'}
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            <b style={{ color: 'var(--text)' }}>{row.qty}</b> {product?.unit || 'шт'}
             {price > 0 && <> · {fmtMoney(price)}/{product?.unit || 'шт'}</>}
+            {riskSum > 0 && <> · риск <b style={{ color: meta.color }}>{fmtMoney(riskSum)}</b></>}
           </div>
         </div>
 
-        <div style={{ flex: '0 0 190px', minWidth: 170, textAlign: 'right' }}>
+        <div style={{ flex: '0 0 auto', minWidth: 140, textAlign: 'right' }}>
           <span
             className="k-badge"
-            style={{ background: meta.bg, color: meta.color, fontWeight: 900 }}
+            style={{ background: meta.bg, color: meta.color, fontWeight: 900, fontSize: 10, padding: '2px 6px' }}
           >
             {daysLabel(row.daysLeft)}
           </span>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-            Срок: <b style={{ color: 'var(--text)' }}>{fmtDate(row.expiryDate)}</b>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            {fmtDate(row.expiryDate)}
           </div>
-          <div style={{ height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden', marginTop: 8 }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: meta.color, borderRadius: 3 }} />
+          <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden', marginTop: 5 }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: meta.color, borderRadius: 2 }} />
           </div>
-          {riskSum > 0 && (
-            <div style={{ fontSize: 12, marginTop: 6, fontWeight: 800, color: meta.color }}>
-              Под риском: {fmtMoney(riskSum)}
-            </div>
-          )}
         </div>
 
-        <div style={{ flexShrink: 0, alignSelf: 'center' }}>
+        <div style={{ flexShrink: 0 }}>
           <button
             type="button"
             className="k-btn k-btn-s"
-            style={{ color: 'var(--red)', fontSize: 12, whiteSpace: 'nowrap' }}
+            style={{ color: 'var(--red)', fontSize: 12, padding: '5px 10px', minHeight: 0, whiteSpace: 'nowrap' }}
             disabled={busy}
             onClick={onWriteOff}
             title="Списать эту партию с причиной «Просрочка»"
           >
-            {busy ? 'Списание…' : '📤 Списать'}
+            {busy ? '…' : '📤 Списать'}
           </button>
         </div>
       </div>
@@ -209,60 +204,52 @@ export default function WarehouseExpiryPanel({
   ]
 
   return (
-    <div>
-      <div className="k-kpis" style={{ marginBottom: 14 }}>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Партий под контролем</div>
-          <div className="kv">{expiry.length}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Просрочено</div>
-          <div className="kv" style={{ color: 'var(--red)' }}>{stats.expired}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Срочно (≤3 дня)</div>
-          <div className="kv" style={{ color: 'var(--red)' }}>{stats.urgent}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Скоро (≤7 дней)</div>
-          <div className="kv" style={{ color: 'var(--gold)' }}>{stats.soon}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Под риском</div>
-          <div className="kv" style={{ color: stats.riskSum > 0 ? 'var(--red)' : 'var(--muted)' }}>
-            {stats.riskSum > 0 ? fmtMoney(stats.riskSum) : '—'}
+    <div className="k-wh-expiry">
+      <div className="k-wh-panel-head">
+        <div className="k-wh-meta">
+          <span><b>{expiry.length}</b> партий</span>
+          <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
+            <span>Просроч. <b style={{ color: 'var(--red)' }}>{stats.expired}</b></span>
+            <span>≤3 дн. <b style={{ color: 'var(--red)' }}>{stats.urgent}</b></span>
+            <span>≤7 дн. <b style={{ color: 'var(--gold)' }}>{stats.soon}</b></span>
+            <span>
+              Риск{' '}
+              <b style={{ color: stats.riskSum > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                {stats.riskSum > 0 ? fmtMoney(stats.riskSum) : '—'}
+              </b>
+            </span>
           </div>
         </div>
-      </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14, alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: '1 1 auto' }}>
+        <div className="k-wh-filters-row">
           {urgencyTabs.map(t => (
             <button
               key={t.id}
               type="button"
               className={`k-subtab ${urgencyFlt === t.id ? 'active' : ''}`}
-              style={{ padding: '6px 12px', fontSize: 12, color: urgencyFlt !== t.id ? t.color : undefined }}
+              style={{ padding: '5px 10px', fontSize: 12, color: urgencyFlt !== t.id ? t.color : undefined }}
               onClick={() => setUrgencyFlt(t.id)}
             >
               {t.label}{t.count > 0 ? ` (${t.count})` : ''}
             </button>
           ))}
-        </div>
-        <input
-          className="k-inp"
-          style={{ flex: '1 1 200px', maxWidth: 320 }}
-          placeholder="Поиск: штрихкод, название, артикул…"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Показать на</span>
-          <select className="k-sel" style={{ width: 'auto', minWidth: 100 }} value={days} onChange={e => onDaysChange(Number(e.target.value))}>
-            <option value={7}>7 дней</option>
-            <option value={14}>14 дней</option>
-            <option value={30}>30 дней</option>
-            <option value={60}>60 дней</option>
+          <input
+            className="k-inp"
+            style={{ flex: '1 1 160px', maxWidth: 260, padding: '6px 10px', fontSize: 12, minHeight: 0 }}
+            placeholder="Поиск…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+          />
+          <select
+            className="k-sel"
+            style={{ width: 'auto', minWidth: 90, padding: '6px 8px', fontSize: 12, minHeight: 0 }}
+            value={days}
+            onChange={e => onDaysChange(Number(e.target.value))}
+          >
+            <option value={7}>7 дн.</option>
+            <option value={14}>14 дн.</option>
+            <option value={30}>30 дн.</option>
+            <option value={60}>60 дн.</option>
           </select>
         </div>
       </div>
@@ -274,17 +261,19 @@ export default function WarehouseExpiryPanel({
             : `🎉 Нет партий с истекающим сроком в ближайшие ${days} дней`}
         </div>
       ) : (
-        <div>
-          {filtered.map(row => (
-            <ExpiryCard
-              key={`${row.receiptId}-${row.productId}`}
-              row={row}
-              product={productMap.get(row.productId)}
-              rangeDays={days}
-              busy={busyKey === `${row.receiptId}-${row.productId}`}
-              onWriteOff={() => void handleWriteOff(row)}
-            />
-          ))}
+        <div className="k-wh-panel-body">
+          <div className="k-wh-expiry-list">
+            {filtered.map(row => (
+              <ExpiryCard
+                key={`${row.receiptId}-${row.productId}`}
+                row={row}
+                product={productMap.get(row.productId)}
+                rangeDays={days}
+                busy={busyKey === `${row.receiptId}-${row.productId}`}
+                onWriteOff={() => void handleWriteOff(row)}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

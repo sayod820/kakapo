@@ -536,52 +536,44 @@ export default function WarehouseRevisionsPanel({
   }
 
   return (
-    <div>
-      <div className="k-kpis" style={{ marginBottom: 14 }}>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Всего ревизий</div>
-          <div className="kv">{revisions.length}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">С излишком</div>
-          <div className="kv" style={{ color: 'var(--green)' }}>{listStats.surplusDocs}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">С недостачей</div>
-          <div className="kv" style={{ color: 'var(--red)' }}>{listStats.shortageDocs}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">Без расхождений</div>
-          <div className="kv" style={{ color: 'var(--muted)' }}>{listStats.matchedDocs}</div>
-        </div>
-        <div className="k-kpi k-statcard">
-          <div className="kl">{listStats.totalMoneyDiff < 0 ? 'Убыток (закуп)' : 'Итого по закупу'}</div>
-          <div className="kv" style={{ ...diffStyle(listStats.totalMoneyDiff) }}>
-            {listStats.totalMoneyDiff !== 0 ? formatMoneyDiff(listStats.totalMoneyDiff) : '—'}
+    <div className="k-wh-revisions">
+      <div className="k-wh-panel-head">
+        <div className="k-wh-filters-row">
+          <WarehousePeriodFilter
+            from={dateFrom}
+            to={dateTo}
+            onFromChange={setDateFrom}
+            onToChange={setDateTo}
+            onClear={() => { setDateFrom(''); setDateTo('') }}
+          />
+          {(dateFrom || dateTo) && (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <b style={{ color: 'var(--text)' }}>{filtered.length}</b> / {revisions.length}
+            </span>
+          )}
+          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            {hasDraft && !open && (
+              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
+            )}
+            <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+              + Новая ревизия
+            </button>
           </div>
         </div>
-      </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-        <WarehousePeriodFilter
-          from={dateFrom}
-          to={dateTo}
-          onFromChange={setDateFrom}
-          onToChange={setDateTo}
-          onClear={() => { setDateFrom(''); setDateTo('') }}
-        />
-        {(dateFrom || dateTo) && (
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Показано: <b style={{ color: 'var(--text)' }}>{filtered.length}</b> из {revisions.length}
-          </span>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          {hasDraft && !open && (
-            <span style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
-          )}
-          <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-            + Новая ревизия
-          </button>
+        <div className="k-wh-meta">
+          <span><b>{revisions.length}</b> ревизий</span>
+          <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
+            <span>Излишек <b style={{ color: 'var(--green)' }}>{listStats.surplusDocs}</b></span>
+            <span>Недостача <b style={{ color: 'var(--red)' }}>{listStats.shortageDocs}</b></span>
+            <span>ОК <b style={{ color: 'var(--muted)' }}>{listStats.matchedDocs}</b></span>
+            <span>
+              {listStats.totalMoneyDiff < 0 ? 'Убыток' : 'Закуп'}{' '}
+              <b style={diffStyle(listStats.totalMoneyDiff)}>
+                {listStats.totalMoneyDiff !== 0 ? formatMoneyDiff(listStats.totalMoneyDiff) : '—'}
+              </b>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -590,16 +582,16 @@ export default function WarehouseRevisionsPanel({
           {revisions.length ? 'За выбранный период ревизий нет' : 'Ревизий пока нет — нажмите «Новая ревизия»'}
         </div>
       ) : (
-        <div className="k-card k-tbl-scroll">
-          <table className="k-tbl" style={{ minWidth: 780 }}>
+        <div className="k-wh-panel-body">
+          <table className="k-tbl" style={{ minWidth: 720 }}>
             <thead>
               <tr>
                 <th>Дата</th>
-                <th className="num">Позиций</th>
+                <th className="num">Поз.</th>
                 <th className="num">Излишек</th>
                 <th className="num">Недостача</th>
-                <th className="num">Δ итого</th>
-                <th className="num">Сумма (закуп)</th>
+                <th className="num">Δ</th>
+                <th className="num">Σ закуп</th>
                 <th />
               </tr>
             </thead>
@@ -616,10 +608,10 @@ export default function WarehouseRevisionsPanel({
                 return (
                   <Fragment key={rev.id}>
                     <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : rev.id)}>
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>
                         {fmtDateTime(rev.createdAtIso)}
                         {rev.note && (
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {rev.note}
                           </div>
                         )}
@@ -638,19 +630,19 @@ export default function WarehouseRevisionsPanel({
                         {costMoneyDiff !== 0 ? formatMoneyDiff(costMoneyDiff) : '—'}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
+                        <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
+                          <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
                           <button
                             type="button"
                             className="k-btn k-btn-s"
-                            style={{ padding: '4px 10px', color: 'var(--red)' }}
+                            style={{ padding: '3px 8px', fontSize: 12, minHeight: 0, color: 'var(--red)' }}
                             disabled={!USE_API || deletingId === rev.id}
                             onClick={e => { e.stopPropagation(); void removeRevision(rev.id) }}
                             title="Удалить"
                           >
                             {deletingId === rev.id ? '…' : '🗑'}
                           </button>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 10px' }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : rev.id) }}>
+                          <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : rev.id) }}>
                             {isOpen ? '▲' : '▼'}
                           </button>
                         </div>
@@ -658,8 +650,8 @@ export default function WarehouseRevisionsPanel({
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={7} style={{ background: 'var(--card2)', padding: '12px 14px' }}>
-                          <div style={{ display: 'grid', gap: 8 }}>
+                        <td colSpan={7} style={{ background: 'var(--card2)', padding: '8px 10px' }}>
+                          <div style={{ display: 'grid', gap: 6 }}>
                             {rev.items.map((it, i) => {
                               const product = products.find(p => p.id === it.productId)
                               const barcode = product?.barcode || product?.barcodes?.[0] || ''
@@ -673,40 +665,37 @@ export default function WarehouseRevisionsPanel({
                                 <div
                                   key={i}
                                   style={{
-                                    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-                                    padding: '10px 12px', borderRadius: 10,
+                                    display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                                    padding: '6px 8px', borderRadius: 8,
                                     border: '1px solid var(--border)', background: 'var(--card)',
                                   }}
                                 >
-                                  <span style={{ fontSize: 22 }}>{product?.e || '📦'}</span>
-                                  <div style={{ flex: 1, minWidth: 140 }}>
-                                    <div style={{ fontWeight: 800 }}>{it.productName}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 16 }}>{product?.e || '📦'}</span>
+                                  <div style={{ flex: 1, minWidth: 120 }}>
+                                    <div style={{ fontWeight: 800, fontSize: 12 }}>{it.productName}</div>
+                                    <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                       {product?.art && <span>{product.art}</span>}
                                       {barcode && <span>· 🏷 {barcode}</span>}
                                     </div>
                                   </div>
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Было</div>
-                                    <div>{it.systemStock} {inputUnitLabel}</div>
+                                  <div style={{ textAlign: 'right', fontSize: 11 }}>
+                                    <span style={{ color: 'var(--muted)' }}>было </span>{it.systemStock}
                                   </div>
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Стало</div>
-                                    <div style={{ fontWeight: 900 }}>{it.countedStock} {inputUnitLabel}</div>
+                                  <div style={{ textAlign: 'right', fontSize: 11 }}>
+                                    <span style={{ color: 'var(--muted)' }}>стало </span><b>{it.countedStock}</b>
                                   </div>
-                                  <div style={{ textAlign: 'right' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ</div>
-                                    <div style={{ fontWeight: 900, ...diffStyle(it.diff) }}>{formatDiff(it.diff)} {inputUnitLabel}</div>
+                                  <div style={{ textAlign: 'right', fontWeight: 900, fontSize: 12, ...diffStyle(it.diff) }}>
+                                    {formatDiff(it.diff)} {inputUnitLabel}
                                     {diffReal && (
-                                      <div style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</div>
+                                      <div style={{ fontSize: 10, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</div>
                                     )}
                                   </div>
                                   {basisPrice > 0 && it.diff !== 0 && (
-                                    <div style={{ textAlign: 'right' }}>
-                                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                                        {it.diff < 0 ? 'Убыток' : 'Излишек'}{costPrice > 0 ? ' (закуп)' : ' (по рознице)'}
+                                    <div style={{ textAlign: 'right', fontWeight: 900, fontSize: 12, ...diffStyle(costDiff) }}>
+                                      {formatMoneyDiff(costDiff)}
+                                      <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600 }}>
+                                        {it.diff < 0 ? 'убыток' : 'излишек'}{costPrice > 0 ? '' : ' · розн.'}
                                       </div>
-                                      <div style={{ fontWeight: 900, ...diffStyle(costDiff) }}>{formatMoneyDiff(costDiff)}</div>
                                     </div>
                                   )}
                                 </div>
