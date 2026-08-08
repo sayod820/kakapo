@@ -1088,7 +1088,7 @@ export default function WarehouseReceiptsPanel({
                     />
                   </div>
                   <div className="k-rcpt-side-total">
-                    <span>Общая сумма</span>
+                    <span>Общая сумма закуп</span>
                     <strong>{fmtMoney(totals.costTotal)}</strong>
                   </div>
                   <div className="k-field">
@@ -1212,7 +1212,7 @@ export default function WarehouseReceiptsPanel({
                 </div>
                 <div className="k-rcpt-stat c3">
                   <b>{fmtMoney(totals.costTotal)}</b>
-                  <span>Общая сумма</span>
+                  <span>Общая сумма закуп</span>
                 </div>
                 <div className="k-rcpt-stat c4">
                   <b>{fmtMoney(totals.debt)}</b>
