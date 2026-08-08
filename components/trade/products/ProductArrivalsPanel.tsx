@@ -25,6 +25,14 @@ function bulkSummary(layer: ProductStockLayer) {
   return `от ${best.minQty} шт → ${best.price.toFixed(2)}`
 }
 
+/** Закуп показываем только у партий со склада (не ручной приход из торговли) */
+function isWarehouseArrival(layer: ProductStockLayer) {
+  const name = (layer.supplierName || '').trim()
+  if (!name) return false
+  if (name === 'Ручной приход' || name === 'Импорт CSV') return false
+  return true
+}
+
 function receiptFromLayer(product: Product, layer: ProductStockLayer): StockReceipt {
   return {
     id: layer.receiptId,
@@ -65,7 +73,6 @@ export default function ProductArrivalsPanel({
   const [editId, setEditId] = useState<string | null>(null)
 
   const [qty, setQty] = useState('')
-  const [costPrice, setCostPrice] = useState('')
   const [retailPrice, setRetailPrice] = useState(String(product.price ?? ''))
   const [bulkPricing, setBulkPricing] = useState<BulkPricingRow[]>([])
   const [expiryDate, setExpiryDate] = useState('')
@@ -97,7 +104,6 @@ export default function ProductArrivalsPanel({
 
   function initAddForm() {
     setQty('')
-    setCostPrice(product.costPrice != null ? String(product.costPrice) : '')
     setRetailPrice(String(product.price ?? ''))
     setBulkPricing([])
     setExpiryDate('')
@@ -152,7 +158,7 @@ export default function ProductArrivalsPanel({
     setSaving(true)
     setMsg('')
     try {
-      const cost = Number(costPrice) || 0
+      const cost = 0
       const retail = Number(retailPrice) || Number(product.price) || 0
       const bulk = serializeBulkPricing(bulkPricing)
       const res = await createStockReceiptSafe({
@@ -247,11 +253,13 @@ export default function ProductArrivalsPanel({
   if (!open) return null
 
   const totalQty = layers.reduce((s, l) => s + l.remainingQty, 0)
+  const showCostCol = layers.some(isWarehouseArrival)
   const bulkHint = formatBulkPricingHint({
     price: Number(retailPrice) || Number(product.price) || 0,
     sellType: product.sellType || 'piece',
     bulkPricing: serializeBulkPricing(bulkPricing),
   })
+  const tableColSpan = showCostCol ? 11 : 10
 
   return (
     <div className="k-modal-bg k-modal-fs-bg" onClick={requestClose}>
@@ -301,10 +309,6 @@ export default function ProductArrivalsPanel({
                   <input className="k-inp" type="text" inputMode="decimal" value={qty} onChange={e => { setQty(sanitizeDecimal(e.target.value)); markAddDirty() }} />
                 </div>
                 <div className="k-field">
-                  <label>Закупочная цена</label>
-                  <input className="k-inp" type="text" inputMode="decimal" value={costPrice} onChange={e => { setCostPrice(sanitizeDecimal(e.target.value)); markAddDirty() }} />
-                </div>
-                <div className="k-field">
                   <label>Розничная цена</label>
                   <input className="k-inp" type="text" inputMode="decimal" value={retailPrice} onChange={e => { setRetailPrice(sanitizeDecimal(e.target.value)); markAddDirty() }} />
                 </div>
@@ -339,6 +343,7 @@ export default function ProductArrivalsPanel({
                     <th>Поставщик</th>
                     <th className="num">Количество</th>
                     <th className="num">Остаток</th>
+                    {showCostCol && <th className="num">Закуп</th>}
                     <th className="num">Розница</th>
                     <th>Опт</th>
                     <th>Срок</th>
@@ -362,6 +367,11 @@ export default function ProductArrivalsPanel({
                         <td style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.qty}</td>
                         <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
+                        {showCostCol && (
+                          <td className="num">
+                            {isWarehouseArrival(layer) ? money(layer.costPrice) : '—'}
+                          </td>
+                        )}
                         <td className="num" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
                         <td style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
                         <td style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
@@ -385,7 +395,7 @@ export default function ProductArrivalsPanel({
                       </tr>
                       {editId === layer.receiptId && (
                         <tr>
-                          <td colSpan={10} style={{ background: 'var(--card2)', padding: 14 }}>
+                          <td colSpan={tableColSpan} style={{ background: 'var(--card2)', padding: 14 }}>
                             <div className="k-grid2" style={{ marginBottom: 10, maxWidth: 640 }}>
                               <div className="k-field">
                                 <label>Количество</label>
