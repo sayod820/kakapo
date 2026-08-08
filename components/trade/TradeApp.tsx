@@ -302,21 +302,69 @@ const CSS = `
   }
   .k-receipt-scroll{
     flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden;
-    -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-    padding:8px 12px 16px
+    -webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0
   }
-  .k-receipt-modal .k-modal-h{padding:8px 12px}
-  .k-receipt-modal .k-modal-h b{font-size:14px}
+  .k-receipt-modal .k-modal-h{padding:10px 14px}
+  .k-receipt-modal .k-modal-h b{font-size:15px}
   .k-receipt-modal .k-field label{font-size:11px;margin-bottom:3px}
   .k-receipt-modal .k-inp,
-  .k-receipt-modal .k-sel{padding:7px 9px;font-size:13px;border-radius:8px}
+  .k-receipt-modal .k-sel{padding:8px 10px;font-size:13px;border-radius:8px}
   .k-receipt-modal-actions{
-    flex-shrink:0;padding:8px 12px;border-top:1px solid var(--border);background:var(--panel);
+    flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--panel);
     display:flex;gap:8px;flex-wrap:wrap;align-items:center
   }
-  .k-receipt-modal-actions .k-btn-primary-wide{flex:1;min-width:180px;padding:10px 14px;font-size:13px}
+  .k-receipt-modal-actions .k-btn-primary-wide{flex:1;min-width:180px;padding:11px 16px;font-size:14px}
   .k-receipt-modal-actions .k-btn-row{display:flex;gap:6px;flex-wrap:wrap}
   .k-receipt-modal-actions .k-btn-s{padding:8px 12px;font-size:12px;min-height:0}
+  .k-rcpt-top{flex-shrink:0;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--card);display:flex;flex-direction:column;gap:10px}
+  .k-rcpt-top-row{display:grid;grid-template-columns:1.4fr .7fr;gap:10px}
+  .k-rcpt-totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .k-rcpt-total{
+    padding:8px 10px;border-radius:10px;background:var(--card2);border:1px solid var(--border);min-width:0
+  }
+  .k-rcpt-total .l{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+  .k-rcpt-total .v{font-size:15px;font-weight:900;margin-top:2px;line-height:1.2;word-break:break-word}
+  .k-rcpt-body{flex:1;min-height:0;overflow:auto;padding:10px 14px 12px;-webkit-overflow-scrolling:touch}
+  .k-rcpt-tools{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .k-rcpt-tools .k-inp{flex:1;min-width:0}
+  .k-rcpt-list{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card)}
+  .k-rcpt-list-h{
+    display:grid;grid-template-columns:36px minmax(0,1.6fr) 72px 92px 92px 96px;
+    gap:8px;padding:7px 10px;background:var(--card2);border-bottom:1px solid var(--border);
+    font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em
+  }
+  .k-rcpt-row{
+    display:grid;grid-template-columns:36px minmax(0,1.6fr) 72px 92px 92px 96px;
+    gap:8px;padding:8px 10px;align-items:center;border-bottom:1px solid var(--tbl-line);
+    cursor:pointer;background:var(--card)
+  }
+  .k-rcpt-row:last-child{border-bottom:none}
+  .k-rcpt-row:hover{background:var(--hover)}
+  .k-rcpt-row.is-active{background:rgba(31,215,96,.07);box-shadow:inset 3px 0 0 var(--green)}
+  .k-rcpt-row .num{text-align:right;font-variant-numeric:tabular-nums;font-size:12px;font-weight:800}
+  .k-rcpt-row .idx{font-size:11px;font-weight:900;color:var(--muted)}
+  .k-rcpt-name{min-width:0}
+  .k-rcpt-name b{display:block;font-size:13px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .k-rcpt-name span{display:block;font-size:10px;color:var(--muted);margin-top:1px}
+  .k-rcpt-acts{display:flex;gap:3px;justify-content:flex-end}
+  .k-rcpt-acts .k-btn{padding:3px 7px;font-size:11px;min-height:0}
+  .k-rcpt-edit{
+    grid-column:1/-1;margin:2px 0 6px;padding:12px;border-radius:10px;
+    border:1px solid rgba(31,215,96,.35);background:rgba(31,215,96,.05)
+  }
+  .k-rcpt-edit-h{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .k-rcpt-edit-h b{font-size:14px;font-weight:900;flex:1;min-width:120px}
+  .k-rcpt-edit-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .k-rcpt-edit-grid .k-field{margin-bottom:0}
+  .k-rcpt-edit-foot{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .k-rcpt-edit-foot .k-btn-g{margin-left:auto;min-width:140px}
+  .k-rcpt-add{
+    flex-shrink:0;margin:0 14px 12px;padding:12px;border-radius:12px;
+    border:1.5px dashed rgba(31,215,96,.45);background:rgba(31,215,96,.04)
+  }
+  .k-rcpt-add-h{font-size:12px;font-weight:900;color:var(--green);margin-bottom:8px}
+  .k-rcpt-warn{margin:0 14px 8px;padding:8px 10px;border-radius:8px;font-size:11px;font-weight:700;color:var(--gold);background:rgba(255,184,0,.1);border:1px solid rgba(255,184,0,.25)}
+  .k-rcpt-empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
   .k-wh-cta{
     display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px
   }
@@ -567,13 +615,23 @@ const CSS = `
     .k-product-list-body{flex:1;min-height:0;max-height:none;overflow:auto}
     .k-tbl{font-size:12px}
     .k-tbl th,.k-tbl td{padding:8px 6px}
-    .k-wh-cta{
-      position:fixed;left:10px;right:10px;
-      bottom:calc(64px + env(safe-area-inset-bottom,0px));
-      z-index:140;margin:0;padding:0;
-      background:transparent;box-shadow:none;
-      flex-direction:column;align-items:stretch;justify-content:flex-start
+    .k-rcpt-top-row{grid-template-columns:1fr}
+    .k-rcpt-totals{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .k-rcpt-list-h{display:none}
+    .k-rcpt-row{
+      grid-template-columns:28px minmax(0,1fr) auto;
+      gap:6px 8px
     }
+    .k-rcpt-row > :nth-child(3),
+    .k-rcpt-row > :nth-child(4),
+    .k-rcpt-row > :nth-child(5){display:none}
+    .k-rcpt-row .k-rcpt-acts{grid-column:3;grid-row:1}
+    .k-rcpt-name{grid-column:2}
+    .k-rcpt-edit-grid{grid-template-columns:1fr 1fr}
+    .k-rcpt-edit-foot .k-btn-g{margin-left:0;width:100%}
+    .k-rcpt-add{margin:0 10px 10px}
+    .k-rcpt-body{padding:8px 10px 10px}
+    .k-rcpt-top{padding:8px 10px}
     .k-wh-cta .k-btn-g{
       width:100%;min-height:50px;font-size:15px;
       box-shadow:0 10px 28px rgba(0,0,0,.38)

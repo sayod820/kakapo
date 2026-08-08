@@ -87,6 +87,7 @@ function ReceiptLineSummary({
   onDuplicate,
   onRemove,
   cardRef,
+  active,
 }: {
   line: ReceiptDraftLine
   idx: number
@@ -95,6 +96,7 @@ function ReceiptLineSummary({
   onDuplicate: () => void
   onRemove: () => void
   cardRef: (el: HTMLDivElement | null) => void
+  active?: boolean
 }) {
   const lineCost = linePurchaseSum(line)
   const lineRetail = (Number(line.qty) || 0) * (Number(line.retailPrice) || 0)
@@ -107,35 +109,25 @@ function ReceiptLineSummary({
   return (
     <div
       ref={cardRef}
+      className={`k-rcpt-row${active ? ' is-active' : ''}`}
       onClick={onActivate}
-      style={{
-        padding: '6px 10px',
-        borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: 'var(--card2)',
-        marginBottom: 5,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        cursor: 'pointer',
-        flexWrap: 'wrap',
-      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate() } }}
     >
-      <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)', minWidth: 16 }}>{idx + 1}</span>
-      <span style={{ fontSize: 16, flexShrink: 0 }}>{product.e || '📦'}</span>
-      <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-        <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>{product.name}</div>
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
-          {qtyText}{line.expiryDate && <> · срок {line.expiryDate}</>}
-        </div>
+      <span className="idx">{idx + 1}</span>
+      <div className="k-rcpt-name">
+        <b>{product.e || '📦'} {product.name}</b>
+        <span>{qtyText}{line.expiryDate ? ` · срок ${line.expiryDate}` : ''}</span>
       </div>
-      <div style={{ display: 'flex', gap: 12, flexShrink: 0, fontSize: 12 }}>
-        <b>{fmtMoney(lineCost)}</b>
-        <b style={{ color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</b>
+      <div className="num">{formatQty(qty)}</div>
+      <div className="num">{fmtMoney(lineCost)}</div>
+      <div className="num" style={{ color: 'var(--green)' }}>{lineRetail > 0 ? fmtMoney(lineRetail) : '—'}</div>
+      <div className="k-rcpt-acts" onClick={e => e.stopPropagation()}>
+        <button type="button" className="k-btn k-btn-s" title="Дублировать" onClick={onDuplicate}>⧉</button>
+        <button type="button" className="k-btn k-btn-s" title="Изменить" onClick={onActivate}>✎</button>
+        <button type="button" className="k-btn k-btn-s" title="Удалить" onClick={onRemove}>✕</button>
       </div>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} title="Дублировать товар" onClick={e => { e.stopPropagation(); onDuplicate() }}>⧉</button>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} onClick={e => { e.stopPropagation(); onActivate() }}>✎</button>
-      <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 7px', fontSize: 11, flexShrink: 0, minHeight: 0 }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
     </div>
   )
 }
@@ -191,93 +183,78 @@ function ReceiptLineCard({
     : null
 
   return (
-    <div
-      ref={cardRef}
-      style={{
-        padding: 10,
-        borderRadius: 10,
-        border: '1px solid var(--green)',
-        background: 'rgba(31,215,96,.06)',
-        marginBottom: 6,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)', minWidth: 16 }}>{idx + 1}</span>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 18 }}>{product.e || '📦'}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.25 }}>{product.name}</div>
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
-              {product.art} · склад {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
-            </div>
-          </div>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '4px 8px', minHeight: 0 }} onClick={onDuplicate} title="Дублировать товар">⧉</button>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '4px 8px', minHeight: 0 }} onClick={onClear}>Сменить</button>
-        </div>
+    <div ref={cardRef} className="k-rcpt-edit">
+      <div className="k-rcpt-edit-h">
+        <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--muted)' }}>#{idx + 1}</span>
+        <span style={{ fontSize: 20 }}>{product.e || '📦'}</span>
+        <b>{product.name}</b>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {product.art} · склад {formatQty(Number(product.stock) || 0)} {productUnitLabel(product.unit)}
+        </span>
+        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11, minHeight: 0 }} onClick={onDuplicate} title="Дублировать">⧉</button>
+        <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11, minHeight: 0 }} onClick={onClear}>Сменить</button>
         {canRemove && (
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', minHeight: 0 }} onClick={onRemove}>✕</button>
+          <button type="button" className="k-btn k-btn-s" style={{ padding: '4px 8px', fontSize: 11, minHeight: 0 }} onClick={onRemove}>✕</button>
         )}
       </div>
 
-      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 6 }}>
-        <div className="k-field" style={{ marginBottom: 0 }}>
+      <div className="k-rcpt-edit-grid">
+        <div className="k-field">
           <label>Кол-во ({inputUnitLabel})</label>
           <input ref={qtyRef} className="k-inp" type="text" inputMode="decimal" value={line.qty} onChange={e => onQty(sanitizeDecimalInput(e.target.value))} />
           {realWorld && (
             <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>= {formatQty(realWorld.value)} {realWorld.label}</div>
           )}
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Σ закуп</label>
+        <div className="k-field">
+          <label>Сумма закупки</label>
           <input
             className="k-inp"
             type="text"
             inputMode="decimal"
             value={line.purchaseTotal}
             onChange={e => onPurchaseTotal(sanitizeDecimalInput(e.target.value))}
-            placeholder={qtyNum > 0 && Number(line.costPrice) > 0 ? String(roundMoney(qtyNum * Number(line.costPrice))) : '230'}
+            placeholder={qtyNum > 0 && Number(line.costPrice) > 0 ? String(roundMoney(qtyNum * Number(line.costPrice))) : '0'}
           />
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>За {unit}</label>
+        <div className="k-field">
+          <label>Себест. за {unit}</label>
           <input className="k-inp" type="text" inputMode="decimal" value={line.costPrice} onChange={e => onCost(sanitizeDecimalInput(e.target.value))} />
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
+        <div className="k-field">
           <label>Наценка %</label>
           <input className="k-inp" type="text" inputMode="decimal" value={line.markupPct} onChange={e => onMarkup(sanitizeDecimalInput(e.target.value))} placeholder="30" />
+          <div style={{ display: 'flex', gap: 4, marginTop: 5, flexWrap: 'wrap' }}>
+            {QUICK_MARKUPS.map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onQuickMarkup(p)}
+                style={{
+                  border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
+                  background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
+                  color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
+                  borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                }}
+              >
+                {p}%
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Розница</label>
+        <div className="k-field">
+          <label>Розница (сом)</label>
           <input className="k-inp" type="text" inputMode="decimal" value={line.retailPrice} onChange={e => onRetail(sanitizeDecimalInput(e.target.value))} />
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Срок</label>
+        <div className="k-field">
+          <label>Срок годности</label>
           <input className="k-inp" type="date" value={line.expiryDate} onChange={e => onExpiry(e.target.value)} />
         </div>
       </div>
 
       {costHint && (
-        <div style={{ fontSize: 10, color: 'var(--green)', marginTop: 6, fontWeight: 700 }}>↳ {costHint}</div>
+        <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 8, fontWeight: 700 }}>↳ {costHint}</div>
       )}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700 }}>%</span>
-        {QUICK_MARKUPS.map(p => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => onQuickMarkup(p)}
-            style={{
-              border: `1px solid ${line.markupPct === String(p) ? 'var(--green)' : 'var(--border)'}`,
-              background: line.markupPct === String(p) ? 'var(--green-d)' : 'var(--card)',
-              color: line.markupPct === String(p) ? 'var(--green)' : 'var(--muted)',
-              borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer',
-            }}
-          >
-            {p}%
-          </button>
-        ))}
-      </div>
 
       <div style={{ marginTop: 8 }}>
         <BulkPricingFields
@@ -287,25 +264,23 @@ function ReceiptLineCard({
         />
       </div>
 
-      {(lineCost > 0 || lineRetail > 0) && (
-        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <span>Закуп: <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b></span>
-          <span>Продажа: <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b></span>
+      <div className="k-rcpt-edit-foot">
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Закуп <b style={{ color: 'var(--text)' }}>{fmtMoney(lineCost)}</b>
+          {' · '}Продажа <b style={{ color: 'var(--green)' }}>{fmtMoney(lineRetail)}</b>
           {lineCost > 0 && lineRetail > 0 && (
-            <span>Наценка: <b style={{ color: 'var(--green)' }}>+{markupFromRetail(lineCost / (Number(line.qty) || 1), lineRetail / (Number(line.qty) || 1)).toFixed(1)}%</b></span>
+            <> · <b style={{ color: 'var(--green)' }}>+{markupFromRetail(lineCost / (Number(line.qty) || 1), lineRetail / (Number(line.qty) || 1)).toFixed(1)}%</b></>
           )}
-        </div>
-      )}
-
-      <button
-        type="button"
-        className="k-btn k-btn-g"
-        style={{ marginTop: 8, width: '100%', padding: '8px 12px', fontSize: 13 }}
-        disabled={!(Number(line.qty) > 0)}
-        onClick={onDone}
-      >
-        ✓ Готово
-      </button>
+        </span>
+        <button
+          type="button"
+          className="k-btn k-btn-g"
+          disabled={!(Number(line.qty) > 0)}
+          onClick={onDone}
+        >
+          ✓ Готово
+        </button>
+      </div>
     </div>
   )
 }
@@ -1006,164 +981,176 @@ export default function WarehouseReceiptsPanel({
           >
             <div className="k-modal-h" style={{ flexShrink: 0 }}>
               <div>
-                <b>{editingId ? '✎ Редактирование прихода' : '📥 Новый приход'}</b>
-                <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600, marginTop: 1 }}>
-                  {editingId ? 'Сохраните — остатки пересчитаются' : 'Товар → количество → провести'}
+                <b>{editingId ? 'Редактирование прихода' : 'Новый приход'}</b>
+                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
+                  {editingId ? 'Изменения пересчитают остатки на складе' : 'Добавьте товары, укажите количество и цены'}
                 </div>
               </div>
               <button type="button" onClick={closeForm}>✕</button>
             </div>
 
-            <div
-              ref={bodyRef}
-              className="k-modal-b k-receipt-scroll"
-              onScroll={onBodyScroll}
-            >
+            <div className="k-rcpt-top">
               {editingReceipt && receiptHasConsumption(editingReceipt) && (
-                <div style={{ padding: '6px 0', marginBottom: 6, color: 'var(--gold)', fontSize: 11, fontWeight: 700 }}>
-                  ⚠ Часть товара уже списана — остатки пересчитаются
+                <div className="k-rcpt-warn" style={{ margin: 0 }}>
+                  ⚠ Часть товара уже списана — при сохранении остатки пересчитаются
                 </div>
               )}
-
-              <div style={{ padding: '0 0 8px', marginBottom: 6, borderBottom: '1px solid var(--border)' }}>
-                <div className="k-grid2" style={{ marginBottom: 0, gap: 8 }}>
-                  <div className="k-field" style={{ marginBottom: 0 }}>
-                    <label>Поставщик</label>
-                    <WarehouseSupplierSelect
-                      suppliers={suppliers}
-                      value={supplierId}
-                      onChange={id => setDraftPatch({ supplierId: id })}
-                      onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
-                      onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
-                    />
-                  </div>
-                  <div className="k-field" style={{ marginBottom: 0 }}>
-                    <label>Оплачено сейчас</label>
-                    <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
-                  </div>
+              <div className="k-rcpt-top-row">
+                <div className="k-field" style={{ marginBottom: 0 }}>
+                  <label>Поставщик</label>
+                  <WarehouseSupplierSelect
+                    suppliers={suppliers}
+                    value={supplierId}
+                    onChange={id => setDraftPatch({ supplierId: id })}
+                    onCreateNew={name => { setNewSupplierName(name); setEditingSupplier(null); setNewSupplierOpen(true) }}
+                    onEdit={s => { setEditingSupplier(s); setNewSupplierOpen(true) }}
+                  />
+                </div>
+                <div className="k-field" style={{ marginBottom: 0 }}>
+                  <label>Оплачено сейчас</label>
+                  <input className="k-inp" type="text" inputMode="decimal" value={paidNow} onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })} />
                 </div>
               </div>
-
-              <div className="k-receipt-summary" style={{
-                position: 'sticky', top: 0, zIndex: 2,
-                margin: '0 -12px 8px', padding: '6px 12px',
-                borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-              }}>
-                <div><div>Товаров</div><div>{totals.withProduct}</div></div>
-                <div><div>Закуп</div><div>{fmtMoney(totals.costTotal)}</div></div>
-                <div><div>Продажа</div><div style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div></div>
-                <div>
-                  <div>Наценка</div>
-                  <div style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
+              <div className="k-rcpt-totals">
+                <div className="k-rcpt-total">
+                  <div className="l">Товаров</div>
+                  <div className="v">{totals.withProduct}</div>
+                </div>
+                <div className="k-rcpt-total">
+                  <div className="l">Закуп</div>
+                  <div className="v">{fmtMoney(totals.costTotal)}</div>
+                </div>
+                <div className="k-rcpt-total">
+                  <div className="l">Продажа</div>
+                  <div className="v" style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</div>
+                </div>
+                <div className="k-rcpt-total">
+                  <div className="l">Наценка</div>
+                  <div className="v" style={{ color: totals.markup >= 0 ? 'var(--green)' : 'var(--muted)' }}>
                     {totals.costTotal > 0 ? `${totals.markup >= 0 ? '+' : ''}${totals.markup.toFixed(1)}%` : '—'}
                   </div>
                 </div>
               </div>
+            </div>
 
-              {filledLines.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <input
-                    className="k-inp"
-                    value={listQ}
-                    onChange={e => setListQ(e.target.value)}
-                    placeholder="Поиск в приходе…"
-                    style={{ padding: '7px 10px', fontSize: 13 }}
-                  />
-                  {listQuery && (
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                      Найдено: <b style={{ color: 'var(--text)' }}>{visibleFilledLines.length}</b> / {filledLines.length}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {visibleFilledLines.map((line) => {
-                const product = products.find(p => p.id === line.productId) || null
-                if (!product) return null
-                const idx = filledLines.findIndex(l => l.key === line.key)
-                const isActive = activeLineKey === line.key
-                if (!isActive) {
-                  return (
-                    <ReceiptLineSummary
-                      key={line.key}
-                      line={line}
-                      idx={idx}
-                      product={product}
-                      onActivate={() => setActiveLine(line.key)}
-                      onDuplicate={() => openDuplicateProduct(product)}
-                      onRemove={() => setDraft(prev => ({
-                        ...prev,
-                        lines: prev.lines.filter(l => l.key !== line.key),
-                        activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                      }))}
-                      cardRef={el => { lineRefs.current[line.key] = el }}
+            <div
+              ref={bodyRef}
+              className="k-rcpt-body"
+              onScroll={onBodyScroll}
+            >
+                {filledLines.length > 0 && (
+                  <div className="k-rcpt-tools">
+                    <input
+                      className="k-inp"
+                      value={listQ}
+                      onChange={e => setListQ(e.target.value)}
+                      placeholder="Найти в списке: название, артикул, штрихкод…"
                     />
-                  )
-                }
-                return (
-                  <ReceiptLineCard
-                    key={line.key}
-                    line={line}
-                    idx={idx}
-                    product={product}
-                    canRemove={filledLines.length > 0}
-                    onClear={() => selectProduct(line.key, null)}
-                    onDuplicate={() => openDuplicateProduct(product)}
-                    onRemove={() => setDraft(prev => ({
-                      ...prev,
-                      lines: prev.lines.filter(l => l.key !== line.key),
-                      activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                    }))}
-                    onDone={() => setActiveLine(null)}
-                    onQty={v => setLineQty(line.key, v)}
-                    onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
-                    onCost={v => setLineCost(line.key, v)}
-                    onMarkup={v => setLineMarkup(line.key, v)}
-                    onRetail={v => setLineRetail(line.key, v)}
-                    onExpiry={v => updateLine(line.key, { expiryDate: v })}
-                    onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
-                    onQuickMarkup={p => setLineMarkup(line.key, String(p))}
-                    cardRef={el => { lineRefs.current[line.key] = el }}
-                    qtyRef={el => { qtyRefs.current[line.key] = el }}
-                  />
-                )
-              })}
+                    {listQuery && (
+                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {visibleFilledLines.length}/{filledLines.length}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {filledLines.length === 0 ? (
+                  <div className="k-rcpt-empty">Список пуст — добавьте первый товар ниже</div>
+                ) : (
+                  <div className="k-rcpt-list">
+                    <div className="k-rcpt-list-h">
+                      <span>#</span>
+                      <span>Товар</span>
+                      <span className="num" style={{ textAlign: 'right' }}>Кол-во</span>
+                      <span className="num" style={{ textAlign: 'right' }}>Закуп</span>
+                      <span className="num" style={{ textAlign: 'right' }}>Продажа</span>
+                      <span />
+                    </div>
+                    {visibleFilledLines.map((line) => {
+                      const product = products.find(p => p.id === line.productId) || null
+                      if (!product) return null
+                      const idx = filledLines.findIndex(l => l.key === line.key)
+                      const isActive = activeLineKey === line.key
+                      return (
+                        <Fragment key={line.key}>
+                          <ReceiptLineSummary
+                            line={line}
+                            idx={idx}
+                            product={product}
+                            active={isActive}
+                            onActivate={() => setActiveLine(isActive ? null : line.key)}
+                            onDuplicate={() => openDuplicateProduct(product)}
+                            onRemove={() => setDraft(prev => ({
+                              ...prev,
+                              lines: prev.lines.filter(l => l.key !== line.key),
+                              activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                            }))}
+                            cardRef={el => { lineRefs.current[line.key] = el }}
+                          />
+                          {isActive && (
+                            <ReceiptLineCard
+                              line={line}
+                              idx={idx}
+                              product={product}
+                              canRemove={filledLines.length > 0}
+                              onClear={() => selectProduct(line.key, null)}
+                              onDuplicate={() => openDuplicateProduct(product)}
+                              onRemove={() => setDraft(prev => ({
+                                ...prev,
+                                lines: prev.lines.filter(l => l.key !== line.key),
+                                activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                              }))}
+                              onDone={() => setActiveLine(null)}
+                              onQty={v => setLineQty(line.key, v)}
+                              onPurchaseTotal={v => setLinePurchaseTotal(line.key, v)}
+                              onCost={v => setLineCost(line.key, v)}
+                              onMarkup={v => setLineMarkup(line.key, v)}
+                              onRetail={v => setLineRetail(line.key, v)}
+                              onExpiry={v => updateLine(line.key, { expiryDate: v })}
+                              onBulkPricing={tiers => updateLine(line.key, { bulkPricing: tiers })}
+                              onQuickMarkup={p => setLineMarkup(line.key, String(p))}
+                              cardRef={el => { lineRefs.current[`${line.key}-edit`] = el }}
+                              qtyRef={el => { qtyRefs.current[line.key] = el }}
+                            />
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </div>
+                )}
+            </div>
 
               {(() => {
                 const pending = [...lines].reverse().find(l => !l.productId)!
                 const pendingIdx = lines.filter(l => l.productId).length
                 return (
                   <div
+                    className="k-rcpt-add"
                     data-receipt-pending="1"
                     ref={el => { if (pending) lineRefs.current[pending.key] = el }}
-                    style={{
-                      padding: 10,
-                      borderRadius: 10,
-                      border: '1.5px dashed var(--green)',
-                      background: 'rgba(31,215,96,.04)',
-                      marginTop: listQuery ? 8 : 0,
-                      marginBottom: 6,
-                    }}
                   >
-                    <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--green)', marginBottom: 6 }}>
-                      {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите или создайте товар'}
+                    <div className="k-rcpt-add-h">
+                      {filledLines.length ? `Добавить товар · ${pendingIdx + 1}` : 'Добавить первый товар'}
                     </div>
                     <WarehouseProductSelect
                       products={products}
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
                       onCreateNew={(name, meta) => openNewProduct(pending.key, name, meta?.barcode || '')}
-                      placeholder="Поиск: название, артикул, штрихкод…"
+                      placeholder="Поиск или сканер: название, артикул, штрихкод…"
                     />
-                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 6, fontSize: 11, padding: '5px 10px', minHeight: 0 }} onClick={() => openNewProduct(pending.key, '')}>
+                    <button type="button" className="k-btn k-btn-s" style={{ marginTop: 8, fontSize: 12, padding: '6px 10px', minHeight: 0 }} onClick={() => openNewProduct(pending.key, '')}>
                       + Создать новый товар
                     </button>
                   </div>
                 )
               })()}
 
-              {msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>{msg}</div>}
-            </div>
+              {msg && (
+                <div style={{ margin: '0 14px 12px', padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+                  {msg}
+                </div>
+              )}
 
             <div className="k-receipt-modal-actions">
               <button type="button" className="k-btn k-btn-g k-btn-primary-wide" disabled={saving} onClick={() => void submit()}>
