@@ -14,7 +14,6 @@ import {
   cacheFinanceTruth,
   readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
-import OfflineNotice from './OfflineNotice'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
   REPORT_PERIODS,
@@ -41,15 +40,15 @@ type FinanceTab =
   | 'deposits'
   | 'debts'
 
-const FINANCE_TABS: { id: FinanceTab; label: string; icon: string }[] = [
-  { id: 'alerts', label: 'Сигналы', icon: '⚠️' },
-  { id: 'till', label: 'Ожид. vs факт', icon: '⚖️' },
-  { id: 'cashbook', label: 'Кассовая книга', icon: '📒' },
-  { id: 'journal', label: 'Журнал', icon: '📋' },
-  { id: 'profit', label: 'Прибыль', icon: '💎' },
-  { id: 'expenses', label: 'Расходы', icon: '🧾' },
-  { id: 'deposits', label: 'Вклады', icon: '🏦' },
-  { id: 'debts', label: 'Долги', icon: '💳' },
+const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string }[] = [
+  { id: 'cashbook', label: 'Книга', icon: '📒', hint: 'Наличные: приход, расход и остаток' },
+  { id: 'alerts', label: 'Сигналы', icon: '⚠️', hint: 'Недостачи, излишки и долгие смены' },
+  { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
+  { id: 'journal', label: 'Журнал', icon: '📋', hint: 'Все операции: кто, когда, сколько' },
+  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка минус себестоимость' },
+  { id: 'expenses', label: 'Расходы', icon: '🧾', hint: 'Траты бизнеса за период' },
+  { id: 'deposits', label: 'Вклады', icon: '🏦', hint: 'Свои деньги в кассу и снятия' },
+  { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты должны нам · мы — поставщикам' },
 ]
 
 export default function FinanceModule() {
@@ -72,13 +71,14 @@ export default function FinanceModule() {
   const [posFilter, setPosFilter] = useState('')
   const [cashierFilter, setCashierFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [tab, setTab] = useState<FinanceTab>('alerts')
+  const [tab, setTab] = useState<FinanceTab>('cashbook')
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthError, setTruthError] = useState('')
   const [truthLocal, setTruthLocal] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const [expOpen, setExpOpen] = useState(false)
   const [expCat, setExpCat] = useState('Прочее')
@@ -284,14 +284,8 @@ export default function FinanceModule() {
 
   if (!apiReady) {
     return (
-      <div>
-        <div className="k-page-h">
-          <div>
-            <h1>💰 Финансы</h1>
-            <div className="sub">Одно место правды — цифры из базы</div>
-          </div>
-        </div>
-        <div className="k-card" style={{ padding: 28, textAlign: 'center', color: 'var(--muted)' }}>Загрузка…</div>
+      <div className="k-finance-mod">
+        <div className="k-empty">Загрузка…</div>
       </div>
     )
   }
@@ -301,146 +295,155 @@ export default function FinanceModule() {
   const cashBook = truth?.cashBook
   const profit = truth?.profit
   const journal: MoneyLedgerEntry[] = truth?.journal || []
+  const tabMeta = FINANCE_TABS.find(t => t.id === tab)
+  const filterCount = [posFilter, cashierFilter, typeFilter].filter(Boolean).length
 
   return (
-    <div>
-      <div className="k-page-h">
-        <div>
-          <h1>💰 Финансы</h1>
-          <div className="sub">
-            {truthLocal
-              ? 'Данные локальные · обновятся при связи'
-              : 'Все суммы считаются на сервере из БД · касса, журнал, прибыль'}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="k-btn k-btn-g"
-            disabled={!canEditOffline}
-            title={canEditOffline ? undefined : OFFLINE_BLOCK_MESSAGE}
-            onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
-          >
-            + Вклад
-          </button>
-          <button
-            type="button"
-            className="k-btn k-btn-s"
-            disabled={!canEditOffline}
-            title={canEditOffline ? undefined : OFFLINE_BLOCK_MESSAGE}
-            onClick={() => { setMsg(''); setExpOpen(true) }}
-          >
-            + Расход
-          </button>
-          <button type="button" className="k-btn k-btn-s" disabled={refreshing} onClick={() => void refresh()}>
-            {refreshing ? '↻ …' : '↻ Обновить'}
-          </button>
-        </div>
-      </div>
-
-      <OfflineNotice section="финансы" />
-
-      {(apiError || truthError) && (
-        <div className="k-alert" style={{ marginBottom: 14, background: '#2a1420', color: '#FF8A8A', border: '1px solid #5a2030' }}>
-          {truthError || apiError}
-        </div>
+    <div className="k-finance-mod">
+      {truthLocal && (
+        <div className="k-fin-sync-bar">Локальные данные · обновятся при связи</div>
       )}
 
-      <div className="k-kpis" style={{ marginBottom: 14 }}>
+      <div className="k-kpis k-fin-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
-          <div className="kl">В кассах сейчас</div>
+          <div className="kl">В кассе</div>
           <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashInTills)}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, fontWeight: 700 }}>
-            {openTillCount ? `${openTillCount} открытых смен` : 'Нет открытых смен'}
-          </div>
+          <div className="k-fin-kpi-sub">{openTillCount ? `${openTillCount} смен` : 'Нет смен'}</div>
         </div>
         <div className="k-kpi k-statcard">
-          <div className="kl">Книга · баланс нал</div>
+          <div className="kl">Книга</div>
           <div className="kv">{fmtMoney(cashBook?.balance ?? 0)}</div>
         </div>
         <div className="k-kpi k-statcard">
-          <div className="kl">Прибыль (БД)</div>
+          <div className="kl">Прибыль</div>
           <div className="kv" style={{ color: (profit?.summary.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
             {fmtMoney(profit?.summary.profit ?? 0)}
           </div>
         </div>
         <div className="k-kpi k-statcard">
-          <div className="kl">Сигналы ≥ {alerts?.threshold ?? 50} сом</div>
+          <div className="kl">Сигналы</div>
           <div className="kv" style={{ color: (alerts?.count ?? 0) > 0 ? 'var(--red)' : 'var(--green)' }}>
             {alerts?.count ?? 0}
           </div>
         </div>
       </div>
 
-      <div className="k-card" style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div className="k-fin-meta k-hide-desk">
+        <div><span>Касса</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashInTills)}</b></div>
+        <div><span>Книга</span><b>{fmtMoney(cashBook?.balance ?? 0)}</b></div>
+        <div>
+          <span>Прибыль</span>
+          <b style={{ color: (profit?.summary.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+            {fmtMoney(profit?.summary.profit ?? 0)}
+          </b>
+        </div>
+        <div>
+          <span>Сигналы</span>
+          <b style={{ color: (alerts?.count ?? 0) > 0 ? 'var(--red)' : 'var(--green)' }}>{alerts?.count ?? 0}</b>
+        </div>
+      </div>
+
+      <div className="k-fin-toolbar">
+        <div className="k-subtabs k-fin-periods">
           {REPORT_PERIODS.map(p => (
             <button
               key={p.id}
               type="button"
               className={`k-subtab ${period === p.id ? 'active' : ''}`}
-              style={{ padding: '7px 12px', fontSize: 12 }}
               onClick={() => setPeriod(p.id)}
             >
               {p.label}
             </button>
           ))}
         </div>
-        {period === 'custom' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 420, marginBottom: 12 }}>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>С</label>
-              <input className="k-inp" type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>По</label>
-              <input className="k-inp" type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} />
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Точка</label>
-            <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
-              <option value="">Все</option>
-              {posPoints.filter(p => p.active !== false).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Кассир (журнал)</label>
-            <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
-              <option value="">Все</option>
-              {cashiers.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Тип операции</label>
-            <select className="k-sel" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-              <option value="">Все типы</option>
-              {Object.entries({
-                sale_cash: 'Продажа · нал',
-                sale_card: 'Продажа · карта',
-                sale_credit: 'Продажа · долг',
-                expense: 'Расход',
-                deposit: 'Вклад',
-                withdraw: 'Снятие',
-                shift_close: 'Сверка кассы',
-                purchase_pay: 'Оплата закупа',
-                sale_return_cash: 'Возврат · нал',
-                sale_return_card: 'Возврат · карта',
-              }).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </div>
+        <div className="k-fin-actions">
+          <button
+            type="button"
+            className="k-btn k-btn-g"
+            disabled={!canEditOffline}
+            title={canEditOffline ? 'Вклад' : OFFLINE_BLOCK_MESSAGE}
+            onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="k-btn k-btn-s"
+            disabled={!canEditOffline}
+            title={canEditOffline ? 'Расход' : OFFLINE_BLOCK_MESSAGE}
+            onClick={() => { setMsg(''); setExpOpen(true) }}
+          >
+            −
+          </button>
+          <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
+            {refreshing ? '…' : '↻'}
+          </button>
+          <button
+            type="button"
+            className={`k-btn k-btn-s k-fin-flt-btn${filtersOpen || filterCount ? ' is-on' : ''}`}
+            title="Фильтры"
+            onClick={() => setFiltersOpen(v => !v)}
+          >
+            ⚙{filterCount ? ` ${filterCount}` : ''}
+          </button>
         </div>
       </div>
 
-      <div className="k-subtabs">
+      {period === 'custom' && (
+        <div className="k-fin-dates">
+          <div className="k-field" style={{ marginBottom: 0 }}>
+            <label>С</label>
+            <input className="k-inp" type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+          </div>
+          <div className="k-field" style={{ marginBottom: 0 }}>
+            <label>По</label>
+            <input className="k-inp" type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      <div className={`k-fin-filters${filtersOpen ? ' is-open' : ''}`}>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Точка</label>
+          <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
+            <option value="">Все</option>
+            {posPoints.filter(p => p.active !== false).map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Кассир</label>
+          <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
+            <option value="">Все</option>
+            {cashiers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Тип</label>
+          <select className="k-sel" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+            <option value="">Все типы</option>
+            {Object.entries({
+              sale_cash: 'Продажа · нал',
+              sale_card: 'Продажа · карта',
+              sale_credit: 'Продажа · долг',
+              expense: 'Расход',
+              deposit: 'Вклад',
+              withdraw: 'Снятие',
+              shift_close: 'Сверка кассы',
+              purchase_pay: 'Оплата закупа',
+              sale_return_cash: 'Возврат · нал',
+              sale_return_card: 'Возврат · карта',
+            }).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="k-subtabs k-fin-tabs">
         {FINANCE_TABS.map(t => (
           <button
             key={t.id}
@@ -448,46 +451,38 @@ export default function FinanceModule() {
             className={`k-subtab ${tab === t.id ? 'active' : ''}`}
             onClick={() => setTab(t.id)}
           >
-            {t.icon} {t.label}
-            {t.id === 'alerts' && (alerts?.count ?? 0) > 0 ? ` (${alerts?.count})` : ''}
+            <span className="k-fin-tab-ic">{t.icon}</span>
+            <span>{t.label}</span>
+            {t.id === 'alerts' && (alerts?.count ?? 0) > 0 ? (
+              <span className="k-fin-tab-n">{alerts?.count}</span>
+            ) : null}
           </button>
         ))}
       </div>
+      {tabMeta && <div className="k-fin-hint">{tabMeta.hint}</div>}
+
+      {(apiError || truthError) && (
+        <div className="k-fin-err">{truthError || apiError}</div>
+      )}
 
       {tab === 'alerts' && (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
-          <div className="k-card-h">
-            <b>Автоматические предупреждения</b>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-              порог {alerts?.threshold ?? 50} сом
-            </span>
-          </div>
+        <div className="k-fin-panel">
           {!alerts?.alerts?.length ? (
-            <div className="k-empty">Нет расхождений и долгих смен — всё в норме</div>
+            <div className="k-empty">Нет расхождений — всё в норме</div>
           ) : (
-            <div className="k-tbl-scroll">
-              <table className="k-tbl">
-                <thead>
-                  <tr>
-                    <th>Когда</th>
-                    <th>Сигнал</th>
-                    <th>Детали</th>
-                    <th>Сумма</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {alerts.alerts.map(a => (
-                    <tr key={a.id}>
-                      <td>{a.atIso ? fmtDateTime(a.atIso) : '—'}</td>
-                      <td style={{ fontWeight: 900, color: a.severity === 'high' ? 'var(--red)' : 'var(--gold)' }}>
-                        {a.title}
-                      </td>
-                      <td>{a.message}</td>
-                      <td style={{ fontWeight: 900, color: diffColor(a.amount) }}>{fmtMoney(a.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="k-fin-list">
+              {alerts.alerts.map(a => (
+                <div key={a.id} className="k-fin-row">
+                  <div className="k-fin-row-txt">
+                    <b style={{ color: a.severity === 'high' ? 'var(--red)' : 'var(--gold)' }}>{a.title}</b>
+                    <small>
+                      {a.atIso ? fmtDateTime(a.atIso) : '—'}
+                      {a.message ? ` · ${a.message}` : ''}
+                    </small>
+                  </div>
+                  <b className="k-fin-amt" style={{ color: diffColor(a.amount) }}>{fmtMoney(a.amount)}</b>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -495,48 +490,31 @@ export default function FinanceModule() {
 
       {tab === 'till' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Закрытых смен</div><div className="kv">{vs?.summary.shifts ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">С алертами</div><div className="kv" style={{ color: 'var(--red)' }}>{vs?.summary.withAlert ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Недостачи</div><div className="kv" style={{ color: 'var(--red)' }}>{vs?.summary.shortCount ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Излишки</div><div className="kv" style={{ color: 'var(--green)' }}>{vs?.summary.overCount ?? 0}</div></div>
+          <div className="k-fin-submeta">
+            <div><span>Смен</span><b>{vs?.summary.shifts ?? 0}</b></div>
+            <div><span>Алерты</span><b style={{ color: 'var(--red)' }}>{vs?.summary.withAlert ?? 0}</b></div>
+            <div><span>Недостачи</span><b style={{ color: 'var(--red)' }}>{vs?.summary.shortCount ?? 0}</b></div>
+            <div><span>Излишки</span><b style={{ color: 'var(--green)' }}>{vs?.summary.overCount ?? 0}</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h">
-              <b>Ожидаемое vs фактическое</b>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>главный отчёт против недостач</span>
-            </div>
+          <div className="k-fin-panel">
             {!vs?.rows?.length ? (
               <div className="k-empty">Нет закрытых смен за период</div>
             ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>День</th>
-                      <th>Точка</th>
-                      <th>Кассир</th>
-                      <th>Ожидалось</th>
-                      <th>Факт</th>
-                      <th>Разница</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vs.rows.map(r => (
-                      <tr key={r.shiftId} style={r.alert ? { background: 'rgba(180,40,40,.12)' } : undefined}>
-                        <td style={{ fontWeight: 800 }}>{r.day || '—'}</td>
-                        <td>{posLabel(r.posId)}</td>
-                        <td>{r.cashierName || '—'}</td>
-                        <td>{fmtMoney(r.expectedCash)}</td>
-                        <td>{fmtMoney(r.actualCash)}</td>
-                        <td style={{ fontWeight: 900, color: diffColor(r.cashDiff) }}>
-                          {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}
-                          {r.alert ? ' ⚠' : ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="k-fin-list">
+                {vs.rows.map(r => (
+                  <div key={r.shiftId} className={`k-fin-row${r.alert ? ' is-warn' : ''}`}>
+                    <div className="k-fin-row-txt">
+                      <b>{r.day || '—'} · {r.cashierName || '—'}</b>
+                      <small>
+                        {posLabel(r.posId)} · ожид. {fmtMoney(r.expectedCash)} · факт {fmtMoney(r.actualCash)}
+                      </small>
+                    </div>
+                    <b className="k-fin-amt" style={{ color: diffColor(r.cashDiff) }}>
+                      {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}
+                      {r.alert ? ' ⚠' : ''}
+                    </b>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -545,69 +523,52 @@ export default function FinanceModule() {
 
       {tab === 'cashbook' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Приход нал</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashBook?.summary.inflow ?? 0)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Расход нал</div><div className="kv" style={{ color: 'var(--red)' }}>{fmtMoney(cashBook?.summary.outflow ?? 0)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Баланс</div><div className="kv">{fmtMoney(cashBook?.balance ?? 0)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Записей</div><div className="kv">{cashBook?.summary.count ?? 0}</div></div>
+          <div className="k-fin-submeta">
+            <div><span>Приход</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashBook?.summary.inflow ?? 0)}</b></div>
+            <div><span>Расход</span><b style={{ color: 'var(--red)' }}>{fmtMoney(cashBook?.summary.outflow ?? 0)}</b></div>
+            <div><span>Баланс</span><b>{fmtMoney(cashBook?.balance ?? 0)}</b></div>
+            <div><span>Записей</span><b>{cashBook?.summary.count ?? 0}</b></div>
           </div>
-          <div className="k-grid2" style={{ marginBottom: 14 }}>
-            <div className="k-card" style={{ overflow: 'hidden' }}>
-              <div className="k-card-h"><b>По дням</b></div>
+          <div className="k-fin-split">
+            <div className="k-fin-panel">
+              <div className="k-fin-panel-h">По дням</div>
               {!cashBook?.days?.length ? <div className="k-empty">Нет движений</div> : (
-                <div className="k-tbl-scroll">
-                  <table className="k-tbl">
-                    <thead>
-                      <tr>
-                        <th>День</th>
-                        <th>Приход</th>
-                        <th>Расход</th>
-                        <th>Нетто</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cashBook.days.slice(0, 60).map(d => (
-                        <tr key={d.day}>
-                          <td style={{ fontWeight: 800 }}>{d.day}</td>
-                          <td style={{ color: 'var(--green)' }}>{fmtMoney(d.inflow)}</td>
-                          <td style={{ color: 'var(--red)' }}>{fmtMoney(d.outflow)}</td>
-                          <td style={{ fontWeight: 900, color: diffColor(d.net) }}>{fmtMoney(d.net)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="k-fin-list">
+                  {cashBook.days.slice(0, 60).map(d => (
+                    <div key={d.day} className="k-fin-row">
+                      <div className="k-fin-row-txt">
+                        <b>{d.day}</b>
+                        <small>
+                          +{fmtMoney(d.inflow)} / −{fmtMoney(d.outflow)}
+                        </small>
+                      </div>
+                      <b className="k-fin-amt" style={{ color: diffColor(d.net) }}>{fmtMoney(d.net)}</b>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-            <div className="k-card" style={{ overflow: 'hidden' }}>
-              <div className="k-card-h"><b>Движения (наличные)</b></div>
+            <div className="k-fin-panel">
+              <div className="k-fin-panel-h">Движения</div>
               {!cashBook?.entries?.length ? <div className="k-empty">Пусто</div> : (
-                <div className="k-tbl-scroll">
-                  <table className="k-tbl">
-                    <thead>
-                      <tr>
-                        <th>Дата</th>
-                        <th>Операция</th>
-                        <th>Сумма</th>
-                        <th>Остаток</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cashBook.entries.slice(0, 200).map(e => (
-                        <tr key={e.id}>
-                          <td>{fmtDateTime(e.createdAtIso)}</td>
-                          <td>
-                            <div style={{ fontWeight: 800 }}>{ledgerTypeLabel(e.type)}</div>
-                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{e.reason || e.note || e.cashierName || ''}</div>
-                          </td>
-                          <td style={{ fontWeight: 900, color: (e.signedAmount || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                            {(e.signedAmount || 0) >= 0 ? '+' : ''}{fmtMoney(e.signedAmount)}
-                          </td>
-                          <td>{fmtMoney(e.balanceAfter ?? 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="k-fin-list">
+                  {cashBook.entries.slice(0, 200).map(e => (
+                    <div key={e.id} className="k-fin-row">
+                      <div className="k-fin-row-txt">
+                        <b>{ledgerTypeLabel(e.type)}</b>
+                        <small>
+                          {fmtDateTime(e.createdAtIso)}
+                          {e.reason || e.note || e.cashierName ? ` · ${e.reason || e.note || e.cashierName}` : ''}
+                        </small>
+                      </div>
+                      <div className="k-fin-amt-col">
+                        <b style={{ color: (e.signedAmount || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          {(e.signedAmount || 0) >= 0 ? '+' : ''}{fmtMoney(e.signedAmount)}
+                        </b>
+                        <small>ост. {fmtMoney(e.balanceAfter ?? 0)}</small>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -616,43 +577,30 @@ export default function FinanceModule() {
       )}
 
       {tab === 'journal' && (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
-          <div className="k-card-h">
-            <b>Журнал всех операций</b>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>кто · когда · сколько · почему</span>
-          </div>
+        <div className="k-fin-panel">
           {!journal.length ? (
-            <div className="k-empty">Нет записей — операции появятся после продаж, расходов, закрытия смен</div>
+            <div className="k-empty">Нет записей за период</div>
           ) : (
-            <div className="k-tbl-scroll">
-              <table className="k-tbl">
-                <thead>
-                  <tr>
-                    <th>Дата</th>
-                    <th>Тип</th>
-                    <th>Кто</th>
-                    <th>Сумма</th>
-                    <th>Почему</th>
-                    <th>Ссылка</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {journal.map(r => (
-                    <tr key={r.id}>
-                      <td>{fmtDateTime(r.createdAtIso)}</td>
-                      <td style={{ fontWeight: 800 }}>{ledgerTypeLabel(r.type)}</td>
-                      <td>{r.cashierName || r.cashierId || '—'}</td>
-                      <td style={{ fontWeight: 900, color: r.direction === 'out' ? 'var(--red)' : r.direction === 'in' ? 'var(--green)' : 'var(--muted)' }}>
-                        {r.direction === 'info'
-                          ? fmtMoney(r.signedAmount || r.amount)
-                          : `${r.direction === 'out' ? '−' : '+'}${fmtMoney(r.amount)}`}
-                      </td>
-                      <td>{r.reason || r.note || '—'}</td>
-                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{r.refType ? `${r.refType}:${r.refId}` : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="k-fin-list">
+              {journal.map(r => (
+                <div key={r.id} className="k-fin-row">
+                  <div className="k-fin-row-txt">
+                    <b>{ledgerTypeLabel(r.type)}</b>
+                    <small>
+                      {fmtDateTime(r.createdAtIso)} · {r.cashierName || r.cashierId || '—'}
+                      {r.reason || r.note ? ` · ${r.reason || r.note}` : ''}
+                    </small>
+                  </div>
+                  <b
+                    className="k-fin-amt"
+                    style={{ color: r.direction === 'out' ? 'var(--red)' : r.direction === 'in' ? 'var(--green)' : 'var(--muted)' }}
+                  >
+                    {r.direction === 'info'
+                      ? fmtMoney(r.signedAmount || r.amount)
+                      : `${r.direction === 'out' ? '−' : '+'}${fmtMoney(r.amount)}`}
+                  </b>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -660,43 +608,29 @@ export default function FinanceModule() {
 
       {tab === 'profit' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(profit?.summary.revenue ?? 0)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Себестоимость (FIFO)</div><div className="kv">{fmtMoney(profit?.summary.cogs ?? 0)}</div></div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Прибыль</div>
-              <div className="kv" style={{ color: (profit?.summary.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+          <div className="k-fin-submeta">
+            <div><span>Выручка</span><b style={{ color: 'var(--green)' }}>{fmtMoney(profit?.summary.revenue ?? 0)}</b></div>
+            <div><span>Себест.</span><b>{fmtMoney(profit?.summary.cogs ?? 0)}</b></div>
+            <div>
+              <span>Прибыль</span>
+              <b style={{ color: (profit?.summary.profit ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {fmtMoney(profit?.summary.profit ?? 0)}
-              </div>
+              </b>
             </div>
-            <div className="k-kpi k-statcard"><div className="kl">Наценка %</div><div className="kv">{profit?.summary.marginPct ?? 0}%</div></div>
+            <div><span>Наценка</span><b>{profit?.summary.marginPct ?? 0}%</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h"><b>Прибыль по товарам</b></div>
+          <div className="k-fin-panel">
             {!profit?.products?.length ? <div className="k-empty">Нет данных</div> : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>Товар</th>
-                      <th>Кол-во</th>
-                      <th>Выручка</th>
-                      <th>Себест.</th>
-                      <th>Прибыль</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profit.products.map(p => (
-                      <tr key={p.productId}>
-                        <td style={{ fontWeight: 800 }}>{p.productName}</td>
-                        <td>{p.qty}</td>
-                        <td>{fmtMoney(p.revenue)}</td>
-                        <td>{fmtMoney(p.cogs)}</td>
-                        <td style={{ fontWeight: 900, color: p.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(p.profit)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="k-fin-list">
+                {profit.products.map(p => (
+                  <div key={p.productId} className="k-fin-row">
+                    <div className="k-fin-row-txt">
+                      <b>{p.productName}</b>
+                      <small>×{p.qty} · выр. {fmtMoney(p.revenue)} · себ. {fmtMoney(p.cogs)}</small>
+                    </div>
+                    <b className="k-fin-amt" style={{ color: p.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(p.profit)}</b>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -705,49 +639,28 @@ export default function FinanceModule() {
 
       {tab === 'expenses' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Расходы за период</div>
-              <div className="kv" style={{ color: 'var(--red)' }}>{fmtMoney(expenseTotal)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Записей</div>
-              <div className="kv">{periodExpenses.length}</div>
-            </div>
+          <div className="k-fin-submeta k-fin-submeta-2">
+            <div><span>Расходы</span><b style={{ color: 'var(--red)' }}>{fmtMoney(expenseTotal)}</b></div>
+            <div><span>Записей</span><b>{periodExpenses.length}</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h">
-              <b>Список расходов</b>
-              <button type="button" className="k-btn k-btn-g" style={{ padding: '8px 12px' }} onClick={() => { setMsg(''); setExpOpen(true) }}>
-                + Добавить
-              </button>
-            </div>
+          <div className="k-fin-panel">
             {!periodExpenses.length ? (
-              <div className="k-empty">Расходов за период нет — нажмите «Добавить»</div>
+              <div className="k-empty">Расходов нет — нажмите −</div>
             ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>Дата</th>
-                      <th>Категория</th>
-                      <th>Сумма</th>
-                      <th>Заметка</th>
-                      <th>Кто</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {periodExpenses.map(e => (
-                      <tr key={e.id}>
-                        <td>{fmtDateTime(e.createdAtIso)}</td>
-                        <td style={{ fontWeight: 800 }}>{e.category}</td>
-                        <td style={{ color: 'var(--red)', fontWeight: 900 }}>{fmtMoney(e.amount)}</td>
-                        <td>{e.note || '—'}</td>
-                        <td>{e.createdBy || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="k-fin-list">
+                {periodExpenses.map(e => (
+                  <div key={e.id} className="k-fin-row">
+                    <div className="k-fin-row-txt">
+                      <b>{e.category}</b>
+                      <small>
+                        {fmtDateTime(e.createdAtIso)}
+                        {e.note ? ` · ${e.note}` : ''}
+                        {e.createdBy ? ` · ${e.createdBy}` : ''}
+                      </small>
+                    </div>
+                    <b className="k-fin-amt" style={{ color: 'var(--red)' }}>{fmtMoney(e.amount)}</b>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -756,68 +669,41 @@ export default function FinanceModule() {
 
       {tab === 'deposits' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Вклады (всё время)</div>
-              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(depositsAll)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Снятия (всё время)</div>
-              <div className="kv" style={{ color: 'var(--red)' }}>{fmtMoney(withdrawsAll)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Чистый капитал</div>
-              <div className="kv" style={{ color: capitalNet >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(capitalNet)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">За период · вклад / снятие</div>
-              <div className="kv" style={{ fontSize: 18 }}>{fmtMoney(deposits)} / {fmtMoney(withdraws)}</div>
-            </div>
+          <div className="k-fin-submeta">
+            <div><span>Вклады</span><b style={{ color: 'var(--green)' }}>{fmtMoney(depositsAll)}</b></div>
+            <div><span>Снятия</span><b style={{ color: 'var(--red)' }}>{fmtMoney(withdrawsAll)}</b></div>
+            <div><span>Капитал</span><b style={{ color: capitalNet >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(capitalNet)}</b></div>
+            <div><span>Период</span><b style={{ fontSize: 12 }}>{fmtMoney(deposits)} / {fmtMoney(withdraws)}</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h">
-              <b>Вклады и снятия</b>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="k-btn k-btn-g" style={{ padding: '8px 12px' }} onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}>
-                  + Вклад
-                </button>
-                <button type="button" className="k-btn k-btn-s" style={{ padding: '8px 12px' }} onClick={() => { setMsg(''); setDepType('withdraw'); setDepOpen(true) }}>
-                  − Снятие
-                </button>
+          <div className="k-fin-panel">
+            <div className="k-fin-panel-h">
+              <span>Вклады и снятия</span>
+              <div className="k-fin-panel-acts">
+                <button type="button" className="k-btn k-btn-g" onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}>+ Вклад</button>
+                <button type="button" className="k-btn k-btn-s" onClick={() => { setMsg(''); setDepType('withdraw'); setDepOpen(true) }}>− Снятие</button>
               </div>
             </div>
             {!financeMoves.length ? (
-              <div className="k-empty">Пока нет вкладов — добавьте, если положили свои деньги в кассу</div>
+              <div className="k-empty">Пока нет вкладов</div>
             ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>Дата</th>
-                      <th>Тип</th>
-                      <th>Сумма</th>
-                      <th>Заметка</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {financeMoves.map(m => (
-                      <tr key={m.id}>
-                        <td>{fmtDateTime(m.createdAtIso)}</td>
-                        <td style={{ fontWeight: 800, color: m.type === 'deposit' ? 'var(--green)' : 'var(--red)' }}>
-                          {m.type === 'deposit' ? 'Вклад' : 'Снятие'}
-                        </td>
-                        <td style={{ fontWeight: 900 }}>{fmtMoney(m.amount)}</td>
-                        <td>{m.note || '—'}</td>
-                        <td>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={() => void removeMove(m.id)}>
-                            Удалить
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="k-fin-list">
+                {financeMoves.map(m => (
+                  <div key={m.id} className="k-fin-row">
+                    <div className="k-fin-row-txt">
+                      <b style={{ color: m.type === 'deposit' ? 'var(--green)' : 'var(--red)' }}>
+                        {m.type === 'deposit' ? 'Вклад' : 'Снятие'}
+                      </b>
+                      <small>
+                        {fmtDateTime(m.createdAtIso)}
+                        {m.note ? ` · ${m.note}` : ''}
+                      </small>
+                    </div>
+                    <div className="k-fin-amt-col">
+                      <b>{fmtMoney(m.amount)}</b>
+                      <button type="button" className="k-btn k-btn-s k-fin-del" onClick={() => void removeMove(m.id)}>✕</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -826,69 +712,40 @@ export default function FinanceModule() {
 
       {tab === 'debts' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Нам должны (клиенты)</div>
-              <div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebt)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Мы должны (поставщики)</div>
-              <div className="kv">{fmtMoney(supplierDebt)}</div>
-            </div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Выдано в долг за период</div>
-              <div className="kv">{fmtMoney(creditOut)}</div>
-            </div>
+          <div className="k-fin-submeta">
+            <div><span>Клиенты</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebt)}</b></div>
+            <div><span>Поставщики</span><b>{fmtMoney(supplierDebt)}</b></div>
+            <div><span>Выдано</span><b>{fmtMoney(creditOut)}</b></div>
           </div>
-          <div className="k-grid2">
-            <div className="k-card" style={{ overflow: 'hidden' }}>
-              <div className="k-card-h"><b>Клиенты-должники</b></div>
-              {!clientDebtors.length ? <div className="k-empty">Нет долгов клиентов</div> : (
-                <div className="k-tbl-scroll">
-                  <table className="k-tbl">
-                    <thead>
-                      <tr>
-                        <th>Клиент</th>
-                        <th>Долг</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {clientDebtors.slice(0, 30).map(c => (
-                        <tr key={c.id}>
-                          <td style={{ fontWeight: 800 }}>{c.name}</td>
-                          <td style={{ color: 'var(--gold)', fontWeight: 900 }}>{fmtMoney(c.debt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          <div className="k-fin-split">
+            <div className="k-fin-panel">
+              <div className="k-fin-panel-h">Клиенты должны</div>
+              {!clientDebtors.length ? <div className="k-empty">Нет долгов</div> : (
+                <div className="k-fin-list">
+                  {clientDebtors.slice(0, 30).map(c => (
+                    <div key={c.id} className="k-fin-row">
+                      <div className="k-fin-row-txt"><b>{c.name}</b></div>
+                      <b className="k-fin-amt" style={{ color: 'var(--gold)' }}>{fmtMoney(c.debt)}</b>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-            <div className="k-card" style={{ overflow: 'hidden' }}>
-              <div className="k-card-h"><b>Долг поставщикам</b></div>
+            <div className="k-fin-panel">
+              <div className="k-fin-panel-h">Мы должны</div>
               {!suppliers.filter(s => (Number(s.payableAmount) || 0) > 0).length ? (
-                <div className="k-empty">Нет долга поставщикам</div>
+                <div className="k-empty">Нет долга</div>
               ) : (
-                <div className="k-tbl-scroll">
-                  <table className="k-tbl">
-                    <thead>
-                      <tr>
-                        <th>Поставщик</th>
-                        <th>Долг</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...suppliers]
-                        .filter(s => (Number(s.payableAmount) || 0) > 0)
-                        .sort((a, b) => (Number(b.payableAmount) || 0) - (Number(a.payableAmount) || 0))
-                        .map(s => (
-                          <tr key={s.id}>
-                            <td style={{ fontWeight: 800 }}>{s.name}</td>
-                            <td style={{ fontWeight: 900 }}>{fmtMoney(s.payableAmount)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                <div className="k-fin-list">
+                  {[...suppliers]
+                    .filter(s => (Number(s.payableAmount) || 0) > 0)
+                    .sort((a, b) => (Number(b.payableAmount) || 0) - (Number(a.payableAmount) || 0))
+                    .map(s => (
+                      <div key={s.id} className="k-fin-row">
+                        <div className="k-fin-row-txt"><b>{s.name}</b></div>
+                        <b className="k-fin-amt">{fmtMoney(s.payableAmount)}</b>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
