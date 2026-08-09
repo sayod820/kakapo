@@ -702,7 +702,7 @@ const CSS = `
     .k-trade:has(.k-body-debts){height:100vh;height:100dvh;overflow:hidden}
     .k-trade:has(.k-body-debts) .k-main{
       height:100%!important;min-height:0!important;overflow:hidden;
-      padding-bottom:calc(72px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
+      padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
     }
     .k-side{
       position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
@@ -719,7 +719,7 @@ const CSS = `
       border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
       cursor:pointer;font-size:20px;flex-shrink:0
     }
-    .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+    .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
     .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .k-top-subtabs::-webkit-scrollbar{display:none}
@@ -735,7 +735,7 @@ const CSS = `
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
-    .k-body-warehouse{padding:4px 10px 8px;overflow:visible;flex:none;height:auto}
+    .k-body-warehouse{padding:4px 8px 6px;overflow:visible;flex:none;height:auto}
     .k-body-warehouse > .k-wh-shell,
     .k-wh-shell > .k-wh-body,
     .k-wh-shell > .k-wh-body > .k-wh-stock,
@@ -748,21 +748,21 @@ const CSS = `
     .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:block}
-    .k-catalog-bar{flex-wrap:wrap;gap:8px}
+    .k-catalog-bar{flex-wrap:wrap;gap:6px}
     .k-catalog-filters{flex:1 1 100%;order:3}
     .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
     .k-catalog-add{margin-left:auto}
     .k-user .who{display:none}
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
-    .k-body{padding:12px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
+    .k-body{padding:10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:calc(100dvh - 56px);max-height:calc(100dvh - 56px)
     }
     .k-body-debts{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:calc(100dvh - 56px - 72px - env(safe-area-inset-bottom,0px));
-      max-height:calc(100dvh - 56px - 72px - env(safe-area-inset-bottom,0px));
+      height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
+      max-height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
       padding:12px;display:flex;flex-direction:column
     }
     .k-page-h h1{font-size:18px}
@@ -778,29 +778,33 @@ const CSS = `
     .k-top-subtabs .k-subtab{padding:7px 10px;font-size:12px;min-height:0}
     .k-seg-tabs{
       display:grid!important;grid-template-columns:repeat(auto-fit,minmax(0,1fr));
-      gap:4px;padding:4px;margin:0;overflow:visible;flex-wrap:nowrap;
-      background:var(--card2);border:1px solid var(--border);border-radius:14px
+      gap:2px;padding:2px;margin:0;overflow:visible;flex-wrap:nowrap;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px
     }
     .k-seg-tabs .k-subtab{
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      gap:2px;width:100%;min-width:0;min-height:56px;padding:8px 2px;
-      border:none;border-radius:10px;font-size:10px;font-weight:800;line-height:1.1;
+      gap:1px;width:100%;min-width:0;min-height:40px!important;padding:4px 1px!important;
+      border:none;border-radius:8px;font-size:9px;font-weight:800;line-height:1.05;
       background:transparent
     }
-    .k-seg-tabs .k-subtab .ic{font-size:18px;line-height:1}
+    .k-seg-tabs .k-subtab .ic{font-size:14px;line-height:1}
     .k-seg-tabs .k-subtab .lbl{
       display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center
     }
     .k-seg-tabs .k-subtab .cnt{
-      font-size:9px;padding:0 5px;line-height:1.4;background:var(--panel)
+      font-size:8px;padding:0 4px;line-height:1.3;background:var(--panel);margin-top:0
     }
     .k-seg-tabs .k-subtab.active{
       background:var(--green-d);color:var(--green);
-      box-shadow:inset 0 0 0 1px rgba(31,215,96,.35)
+      box-shadow:inset 0 0 0 1px rgba(31,215,96,.3)
     }
     .k-seg-tabs .k-subtab:active{transform:scale(.97)}
-    .k-wh-head .k-seg-tabs{margin-top:4px}
+    .k-wh-head{gap:4px;margin-bottom:6px}
+    .k-wh-head .k-seg-tabs{margin-top:2px}
+    .k-wh-head .k-catalog-meta{gap:6px}
+    .k-wh-head .k-catalog-meta b{font-size:14px}
     .k-wh-head .k-catalog-meta span{display:none}
+    .k-wh-head .k-btn{min-height:32px!important;padding:5px 8px!important;font-size:11px}
     .k-debts-list > div:first-child .k-subtabs{
       display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
       overflow:visible;flex-wrap:nowrap;padding:0;margin-bottom:8px
@@ -908,15 +912,36 @@ const CSS = `
     .k-rcpt-find-body .k-prod-pick-panel{padding:0 10px}
     .k-rcpt-find-modal .k-cam-scan-btn{display:flex!important}
     .k-wh-cta .k-btn-g{
-      width:100%;min-height:50px;font-size:15px;
-      box-shadow:0 10px 28px rgba(0,0,0,.38)
+      width:100%;min-height:40px!important;padding:8px 12px!important;font-size:13px;
+      box-shadow:none
     }
     .k-wh-cta > span{display:none}
-    .k-wh-cta-spacer{display:block;height:62px}
+    .k-wh-cta-spacer{display:block;height:48px}
     .k-wh-filters{flex-direction:column;align-items:stretch}
+    .k-wh-filters-row{gap:6px}
     .k-wh-period{width:100%}
-    .k-wh-period .k-inp{flex:1 1 calc(50% - 20px);min-width:0;max-width:none!important}
-    .k-wh-cards{display:flex}
+    .k-wh-period .k-inp{
+      flex:1 1 calc(50% - 20px);min-width:0;max-width:none!important;
+      min-height:36px!important;font-size:14px!important;padding:6px 8px!important
+    }
+    .k-wh-meta{
+      gap:4px;font-size:11px;margin-top:2px;display:grid;grid-template-columns:1fr;
+    }
+    .k-wh-money{
+      margin-left:0!important;display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-size:11px;width:100%
+    }
+    .k-wh-money span{white-space:normal}
+    .k-wh-cards{display:flex;gap:6px}
+    .k-wh-card{padding:8px!important;gap:6px!important;border-radius:10px}
+    .k-wh-card-top > div > div:first-child{font-size:10px!important}
+    .k-wh-card-top > div > div:last-child{font-size:13px!important;margin-top:1px!important}
+    .k-wh-card-meta{gap:4px}
+    .k-wh-card-meta .l{font-size:9px;letter-spacing:.02em}
+    .k-wh-card-meta .v{font-size:12px;margin-top:1px}
+    .k-wh-card-actions{gap:4px}
+    .k-wh-card-actions .k-btn{
+      min-height:32px!important;min-width:0;padding:4px 6px!important;font-size:13px;border-radius:8px
+    }
     .k-wh-desk-tbl{display:none!important}
     .k-receipt-modal-actions{
       padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
@@ -928,13 +953,13 @@ const CSS = `
     .k-page-h{margin-bottom:12px;gap:8px}
     .k-page-h h1{font-size:18px}
     .k-subtabs{position:sticky;top:0;z-index:7;background:var(--bg);padding-top:4px;margin-top:-4px}
-    .k-seg-tabs{position:relative;top:auto;z-index:1;background:var(--card2);padding:4px;margin-top:0}
+    .k-seg-tabs{position:relative;top:auto;z-index:1;background:var(--card2);padding:2px;margin-top:0}
     .k-clients-chips{
       width:100%;gap:6px;padding:2px 0 4px;margin:0;
       -webkit-overflow-scrolling:touch
     }
     .k-clients-chips .k-subtab{
-      min-height:40px;padding:8px 12px;font-size:12px;border-radius:999px
+      min-height:34px!important;padding:6px 10px!important;font-size:11px;border-radius:999px
     }
     .k-body:has(.k-receipt-modal-bg) .k-bottom-nav,
     .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav{visibility:hidden;pointer-events:none}
@@ -942,21 +967,21 @@ const CSS = `
     .k-bottom-nav{
       display:flex;position:fixed;bottom:0;left:0;right:0;z-index:150;
       background:var(--panel);border-top:1px solid var(--border);
-      padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));gap:2px;
-      box-shadow:0 -6px 20px rgba(0,0,0,.08)
+      padding:2px 2px calc(2px + env(safe-area-inset-bottom,0px));gap:1px;
+      box-shadow:0 -4px 14px rgba(0,0,0,.06)
     }
     .k-bottom-nav button{
-      flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-      border:none;background:transparent;color:var(--muted);border-radius:12px;padding:8px 4px;
-      font-size:11px;font-weight:800;cursor:pointer;min-height:56px;line-height:1.1;text-align:center
+      flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+      border:none;background:transparent;color:var(--muted);border-radius:10px;padding:5px 2px;
+      font-size:10px;font-weight:800;cursor:pointer;min-height:48px;line-height:1.05;text-align:center
     }
-    .k-bottom-nav button .ic{font-size:22px;line-height:1}
+    .k-bottom-nav button .ic{font-size:18px;line-height:1}
     .k-bottom-nav button .lbl{
       display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em
     }
     .k-bottom-nav button.active{
       background:var(--green-d);color:var(--green);
-      box-shadow:inset 0 0 0 1px rgba(31,215,96,.35)
+      box-shadow:inset 0 0 0 1px rgba(31,215,96,.3)
     }
     .k-bottom-nav button:active{transform:scale(.97)}
   }
