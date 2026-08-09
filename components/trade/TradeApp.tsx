@@ -1094,6 +1094,7 @@ const CSS = `
   .k-mob-menu-btn{display:none}
   .k-side-overlay{display:none}
   .k-bottom-nav{display:none}
+  .k-top-net{display:none}
   /* Не задаём display на desktop — иначе ломает grid/flex (KPI, actions) */
   .k-hide-desk{display:none!important}
 
@@ -1138,12 +1139,13 @@ const CSS = `
       padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
     }
     .k-side{
+      display:flex!important;
       position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
       transform:translateX(-105%);transition:transform .25s ease;box-shadow:none
     }
     .k-side.open{transform:translateX(0);box-shadow:8px 0 32px rgba(0,0,0,.55)}
     .k-side-overlay{
-      display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:199;
+      display:block!important;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:199;
       opacity:0;pointer-events:none;transition:opacity .25s
     }
     .k-side-overlay.open{opacity:1;pointer-events:auto}
@@ -2264,7 +2266,7 @@ function TradeAppInner({
       <div className={posFullscreen ? 'k-pos-fs-host' : 'k-main'}>
         {!posFullscreen && current !== 'sales' && (
           <header className="k-top">
-            <button type="button" className="k-mob-menu-btn k-hide-desk" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
+            <button type="button" className="k-mob-menu-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
             {catalogBack ? (
               <button type="button" className="k-btn k-btn-s k-top-back" onClick={catalogBack}>
                 ← К каталогу
@@ -2342,7 +2344,7 @@ function TradeAppInner({
               </div>
             )}
             <div className="k-top-end">
-              <div className="k-top-net k-hide-desk">
+              <div className="k-top-net">
                 <NetworkStatus compact />
               </div>
               <div className="k-theme-toggle" role="group" aria-label="Тема">
@@ -2398,8 +2400,17 @@ function TradeAppInner({
         </div>
       </div>
 
-      {!posFullscreen && MOB_QUICK.length > 0 && (
-        <nav className="k-bottom-nav k-hide-desk" aria-label="Разделы">
+      {!posFullscreen && (
+        <nav className="k-bottom-nav" aria-label="Разделы">
+          <button
+            type="button"
+            className={menuOpen ? 'active' : ''}
+            onClick={() => setMenuOpen(true)}
+            aria-label="Меню"
+          >
+            <span className="ic">☰</span>
+            <span className="lbl">Меню</span>
+          </button>
           {MOB_QUICK.map(item => (
             <button
               key={item.id}
