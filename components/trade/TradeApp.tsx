@@ -939,7 +939,7 @@ const CSS = `
     .k-wh-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
-      z-index:140;width:52px;height:52px;border-radius:50%;border:none;
+      z-index:140;width:52px;height:52px;border-radius:14px;border:none;
       background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
       font-size:28px;font-weight:900;line-height:1;cursor:pointer;
       box-shadow:0 8px 22px rgba(31,215,96,.4)
