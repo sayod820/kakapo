@@ -7,7 +7,6 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
 import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
-import OfflineNotice from './OfflineNotice'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 
@@ -51,7 +50,6 @@ export default function SuppliersModule() {
   const suppliers = usePosStore(s => s.suppliers)
   const receipts = usePosStore(s => s.receipts)
   const apiSyncing = usePosStore(s => s.apiSyncing)
-  const apiError = usePosStore(s => s.apiError)
 
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('debt')
@@ -261,42 +259,12 @@ export default function SuppliersModule() {
   const detailSupplier = detailId ? suppliers.find(s => s.id === detailId) || null : null
 
   return (
-    <div>
-      <div className="k-page-h">
-        <div>
-          <h1>🚚 Поставщики</h1>
-          <div className="sub">Контакты, поставки и долги — данные общие со всеми приложениями KAKAPO</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          <button
-            type="button"
-            className="k-btn k-btn-g"
-            disabled={(!USE_API && !isOfflineV2Full()) || !canMutate}
-            title={canMutate ? undefined : OFFLINE_BLOCK_MESSAGE}
-            onClick={openNewForm}
-          >
-            + Новый поставщик
-          </button>
-        </div>
-      </div>
+    <div className="k-suppliers-mod">
+      {apiSyncing && <div className="k-cli-sync-bar">Обновление…</div>}
 
-      <OfflineNotice section="поставщики" />
-
-      {!USE_API && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
-          Работа с поставщиками доступна только при подключении к API
-        </div>
-      )}
-      {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-          {apiError}
-        </div>
-      )}
-
-      <div className="k-kpis" style={{ marginBottom: 14 }}>
+      <div className="k-kpis k-sup-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
-          <div className="kl">Всего поставщиков</div>
+          <div className="kl">Всего</div>
           <div className="kv">{suppliers.length}</div>
         </div>
         <div className="k-kpi k-statcard">
@@ -308,106 +276,95 @@ export default function SuppliersModule() {
           <div className="kv" style={{ color: stats.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>{stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}</div>
         </div>
         <div className="k-kpi k-statcard">
-          <div className="kl">Оплачено всего</div>
+          <div className="kl">Оплачено</div>
           <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(stats.totalPaid)}</div>
         </div>
         <div className="k-kpi k-statcard">
-          <div className="kl">Поставлено всего</div>
+          <div className="kl">Поставлено</div>
           <div className="kv">{fmtMoney(stats.totalSupplied)}</div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+      <div className="k-sup-meta k-hide-desk">
+        <div><span>Всего</span><b>{suppliers.length}</b></div>
+        <div><span>Долг</span><b style={{ color: stats.withDebt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.withDebt}</b></div>
+        <div><span>Σ долг</span><b style={{ color: stats.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>{stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}</b></div>
+        <div><span>Оплач.</span><b style={{ color: 'var(--green)' }}>{fmtMoney(stats.totalPaid)}</b></div>
+        <div><span>Пост.</span><b>{fmtMoney(stats.totalSupplied)}</b></div>
+      </div>
+
+      <div className="k-sup-toolbar">
         <input
-          className="k-inp"
-          style={{ flex: '1 1 220px', maxWidth: 360 }}
+          className="k-inp k-sup-search"
           placeholder="Поиск: название, телефон, категория…"
           value={q}
           onChange={e => setQ(e.target.value)}
         />
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('debt')}>По долгу</button>
-          <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('name')}>По имени</button>
-          <button type="button" className={`k-subtab ${sort === 'recent' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('recent')}>По поставке</button>
+        <div className="k-subtabs k-sup-chips">
+          <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} onClick={() => setSort('debt')}>По долгу</button>
+          <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} onClick={() => setSort('name')}>По имени</button>
+          <button type="button" className={`k-subtab ${sort === 'recent' ? 'active' : ''}`} onClick={() => setSort('recent')}>По поставке</button>
         </div>
       </div>
 
       {!filtered.length ? (
         <div className="k-empty">
-          {suppliers.length ? 'Ничего не найдено' : 'Поставщиков пока нет — нажмите «Новый поставщик»'}
+          {suppliers.length ? 'Ничего не найдено' : 'Поставщиков пока нет — нажмите +'}
         </div>
       ) : (
-        <div>
+        <div className="k-sup-list">
           {filtered.map(s => {
             const debt = Number(s.payableAmount) || 0
             return (
-              <div
-                key={s.id}
-                className="k-card"
-                style={{ marginBottom: 10, overflow: 'hidden', border: debt > 0 ? '1px solid #5a4020' : undefined }}
-              >
-                <div
-                  style={{ padding: 14, cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}
-                  onClick={() => openDetail(s.id)}
-                  title="Открыть карточку поставщика"
-                >
-                  <span style={{ fontSize: 26, flexShrink: 0 }}>🚚</span>
-
-                  <div style={{ flex: '1 1 200px', minWidth: 160 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 900, fontSize: 15 }}>{s.name}</span>
-                      {s.category && (
-                        <span className="k-badge k-badge-cat">{s.category}</span>
-                      )}
+              <div key={s.id} className={`k-sup-row${debt > 0 ? ' is-debt' : ''}`}>
+                <button type="button" className="k-sup-main" onClick={() => openDetail(s.id)}>
+                  <span className="k-sup-emo">🚚</span>
+                  <div className="k-sup-txt">
+                    <div className="k-sup-name">
+                      <b>{s.name}</b>
+                      {s.category && <span className="k-badge k-badge-cat">{s.category}</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {s.phone && <span>📞 {s.phone}</span>}
-                      {s.address && <span>📍 {s.address}</span>}
-                      {s.lastDeliveryAtIso && <span>· последняя поставка {fmtDateTime(s.lastDeliveryAtIso)}</span>}
-                    </div>
-                    {s.note && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>💬 {s.note}</div>}
+                    <small>
+                      {s.phone && <span>☎ {s.phone}</span>}
+                      {s.lastDeliveryAtIso && <span> · {fmtDateTime(s.lastDeliveryAtIso)}</span>}
+                    </small>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', flex: '0 0 auto' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Поставлено</div>
-                      <div style={{ fontWeight: 800 }}>{fmtMoney(s.totalSupplied)}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Оплачено</div>
-                      <div style={{ fontWeight: 800, color: 'var(--green)' }}>{fmtMoney(s.totalPaid)}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг</div>
-                      <div style={{ fontWeight: 900, fontSize: 15, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                        {debt > 0 ? fmtMoney(debt) : '—'}
-                      </div>
-                    </div>
+                  <div className="k-sup-stats">
+                    <div><span>Пост.</span><b>{fmtMoney(s.totalSupplied)}</b></div>
+                    <div><span>Оплач.</span><b style={{ color: 'var(--green)' }}>{fmtMoney(s.totalPaid)}</b></div>
+                    <div><span>Долг</span><b style={{ color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>{debt > 0 ? fmtMoney(debt) : '—'}</b></div>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'center' }} onClick={e => e.stopPropagation()}>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} disabled={!USE_API} onClick={() => openPayForm(s)} title="Провести оплату">💰 Оплата</button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} disabled={!USE_API} onClick={() => openEditForm(s)} title="Редактировать">✎</button>
-                    <button
-                      type="button"
-                      className="k-btn k-btn-s"
-                      style={{ padding: '6px 10px', fontSize: 12, color: debt > 0 ? 'var(--muted)' : 'var(--red)' }}
-                      disabled={!USE_API || deletingId === s.id || debt > 0}
-                      title={debt > 0 ? 'Сначала погасите долг' : 'Удалить поставщика'}
-                      onClick={() => void removeSupplier(s)}
-                    >
-                      {deletingId === s.id ? '…' : '🗑'}
-                    </button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDetail(s.id)}>
-                      Открыть →
-                    </button>
-                  </div>
+                </button>
+                <div className="k-sup-actions">
+                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isOfflineV2Full()} onClick={() => openPayForm(s)} title="Оплата">💰</button>
+                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isOfflineV2Full()} onClick={() => openEditForm(s)} title="Редактировать">✎</button>
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    style={{ color: debt > 0 ? 'var(--muted)' : 'var(--red)' }}
+                    disabled={(!USE_API && !isOfflineV2Full()) || deletingId === s.id || debt > 0}
+                    title={debt > 0 ? 'Сначала погасите долг' : 'Удалить'}
+                    onClick={() => void removeSupplier(s)}
+                  >
+                    {deletingId === s.id ? '…' : '✕'}
+                  </button>
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      <button
+        type="button"
+        className="k-wh-fab k-sup-fab"
+        disabled={(!USE_API && !isOfflineV2Full()) || !canMutate}
+        title={canMutate ? 'Новый поставщик' : OFFLINE_BLOCK_MESSAGE}
+        aria-label="Новый поставщик"
+        onClick={openNewForm}
+      >
+        +
+      </button>
 
       {form.open && (
         <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeForm}>
