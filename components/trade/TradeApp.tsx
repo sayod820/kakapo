@@ -866,8 +866,22 @@ const CSS = `
   .k-mob-menu-btn{display:none}
   .k-side-overlay{display:none}
   .k-bottom-nav{display:none}
-  .k-hide-mob{display:block}
-  .k-hide-desk{display:none}
+  /* Не задаём display на desktop — иначе ломает grid/flex (KPI, actions) */
+  .k-hide-desk{display:none!important}
+
+  .k-cli-kpis{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px
+  }
+  .k-cli-kpis .k-kpi{padding:12px 14px;border-radius:12px}
+  .k-cli-kpis .k-kpi .kl{font-size:11px}
+  .k-cli-kpis .k-kpi .kv{font-size:20px;margin-top:4px}
+  .k-cli-row{
+    align-items:center
+  }
+  .k-cli-main{flex-wrap:nowrap}
+  .k-cli-actions .k-btn{
+    min-width:34px;min-height:34px;display:inline-flex;align-items:center;justify-content:center
+  }
 
   @media (max-width:900px){
     .k-grid2{grid-template-columns:1fr}
@@ -886,7 +900,7 @@ const CSS = `
     .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
     .k-hide-mob{display:none!important}
-    .k-hide-desk{display:block}
+    .k-hide-desk{display:revert}
     .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
     .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
     .k-trade:has(.k-body-pos) .k-main{height:100%!important;min-height:0!important;overflow:hidden;padding-bottom:0}
@@ -1302,8 +1316,8 @@ const CSS = `
       font-size:14px!important;padding:6px 10px!important;box-sizing:border-box
     }
     .k-cli-list{gap:6px}
-    .k-cli-row{padding:8px;gap:6px;border-radius:10px;flex-wrap:wrap}
-    .k-cli-main{gap:7px}
+    .k-cli-row{padding:8px;gap:6px;border-radius:10px;flex-wrap:wrap;align-items:stretch}
+    .k-cli-main{gap:7px;flex-wrap:wrap}
     .k-cli-emo{font-size:18px}
     .k-cli-name b{font-size:13px}
     .k-cli-txt small{font-size:10px;margin-top:2px}
