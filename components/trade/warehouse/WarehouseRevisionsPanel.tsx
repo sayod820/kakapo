@@ -15,6 +15,7 @@ import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import RevisionScopePanel from './RevisionScopePanel'
 import RevisionStepBar from './RevisionStepBar'
+import ProductEditModal from '@/components/trade/products/ProductEditModal'
 import {
   clearRevisionDraft,
   defaultRevisionDraft,
@@ -94,6 +95,7 @@ function RevisionLineCard({
   onCounted,
   onMatchSystem,
   onZero,
+  onEditProduct,
   cardRef,
   countedRef,
 }: {
@@ -110,6 +112,7 @@ function RevisionLineCard({
   onCounted: (v: string) => void
   onMatchSystem: () => void
   onZero: () => void
+  onEditProduct: () => void
   cardRef: (el: HTMLDivElement | null) => void
   countedRef: (el: HTMLInputElement | null) => void
 }) {
@@ -122,42 +125,37 @@ function RevisionLineCard({
   const costPrice = Number(product.costPrice) || 0
   const basisPrice = moneyBasisPrice(product)
   const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
-  const barcode = product.barcode || product.barcodes?.[0] || ''
   const systemReal = packRealWorld(system, packInfo)
   const diffReal = diff != null ? packRealWorld(diff, packInfo) : null
 
-  const border =
-    active ? '#3B8EF0'
-      : diff != null && diff !== 0 ? (diff > 0 ? 'var(--green)' : 'var(--red)')
-        : 'var(--border)'
+  const tone =
+    active ? 'on'
+      : diff != null && diff !== 0 ? (diff > 0 ? 'up' : 'down')
+        : ''
 
   return (
     <div
       ref={cardRef}
       onClick={onActivate}
-      className={`k-rev-line${active ? ' on' : ''}`}
-      style={{ borderColor: border, background: active ? 'rgba(59,142,240,.06)' : undefined }}
+      className={`k-rev-line${tone ? ` is-${tone}` : ''}`}
     >
       <div className="k-rev-line-top">
         <span className="k-rev-line-n">{idx + 1}</span>
         <span className="k-rev-line-emo">{product.e || '📦'}</span>
         <div className="k-rev-line-txt">
           <b>{product.name}</b>
-          <div className="k-rev-line-meta">
-            <span>{product.art || '—'}</span>
-            {barcode && <span>· {barcode}</span>}
-            <span>
-              · было <b>{system}</b>{packInfo.qty !== 1 && ' уп.'}
-              {systemReal && <span> ({formatQty(systemReal.value)} {systemReal.label})</span>}
-            </span>
-          </div>
+          <small>
+            {product.art || '—'} · было <b>{system}</b>{packInfo.qty !== 1 && ' уп.'}
+            {systemReal && <> ({formatQty(systemReal.value)} {systemReal.label})</>}
+          </small>
         </div>
         <div className="k-rev-line-btns">
+          <button type="button" className="k-btn k-btn-s" title="Редактор товара" onClick={e => { e.stopPropagation(); onEditProduct() }}>✎</button>
           <button type="button" className="k-btn k-btn-s" title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
           <button type="button" className="k-btn k-btn-s" title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
           <button type="button" className="k-btn k-btn-s" title="Сменить товар" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
           {canRemove && (
-            <button type="button" className="k-btn k-btn-s" title="Удалить" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+            <button type="button" className="k-btn k-btn-s k-rev-x" title="Удалить" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
           )}
         </div>
       </div>
@@ -174,7 +172,7 @@ function RevisionLineCard({
             onClick={e => e.stopPropagation()}
           />
         </div>
-        <div className="k-rev-line-diff">
+        <div className={`k-rev-line-diff${diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : ' ok'}`}>
           {diff != null && diff !== 0 ? (
             <>
               <b style={diffStyle(diff)}>{formatDiff(diff)} {inputUnitLabel}</b>
@@ -189,7 +187,7 @@ function RevisionLineCard({
               )}
             </>
           ) : (
-            <b style={{ color: 'var(--green)' }}>✓ ОК</b>
+            <b>✓ OK</b>
           )}
         </div>
       </div>
@@ -221,6 +219,7 @@ export default function WarehouseRevisionsPanel({
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  const [editProductId, setEditProductId] = useState<string | null>(null)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [layersLoaded, setLayersLoaded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -305,6 +304,7 @@ export default function WarehouseRevisionsPanel({
     setModalStep('scope')
     setScopeLabel('Все категории')
     setAddOpen(false)
+    setEditProductId(null)
     setMsg('')
   }
 
@@ -313,6 +313,7 @@ export default function WarehouseRevisionsPanel({
     setModalStep('scope')
     setScopeLabel('Все категории')
     setAddOpen(false)
+    setEditProductId(null)
     setDraft({ ...defaultRevisionDraft(), open: true })
     setMsg('')
   }
@@ -322,12 +323,14 @@ export default function WarehouseRevisionsPanel({
     setModalStep('count')
     setScopeLabel('Редактирование')
     setAddOpen(false)
+    setEditProductId(null)
     setDraft(revisionToDraft(revision))
     setMsg('')
   }
 
   function closeForm() {
     setAddOpen(false)
+    setEditProductId(null)
     setDraft(prev => ({ ...prev, open: false }))
     if (editingId) {
       setEditingId(null)
@@ -766,7 +769,7 @@ export default function WarehouseRevisionsPanel({
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
               {modalStep === 'count' && (
-                <div className="k-rcpt-head-actions k-hide-desk">
+                <div className="k-rev-head-actions">
                   {editingId && (
                     <button
                       type="button"
@@ -814,14 +817,15 @@ export default function WarehouseRevisionsPanel({
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>
                   <div className="k-rev-note">
-                    <div className="k-field" style={{ marginBottom: 0 }}>
-                      <label>Комментарий</label>
-                      <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Необязательно…" />
+                    <div className="k-rev-note-row">
+                      <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Комментарий…" />
+                      {!editingId && (
+                        <button type="button" className="k-btn k-btn-s" onClick={backToScope}>← Кат.</button>
+                      )}
                     </div>
                     {!editingId && (
                       <div className="k-rev-scope-chip">
                         <span>📂 {scopeLabel} · {filledLines.length}</span>
-                        <button type="button" className="k-btn k-btn-s" onClick={backToScope}>← Категории</button>
                       </div>
                     )}
                   </div>
@@ -876,6 +880,7 @@ export default function WarehouseRevisionsPanel({
                         onCounted={v => updateLine(line.key, { countedStock: v })}
                         onMatchSystem={() => updateLine(line.key, { countedStock: String(stockOf(product)) })}
                         onZero={() => updateLine(line.key, { countedStock: '0' })}
+                        onEditProduct={() => setEditProductId(product.id)}
                         cardRef={el => { lineRefs.current[line.key] = el }}
                         countedRef={el => { countedRefs.current[line.key] = el }}
                       />
@@ -976,6 +981,19 @@ export default function WarehouseRevisionsPanel({
           </div>
         </div>
       )}
+
+      {editProductId && (() => {
+        const p = products.find(x => x.id === editProductId)
+        if (!p) return null
+        return (
+          <ProductEditModal
+            open
+            product={p}
+            onClose={() => setEditProductId(null)}
+            onSaved={() => { void fetchProducts(); setEditProductId(null) }}
+          />
+        )
+      })()}
     </div>
   )
 }

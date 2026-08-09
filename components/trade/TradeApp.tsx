@@ -195,7 +195,11 @@ const CSS = `
   .k-rev-scope-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:6px;margin-top:auto}
   .k-rev-scope-actions .k-btn{min-height:36px;width:100%}
   .k-rev-scroll{flex:1;overflow:auto;min-height:0;padding:8px 12px 72px;-webkit-overflow-scrolling:touch}
+  .k-rev-head-actions{display:none}
   .k-rev-note{padding:0 0 8px;margin-bottom:8px;border-bottom:1px solid var(--border)}
+  .k-rev-note-row{display:flex;gap:6px;align-items:center}
+  .k-rev-note-row .k-inp{flex:1;min-width:0}
+  .k-rev-note-row .k-btn{flex-shrink:0;min-height:36px;padding:6px 10px;font-size:12px}
   .k-rev-scope-chip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
   .k-rev-scope-chip > span{
     font-size:11px;padding:4px 8px;border-radius:7px;background:var(--panel);
@@ -212,8 +216,11 @@ const CSS = `
   .k-rev-search{margin-bottom:8px}
   .k-rev-line{
     padding:8px 10px;border-radius:10px;border:1px solid var(--border);
-    background:var(--card2);margin-bottom:6px
+    background:var(--card2);margin-bottom:6px;transition:border-color .12s,background .12s
   }
+  .k-rev-line.is-on{border-color:#3B8EF0;background:rgba(59,142,240,.06)}
+  .k-rev-line.is-up{border-color:rgba(31,215,96,.45)}
+  .k-rev-line.is-down{border-color:rgba(255,90,90,.45)}
   .k-rev-line-top{display:flex;align-items:flex-start;gap:6px}
   .k-rev-line-n{font-size:11px;font-weight:900;color:var(--muted);min-width:14px;padding-top:2px}
   .k-rev-line-emo{font-size:18px;flex-shrink:0;line-height:1.2}
@@ -222,14 +229,25 @@ const CSS = `
     display:block;font-size:13px;font-weight:900;line-height:1.25;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap
   }
-  .k-rev-line-meta{font-size:10px;color:var(--muted);margin-top:1px;display:flex;flex-wrap:wrap;gap:4px}
-  .k-rev-line-meta b{display:inline;font-size:inherit;color:var(--text)}
-  .k-rev-line-btns{display:flex;gap:3px;flex-shrink:0}
-  .k-rev-line-btns .k-btn{padding:4px 6px;font-size:11px;min-height:0}
-  .k-rev-line-grid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:6px}
+  .k-rev-line-txt small{display:block;font-size:10px;color:var(--muted);margin-top:1px;line-height:1.3}
+  .k-rev-line-txt small b{display:inline;font-size:inherit;color:var(--text)}
+  .k-rev-line-btns{display:flex;gap:3px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;max-width:140px}
+  .k-rev-line-btns .k-btn{
+    width:28px;height:28px;min-height:0;padding:0;font-size:12px;
+    display:inline-flex;align-items:center;justify-content:center;border-radius:8px
+  }
+  .k-rev-line-btns .k-rev-x{color:var(--red)}
+  .k-rev-line-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(72px,0.8fr);gap:8px;align-items:end;margin-top:6px}
   .k-rev-line-grid .k-field{margin:0}
   .k-rev-line-grid .k-field label{font-size:10px;margin-bottom:2px}
-  .k-rev-line-diff{display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:72px;padding-bottom:4px}
+  .k-rev-line-grid .k-inp{font-weight:800;font-size:15px}
+  .k-rev-line-diff{
+    display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:1px;
+    min-height:36px;padding:4px 8px;border-radius:8px;background:rgba(31,215,96,.08)
+  }
+  .k-rev-line-diff.ok b{color:var(--green);font-size:13px}
+  .k-rev-line-diff.up{background:rgba(31,215,96,.1)}
+  .k-rev-line-diff.down{background:rgba(255,90,90,.08)}
   .k-rev-line-diff b{font-size:12px;font-weight:900}
   .k-rev-line-diff span{font-size:10px;font-weight:700}
   .k-rev-add{
@@ -1140,14 +1158,15 @@ const CSS = `
     }
     .k-rev-modal .k-rcpt-head-title{grid-area:title}
     .k-rev-modal .k-rcpt-find-x{grid-area:x;padding:2px 6px}
-    .k-rev-modal .k-rcpt-head-actions{
-      grid-area:actions;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px
+    .k-rev-head-actions{
+      grid-area:actions;display:grid!important;grid-template-columns:1fr 1.35fr;gap:6px;width:100%
     }
-    .k-rev-modal .k-rcpt-head-actions .k-btn-g{
-      grid-column:auto;order:2;min-height:36px!important;font-size:13px
+    .k-rev-head-actions .k-btn{
+      min-height:36px!important;width:100%;padding:6px 10px!important;font-size:13px
     }
-    .k-rev-modal .k-rcpt-head-actions .k-btn-s{order:1;min-height:36px!important}
-    .k-rev-modal .k-rcpt-head-actions .k-btn-del{order:0;grid-column:1 / -1}
+    .k-rev-head-actions .k-btn-g{order:2;font-size:13px}
+    .k-rev-head-actions .k-btn-s{order:1}
+    .k-rev-head-actions .k-btn-del{order:0;grid-column:1 / -1}
     .k-rev-steps{padding:6px 10px}
     .k-rev-step-n{width:20px;height:20px;font-size:10px}
     .k-rev-step-lbl{font-size:11px}
@@ -1156,13 +1175,21 @@ const CSS = `
     .k-rev-scope-sum b{font-size:14px}
     .k-rev-scope-actions{grid-template-columns:1fr 1.5fr;gap:6px}
     .k-rev-scroll{padding:8px 10px 72px}
+    .k-rev-note{padding:0 0 6px;margin-bottom:6px}
+    .k-rev-note-row{gap:5px}
+    .k-rev-note-row .k-btn{min-height:34px;padding:5px 8px;font-size:11px}
+    .k-rev-scope-chip{margin-top:4px}
+    .k-rev-scope-chip > span{padding:3px 7px;font-size:10px}
     .k-rev-summary{gap:3px;padding:5px 6px;margin-bottom:6px}
     .k-rev-summary b{font-size:11px}
-    .k-rev-line{padding:7px;margin-bottom:5px}
-    .k-rev-line-emo{font-size:16px}
+    .k-rev-line{padding:6px 8px;margin-bottom:5px;border-radius:9px}
+    .k-rev-line-emo{font-size:15px}
     .k-rev-line-txt b{font-size:12px}
-    .k-rev-line-grid{grid-template-columns:1fr 1fr;gap:5px}
-    .k-rev-line-diff{align-items:flex-start;min-width:0;padding-bottom:0}
+    .k-rev-line-btns{max-width:118px;gap:2px}
+    .k-rev-line-btns .k-btn{width:26px;height:26px;font-size:11px;border-radius:7px}
+    .k-rev-line-grid{grid-template-columns:1.15fr 0.85fr;gap:5px;margin-top:5px}
+    .k-rev-line-grid .k-inp{min-height:34px!important;font-size:14px!important;padding:5px 8px!important}
+    .k-rev-line-diff{min-height:34px;padding:3px 6px;align-items:flex-end}
     .k-wo-line-grid{grid-template-columns:1fr 1fr;gap:5px}
     .k-wo-line-grid .k-wo-sum{grid-column:1 / -1}
     .k-wo-summary{gap:4px;padding:6px;margin-bottom:6px}
