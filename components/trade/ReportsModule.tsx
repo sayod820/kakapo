@@ -78,6 +78,7 @@ export default function ReportsModule() {
   const [tab, setTab] = useState<ReportTab>('overview')
   const [productView, setProductView] = useState<'top' | 'unsold' | 'dead' | 'categories' | 'suppliers'>('top')
   const [showHelp, setShowHelp] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthLocal, setTruthLocal] = useState(false)
@@ -275,133 +276,127 @@ export default function ReportsModule() {
 
   if (!apiReady) {
     return (
-      <div>
-        <div className="k-page-h">
-          <div>
-            <h1>📊 Отчёты</h1>
-            <div className="sub">Полная отчётность по кассе, складу, поставщикам и клиентам</div>
-          </div>
-        </div>
-        <div className="k-card" style={{ padding: 28, textAlign: 'center', color: 'var(--muted)' }}>
-          Загрузка данных…
-        </div>
+      <div className="k-reports-mod">
+        <div className="k-empty">Загрузка…</div>
       </div>
     )
   }
 
+  const filterCount = [
+    posFilter,
+    cashierFilter,
+    payFilter !== 'all' ? payFilter : '',
+    statusFilter !== 'all' ? statusFilter : '',
+    q.trim(),
+  ].filter(Boolean).length
+
   return (
-    <div>
-      <div className="k-page-h">
-        <div>
-          <h1>📊 Отчёты</h1>
-          <div className="sub">
-            {truthLocal
-              ? 'Локальные данные · синк при связи'
-              : 'Полная отчётность по кассе, складу, поставщикам и клиентам'}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="k-btn k-btn-s" onClick={() => setShowHelp(v => !v)}>
-            {showHelp ? 'Скрыть справку' : 'Что здесь?'}
-          </button>
-          <button type="button" className="k-btn k-btn-s" disabled={refreshing} onClick={() => void refresh()}>
-            {refreshing ? '↻ …' : '↻ Обновить'}
-          </button>
-        </div>
-      </div>
-
-      {showHelp && (
-        <div className="k-card" style={{ padding: 16, marginBottom: 14, lineHeight: 1.5, fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>
-          <b style={{ color: 'var(--text)', display: 'block', marginBottom: 8 }}>Как пользоваться</b>
-          <div>1) Сверху выберите <b style={{ color: 'var(--text)' }}>период</b>, <b style={{ color: 'var(--text)' }}>кассу</b>, <b style={{ color: 'var(--text)' }}>кассира</b> и оплату.</div>
-          <div>2) Вкладки ниже — разные отчёты по действиям программы (продажи, возвраты, склад…).</div>
-          <div>3) <b style={{ color: 'var(--text)' }}>Выручка</b> — сумма проданных чеков. <b style={{ color: 'var(--text)' }}>Прибыль</b> (вкладка) — выручка − себестоимость FIFO из БД. <b style={{ color: 'var(--text)' }}>Касса факт</b> — ожидаемое vs пересчёт.</div>
-          <div>4) Кнопка <b style={{ color: 'var(--text)' }}>CSV</b> сохраняет таблицу в Excel/таблицу.</div>
-        </div>
+    <div className="k-reports-mod">
+      {truthLocal && (
+        <div className="k-rep-sync-bar">Локальные данные · обновятся при связи</div>
       )}
 
-      {apiError && (
-        <div className="k-alert" style={{ marginBottom: 14, background: '#2a1420', color: '#FF8A8A', border: '1px solid #5a2030' }}>
-          {apiError}
-        </div>
-      )}
-
-      {/* Фильтры */}
-      <div className="k-card" style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <b style={{ fontSize: 14 }}>Фильтры · {periodLabel}</b>
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={resetFilters}>Сбросить</button>
-        </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div className="k-rep-toolbar">
+        <div className="k-subtabs k-rep-periods">
           {REPORT_PERIODS.map(p => (
             <button
               key={p.id}
               type="button"
               className={`k-subtab ${period === p.id ? 'active' : ''}`}
-              style={{ padding: '7px 12px', fontSize: 12 }}
               onClick={() => setPeriod(p.id)}
             >
               {p.label}
             </button>
           ))}
         </div>
-        {period === 'custom' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12, maxWidth: 420 }}>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>С даты</label>
-              <input className="k-inp" type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
-            </div>
-            <div className="k-field" style={{ marginBottom: 0 }}>
-              <label>По дату</label>
-              <input className="k-inp" type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} />
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Точка продаж</label>
-            <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
-              <option value="">Все точки</option>
-              {posPoints.filter(p => p.active !== false).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Кассир</label>
-            <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
-              <option value="">Все кассиры</option>
-              {cashiers.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Оплата</label>
-            <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)}>
-              {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0 }}>
-            <label>Статус чека</label>
-            <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)}>
-              {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          </div>
-          <div className="k-field" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
-            <label>Поиск (чек, клиент, товар)</label>
-            <input className="k-inp" value={q} onChange={e => setQ(e.target.value)} placeholder="Например: K-120 или имя клиента…" />
-          </div>
+        <div className="k-rep-actions">
+          <button type="button" className="k-btn k-btn-s" title="Справка" onClick={() => setShowHelp(v => !v)}>
+            ?
+          </button>
+          <button
+            type="button"
+            className={`k-btn k-btn-s k-rep-flt-btn${filtersOpen || filterCount ? ' is-on' : ''}`}
+            title="Фильтры"
+            onClick={() => setFiltersOpen(v => !v)}
+          >
+            ⚙{filterCount ? ` ${filterCount}` : ''}
+          </button>
+          <button type="button" className="k-btn k-btn-s" title="Сбросить" onClick={resetFilters}>↺</button>
+          <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
+            {refreshing ? '…' : '↻'}
+          </button>
         </div>
-        {(payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
-          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
-            В таблицах продаж применены доп. фильтры · показано чеков: <b style={{ color: 'var(--text)' }}>{periodSales.length}</b>
-            {' '}из <b style={{ color: 'var(--text)' }}>{periodSalesAll.length}</b>
-          </div>
-        )}
       </div>
 
-      <div className="k-subtabs" style={{ marginBottom: 8 }}>
+      {period === 'custom' && (
+        <div className="k-rep-dates">
+          <div className="k-field" style={{ marginBottom: 0 }}>
+            <label>С</label>
+            <input className="k-inp" type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+          </div>
+          <div className="k-field" style={{ marginBottom: 0 }}>
+            <label>По</label>
+            <input className="k-inp" type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {showHelp && (
+        <div className="k-rep-help">
+          <b>Как смотреть</b>
+          <div>1) Период сверху · фильтры через ⚙</div>
+          <div>2) Вкладки — разные отчёты</div>
+          <div>3) Выручка = чеки · Прибыль = выручка − себестоимость · Сверки = касса факт</div>
+          <div>4) CSV — выгрузка в Excel</div>
+        </div>
+      )}
+
+      <div className={`k-rep-filters${filtersOpen ? ' is-open' : ''}`}>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Точка</label>
+          <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
+            <option value="">Все</option>
+            {posPoints.filter(p => p.active !== false).map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Кассир</label>
+          <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
+            <option value="">Все</option>
+            {cashiers.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Оплата</label>
+          <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)}>
+            {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="k-field" style={{ marginBottom: 0 }}>
+          <label>Статус</label>
+          <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)}>
+            {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="k-field k-rep-search" style={{ marginBottom: 0 }}>
+          <label>Поиск</label>
+          <input className="k-inp" value={q} onChange={e => setQ(e.target.value)} placeholder="Чек, клиент, товар…" />
+        </div>
+      </div>
+
+      {(payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
+        <div className="k-rep-filter-note">
+          Фильтр продаж: {periodSales.length} из {periodSalesAll.length} · {periodLabel}
+        </div>
+      )}
+
+      {apiError && <div className="k-rep-err">{apiError}</div>}
+
+      <div className="k-subtabs k-rep-tabs">
         {REPORT_TABS.map(t => (
           <button
             key={t.id}
@@ -410,118 +405,87 @@ export default function ReportsModule() {
             onClick={() => setTab(t.id)}
             title={t.hint}
           >
-            {t.icon} {t.label}
+            <span className="k-rep-tab-ic">{t.icon}</span>
+            <span>{t.label}</span>
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginBottom: 14 }}>{activeTabHint}</div>
+      {activeTabHint && <div className="k-rep-hint">{activeTabHint}</div>}
 
       {tab === 'overview' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Выручка</div>
-              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div>
-            </div>
-            <div className="k-kpi k-statcard"><div className="kl">Наличные</div><div className="kv">{fmtMoney(salesAgg.cash)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Карта</div><div className="kv">{fmtMoney(salesAgg.card)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">В долг</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Чеков</div><div className="kv">{salesAgg.salesCount}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Средний чек</div><div className="kv">{fmtMoney(salesAgg.avgCheck)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Возвраты</div><div className="kv" style={{ color: 'var(--red)' }}>{salesAgg.returnedCount}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Пришло денег</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashIn)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Ушло (закупки+расходы)</div><div className="kv">{fmtMoney(cashOut)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Закупки</div><div className="kv">{fmtMoney(purchaseCost)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Расходы</div><div className="kv">{fmtMoney(expenseTotal)}</div></div>
-            <div className="k-kpi k-statcard">
-              <div className="kl">Прибыль (БД)</div>
-              <div className="kv" style={{ color: (dbProfit?.profit ?? margin) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+          <div className="k-rep-stats">
+            <div><span>Выручка</span><b style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</b></div>
+            <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>
+            <div><span>Карта</span><b>{fmtMoney(salesAgg.card)}</b></div>
+            <div><span>Долг</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
+            <div><span>Чеков</span><b>{salesAgg.salesCount}</b></div>
+            <div><span>Ср. чек</span><b>{fmtMoney(salesAgg.avgCheck)}</b></div>
+            <div><span>Возвраты</span><b style={{ color: 'var(--red)' }}>{salesAgg.returnedCount}</b></div>
+            <div><span>Пришло</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashIn)}</b></div>
+            <div><span>Ушло</span><b>{fmtMoney(cashOut)}</b></div>
+            <div><span>Закупки</span><b>{fmtMoney(purchaseCost)}</b></div>
+            <div><span>Расходы</span><b>{fmtMoney(expenseTotal)}</b></div>
+            <div>
+              <span>Прибыль</span>
+              <b style={{ color: (dbProfit?.profit ?? margin) >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {fmtMoney(dbProfit?.profit ?? margin)}
-              </div>
+              </b>
             </div>
-            <div className="k-kpi k-statcard"><div className="kl">Долг поставщикам</div><div className="kv">{fmtMoney(supplierDebt)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Долг клиентов</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</div></div>
+            <div><span>Поставщ.</span><b>{fmtMoney(supplierDebt)}</b></div>
+            <div><span>Клиенты</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</b></div>
           </div>
 
-          <div className="k-card" style={{ padding: 16, marginBottom: 14, fontSize: 13, color: 'var(--muted)', fontWeight: 700, lineHeight: 1.55 }}>
-            <div>Открытых смен: <b style={{ color: 'var(--text)' }}>{openShiftsNow.length}</b> · смен в периоде: <b style={{ color: 'var(--text)' }}>{periodShifts.length}</b></div>
-            <div>Списания: <b style={{ color: 'var(--text)' }}>{periodWriteoffs.length}</b> ({fmtMoney(writeoffCost)}) · ревизии: <b style={{ color: 'var(--text)' }}>{revStats.count}</b></div>
-            <div style={{ marginTop: 6, opacity: .9 }}>
-              Прибыль считается на сервере: выручка − FIFO-себестоимость слоёв прихода.
-              {dbProfit ? ` Наценка ${dbProfit.marginPct}%.` : ' Пока без данных БД — оценка по товарам.'}
-              {(dbTill?.summary.withAlert ?? 0) > 0
-                ? ` · Внимание: ${dbTill?.summary.withAlert} смен с расхождением ≥ ${dbTill?.threshold} сом.`
-                : ''}
-            </div>
+          <div className="k-rep-note">
+            Смен: {openShiftsNow.length} откр. / {periodShifts.length} в периоде
+            {' · '}списания {periodWriteoffs.length} ({fmtMoney(writeoffCost)})
+            {' · '}ревизии {revStats.count}
+            {dbProfit ? ` · наценка ${dbProfit.marginPct}%` : ''}
+            {(dbTill?.summary.withAlert ?? 0) > 0
+              ? ` · ⚠ ${dbTill?.summary.withAlert} сверки ≥ ${dbTill?.threshold} сом`
+              : ''}
           </div>
 
-          <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-            <div className="k-card-h"><b>По дням</b></div>
-            {!byDay.length ? (
-              <div className="k-empty">Нет продаж за период</div>
-            ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>День</th>
-                      <th>Чеков</th>
-                      <th>Выручка</th>
-                      <th>Нал</th>
-                      <th>Карта</th>
-                      <th>Долг</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byDay.slice(0, 60).map(d => (
-                      <tr key={d.day}>
-                        <td style={{ fontWeight: 800 }}>{d.day}</td>
-                        <td>{d.checks}</td>
-                        <td>{fmtMoney(d.revenue)}</td>
-                        <td>{fmtMoney(d.cash)}</td>
-                        <td>{fmtMoney(d.card)}</td>
-                        <td>{fmtMoney(d.credit)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h">
-              <b>Топ товаров</b>
-              <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+          <div className="k-rep-split">
+            <div className="k-rep-panel">
+              <div className="k-rep-panel-h">По дням</div>
+              {!byDay.length ? (
+                <div className="k-empty">Нет продаж</div>
+              ) : (
+                <div className="k-rep-list">
+                  {byDay.slice(0, 60).map(d => (
+                    <div key={d.day} className="k-rep-row">
+                      <div className="k-rep-row-txt">
+                        <b>{d.day}</b>
+                        <small>{d.checks} чек. · нал {fmtMoney(d.cash)} · карта {fmtMoney(d.card)}</small>
+                      </div>
+                      <b className="k-rep-amt">{fmtMoney(d.revenue)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {!productRows.length ? (
-              <div className="k-empty">Нет продаж</div>
-            ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Товар</th>
-                      <th>Кол-во</th>
-                      <th>Выручка</th>
-                      <th>Себест.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {productRows.slice(0, 12).map((r, i) => (
-                      <tr key={r.productId}>
-                        <td>{i + 1}</td>
-                        <td>{r.productName}</td>
-                        <td>{r.qty}</td>
-                        <td>{fmtMoney(r.revenue)}</td>
-                        <td>{fmtMoney(r.cogs)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="k-rep-panel">
+              <div className="k-rep-panel-h">
+                <span>Топ товаров</span>
+                <button type="button" className="k-btn k-btn-s" onClick={exportProducts}>CSV</button>
               </div>
-            )}
+              {!productRows.length ? (
+                <div className="k-empty">Нет продаж</div>
+              ) : (
+                <div className="k-rep-list">
+                  {productRows.slice(0, 12).map((r, i) => (
+                    <div key={r.productId} className="k-rep-row">
+                      <div className="k-rep-row-txt">
+                        <b>{i + 1}. {r.productName}</b>
+                        <small>×{r.qty} · себ. {fmtMoney(r.cogs)}</small>
+                      </div>
+                      <b className="k-rep-amt" style={{ color: 'var(--green)' }}>{fmtMoney(r.revenue)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

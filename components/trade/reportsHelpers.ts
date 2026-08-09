@@ -37,17 +37,17 @@ export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
 ]
 
 export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: string }[] = [
-  { id: 'overview', label: 'Сводка', icon: '📈', hint: 'Деньги и итоги за выбранный период' },
-  { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Все чеки кассы с оплатой и статусом' },
+  { id: 'overview', label: 'Сводка', icon: '📈', hint: 'Деньги и итоги за период' },
+  { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Чеки: оплата и статус' },
   { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты' },
   { id: 'cashiers', label: 'Кассиры', icon: '👤', hint: 'Кто сколько продал' },
-  { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие/закрытие кассы' },
-  { id: 'till', label: 'Касса факт', icon: '⚖️', hint: 'Ожидаемое vs фактическое по закрытым сменам (из БД)' },
-  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка − закупочная себестоимость (FIFO) из БД' },
+  { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие и закрытие кассы' },
+  { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
+  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка минус себестоимость FIFO' },
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
-  { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и расходы' },
+  { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и закупки' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
-  { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ продаж, непродаваемые, категории и поставщики +/−' },
+  { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ, непродаваемые, категории' },
 ]
 
 /** Query-параметры периода для API /finance/* */
