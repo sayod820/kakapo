@@ -65,7 +65,7 @@ export default function FinanceModule() {
   const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
 
-  const [period, setPeriod] = useState<ReportPeriod>('30d')
+  const [period, setPeriod] = useState<ReportPeriod>('today')
   const [customFrom, setCustomFrom] = useState(ymdLocal(new Date(Date.now() - 6 * 864e5)))
   const [customTo, setCustomTo] = useState(ymdLocal())
   const [posFilter, setPosFilter] = useState('')
@@ -414,44 +414,35 @@ export default function FinanceModule() {
       )}
 
       <div className={`k-fin-filters${filtersOpen ? ' is-open' : ''}`}>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Точка</label>
-          <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
-            <option value="">Все</option>
-            {posPoints.filter(p => p.active !== false).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Кассир</label>
-          <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
-            <option value="">Все</option>
-            {cashiers.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Тип</label>
-          <select className="k-sel" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="">Все типы</option>
-            {Object.entries({
-              sale_cash: 'Продажа · нал',
-              sale_card: 'Продажа · карта',
-              sale_credit: 'Продажа · долг',
-              expense: 'Расход',
-              deposit: 'Вклад',
-              withdraw: 'Снятие',
-              shift_close: 'Сверка кассы',
-              purchase_pay: 'Оплата закупа',
-              sale_return_cash: 'Возврат · нал',
-              sale_return_card: 'Возврат · карта',
-            }).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        </div>
+        <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)} title="Точка" aria-label="Точка">
+          <option value="">Точка · все</option>
+          {posPoints.filter(p => p.active !== false).map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)} title="Кассир" aria-label="Кассир">
+          <option value="">Кассир · все</option>
+          {cashiers.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <select className="k-sel" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} title="Тип" aria-label="Тип">
+          <option value="">Тип · все</option>
+          {Object.entries({
+            sale_cash: 'Продажа · нал',
+            sale_card: 'Продажа · карта',
+            sale_credit: 'Продажа · долг',
+            expense: 'Расход',
+            deposit: 'Вклад',
+            withdraw: 'Снятие',
+            shift_close: 'Сверка кассы',
+            purchase_pay: 'Оплата закупа',
+            sale_return_cash: 'Возврат · нал',
+            sale_return_card: 'Возврат · карта',
+          }).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
       </div>
 
       <div className="k-subtabs k-fin-tabs">

@@ -67,7 +67,7 @@ export default function ReportsModule() {
   const clients = useClientStore(s => s.clients)
   const products = useProducts(s => s.products)
 
-  const [period, setPeriod] = useState<ReportPeriod>('30d')
+  const [period, setPeriod] = useState<ReportPeriod>('today')
   const [customFrom, setCustomFrom] = useState(ymdLocal(new Date(Date.now() - 6 * 864e5)))
   const [customTo, setCustomTo] = useState(ymdLocal())
   const [posFilter, setPosFilter] = useState('')
@@ -159,6 +159,10 @@ export default function ReportsModule() {
   const cashOut = useMemo(() => round2(purchasePaid + expenseTotal), [purchasePaid, expenseTotal])
   const dbProfit = truth?.profit?.summary
   const dbTill = truth?.expectedVsActual
+  const profitAmt = dbProfit?.profit ?? margin
+  const profitPct = dbProfit?.marginPct != null
+    ? Number(dbProfit.marginPct)
+    : (salesAgg.revenue > 0 ? round2((profitAmt / salesAgg.revenue) * 100) : 0)
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
@@ -309,6 +313,13 @@ export default function ReportsModule() {
             </button>
           ))}
         </div>
+        <input
+          className="k-inp k-rep-search"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Поиск: чек, клиент…"
+          aria-label="Поиск"
+        />
         <div className="k-rep-actions">
           <button type="button" className="k-btn k-btn-s" title="Справка" onClick={() => setShowHelp(v => !v)}>
             ?
@@ -352,40 +363,24 @@ export default function ReportsModule() {
       )}
 
       <div className={`k-rep-filters${filtersOpen ? ' is-open' : ''}`}>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Точка</label>
-          <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)}>
-            <option value="">Все</option>
-            {posPoints.filter(p => p.active !== false).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Кассир</label>
-          <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)}>
-            <option value="">Все</option>
-            {cashiers.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Оплата</label>
-          <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)}>
-            {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
-        </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Статус</label>
-          <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)}>
-            {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
-        </div>
-        <div className="k-field k-rep-search" style={{ marginBottom: 0 }}>
-          <label>Поиск</label>
-          <input className="k-inp" value={q} onChange={e => setQ(e.target.value)} placeholder="Чек, клиент, товар…" />
-        </div>
+        <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)} title="Точка" aria-label="Точка">
+          <option value="">Точка · все</option>
+          {posPoints.filter(p => p.active !== false).map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)} title="Кассир" aria-label="Кассир">
+          <option value="">Кассир · все</option>
+          {cashiers.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)} title="Оплата" aria-label="Оплата">
+          {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)} title="Статус" aria-label="Статус">
+          {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
       </div>
 
       {(payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
@@ -414,8 +409,22 @@ export default function ReportsModule() {
 
       {tab === 'overview' && (
         <>
+          <div className="k-rep-highlight">
+            <div>
+              <span>Выручка</span>
+              <b style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</b>
+            </div>
+            <div>
+              <span>Прибыль</span>
+              <b style={{ color: profitAmt >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(profitAmt)}</b>
+            </div>
+            <div>
+              <span>% прибыли</span>
+              <b style={{ color: profitPct >= 0 ? 'var(--green)' : 'var(--red)' }}>{profitPct}%</b>
+            </div>
+          </div>
+
           <div className="k-rep-stats">
-            <div><span>Выручка</span><b style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</b></div>
             <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>
             <div><span>Карта</span><b>{fmtMoney(salesAgg.card)}</b></div>
             <div><span>Долг</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
@@ -426,12 +435,6 @@ export default function ReportsModule() {
             <div><span>Ушло</span><b>{fmtMoney(cashOut)}</b></div>
             <div><span>Закупки</span><b>{fmtMoney(purchaseCost)}</b></div>
             <div><span>Расходы</span><b>{fmtMoney(expenseTotal)}</b></div>
-            <div>
-              <span>Прибыль</span>
-              <b style={{ color: (dbProfit?.profit ?? margin) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {fmtMoney(dbProfit?.profit ?? margin)}
-              </b>
-            </div>
             <div><span>Поставщ.</span><b>{fmtMoney(supplierDebt)}</b></div>
             <div><span>Клиенты</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</b></div>
           </div>
@@ -440,7 +443,6 @@ export default function ReportsModule() {
             Смен: {openShiftsNow.length} откр. / {periodShifts.length} в периоде
             {' · '}списания {periodWriteoffs.length} ({fmtMoney(writeoffCost)})
             {' · '}ревизии {revStats.count}
-            {dbProfit ? ` · наценка ${dbProfit.marginPct}%` : ''}
             {(dbTill?.summary.withAlert ?? 0) > 0
               ? ` · ⚠ ${dbTill?.summary.withAlert} сверки ≥ ${dbTill?.threshold} сом`
               : ''}

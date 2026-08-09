@@ -237,16 +237,16 @@ const CSS = `
     width:34px;height:34px;min-height:0;padding:0;border-radius:8px;
     display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:900
   }
-  .k-fin-flt-btn{display:none!important}
+  .k-fin-flt-btn{display:inline-flex!important}
   .k-fin-flt-btn.is-on{border-color:var(--green);color:var(--green)}
   .k-fin-dates{
     display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:420px;margin:0 0 8px
   }
   .k-fin-filters{
-    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 10px
+    display:none;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0 0 8px
   }
-  .k-fin-filters .k-field label{font-size:11px;margin-bottom:3px}
-  .k-fin-filters .k-sel{min-height:36px;height:36px;padding:4px 8px;font-size:13px}
+  .k-fin-filters.is-open{display:grid}
+  .k-fin-filters .k-sel{min-height:32px;height:32px;padding:2px 8px;font-size:12px;box-sizing:border-box}
   .k-fin-tabs{
     display:flex;gap:5px;flex-wrap:wrap;margin:0 0 6px;overflow-x:auto;
     -webkit-overflow-scrolling:touch;scrollbar-width:none
@@ -300,16 +300,21 @@ const CSS = `
     background:#2a1420;color:#FF8A8A;border:1px solid #5a2030
   }
   .k-rep-toolbar{
-    display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center
+    display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center
   }
   .k-rep-periods{display:flex;gap:5px;flex-wrap:wrap;margin:0;flex:1 1 auto}
   .k-rep-periods .k-subtab{padding:5px 10px;font-size:12px;min-height:0}
-  .k-rep-actions{display:flex;gap:4px;flex-shrink:0;align-items:center;margin-left:auto}
-  .k-rep-actions .k-btn{
-    width:34px;height:34px;min-height:0;padding:0;border-radius:8px;
-    display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:900
+  .k-rep-search{
+    flex:0 1 180px;max-width:220px;min-width:120px;
+    height:32px!important;min-height:32px!important;max-height:32px!important;
+    padding:4px 8px!important;font-size:13px!important;box-sizing:border-box
   }
-  .k-rep-flt-btn{display:none!important}
+  .k-rep-actions{display:flex;gap:4px;flex-shrink:0;align-items:center}
+  .k-rep-actions .k-btn{
+    width:32px;height:32px;min-height:0;padding:0;border-radius:8px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:900
+  }
+  .k-rep-flt-btn{display:inline-flex!important}
   .k-rep-flt-btn.is-on{border-color:var(--green);color:var(--green)}
   .k-rep-dates{
     display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:420px;margin:0 0 8px
@@ -320,11 +325,12 @@ const CSS = `
   }
   .k-rep-help b{display:block;color:var(--text);margin-bottom:4px;font-size:13px}
   .k-rep-filters{
-    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 8px
+    display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0 0 8px
   }
-  .k-rep-filters .k-rep-search{grid-column:1 / -1}
-  .k-rep-filters .k-field label{font-size:11px;margin-bottom:3px}
-  .k-rep-filters .k-sel,.k-rep-filters .k-inp{min-height:36px;height:36px;padding:4px 8px;font-size:13px;box-sizing:border-box}
+  .k-rep-filters.is-open{display:grid}
+  .k-rep-filters .k-sel{
+    min-height:32px;height:32px;padding:2px 8px;font-size:12px;box-sizing:border-box;width:100%
+  }
   .k-rep-filter-note{font-size:11px;color:var(--muted);font-weight:700;margin:0 0 8px}
   .k-rep-tabs{
     display:flex;gap:5px;flex-wrap:wrap;margin:0 0 6px;overflow-x:auto;
@@ -336,8 +342,15 @@ const CSS = `
   }
   .k-rep-tab-ic{font-size:13px;line-height:1}
   .k-rep-hint{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 10px;line-height:1.35}
+  .k-rep-highlight{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+    margin:0 0 8px;padding:10px 12px;border:1px solid rgba(31,215,96,.35);
+    border-radius:12px;background:linear-gradient(135deg,rgba(31,215,96,.08),rgba(31,215,96,.02))
+  }
+  .k-rep-highlight span{display:block;font-size:11px;color:var(--muted);font-weight:700}
+  .k-rep-highlight b{display:block;font-size:18px;font-weight:900;margin-top:3px;line-height:1.15}
   .k-rep-stats{
-    display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;
+    display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;
     margin:0 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)
   }
   .k-rep-stats span{display:block;font-size:10px;color:var(--muted);font-weight:700}
@@ -1115,7 +1128,7 @@ const CSS = `
     .k-line-row--3,.k-line-row--5{grid-template-columns:1fr 1fr}
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
     .k-hide-mob{display:none!important}
-    .k-hide-desk{display:revert}
+    .k-hide-desk{display:revert!important}
     .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
     .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
     .k-trade:has(.k-body-pos) .k-main{height:100%!important;min-height:0!important;overflow:hidden;padding-bottom:0}
@@ -1135,7 +1148,7 @@ const CSS = `
     }
     .k-side-overlay.open{opacity:1;pointer-events:auto}
     .k-mob-menu-btn{
-      display:flex;align-items:center;justify-content:center;width:42px;height:42px;
+      display:flex!important;align-items:center;justify-content:center;width:42px;height:42px;
       border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
       cursor:pointer;font-size:20px;flex-shrink:0
     }
@@ -1464,7 +1477,7 @@ const CSS = `
     .k-wo-line-txt b{font-size:12px}
     .k-wo-add{padding:8px;margin-bottom:6px}
     .k-online-chip{display:inline-flex!important}
-    .k-top-net{display:flex;align-items:center}
+    .k-top-net{display:flex!important;align-items:center}
     .k-wh-filters{flex-direction:column;align-items:stretch}
     .k-wh-filters-row{gap:6px}
     .k-wh-period{width:100%}
@@ -1585,13 +1598,16 @@ const CSS = `
     .k-rep-periods .k-subtab{
       min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px;flex-shrink:0
     }
+    .k-rep-search{
+      flex:0 0 auto!important;max-width:none;width:100%;min-width:0;
+      height:32px!important;min-height:32px!important;max-height:32px!important
+    }
     .k-rep-actions{margin-left:0;justify-content:flex-end}
     .k-rep-actions .k-btn{width:32px;height:32px;font-size:14px}
     .k-rep-flt-btn{display:inline-flex!important}
     .k-rep-dates{max-width:none;margin-bottom:8px}
-    .k-rep-filters{display:none;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+    .k-rep-filters{display:none;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
     .k-rep-filters.is-open{display:grid!important}
-    .k-rep-filters .k-rep-search{grid-column:1 / -1}
     .k-rep-tabs{
       flex-wrap:nowrap;margin-bottom:4px;position:sticky;top:0;z-index:6;
       background:var(--bg);padding:2px 0 4px
@@ -1600,6 +1616,11 @@ const CSS = `
       min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px
     }
     .k-rep-hint{font-size:11px;margin-bottom:8px}
+    .k-rep-highlight{
+      grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px;margin-bottom:8px
+    }
+    .k-rep-highlight span{font-size:9px}
+    .k-rep-highlight b{font-size:14px;margin-top:2px}
     .k-rep-stats{
       grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:6px 8px;margin-bottom:8px
     }
@@ -1634,7 +1655,7 @@ const CSS = `
     .k-fin-actions .k-btn{width:32px;height:32px;font-size:15px}
     .k-fin-flt-btn{display:inline-flex!important}
     .k-fin-dates{max-width:none;margin-bottom:8px}
-    .k-fin-filters{display:none;grid-template-columns:1fr;gap:6px;margin-bottom:8px}
+    .k-fin-filters{display:none;grid-template-columns:1fr;gap:5px;margin-bottom:8px}
     .k-fin-filters.is-open{display:grid!important}
     .k-fin-tabs{
       flex-wrap:nowrap;margin-bottom:4px;position:sticky;top:0;z-index:6;
@@ -1661,7 +1682,7 @@ const CSS = `
     .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav{visibility:hidden;pointer-events:none}
     .k-trade:has(.k-receipt-modal-bg) .k-wh-cta{display:none!important}
     .k-bottom-nav{
-      display:flex;position:fixed;bottom:0;left:0;right:0;z-index:150;
+      display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:150;
       background:var(--panel);border-top:1px solid var(--border);
       padding:2px 2px calc(2px + env(safe-area-inset-bottom,0px));gap:1px;
       box-shadow:0 -4px 14px rgba(0,0,0,.06)
