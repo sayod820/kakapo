@@ -1166,7 +1166,7 @@ export default function CashierModule({
 
   /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
   useEffect(() => {
-    if (!USE_API) return
+    if (!USE_API || !active) return
     let cancelled = false
     const softSync = () => {
       if (cancelled || document.visibilityState === 'hidden') return
@@ -1178,6 +1178,7 @@ export default function CashierModule({
         void net.syncNow()
       }
     }
+    softSync()
     const id = window.setInterval(softSync, 20000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') softSync()
@@ -1188,7 +1189,7 @@ export default function CashierModule({
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [])
+  }, [active])
 
   useEffect(() => {
     if (!toast) return

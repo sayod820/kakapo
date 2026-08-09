@@ -914,7 +914,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       return id
     }
     case 'expense_create': {
-      const p = row.payload || {}
+      const p = await resolveRefs(row.payload, ['shiftId'])
       const exp = await api.createExpense({
         category: p.category,
         amount: Number(p.amount) || 0,

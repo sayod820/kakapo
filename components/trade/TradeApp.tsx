@@ -2220,9 +2220,15 @@ function TradeAppInner({
 
   const salesActive = current === 'sales'
   const debtsActive = current === 'debts'
+  /** Касса держится ~30с после ухода — быстрый возврат без потери, потом выгрузка из памяти */
   const [salesKeepAlive, setSalesKeepAlive] = useState(salesActive)
   useEffect(() => {
-    if (salesActive) setSalesKeepAlive(true)
+    if (salesActive) {
+      setSalesKeepAlive(true)
+      return
+    }
+    const t = window.setTimeout(() => setSalesKeepAlive(false), 30_000)
+    return () => window.clearTimeout(t)
   }, [salesActive])
 
   return (

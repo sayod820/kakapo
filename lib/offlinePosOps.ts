@@ -617,6 +617,18 @@ export async function createSaleSafe(
 
 // ── Расход (FinanceModule, Offline V2) ──
 
+function openShiftId(): string | undefined {
+  return usePosStore.getState().shifts.find(s => s.status === 'open')?.id
+}
+
+function applyExpenseToShift(shiftId: string | undefined, amount: number, dir: 1 | -1) {
+  if (!shiftId || !(amount > 0)) return
+  const shift = shiftById(shiftId)
+  if (!shift) return
+  const next = round2(Math.max(0, (Number(shift.expenseTotal) || 0) + dir * amount))
+  patchShift(shiftId, { expenseTotal: next })
+}
+
 export async function expenseCreateSafe(input: {
   category: string
   amount: number
@@ -625,8 +637,10 @@ export async function expenseCreateSafe(input: {
   shiftId?: string
 }): Promise<OfflineResult<PosExpense>> {
   const clientRef = newClientRef()
+  const shiftId = input.shiftId || openShiftId()
   const payload = {
     ...input,
+    shiftId,
     clientRef,
     amount: round2(input.amount),
     category: String(input.category || 'Прочее').trim() || 'Прочее',
@@ -634,6 +648,14 @@ export async function expenseCreateSafe(input: {
 
   if (!isOfflineV2Full()) {
     const exp = await api.createExpense(payload)
+    if (exp?.shiftId) {
+      applyExpenseToShift(String(exp.shiftId), Number(exp.amount) || payload.amount, 1)
+    } else if (shiftId) {
+      // сервер мог не вернуть shiftId — локально всё равно учтём открытую смену
+      applyExpenseToShift(shiftId, payload.amount, 1)
+    }
+    usePosStore.setState(s => ({ expenses: [exp, ...s.expenses.filter(e => e.id !== exp.id)] }))
+    void persistPosSnapshot()
     return { offline: false, data: exp }
   }
 
@@ -650,6 +672,7 @@ export async function expenseCreateSafe(input: {
       shiftId: payload.shiftId,
     }
     usePosStore.setState(s => ({ expenses: [exp, ...s.expenses] }))
+    applyExpenseToShift(payload.shiftId, payload.amount, 1)
     void persistPosSnapshot()
     shadowMirrorPut('finance_move', `exp:${exp.id}`, exp)
     return exp
@@ -662,19 +685,27 @@ export async function expenseCreateSafe(input: {
 
 // ── Удаление расхода (Offline V2) ──
 
+function reverseExpenseLocal(id: string) {
+  const exp = usePosStore.getState().expenses.find(e => e.id === id)
+  if (exp) {
+    applyExpenseToShift(exp.shiftId, Number(exp.amount) || 0, -1)
+  }
+  usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+}
+
 export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
   if (!isOfflineV2Full()) {
     await api.deleteExpense(id)
-    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    reverseExpenseLocal(id)
     void persistPosSnapshot()
     return { offline: false, data: { id } }
   }
 
   const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('expense_delete', { clientRef, id }, { clientRef })
-    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    reverseExpenseLocal(id)
     void persistPosSnapshot()
     return { id }
   }
@@ -687,7 +718,7 @@ export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id:
 
   return raceCashierOp(async () => {
     await api.deleteExpense(id)
-    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    reverseExpenseLocal(id)
     void persistPosSnapshot()
     return { id }
   }, applyLocal)

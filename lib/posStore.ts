@@ -146,14 +146,47 @@ export async function syncPosFromApi() {
   await usePosStore.getState().fetchFromApi()
 }
 
-/** Лёгкое обновление после чека — только продажи и смены, без склада/финансов */
+/** Лёгкое обновление после чека — только продажи и смены, без склада/финансов.
+ *  Не затирает локальные правки смены, пока в очереди есть операции, влияющие на кассу. */
+const SHIFT_PENDING_KINDS = new Set([
+  'sale',
+  'sale_return',
+  'finance_move',
+  'finance_move_delete',
+  'expense_create',
+  'expense_delete',
+  'shift_open',
+  'shift_close',
+  'debt_repay',
+])
+
 export async function softSyncPosAfterSale() {
   try {
     const [sales, shifts] = await Promise.all([
       api.getPosSales(),
       api.getPosShifts(),
     ])
-    usePosStore.setState({ sales, shifts })
+
+    const { getPending, isLocalId } = await import('./offline')
+    const pending = await getPending()
+    const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
+
+    const localSales = usePosStore.getState().sales
+    const serverSaleIds = new Set(sales.map(s => String(s.id)))
+    const localOnlySales = localSales.filter(s => {
+      const id = String(s.id)
+      if (serverSaleIds.has(id)) return false
+      return isLocalId(id) || !!(s as { _offline?: boolean })._offline
+    })
+    const mergedSales = localOnlySales.length ? [...localOnlySales, ...sales] : sales
+
+    if (protectShifts) {
+      // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
+      usePosStore.setState({ sales: mergedSales })
+    } else {
+      usePosStore.setState({ sales: mergedSales, shifts })
+    }
+
     try {
       const { cacheData } = await import('./offline')
       const cur = usePosStore.getState()
