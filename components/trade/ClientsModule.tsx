@@ -548,29 +548,28 @@ export default function ClientsModule() {
   }, [loyaltyClient, loyaltyForm.levelAssignMode, orders])
 
   return (
-    <div>
-      <div className="k-page-h">
+    <div className="k-clients-mod">
+      <div className="k-page-h k-cli-head">
         <div>
           <h1>👥 Клиенты</h1>
-          <div className="sub">
+          <div className="sub k-cli-sub">
             Клиенты, бонусы, карты лояльности и VIP-кредит — общие данные со всеми приложениями KAKAPO
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {apiSyncing && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Обновление…</span>}
-          <button type="button" className="k-btn k-btn-g" onClick={openNewForm}>+ Новый клиент</button>
+        <div className="k-cli-head-actions">
+          {apiSyncing && <span className="k-cli-sync">Обновление…</span>}
+          <button type="button" className="k-btn k-btn-g k-hide-mob" onClick={openNewForm}>+ Новый клиент</button>
         </div>
       </div>
 
-      <OfflineNotice section="клиенты" />
+      <div className="k-cli-banner k-hide-mob">
+        <OfflineNotice section="клиенты" />
+        {apiError && (
+          <div className="k-cli-err">{apiError}</div>
+        )}
+      </div>
 
-      {apiError && (
-        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>
-          {apiError}
-        </div>
-      )}
-
-      <div className="k-kpis" style={{ marginBottom: 14 }}>
+      <div className="k-kpis k-cli-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
           <div className="kl">Всего клиентов</div>
           <div className="kv">{clients.length}</div>
@@ -601,15 +600,22 @@ export default function ClientsModule() {
         )}
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+      <div className="k-cli-meta k-hide-desk">
+        <div><span>Клиенты</span><b>{clients.length}</b></div>
+        <div><span>Бонусы</span><b style={{ color: 'var(--gold)' }}>{stats.totalBonus.toLocaleString()}</b></div>
+        <div><span>С долгом</span><b style={{ color: stats.withDebt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.withDebt}</b></div>
+        <div><span>Долг</span><b style={{ color: stats.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>{stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}</b></div>
+        <div><span>VIP</span><b style={{ color: stats.vipCount > 0 ? 'var(--purple)' : 'var(--muted)' }}>{stats.vipCount}</b></div>
+      </div>
+
+      <div className="k-cli-toolbar">
         <input
-          className="k-inp"
-          style={{ flex: '1 1 220px', maxWidth: 360 }}
+          className="k-inp k-cli-search"
           placeholder="Поиск: имя, телефон, карта…"
           value={q}
           onChange={e => setQ(e.target.value)}
         />
-        <div className="k-subtabs k-clients-chips" style={{ marginBottom: 0 }}>
+        <div className="k-subtabs k-clients-chips">
           <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Все</button>
           <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} onClick={() => setFilter('debt')}>С долгом</button>
           <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} onClick={() => setFilter('vip')}>VIP</button>
@@ -624,10 +630,10 @@ export default function ClientsModule() {
 
       {!filtered.length ? (
         <div className="k-empty">
-          {clients.length ? 'Ничего не найдено' : 'Клиентов пока нет — нажмите «Новый клиент»'}
+          {clients.length ? 'Ничего не найдено' : 'Клиентов пока нет — нажмите +'}
         </div>
       ) : (
-        <div>
+        <div className="k-cli-list">
           {filtered.map(c => {
             const debt = Number(c.debt) || 0
             const levelColor = CLIENT_LEVEL_COLORS[c.level] || 'var(--muted)'
@@ -635,74 +641,61 @@ export default function ClientsModule() {
             const overLimit = debtLimit > 0 && debt > debtLimit
             const card = cardForClient(c, cards)
             const cardStatus = card ? CARD_STATUS_LABELS[card.status] : null
+            const rowClass = [
+              'k-cli-row',
+              overLimit || c.blocked ? 'is-bad' : debt > 0 ? 'is-debt' : '',
+            ].filter(Boolean).join(' ')
 
             return (
-              <div
-                key={c.id}
-                className="k-card"
-                style={{
-                  marginBottom: 10,
-                  overflow: 'hidden',
-                  border: overLimit ? '1px solid var(--border-debt-over)' : debt > 0 ? '1px solid var(--border-debt)' : c.blocked ? '1px solid var(--border-debt-over)' : undefined,
-                }}
-              >
-                <div
-                  style={{ padding: 14, cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}
-                  onClick={() => openDetail(c.id)}
-                >
-                  <span style={{ fontSize: 26, flexShrink: 0 }}>{c.vip ? '⭐' : '👤'}</span>
-
-                  <div style={{ flex: '1 1 200px', minWidth: 160 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 900, fontSize: 15 }}>{c.name}</span>
+              <div key={c.id} className={rowClass}>
+                <button type="button" className="k-cli-main" onClick={() => openDetail(c.id)}>
+                  <span className="k-cli-emo">{c.vip ? '⭐' : '👤'}</span>
+                  <div className="k-cli-txt">
+                    <div className="k-cli-name">
+                      <b>{c.name}</b>
                       <span className="k-badge" style={{ background: `${levelColor}22`, color: levelColor }}>{levelLabel(c.level)}</span>
                       {c.vip && <span className="k-badge" style={{ background: 'var(--badge-vip-bg)', color: 'var(--purple)' }}>VIP</span>}
                       {c.blocked && <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>Блок</span>}
-                      {overLimit && <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>⚠ Лимит</span>}
+                      {overLimit && <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>⚠</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`} onClick={e => e.stopPropagation()} style={{ color: 'inherit', textDecoration: 'none' }}><span style={{ color: 'var(--muted)' }}>☎</span> {c.phone}</a>}
-                      {c.card ? <span>💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span> : <span style={{ color: 'var(--gold)' }}>⚠ без карты</span>}
-                      {c.lastLabel && <span>· {c.lastLabel}</span>}
-                    </div>
+                    <small>
+                      {c.phone && <span>☎ {c.phone}</span>}
+                      {c.card ? <span> · 💳 {c.card}{cardStatus ? ` · ${cardStatus.l}` : ''}</span> : <span style={{ color: 'var(--gold)' }}> · без карты</span>}
+                    </small>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', flex: '0 0 auto' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Бонусы ⭐</div>
-                      <div style={{ fontWeight: 800, color: 'var(--gold)' }}>{c.bonus > 0 ? c.bonus.toLocaleString() : '—'}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Покупки</div>
-                      <div style={{ fontWeight: 800 }}>{fmtMoney(c.spent)}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Долг</div>
-                      <div style={{ fontWeight: 900, fontSize: 15, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                        {debt > 0 ? fmtMoney(debt) : '—'}
-                      </div>
-                    </div>
+                  <div className="k-cli-stats">
+                    <div><span>⭐</span><b style={{ color: 'var(--gold)' }}>{c.bonus > 0 ? c.bonus.toLocaleString() : '—'}</b></div>
+                    <div><span>Σ</span><b>{fmtMoney(c.spent)}</b></div>
+                    <div><span>Долг</span><b style={{ color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>{debt > 0 ? fmtMoney(debt) : '—'}</b></div>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'center', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openCashForm(c)} title="Наличные в магазин">💵 Наличные</button>
-                    {!c.card && (
-                      <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} disabled={provisioningId === c.id} onClick={() => void provisionCard(c)}>
-                        {provisioningId === c.id ? '…' : '💳 Карта'}
-                      </button>
-                    )}
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openEditForm(c)}>✎</button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => void toggleBlockClient(c)} title={c.blocked ? 'Разблокировать' : 'Заблокировать'}>
-                      {c.blocked ? '🔓' : '🔒'}
+                </button>
+                <div className="k-cli-actions">
+                  <button type="button" className="k-btn k-btn-s" onClick={() => openCashForm(c)} title="Наличные">💵</button>
+                  {!c.card && (
+                    <button type="button" className="k-btn k-btn-s" disabled={provisioningId === c.id} onClick={() => void provisionCard(c)} title="Выдать карту">
+                      {provisioningId === c.id ? '…' : '💳'}
                     </button>
-                    <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => openDetail(c.id)}>→</button>
-                  </div>
+                  )}
+                  <button type="button" className="k-btn k-btn-s" onClick={() => openEditForm(c)} title="Редактировать">✎</button>
+                  <button type="button" className="k-btn k-btn-s" onClick={() => void toggleBlockClient(c)} title={c.blocked ? 'Разблокировать' : 'Заблокировать'}>
+                    {c.blocked ? '🔓' : '🔒'}
+                  </button>
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      <button
+        type="button"
+        className="k-wh-fab k-cli-fab k-hide-desk"
+        onClick={openNewForm}
+        aria-label="Новый клиент"
+        title="Новый клиент"
+      >
+        +
+      </button>
 
       {/* ── Новый / редактирование клиента ── */}
       {form.open && (
@@ -753,11 +746,19 @@ export default function ClientsModule() {
                 <label>Заметка</label>
                 <input className="k-inp" value={form.note} onChange={e => setForm(prev => ({ ...prev, note: e.target.value }))} />
               </div>
+              {!form.editingId && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.withCard} onChange={e => setForm(prev => ({ ...prev, withCard: e.target.checked }))} />
+                  Создать карту лояльности
+                </label>
+              )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.blocked} onChange={e => setForm(prev => ({ ...prev, blocked: e.target.checked }))} />
                 Заблокировать клиента
               </label>
-              {form.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{form.msg}</div>}
+              {form.msg && (
+                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{form.msg}</div>
+              )}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={form.saving} onClick={() => void submitForm()}>
