@@ -269,18 +269,7 @@ function ReceiptTableRow({
 
   return (
     <div ref={cardRef} className="k-rcpt-tr">
-      <div
-        className="k-rcpt-tr-main"
-        role="button"
-        tabIndex={0}
-        onClick={onEdit}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onEdit()
-          }
-        }}
-      >
+      <div className="k-rcpt-tr-main">
         <span className="k-rcpt-td idx">{idx + 1}</span>
         <div className="k-rcpt-td prod">
           <span className="emo">{product.e || '📦'}</span>
@@ -304,7 +293,8 @@ function ReceiptTableRow({
             ) : '—'}
           </span>
         </div>
-        <div className="k-rcpt-td acts" onClick={e => e.stopPropagation()}>
+        <div className="k-rcpt-td acts">
+          <button type="button" className="k-btn k-btn-s" title="Изменить" onClick={onEdit}>✎</button>
           <button type="button" className="k-btn k-btn-s" title="Дублировать" onClick={onDuplicate}>⧉</button>
           <button type="button" className="k-btn k-btn-s" title="Удалить" style={{ color: 'var(--red)' }} onClick={onRemove}>🗑</button>
         </div>

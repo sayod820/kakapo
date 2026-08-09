@@ -452,7 +452,7 @@ const CSS = `
   }
   .k-rcpt-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card2)}
   .k-rcpt-th{
-    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 72px;
+    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 96px;
     gap:8px;padding:8px 10px;font-size:10px;font-weight:800;color:var(--muted);
     text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border);background:var(--card)
   }
@@ -461,11 +461,9 @@ const CSS = `
   .k-rcpt-tr:last-child{border-bottom:none}
   .k-rcpt-tr.is-open{background:rgba(31,215,96,.04)}
   .k-rcpt-tr-main{
-    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 72px;
-    gap:8px;padding:8px 10px;align-items:center;cursor:pointer
+    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 96px;
+    gap:8px;padding:8px 10px;align-items:center
   }
-  .k-rcpt-tr-main:hover{background:rgba(31,215,96,.04)}
-  .k-rcpt-tr-main:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
   .k-rcpt-td-metrics{display:contents}
   .k-rcpt-td.idx{font-size:12px;font-weight:900;color:var(--muted)}
   .k-rcpt-td.prod{
