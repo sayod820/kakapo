@@ -84,35 +84,28 @@ function WriteoffLineCard({
   return (
     <div
       ref={cardRef}
+      className={`k-wo-line${active ? ' is-on' : ''}${overStock ? ' is-bad' : ''}`}
       onClick={onActivate}
-      style={{
-        padding: 14,
-        borderRadius: 12,
-        border: `1px solid ${overStock ? 'var(--red)' : active ? 'var(--red)' : 'var(--border)'}`,
-        background: overStock ? 'rgba(255,90,90,.06)' : active ? 'rgba(255,90,90,.04)' : 'var(--card2)',
-        marginBottom: 10,
-      }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--muted)', minWidth: 22, paddingTop: 4 }}>{idx + 1}</span>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 28 }}>{product.e || '📦'}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>{product.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {product.art || '—'} · на складе <b style={{ color: noStock ? 'var(--red)' : stock <= 5 ? 'var(--gold)' : 'var(--text)' }}>{stock} {unit}</b>
-              {unitCost > 0 && <> · закуп {fmtMoney(unitCost)}/{unit}</>}
-            </div>
-          </div>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11 }} onClick={e => { e.stopPropagation(); onClear() }}>Сменить</button>
+      <div className="k-wo-line-top">
+        <span className="k-wo-line-idx">{idx + 1}</span>
+        <span className="k-wo-line-emo">{product.e || '📦'}</span>
+        <div className="k-wo-line-txt">
+          <b>{product.name}</b>
+          <small>
+            {product.art || '—'} · склад{' '}
+            <b style={{ color: noStock ? 'var(--red)' : stock <= 5 ? 'var(--gold)' : 'var(--text)' }}>{stock} {unit}</b>
+            {unitCost > 0 && <> · {fmtMoney(unitCost)}/{unit}</>}
+          </small>
         </div>
+        <button type="button" className="k-btn k-btn-s" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
         {canRemove && (
-          <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px' }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+          <button type="button" className="k-btn k-btn-s" style={{ color: 'var(--red)' }} onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
         )}
       </div>
 
-      <div className="k-grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-        <div className="k-field" style={{ marginBottom: 0 }}>
+      <div className="k-wo-line-grid">
+        <div className="k-field">
           <label>Кол-во ({unit})</label>
           <input
             ref={qtyRef}
@@ -125,40 +118,37 @@ function WriteoffLineCard({
             style={overStock ? { borderColor: 'var(--red)' } : undefined}
           />
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Себестоимость</label>
-          <div className="k-inp" style={{ display: 'flex', alignItems: 'center', opacity: 0.85, cursor: 'default' }}>
-            {unitCost > 0 ? fmtMoney(unitCost) : '—'}
-          </div>
+        <div className="k-field">
+          <label>Себест.</label>
+          <div className="k-inp k-wo-ro">{unitCost > 0 ? fmtMoney(unitCost) : '—'}</div>
         </div>
-        <div className="k-field" style={{ marginBottom: 0 }}>
-          <label>Сумма списания</label>
-          <div className="k-inp" style={{ display: 'flex', alignItems: 'center', fontWeight: 900, color: total > 0 ? 'var(--red)' : 'var(--muted)', cursor: 'default' }}>
+        <div className="k-field k-wo-sum">
+          <label>Сумма</label>
+          <div className="k-inp k-wo-ro" style={{ color: total > 0 ? 'var(--red)' : 'var(--muted)', fontWeight: 900 }}>
             {total > 0 ? fmtMoney(total) : '—'}
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        {stock > 0 && (
-          <button
-            type="button"
-            className="k-btn k-btn-s"
-            style={{ fontSize: 12, padding: '6px 12px' }}
-            onClick={e => { e.stopPropagation(); onWriteAll() }}
-          >
-            Списать всё ({stock} {unit})
-          </button>
-        )}
-        {overStock && (
-          <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 700 }}>
-            ⚠ Превышает остаток на {(qty - stock).toFixed(2)} {unit}
-          </span>
-        )}
-        {noStock && qty > 0 && (
-          <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 700 }}>⚠ Товара нет на складе</span>
-        )}
-      </div>
+      {(stock > 0 || overStock || (noStock && qty > 0)) && (
+        <div className="k-wo-line-foot">
+          {stock > 0 && (
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              onClick={e => { e.stopPropagation(); onWriteAll() }}
+            >
+              Всё ({stock})
+            </button>
+          )}
+          {overStock && (
+            <span className="err">⚠ +{(qty - stock).toFixed(2)} {unit}</span>
+          )}
+          {noStock && qty > 0 && (
+            <span className="err">⚠ нет на складе</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -680,18 +670,55 @@ export default function WarehouseWriteoffsPanel({
       {open && (
         <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
           <div
-            className="k-modal k-receipt-modal"
+            className="k-modal k-receipt-modal k-wo-modal"
             onClick={e => e.stopPropagation()}
             style={{ display: 'flex', flexDirection: 'column' }}
           >
-            <div className="k-modal-h" style={{ flexShrink: 0 }}>
-              <div>
-                <b>{editingId ? '✎ Редактирование списания' : '📤 Новое списание'}</b>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  {editingId ? 'Измените товары и причину — остатки пересчитаются' : 'Выберите товар → укажите количество → проведите списание'}
+            <div className="k-rcpt-head">
+              <div className="k-rcpt-head-title">
+                <span className="k-rcpt-head-ic" style={{ background: 'rgba(255,90,90,.12)', color: 'var(--red)', borderColor: 'rgba(255,90,90,.3)' }}>
+                  {editingId ? '✎' : '📤'}
+                </span>
+                <div>
+                  <b>{editingId ? 'Редактирование списания' : 'Новое списание'}</b>
+                  <div className="sub">
+                    {editingId ? 'Остатки пересчитаются' : 'Товар → количество → списать'}
+                  </div>
                 </div>
               </div>
-              <button type="button" onClick={closeForm}>✕</button>
+              <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
+              <div className="k-rcpt-head-actions k-hide-desk">
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  disabled={saving}
+                  onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}
+                >
+                  {editingId ? 'Отмена' : 'Очистить'}
+                </button>
+                {editingId && (
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    style={{ color: 'var(--red)' }}
+                    disabled={saving || deletingId === editingId}
+                    onClick={() => void removeWriteoff(editingId)}
+                  >
+                    {deletingId === editingId ? '…' : 'Удалить'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="k-btn k-btn-g"
+                  style={{ background: 'linear-gradient(135deg,#FF5A5A,#cc4040)' }}
+                  disabled={saving || totals.hasOver || totals.count === 0}
+                  onClick={() => void submit()}
+                >
+                  {saving ? '…' : editingId
+                    ? `Сохранить${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`
+                    : `Списать${totals.costTotal > 0 ? ` · ${fmtMoney(totals.costTotal)}` : ''}`}
+                </button>
+              </div>
             </div>
 
             <div
@@ -699,51 +726,46 @@ export default function WarehouseWriteoffsPanel({
               className="k-modal-b k-receipt-scroll"
               onScroll={onBodyScroll}
             >
-              <div style={{ padding: '4px 0 12px', marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginBottom: 8 }}>Причина списания</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: reason === 'Другое' || note ? 10 : 0 }}>
+              <div className="k-wo-reason">
+                <div className="k-wo-reason-h">Причина</div>
+                <div className="k-wo-reason-list">
                   {WRITEOFF_REASONS.map(r => (
                     <button
                       key={r.id}
                       type="button"
-                      onClick={() => setDraftPatch({ reason: r.id })}
+                      className={`k-wo-reason-btn${reason === r.id ? ' on' : ''}`}
                       style={{
-                        border: `1px solid ${reason === r.id ? r.color : 'var(--border)'}`,
-                        background: reason === r.id ? r.bg : 'var(--card)',
-                        color: reason === r.id ? r.color : 'var(--muted)',
-                        borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        borderColor: reason === r.id ? r.color : undefined,
+                        background: reason === r.id ? r.bg : undefined,
+                        color: reason === r.id ? r.color : undefined,
                       }}
+                      onClick={() => setDraftPatch({ reason: r.id })}
                     >
                       {r.icon} {r.label}
                     </button>
                   ))}
                 </div>
                 {reason === 'Другое' && (
-                  <div className="k-field" style={{ marginBottom: 8 }}>
+                  <div className="k-field" style={{ marginBottom: 6 }}>
                     <label>Опишите причину</label>
-                    <input className="k-inp" value={customReason} onChange={e => setDraftPatch({ customReason: e.target.value })} placeholder="Например: утеря при транспортировке" />
+                    <input className="k-inp" value={customReason} onChange={e => setDraftPatch({ customReason: e.target.value })} placeholder="Например: утеря" />
                   </div>
                 )}
                 <div className="k-field" style={{ marginBottom: 0 }}>
-                  <label>Комментарий (необязательно)</label>
-                  <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Дополнительная информация…" />
+                  <label>Комментарий</label>
+                  <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Необязательно…" />
                 </div>
               </div>
 
-              <div className="k-receipt-summary" style={{
-                position: 'sticky', top: 0, zIndex: 2,
-                margin: '0 -16px 12px', padding: '10px 16px',
-                borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-              }}>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Единиц</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.qtyTotal || '—'}</div></div>
-                <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Сумма списания</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--red)' }}>{fmtMoney(totals.costTotal)}</div></div>
+              <div className="k-wo-summary">
+                <div><span>Поз.</span><b>{totals.count}</b></div>
+                <div><span>Ед.</span><b>{totals.qtyTotal || '—'}</b></div>
+                <div><span>Сумма</span><b style={{ color: 'var(--red)' }}>{fmtMoney(totals.costTotal)}</b></div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>Статус</div>
-                  <div style={{ fontWeight: 900, fontSize: 14, color: totals.hasOver ? 'var(--red)' : totals.count > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                    {totals.hasOver ? '⚠ Ошибка' : totals.count > 0 ? '✓ Готово' : '—'}
-                  </div>
+                  <span>Статус</span>
+                  <b style={{ color: totals.hasOver ? 'var(--red)' : totals.count > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                    {totals.hasOver ? '⚠' : totals.count > 0 ? '✓' : '—'}
+                  </b>
                 </div>
               </div>
 
@@ -781,35 +803,28 @@ export default function WarehouseWriteoffsPanel({
                 return (
                   <div
                     ref={el => { lineRefs.current[pending.key] = el }}
-                    style={{
-                      padding: 16,
-                      borderRadius: 12,
-                      border: '2px dashed var(--red)',
-                      background: 'rgba(255,90,90,.04)',
-                      marginBottom: 8,
-                    }}
+                    className="k-wo-add"
+                    data-wo-add="1"
                   >
-                    <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--red)', marginBottom: 10 }}>
-                      {filledLines.length ? `+ Добавить товар ${pendingIdx + 1}` : '1. Найдите товар для списания'}
+                    <div className="k-wo-add-h">
+                      {filledLines.length ? `+ Товар ${pendingIdx + 1}` : 'Найдите товар'}
                     </div>
                     <WarehouseProductSelect
                       products={products}
                       value={null}
                       onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      placeholder="Начните вводить название, артикул или штрихкод…"
+                      placeholder="Название, артикул, штрихкод…"
                     />
                   </div>
                 )
               })()}
 
               {msg && (
-                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-                  {msg}
-                </div>
+                <div className="k-rcpt-msg" style={{ margin: '8px 0 0' }}>{msg}</div>
               )}
             </div>
 
-            <div className="k-receipt-modal-actions">
+            <div className="k-receipt-modal-actions k-hide-mob">
               <button
                 type="button"
                 className="k-btn k-btn-g k-btn-primary-wide"
@@ -837,6 +852,36 @@ export default function WarehouseWriteoffsPanel({
                 <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
               </div>
             </div>
+
+            <button
+              type="button"
+              className="k-wh-fab k-wo-fab k-hide-desk"
+              onClick={() => {
+                const pending = [...draft.lines].reverse().find(l => !l.productId)
+                if (!pending) {
+                  const line = emptyWriteoffLine()
+                  setDraft(prev => ({
+                    ...prev,
+                    lines: [...prev.lines, line],
+                    activeLineKey: line.key,
+                  }))
+                  requestAnimationFrame(() => {
+                    lineRefs.current[line.key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  })
+                  return
+                }
+                setActiveLine(pending.key)
+                requestAnimationFrame(() => {
+                  lineRefs.current[pending.key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  const input = lineRefs.current[pending.key]?.querySelector('input') as HTMLInputElement | null
+                  input?.focus()
+                })
+              }}
+              aria-label="Добавить товар"
+              title="Добавить товар"
+            >
+              +
+            </button>
           </div>
         </div>
       )}
