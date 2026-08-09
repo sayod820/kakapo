@@ -452,16 +452,17 @@ const CSS = `
   }
   .k-rcpt-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card2)}
   .k-rcpt-th{
-    display:grid;grid-template-columns:32px minmax(140px,1.6fr) 72px 78px 78px 88px 64px 72px;
-    gap:6px;padding:8px 10px;font-size:10px;font-weight:800;color:var(--muted);
+    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 72px;
+    gap:8px;padding:8px 10px;font-size:10px;font-weight:800;color:var(--muted);
     text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border);background:var(--card)
   }
+  .k-rcpt-th > span:nth-child(n+3):nth-child(-n+7){text-align:center}
   .k-rcpt-tr{border-bottom:1px solid var(--tbl-line);background:var(--card)}
   .k-rcpt-tr:last-child{border-bottom:none}
   .k-rcpt-tr.is-open{background:rgba(31,215,96,.04)}
   .k-rcpt-tr-main{
-    display:grid;grid-template-columns:32px minmax(140px,1.6fr) 72px 78px 78px 88px 64px 72px;
-    gap:6px;padding:8px 10px;align-items:center;cursor:pointer
+    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 72px;
+    gap:8px;padding:8px 10px;align-items:center;cursor:pointer
   }
   .k-rcpt-tr-main:hover{background:rgba(31,215,96,.04)}
   .k-rcpt-tr-main:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
@@ -479,10 +480,9 @@ const CSS = `
   .k-rcpt-td.prod b{display:block;font-size:13px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .k-rcpt-td.prod small{display:block;font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .k-rcpt-td.qty,.k-rcpt-td.cost,.k-rcpt-td.retail,.k-rcpt-td.sum,.k-rcpt-td.markup{
-    font-size:12px;font-weight:800;font-variant-numeric:tabular-nums
+    font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;text-align:center
   }
-  .k-rcpt-td.sum{font-weight:900;text-align:right}
-  .k-rcpt-td.markup{text-align:right}
+  .k-rcpt-td.sum{font-weight:900}
   .k-rcpt-td.markup b{font-weight:900}
   .k-rcpt-stepper{
     width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--card2);
