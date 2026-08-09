@@ -764,8 +764,8 @@ const CSS = `
     .k-wh-stock-body,
     .k-wh-receipts-body,
     .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
-    .k-wh-receipts .k-wh-cta-spacer{display:none}
-    .k-wh-writeoffs .k-wh-cta-spacer{display:block}
+    .k-wh-receipts .k-wh-cta-spacer,
+    .k-wh-writeoffs .k-wh-cta-spacer{display:none}
     .k-catalog-bar{flex-wrap:wrap;gap:6px}
     .k-catalog-filters{flex:1 1 100%;order:3}
     .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
@@ -935,7 +935,10 @@ const CSS = `
     }
     .k-wh-cta > span{display:none}
     .k-wh-cta-spacer{display:block;height:48px}
-    .k-wh-receipts .k-wh-cta-spacer{display:none!important;height:0}
+    .k-wh-receipts .k-wh-cta-spacer,
+    .k-wh-writeoffs .k-wh-cta-spacer{display:none!important;height:0}
+    .k-wh-writeoffs .k-wh-cards,
+    .k-wh-revisions .k-wh-panel-body{padding-bottom:64px}
     .k-wh-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));

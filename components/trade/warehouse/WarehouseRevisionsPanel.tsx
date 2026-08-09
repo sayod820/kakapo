@@ -538,6 +538,21 @@ export default function WarehouseRevisionsPanel({
   return (
     <div className="k-wh-revisions">
       <div className="k-wh-panel-head">
+        <div className="k-wh-meta">
+          <span className="k-wh-meta-count"><b>{revisions.length}</b> ревизий</span>
+          <div className="k-wh-money">
+            <span>Излишек <b style={{ color: 'var(--green)' }}>{listStats.surplusDocs}</b></span>
+            <span>Недостача <b style={{ color: 'var(--red)' }}>{listStats.shortageDocs}</b></span>
+            <span>ОК <b style={{ color: 'var(--muted)' }}>{listStats.matchedDocs}</b></span>
+            <span>
+              {listStats.totalMoneyDiff < 0 ? 'Убыток' : 'Закуп'}{' '}
+              <b style={diffStyle(listStats.totalMoneyDiff)}>
+                {listStats.totalMoneyDiff !== 0 ? formatMoneyDiff(listStats.totalMoneyDiff) : '—'}
+              </b>
+            </span>
+          </div>
+        </div>
+
         <div className="k-wh-filters-row">
           <WarehousePeriodFilter
             from={dateFrom}
@@ -551,31 +566,27 @@ export default function WarehouseRevisionsPanel({
               <b style={{ color: 'var(--text)' }}>{filtered.length}</b> / {revisions.length}
             </span>
           )}
-          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="k-wh-cta k-hide-mob" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
             {hasDraft && !open && (
-              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
+              <span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
             )}
             <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
               + Новая ревизия
             </button>
           </div>
         </div>
-
-        <div className="k-wh-meta">
-          <span><b>{revisions.length}</b> ревизий</span>
-          <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
-            <span>Излишек <b style={{ color: 'var(--green)' }}>{listStats.surplusDocs}</b></span>
-            <span>Недостача <b style={{ color: 'var(--red)' }}>{listStats.shortageDocs}</b></span>
-            <span>ОК <b style={{ color: 'var(--muted)' }}>{listStats.matchedDocs}</b></span>
-            <span>
-              {listStats.totalMoneyDiff < 0 ? 'Убыток' : 'Закуп'}{' '}
-              <b style={diffStyle(listStats.totalMoneyDiff)}>
-                {listStats.totalMoneyDiff !== 0 ? formatMoneyDiff(listStats.totalMoneyDiff) : '—'}
-              </b>
-            </span>
-          </div>
-        </div>
       </div>
+
+      <button
+        type="button"
+        className="k-wh-fab k-hide-desk"
+        disabled={!USE_API || open}
+        onClick={openForm}
+        aria-label="Новая ревизия"
+        title={hasDraft && !open ? 'Черновик' : 'Новая ревизия'}
+      >
+        {hasDraft && !open ? '●' : '+'}
+      </button>
 
       {!filtered.length ? (
         <div className="k-empty">

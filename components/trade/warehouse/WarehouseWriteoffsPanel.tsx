@@ -428,6 +428,15 @@ export default function WarehouseWriteoffsPanel({
   return (
     <div className="k-wh-writeoffs">
       <div className="k-wh-panel-head">
+        <div className="k-wh-meta">
+          <span className="k-wh-meta-count"><b>{writeoffs.length}</b> списаний</span>
+          <div className="k-wh-money">
+            <span>Сумма <b style={{ color: 'var(--red)' }}>{fmtMoney(listStats.totalCost)}</b></span>
+            <span>30 дн. <b>{listStats.monthCount}</b> · <b style={{ color: 'var(--red)' }}>{fmtMoney(listStats.monthCost)}</b></span>
+            <span>Ед. <b>{listStats.totalQty}</b></span>
+          </div>
+        </div>
+
         <div className="k-wh-filters-row">
           <WarehousePeriodFilter
             from={dateFrom}
@@ -441,23 +450,13 @@ export default function WarehouseWriteoffsPanel({
               <b style={{ color: 'var(--text)' }}>{filtered.length}</b> / {writeoffs.length}
             </span>
           )}
-          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="k-wh-cta k-hide-mob" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
             {hasDraft && !open && (
-              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
+              <span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
             )}
             <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
               + Новое списание
             </button>
-          </div>
-        </div>
-        <div className="k-wh-cta-spacer" aria-hidden />
-
-        <div className="k-wh-meta">
-          <span><b>{writeoffs.length}</b> списаний</span>
-          <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
-            <span>Сумма <b style={{ color: 'var(--red)' }}>{fmtMoney(listStats.totalCost)}</b></span>
-            <span>30 дн. <b>{listStats.monthCount}</b> · <b style={{ color: 'var(--red)' }}>{fmtMoney(listStats.monthCost)}</b></span>
-            <span>Ед. <b>{listStats.totalQty}</b></span>
           </div>
         </div>
 
@@ -483,6 +482,17 @@ export default function WarehouseWriteoffsPanel({
           ))}
         </div>
       </div>
+
+      <button
+        type="button"
+        className="k-wh-fab k-hide-desk"
+        disabled={!USE_API || open}
+        onClick={openForm}
+        aria-label="Новое списание"
+        title={hasDraft && !open ? 'Черновик' : 'Новое списание'}
+      >
+        {hasDraft && !open ? '●' : '+'}
+      </button>
 
       {!filtered.length ? (
         <div className="k-empty">
