@@ -1044,7 +1044,7 @@ export default function WarehouseReceiptsPanel({
                   {!editingId && (
                     <button
                       type="button"
-                      className="k-btn k-btn-s"
+                      className="k-btn k-btn-s k-hide-mob"
                       disabled={saving}
                       onClick={() => { setDraft(prev => ({ ...prev, open: false })); setMsg('') }}
                       title="Черновик уже в браузере"
