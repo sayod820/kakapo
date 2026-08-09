@@ -366,7 +366,7 @@ const CSS = `
   .k-rep-highlight span{display:block;font-size:11px;color:var(--muted);font-weight:700}
   .k-rep-highlight b{display:block;font-size:18px;font-weight:900;margin-top:3px;line-height:1.15}
   .k-rep-stats{
-    display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px;
     margin:0 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)
   }
   .k-rep-stats span{display:block;font-size:10px;color:var(--muted);font-weight:700}
@@ -389,10 +389,26 @@ const CSS = `
     border-bottom:1px solid var(--tbl-line)
   }
   .k-rep-row:last-child{border-bottom:none}
+  .k-rep-row.is-warn{background:rgba(180,40,40,.1)}
   .k-rep-row-txt{flex:1;min-width:0}
   .k-rep-row-txt b{display:block;font-size:13px;font-weight:900;line-height:1.25}
   .k-rep-row-txt small{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35}
   .k-rep-amt{flex-shrink:0;font-size:13px;font-weight:900;text-align:right;white-space:nowrap}
+  .k-rep-row-rich{
+    display:grid;grid-template-columns:1fr auto;grid-template-areas:
+      "txt amt"
+      "metrics metrics";
+    gap:4px 10px;align-items:start
+  }
+  .k-rep-row-rich .k-rep-row-txt{grid-area:txt}
+  .k-rep-row-rich .k-rep-amt{grid-area:amt;align-self:start}
+  .k-rep-row-metrics{
+    grid-area:metrics;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:6px;margin-top:2px;padding-top:6px;border-top:1px solid var(--tbl-line)
+  }
+  .k-rep-row-metrics-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .k-rep-row-metrics span{display:block;font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.02em}
+  .k-rep-row-metrics b{display:block;font-size:12px;font-weight:900;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .k-reports-mod .k-kpis{
     display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-bottom:10px!important
   }
@@ -749,9 +765,16 @@ const CSS = `
   .k-arrivals-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-arrivals-tbl tbody tr:hover{background:var(--hover)}
   .k-top-scan-btn{
-    display:none;flex-shrink:0;width:44px;height:44px;min-height:44px;padding:0;
-    border-radius:12px;font-size:20px;line-height:1;align-items:center;justify-content:center
+    display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    width:30px;height:30px;min-height:0;min-width:0;padding:0;margin:0;
+    border:none;border-radius:9px;cursor:pointer;
+    background:var(--card2);color:var(--muted);font-size:15px;line-height:1;
+    align-items:center;justify-content:center;box-shadow:none
   }
+  .k-top-scan-btn:active{background:var(--border);color:var(--text)}
+  .k-search.has-scan input{padding-right:42px}
+  .k-search.has-scan:has(.k-search-clear) input{padding-right:74px}
+  .k-search.has-scan:has(.k-search-clear) .k-top-scan-btn{right:38px}
   .k-cam-scan-btn{display:none}
   .k-prod-pick .k-cam-scan-btn{display:flex}
   .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
@@ -1425,12 +1448,17 @@ const CSS = `
     .k-rcpt-find-body .k-prod-pick-panel{padding:0 10px}
     .k-rcpt-find-modal .k-cam-scan-btn{display:flex!important}
     .k-cam-scan-btn{display:inline-flex!important;align-items:center;justify-content:center}
-    .k-top-scan-btn{display:inline-flex!important}
-    .k-search.has-scan input{padding-right:84px}
-    .k-search.has-scan .k-search-clear{right:52px}
-    .k-search.has-scan .k-top-scan-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%)}
-    .k-top-search-wrap{gap:8px;align-items:stretch}
-    .k-search.has-scan{position:relative}
+    .k-top-scan-btn{
+      display:inline-flex!important;width:30px!important;height:30px!important;
+      min-height:0!important;min-width:0!important;padding:0!important;
+      border:none!important;border-radius:9px!important;font-size:15px!important;
+      background:var(--card2)!important;box-shadow:none!important
+    }
+    .k-search.has-scan input{padding-right:42px}
+    .k-search.has-scan:has(.k-search-clear) input{padding-right:74px}
+    .k-search.has-scan .k-top-scan-btn{right:6px}
+    .k-search.has-scan:has(.k-search-clear) .k-top-scan-btn{right:38px}
+    .k-search.has-scan .k-search-clear{right:6px}
     .k-arrivals-body{padding:10px}
     .k-arrivals-head{padding:10px 12px!important;gap:8px}
     .k-arrivals-head-txt b{font-size:14px;line-height:1.25}
@@ -1759,6 +1787,7 @@ const CSS = `
       flex:0 0 auto!important;max-width:none;width:100%;min-width:0;
       height:32px!important;min-height:32px!important;max-height:32px!important
     }
+    .k-rep-search-opt{display:none!important}
     .k-rep-actions{margin-left:0;justify-content:flex-end}
     .k-rep-actions .k-btn{width:32px;height:32px;font-size:14px}
     .k-rep-flt-btn{display:inline-flex!important}
@@ -1779,7 +1808,7 @@ const CSS = `
     .k-rep-highlight span{font-size:9px}
     .k-rep-highlight b{font-size:14px;margin-top:2px}
     .k-rep-stats{
-      grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:6px 8px;margin-bottom:8px
+      grid-template-columns:repeat(auto-fit,minmax(70px,1fr));gap:4px;padding:6px 8px;margin-bottom:8px
     }
     .k-rep-stats span{font-size:9px}
     .k-rep-stats b{font-size:11px}
@@ -1791,6 +1820,9 @@ const CSS = `
     .k-rep-row-txt b{font-size:12px}
     .k-rep-row-txt small{font-size:10px}
     .k-rep-amt{font-size:12px}
+    .k-rep-row-metrics{gap:4px;padding-top:5px;margin-top:2px}
+    .k-rep-row-metrics span{font-size:8px}
+    .k-rep-row-metrics b{font-size:11px}
     .k-reports-mod .k-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
     .k-reports-mod .k-tbl-scroll .k-tbl{min-width:520px}
     .k-fin-meta{
@@ -2491,7 +2523,7 @@ function TradeAppInner({
                   ) : null}
                   <button
                     type="button"
-                    className="k-btn k-btn-s k-top-scan-btn k-cam-scan-btn"
+                    className="k-top-scan-btn k-cam-scan-btn"
                     title="Сканер камеры"
                     aria-label="Сканер камеры"
                     onClick={() => setSearchScanOpen(true)}

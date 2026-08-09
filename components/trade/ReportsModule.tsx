@@ -314,7 +314,7 @@ export default function ReportsModule() {
           ))}
         </div>
         <input
-          className="k-inp k-rep-search"
+          className={`k-inp k-rep-search${tab === 'cashiers' || tab === 'shifts' || tab === 'till' ? ' k-rep-search-opt' : ''}`}
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder="Поиск: чек, клиент…"
@@ -594,38 +594,26 @@ export default function ReportsModule() {
       )}
 
       {tab === 'cashiers' && (
-        <div className="k-card" style={{ overflow: 'hidden' }}>
-          <div className="k-card-h"><b>Кассиры</b></div>
+        <div className="k-rep-panel">
+          <div className="k-rep-panel-h"><span>Кассиры</span></div>
           {!byCashier.length ? (
             <div className="k-empty">Нет продаж по кассирам</div>
           ) : (
-            <div className="k-tbl-scroll">
-              <table className="k-tbl">
-                <thead>
-                  <tr>
-                    <th>Кассир</th>
-                    <th>Чеков</th>
-                    <th>Выручка</th>
-                    <th>Нал</th>
-                    <th>Карта</th>
-                    <th>Долг</th>
-                    <th>Возвраты</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byCashier.map(r => (
-                    <tr key={r.key}>
-                      <td style={{ fontWeight: 800 }}>{r.name}</td>
-                      <td>{r.checks}</td>
-                      <td style={{ color: 'var(--green)', fontWeight: 800 }}>{fmtMoney(r.revenue)}</td>
-                      <td>{fmtMoney(r.cash)}</td>
-                      <td>{fmtMoney(r.card)}</td>
-                      <td>{fmtMoney(r.credit)}</td>
-                      <td style={{ color: r.returns ? 'var(--red)' : 'var(--muted)' }}>{r.returns}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="k-rep-list">
+              {byCashier.map(r => (
+                <div key={r.key} className="k-rep-row k-rep-row-rich">
+                  <div className="k-rep-row-txt">
+                    <b>{r.name}</b>
+                    <small>{r.checks} чек. · возвратов {r.returns || 0}</small>
+                  </div>
+                  <b className="k-rep-amt" style={{ color: 'var(--green)' }}>{fmtMoney(r.revenue)}</b>
+                  <div className="k-rep-row-metrics">
+                    <div><span>Нал</span><b>{fmtMoney(r.cash)}</b></div>
+                    <div><span>Карта</span><b>{fmtMoney(r.card)}</b></div>
+                    <div><span>Долг</span><b>{fmtMoney(r.credit)}</b></div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -633,69 +621,56 @@ export default function ReportsModule() {
 
       {tab === 'shifts' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Смен</div><div className="kv">{periodShifts.length}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Открыто</div><div className="kv" style={{ color: 'var(--green)' }}>{openShiftsNow.length}</div></div>
+          <div className="k-rep-stats">
+            <div><span>Смен</span><b>{periodShifts.length}</b></div>
+            <div><span>Открыто</span><b style={{ color: 'var(--green)' }}>{openShiftsNow.length}</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
+          <div className="k-rep-panel">
             {!periodShifts.length ? (
               <div className="k-empty">Нет смен</div>
             ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>Статус</th>
-                      <th>Точка</th>
-                      <th>Кассир</th>
-                      <th>Открыта</th>
-                      <th>Закрыта</th>
-                      <th>Продаж</th>
-                      <th>Нал</th>
-                      <th>Карта</th>
-                      <th>Долг</th>
-                      <th>Старт</th>
-                      <th>Ожид.</th>
-                      <th>Факт</th>
-                      <th>Δ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {periodShifts.map(s => {
-                      const expected = s.expectedCash != null
-                        ? Number(s.expectedCash)
-                        : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0))
-                      const actual = s.actualCash != null ? Number(s.actualCash) : (s.closingCash != null ? Number(s.closingCash) : null)
-                      const diff = s.cashDiff != null
-                        ? Number(s.cashDiff)
-                        : actual != null ? round2(actual - expected) : null
-                      return (
-                      <tr key={s.id}>
-                        <td style={{ color: s.status === 'open' ? 'var(--green)' : 'var(--muted)', fontWeight: 800 }}>
-                          {s.status === 'open' ? 'Открыта' : 'Закрыта'}
-                        </td>
-                        <td>{posName(posPoints, s.posId || defPos)}</td>
-                        <td>{s.cashierName || '—'}</td>
-                        <td>{s.openedAtIso ? fmtDateTime(s.openedAtIso) : '—'}</td>
-                        <td>{s.closedAtIso ? fmtDateTime(s.closedAtIso) : '—'}</td>
-                        <td>{s.salesCount || 0}</td>
-                        <td>{fmtMoney(s.salesCash)}</td>
-                        <td>{fmtMoney(s.salesCard)}</td>
-                        <td>{fmtMoney(s.salesCredit)}</td>
-                        <td>{fmtMoney(s.openingCash)}</td>
-                        <td>{s.status === 'closed' ? fmtMoney(expected) : '—'}</td>
-                        <td>{actual != null ? fmtMoney(actual) : '—'}</td>
-                        <td style={{
-                          fontWeight: 900,
-                          color: diff == null || Math.abs(diff) < 0.009 ? 'var(--muted)' : diff < 0 ? 'var(--red)' : 'var(--green)',
-                        }}>
-                          {diff == null ? '—' : `${diff > 0 ? '+' : ''}${fmtMoney(diff)}`}
-                        </td>
-                      </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="k-rep-list">
+                {periodShifts.map(s => {
+                  const expected = s.expectedCash != null
+                    ? Number(s.expectedCash)
+                    : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0))
+                  const actual = s.actualCash != null ? Number(s.actualCash) : (s.closingCash != null ? Number(s.closingCash) : null)
+                  const diff = s.cashDiff != null
+                    ? Number(s.cashDiff)
+                    : actual != null ? round2(actual - expected) : null
+                  const open = s.status === 'open'
+                  return (
+                    <div key={s.id} className="k-rep-row k-rep-row-rich">
+                      <div className="k-rep-row-txt">
+                        <b style={{ color: open ? 'var(--green)' : 'var(--muted)' }}>
+                          {open ? '● Открыта' : '○ Закрыта'} · {s.cashierName || '—'}
+                        </b>
+                        <small>
+                          {posName(posPoints, s.posId || defPos)}
+                          {' · '}
+                          {s.openedAtIso ? fmtDateTime(s.openedAtIso) : '—'}
+                          {s.closedAtIso ? ` → ${fmtDateTime(s.closedAtIso)}` : ''}
+                        </small>
+                      </div>
+                      <b className="k-rep-amt">{s.salesCount || 0} пр.</b>
+                      <div className="k-rep-row-metrics">
+                        <div><span>Нал</span><b>{fmtMoney(s.salesCash)}</b></div>
+                        <div><span>Карта</span><b>{fmtMoney(s.salesCard)}</b></div>
+                        <div><span>Долг</span><b>{fmtMoney(s.salesCredit)}</b></div>
+                        <div><span>Старт</span><b>{fmtMoney(s.openingCash)}</b></div>
+                        <div><span>Ожид.</span><b>{s.status === 'closed' ? fmtMoney(expected) : '—'}</b></div>
+                        <div>
+                          <span>Δ</span>
+                          <b style={{
+                            color: diff == null || Math.abs(diff) < 0.009 ? 'var(--muted)' : diff < 0 ? 'var(--red)' : 'var(--green)',
+                          }}>
+                            {diff == null ? '—' : `${diff > 0 ? '+' : ''}${fmtMoney(diff)}`}
+                          </b>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -704,47 +679,41 @@ export default function ReportsModule() {
 
       {tab === 'till' && (
         <>
-          <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Смен</div><div className="kv">{dbTill?.summary.shifts ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">С алертами (≥{dbTill?.threshold ?? 50})</div><div className="kv" style={{ color: 'var(--red)' }}>{dbTill?.summary.withAlert ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Недостачи</div><div className="kv" style={{ color: 'var(--red)' }}>{dbTill?.summary.shortCount ?? 0}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Излишки</div><div className="kv" style={{ color: 'var(--green)' }}>{dbTill?.summary.overCount ?? 0}</div></div>
+          <div className="k-rep-stats">
+            <div><span>Смен</span><b>{dbTill?.summary.shifts ?? 0}</b></div>
+            <div><span>Алерты</span><b style={{ color: 'var(--red)' }}>{dbTill?.summary.withAlert ?? 0}</b></div>
+            <div><span>Недостачи</span><b style={{ color: 'var(--red)' }}>{dbTill?.summary.shortCount ?? 0}</b></div>
+            <div><span>Излишки</span><b style={{ color: 'var(--green)' }}>{dbTill?.summary.overCount ?? 0}</b></div>
           </div>
-          <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h"><b>Ожидаемое vs фактическое (из БД)</b></div>
+          <div className="k-rep-panel">
+            <div className="k-rep-panel-h"><span>Ожидаемое vs факт</span></div>
             {!dbTill?.rows?.length ? (
               <div className="k-empty">Нет закрытых смен за период</div>
             ) : (
-              <div className="k-tbl-scroll">
-                <table className="k-tbl">
-                  <thead>
-                    <tr>
-                      <th>День</th>
-                      <th>Точка</th>
-                      <th>Кассир</th>
-                      <th>Ожидалось</th>
-                      <th>Факт</th>
-                      <th>Разница</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dbTill.rows.map(r => (
-                      <tr key={r.shiftId} style={r.alert ? { background: 'rgba(180,40,40,.12)' } : undefined}>
-                        <td style={{ fontWeight: 800 }}>{r.day}</td>
-                        <td>{posName(posPoints, r.posId || defPos)}</td>
-                        <td>{r.cashierName || '—'}</td>
-                        <td>{fmtMoney(r.expectedCash)}</td>
-                        <td>{fmtMoney(r.actualCash)}</td>
-                        <td style={{
-                          fontWeight: 900,
-                          color: Math.abs(r.cashDiff) < 0.009 ? 'var(--muted)' : r.cashDiff < 0 ? 'var(--red)' : 'var(--green)',
-                        }}>
-                          {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}{r.alert ? ' ⚠' : ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="k-rep-list">
+                {dbTill.rows.map(r => (
+                  <div
+                    key={r.shiftId}
+                    className={`k-rep-row k-rep-row-rich${r.alert ? ' is-warn' : ''}`}
+                  >
+                    <div className="k-rep-row-txt">
+                      <b>{r.day} · {r.cashierName || '—'}</b>
+                      <small>{posName(posPoints, r.posId || defPos)}</small>
+                    </div>
+                    <b
+                      className="k-rep-amt"
+                      style={{
+                        color: Math.abs(r.cashDiff) < 0.009 ? 'var(--muted)' : r.cashDiff < 0 ? 'var(--red)' : 'var(--green)',
+                      }}
+                    >
+                      {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}{r.alert ? ' ⚠' : ''}
+                    </b>
+                    <div className="k-rep-row-metrics k-rep-row-metrics-2">
+                      <div><span>Ожидалось</span><b>{fmtMoney(r.expectedCash)}</b></div>
+                      <div><span>Факт</span><b>{fmtMoney(r.actualCash)}</b></div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
