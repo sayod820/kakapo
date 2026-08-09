@@ -388,11 +388,6 @@ export default function FinanceModule() {
           ))}
         </div>
         <div className="k-fin-actions">
-            title={canEditOffline ? 'Расход' : OFFLINE_BLOCK_MESSAGE}
-            onClick={() => { setMsg(''); setExpOpen(true) }}
-          >
-            −
-          </button>
           <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
             {refreshing ? '…' : '↻'}
           </button>
