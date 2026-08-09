@@ -20,6 +20,7 @@ export default function OfflineNotice({
   const effective = mode === 'queue' || isOfflineV2Full() ? 'queue' : 'view'
   return (
     <div
+      className="k-offline-notice"
       style={{
         marginBottom: 16,
         padding: '10px 14px',

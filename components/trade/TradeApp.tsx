@@ -153,16 +153,29 @@ const CSS = `
     background:rgba(255,90,90,.04);margin-bottom:8px
   }
   .k-wo-add-h{font-size:12px;font-weight:900;color:var(--red);margin-bottom:6px}
-  .k-cli-fab{display:none}
-  .k-clients-mod{padding-bottom:4px}
+  .k-offline-notice,.k-trade-banner{display:none!important}
+  .k-wh-cta{display:none!important}
+  .k-catalog-add{display:none!important}
+  .k-wh-fab,.k-cli-fab,.k-prod-fab{
+    display:flex;align-items:center;justify-content:center;
+    position:fixed;right:22px;bottom:22px;z-index:140;
+    width:52px;height:52px;border-radius:14px;border:none;
+    background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+    font-size:28px;font-weight:900;line-height:1;cursor:pointer;
+    box-shadow:0 8px 22px rgba(31,215,96,.35)
+  }
+  .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .k-wh-fab.has-draft::after{
+    content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;
+    background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
+  }
+  .k-wo-fab,.k-rev-fab{display:none}
+  .k-clients-mod{padding-bottom:72px}
+  .k-cli-sync-bar{font-size:11px;color:var(--muted);margin:0 0 8px;font-weight:700}
   .k-cli-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .k-cli-sync{font-size:12px;color:var(--muted)}
-  .k-cli-banner{margin-bottom:12px}
-  .k-cli-banner-hide{display:none!important}
-  .k-cli-err{
-    margin-top:8px;padding:10px 14px;border-radius:10px;font-size:13px;
-    background:var(--alert-error-bg);color:var(--red);border:1px solid var(--alert-error-border)
-  }
+  .k-cli-banner{display:none!important}
+  .k-cli-err{display:none!important}
   .k-cli-meta{display:none}
   .k-cli-toolbar{
     display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;flex:0 0 auto
@@ -722,7 +735,7 @@ const CSS = `
   .k-rcpt-stat.c5{box-shadow:inset 3px 0 0 #22c55e}
   .k-rcpt-stat.c4{box-shadow:inset 3px 0 0 var(--gold)}
   .k-wh-cta{
-    display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px
+    display:none!important;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px
   }
   .k-wh-cta .k-btn-g{width:auto;min-height:42px;font-size:14px;font-weight:900}
   .k-wh-cta-spacer{display:none}
@@ -1154,7 +1167,7 @@ const CSS = `
     .k-wh-writeoffs .k-wh-cta-spacer{display:none!important;height:0}
     .k-wh-writeoffs .k-wh-cards,
     .k-wh-revisions .k-wh-panel-body{padding-bottom:64px}
-    .k-wh-fab{
+    .k-wh-fab,.k-cli-fab,.k-prod-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
       z-index:140;width:52px;height:52px;border-radius:14px;border:none;
@@ -1162,12 +1175,13 @@ const CSS = `
       font-size:28px;font-weight:900;line-height:1;cursor:pointer;
       box-shadow:0 8px 22px rgba(31,215,96,.4)
     }
-    .k-wh-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+    .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
     .k-wh-fab.has-draft::after{
       content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;
       background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
     }
-    .k-trade:has(.k-receipt-modal-bg) .k-wh-fab:not(.k-wo-fab):not(.k-rev-fab):not(.k-cli-fab){display:none!important}
+    .k-trade:has(.k-receipt-modal-bg) .k-wh-fab:not(.k-wo-fab):not(.k-rev-fab):not(.k-cli-fab):not(.k-prod-fab){display:none!important}
+    .k-clients-mod:has(.k-modal-bg) .k-cli-fab{display:none!important}
     .k-wo-fab{
       display:flex!important;
       bottom:calc(14px + env(safe-area-inset-bottom,0px));
@@ -1993,7 +2007,9 @@ function TradeAppInner({
                     </div>
                   </div>
                 ) : (
-                  <span style={{ color: 'var(--muted)' }}>{NAV.find(n => n.id === current)?.label}</span>
+                  <span style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900 }}>
+                    {NAV.find(n => n.id === current)?.label}
+                  </span>
                 )}
               </div>
             )}

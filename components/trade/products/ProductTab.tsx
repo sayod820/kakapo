@@ -519,6 +519,16 @@ export default function ProductTab({
           </div>
         </section>
       </div>
+
+      <button
+        type="button"
+        className="k-wh-fab k-prod-fab"
+        onClick={startNew}
+        aria-label="Новый товар"
+        title="Новый товар"
+      >
+        +
+      </button>
     </div>
   )
 }

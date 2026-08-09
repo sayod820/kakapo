@@ -779,7 +779,7 @@ export default function WarehouseReceiptsPanel({
               <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> / {receipts.length}
             </span>
           )}
-          <div className="k-wh-cta k-hide-mob" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
             {hasDraft && !open && (
               <span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
             )}
@@ -792,7 +792,7 @@ export default function WarehouseReceiptsPanel({
 
       <button
         type="button"
-        className={`k-wh-fab k-hide-desk${hasDraft && !open ? ' has-draft' : ''}`}
+        className={`k-wh-fab${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новый приход"

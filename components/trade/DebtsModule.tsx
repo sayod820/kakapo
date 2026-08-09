@@ -788,7 +788,7 @@ export default function DebtsModule({
     <div className="k-debts-page">
       <OfflineNotice section="долги" />
       {apiError && (
-        <div style={{
+        <div className="k-trade-banner" style={{
           marginBottom: 8, padding: '8px 10px', borderRadius: 8, fontSize: 12, flexShrink: 0,
           background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)',
         }}>

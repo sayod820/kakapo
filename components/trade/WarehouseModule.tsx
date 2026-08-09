@@ -137,15 +137,15 @@ export default function WarehouseModule({
         </div>
 
         {!USE_API && (
-          <div className="k-hide-mob" style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
+          <div className="k-trade-banner" style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
             Складские операции доступны только при подключении к API
           </div>
         )}
 
-        <div className="k-hide-mob">
+        <div className="k-hide-mob k-trade-banner">
           <OfflineNotice section="склад" mode="queue" />
           {apiError && (
-            <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+            <div className="k-trade-banner" style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
               {apiError}
             </div>
           )}

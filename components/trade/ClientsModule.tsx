@@ -16,7 +16,6 @@ import {
   saveCardLoyalty,
 } from '@/lib/clientCardSync'
 import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
-import OfflineNotice from '@/components/trade/OfflineNotice'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -231,7 +230,6 @@ export default function ClientsModule() {
   const sales = usePosStore(s => s.sales)
   const orders = useOrders(s => s.orders)
   const apiSyncing = useClientStore(s => s.apiSyncing)
-  const apiError = useClientStore(s => s.apiError)
 
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
 
@@ -549,25 +547,7 @@ export default function ClientsModule() {
 
   return (
     <div className="k-clients-mod">
-      <div className="k-page-h k-cli-head">
-        <div>
-          <h1>👥 Клиенты</h1>
-          <div className="sub k-cli-sub">
-            Клиенты, бонусы, карты лояльности и VIP-кредит — общие данные со всеми приложениями KAKAPO
-          </div>
-        </div>
-        <div className="k-cli-head-actions">
-          {apiSyncing && <span className="k-cli-sync">Обновление…</span>}
-          <button type="button" className="k-btn k-btn-g k-hide-mob" onClick={openNewForm}>+ Новый клиент</button>
-        </div>
-      </div>
-
-      <div className="k-cli-banner k-cli-banner-hide">
-        <OfflineNotice section="клиенты" />
-        {apiError && (
-          <div className="k-cli-err">{apiError}</div>
-        )}
-      </div>
+      {apiSyncing && <div className="k-cli-sync-bar">Обновление…</div>}
 
       <div className="k-kpis k-cli-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
@@ -689,7 +669,7 @@ export default function ClientsModule() {
 
       <button
         type="button"
-        className="k-wh-fab k-cli-fab k-hide-desk"
+        className="k-wh-fab k-cli-fab"
         onClick={openNewForm}
         aria-label="Новый клиент"
         title="Новый клиент"
