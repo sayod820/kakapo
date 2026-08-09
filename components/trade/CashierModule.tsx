@@ -1880,6 +1880,13 @@ export default function CashierModule({
 
   const search = q
   const deferredSearch = useDeferredValue(search)
+  /** Сетка не фильтруется по штрихкоду/PLU — иначе при скане товары мигают. */
+  const gridSearch = useMemo(() => {
+    const s = deferredSearch.trim()
+    if (!s) return ''
+    if (/^\d+$/.test(s)) return ''
+    return s
+  }, [deferredSearch])
   const favSet = useMemo(() => new Set(favIds), [favIds])
   const inStockProducts = useMemo(
     () => products
@@ -1953,13 +1960,13 @@ export default function CashierModule({
         || productMatchesCategoryFilter(p.cat, slug, categories),
       ))
     }
-    if (deferredSearch.trim()) {
+    if (gridSearch.trim()) {
       // При поиске — порядок по релевантности (хвост штрихкода / название), не алфавит
-      return filterProductsBySearch(list, deferredSearch.trim(), 80)
+      return filterProductsBySearch(list, gridSearch.trim(), 80)
     }
     // inStockProducts уже отсортирован по имени — повторный sort не нужен
     return list
-  }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, deferredSearch])
+  }, [inStockProducts, showFav, favSet, selectedCatSlugs, categories, gridSearch])
 
   const addProductRef = useRef<(p: Product, weightKg?: number, opts?: { fromScanner?: boolean }) => void>(() => {})
   const toggleFavoriteRef = useRef<(id: number) => void>(() => {})
@@ -3000,9 +3007,9 @@ export default function CashierModule({
   }
 
   function onProductSearchChange(value: string) {
-    // Во время burst сканера поле не трогаем — код копится в scanAccumRef
-    if (scanBurstRef.current && scanAccumRef.current) {
-      qRef.current = scanAccumRef.current
+    // Во время burst сканера поле/сетку не трогаем — код копится в scanAccumRef
+    if (scanBurstRef.current) {
+      qRef.current = scanAccumRef.current || qRef.current
       return
     }
     qRef.current = value
@@ -3030,6 +3037,7 @@ export default function CashierModule({
         scanAccumRef.current = ''
         scanTypeBufRef.current = e.key
         // дальше onChange обновит поле — без preventDefault
+        // Цифры не фильтруют сетку (gridSearch), поэтому мигания нет
         return
       }
       // Быстрый поток (в т.ч. gap==0) = USB-сканер
@@ -7267,7 +7275,7 @@ export default function CashierModule({
           ) : (
             <VirtualProductGrid
               products={visibleProducts}
-              resetKey={`${showFav}|${selectedCatSlugs.join(',')}|${deferredSearch}`}
+              resetKey={`${showFav}|${selectedCatSlugs.join(',')}|${gridSearch}`}
               renderTile={renderProductTile}
             />
           )}
