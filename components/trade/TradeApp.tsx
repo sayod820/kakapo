@@ -156,7 +156,7 @@ const CSS = `
   .k-offline-notice,.k-trade-banner{display:none!important}
   .k-wh-cta{display:none!important}
   .k-catalog-add{display:none!important}
-  .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab{
+  .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab,.k-fin-fab{
     display:flex;align-items:center;justify-content:center;
     position:fixed;right:22px;bottom:22px;z-index:140;
     width:52px;height:52px;border-radius:14px;border:none;
@@ -164,7 +164,23 @@ const CSS = `
     font-size:28px;font-weight:900;line-height:1;cursor:pointer;
     box-shadow:0 8px 22px rgba(31,215,96,.35)
   }
-  .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled,.k-sup-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled,.k-sup-fab:disabled,.k-fin-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .k-fin-fab-exp{
+    background:linear-gradient(135deg,#FF5A5A,#cc4040);color:#fff;
+    box-shadow:0 8px 22px rgba(255,90,90,.35)
+  }
+  .k-fin-fab-wd{
+    background:linear-gradient(135deg,#FF5A5A,#cc4040);color:#fff;
+    box-shadow:0 8px 22px rgba(255,90,90,.35)
+  }
+  .k-fin-fab-stack{
+    position:fixed;right:22px;bottom:22px;z-index:140;
+    display:flex;flex-direction:column;gap:10px;align-items:center
+  }
+  .k-fin-fab-stack .k-fin-fab{position:static;right:auto;bottom:auto}
+  .k-finance-mod{padding-bottom:72px}
+  .k-finance-mod:has(.k-modal-bg) .k-fin-fab,
+  .k-finance-mod:has(.k-modal-bg) .k-fin-fab-stack{display:none!important}
   .k-wh-fab.has-draft::after{
     content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;
     background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
@@ -213,7 +229,6 @@ const CSS = `
   .k-cli-sync{font-size:12px;color:var(--muted)}
   .k-clients-mod:has(.k-modal-bg) .k-cli-fab,
   .k-suppliers-mod:has(.k-modal-bg) .k-sup-fab{display:none!important}
-  .k-finance-mod{padding-bottom:12px}
   .k-fin-sync-bar{font-size:11px;color:var(--muted);margin:0 0 8px;font-weight:700}
   .k-fin-err{
     margin:0 0 10px;padding:8px 10px;border-radius:10px;font-size:12px;font-weight:700;
@@ -1392,7 +1407,7 @@ const CSS = `
     .k-wh-writeoffs .k-wh-cta-spacer{display:none!important;height:0}
     .k-wh-writeoffs .k-wh-cards,
     .k-wh-revisions .k-wh-panel-body{padding-bottom:64px}
-    .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab{
+    .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab,.k-fin-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
       z-index:140;width:52px;height:52px;border-radius:14px;border:none;
@@ -1400,7 +1415,7 @@ const CSS = `
       font-size:28px;font-weight:900;line-height:1;cursor:pointer;
       box-shadow:0 8px 22px rgba(31,215,96,.4)
     }
-    .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled,.k-sup-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+    .k-wh-fab:disabled,.k-cli-fab:disabled,.k-prod-fab:disabled,.k-sup-fab:disabled,.k-fin-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
     .k-wh-fab.has-draft::after{
       content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;
       background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
@@ -1598,7 +1613,18 @@ const CSS = `
     }
     .k-clients-mod:has(.k-modal-bg) .k-cli-fab,
     .k-suppliers-mod:has(.k-modal-bg) .k-sup-fab{display:none!important}
-    .k-finance-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
+    .k-fin-fab-exp,.k-fin-fab-wd{
+      background:linear-gradient(135deg,#FF5A5A,#cc4040);color:#fff;
+      box-shadow:0 8px 22px rgba(255,90,90,.35)
+    }
+    .k-fin-fab-stack{
+      position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));z-index:140;
+      display:flex;flex-direction:column;gap:10px;align-items:center
+    }
+    .k-fin-fab-stack .k-fin-fab{position:static;right:auto;bottom:auto}
+    .k-finance-mod{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+    .k-finance-mod:has(.k-modal-bg) .k-fin-fab,
+    .k-finance-mod:has(.k-modal-bg) .k-fin-fab-stack{display:none!important}
     .k-reports-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
     .k-rep-toolbar{flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
     .k-rep-periods{

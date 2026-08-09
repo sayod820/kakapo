@@ -388,19 +388,6 @@ export default function FinanceModule() {
           ))}
         </div>
         <div className="k-fin-actions">
-          <button
-            type="button"
-            className="k-btn k-btn-g"
-            disabled={!canEditOffline}
-            title={canEditOffline ? 'Вклад' : OFFLINE_BLOCK_MESSAGE}
-            onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className="k-btn k-btn-s"
-            disabled={!canEditOffline}
             title={canEditOffline ? 'Расход' : OFFLINE_BLOCK_MESSAGE}
             onClick={() => { setMsg(''); setExpOpen(true) }}
           >
@@ -711,10 +698,6 @@ export default function FinanceModule() {
           <div className="k-fin-panel">
             <div className="k-fin-panel-h">
               <span>Вклады и снятия</span>
-              <div className="k-fin-panel-acts">
-                <button type="button" className="k-btn k-btn-g" onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}>+ Вклад</button>
-                <button type="button" className="k-btn k-btn-s" onClick={() => { setMsg(''); setDepType('withdraw'); setDepOpen(true) }}>− Снятие</button>
-              </div>
             </div>
             {!financeMoves.length ? (
               <div className="k-empty">Пока нет вкладов</div>
@@ -784,6 +767,44 @@ export default function FinanceModule() {
             </div>
           </div>
         </>
+      )}
+
+      {tab === 'expenses' && (
+        <button
+          type="button"
+          className="k-fin-fab k-fin-fab-exp"
+          disabled={!canEditOffline}
+          title={canEditOffline ? 'Новый расход' : OFFLINE_BLOCK_MESSAGE}
+          aria-label="Новый расход"
+          onClick={() => { setMsg(''); setExpOpen(true) }}
+        >
+          −
+        </button>
+      )}
+
+      {tab === 'deposits' && (
+        <div className="k-fin-fab-stack">
+          <button
+            type="button"
+            className="k-fin-fab k-fin-fab-wd"
+            disabled={!canEditOffline}
+            title={canEditOffline ? 'Снятие' : OFFLINE_BLOCK_MESSAGE}
+            aria-label="Снятие из кассы"
+            onClick={() => { setMsg(''); setDepType('withdraw'); setDepOpen(true) }}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            className="k-fin-fab k-fin-fab-dep"
+            disabled={!canEditOffline}
+            title={canEditOffline ? 'Вклад' : OFFLINE_BLOCK_MESSAGE}
+            aria-label="Вклад в кассу"
+            onClick={() => { setMsg(''); setDepType('deposit'); setDepOpen(true) }}
+          >
+            +
+          </button>
+        </div>
       )}
 
       {expOpen && (
