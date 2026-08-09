@@ -742,36 +742,12 @@ export default function WarehouseReceiptsPanel({
   return (
     <div className="k-wh-receipts">
       <div className="k-wh-receipts-head">
-        <div className="k-wh-filters-row">
-          <WarehousePeriodFilter
-            from={dateFrom}
-            to={dateTo}
-            onFromChange={setDateFrom}
-            onToChange={setDateTo}
-            onClear={() => { setDateFrom(''); setDateTo('') }}
-          />
-          {(dateFrom || dateTo) && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> / {receipts.length}
-            </span>
-          )}
-          <div className="k-wh-cta" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-            {hasDraft && !open && (
-              <span className="k-hide-mob" style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
-            )}
-            <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
-              + Новый приход
-            </button>
-          </div>
-        </div>
-        <div className="k-wh-cta-spacer" aria-hidden />
-
         {!!filteredReceipts.length && (
           <div className="k-wh-meta">
-            <span>
+            <span className="k-wh-meta-count">
               <b>{filteredReceipts.length}</b> приходов
             </span>
-            <div className="k-wh-money" style={{ marginLeft: 'auto' }}>
+            <div className="k-wh-money">
               <span>Закуп <b>{fmtMoney(listTotals.costTotal)}</b></span>
               <span>Продажа <b style={{ color: 'var(--green)' }}>{fmtMoney(listTotals.retailTotal)}</b></span>
               <span>
@@ -789,7 +765,41 @@ export default function WarehouseReceiptsPanel({
             </div>
           </div>
         )}
+
+        <div className="k-wh-filters-row">
+          <WarehousePeriodFilter
+            from={dateFrom}
+            to={dateTo}
+            onFromChange={setDateFrom}
+            onToChange={setDateTo}
+            onClear={() => { setDateFrom(''); setDateTo('') }}
+          />
+          {(dateFrom || dateTo) && (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> / {receipts.length}
+            </span>
+          )}
+          <div className="k-wh-cta k-hide-mob" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            {hasDraft && !open && (
+              <span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>● Черновик</span>
+            )}
+            <button type="button" className="k-btn k-btn-g" disabled={!USE_API} onClick={openForm}>
+              + Новый приход
+            </button>
+          </div>
+        </div>
       </div>
+
+      <button
+        type="button"
+        className="k-wh-fab k-hide-desk"
+        disabled={!USE_API || open}
+        onClick={openForm}
+        aria-label="Новый приход"
+        title={hasDraft && !open ? 'Черновик' : 'Новый приход'}
+      >
+        {hasDraft && !open ? '●' : '+'}
+      </button>
 
       {!filteredReceipts.length ? (
         <div className="k-empty">{receipts.length ? 'За выбранный период приходов нет' : 'Приходов пока нет'}</div>

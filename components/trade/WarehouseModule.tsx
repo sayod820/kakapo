@@ -115,7 +115,7 @@ export default function WarehouseModule({
   return (
     <div className="k-wh-shell">
       <div className="k-wh-head">
-        <div className="k-catalog-bar" style={{ marginBottom: 0 }}>
+        <div className="k-catalog-bar k-hide-mob" style={{ marginBottom: 0 }}>
           <div className="k-catalog-meta">
             <b>Склад</b>
             <span>
@@ -137,18 +137,19 @@ export default function WarehouseModule({
         </div>
 
         {!USE_API && (
-          <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
+          <div className="k-hide-mob" style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a2414', color: 'var(--gold)', border: '1px solid #5a4020' }}>
             Складские операции доступны только при подключении к API
           </div>
         )}
 
-        <OfflineNotice section="склад" mode="queue" />
-
-        {apiError && (
-          <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-            {apiError}
-          </div>
-        )}
+        <div className="k-hide-mob">
+          <OfflineNotice section="склад" mode="queue" />
+          {apiError && (
+            <div style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
+              {apiError}
+            </div>
+          )}
+        </div>
 
         <div className="k-subtabs k-seg-tabs" style={{ marginBottom: 0 }} role="tablist" aria-label="Разделы склада">
           {WAREHOUSE_TABS.map(t => {

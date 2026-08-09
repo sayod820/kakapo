@@ -97,6 +97,24 @@ const CSS = `
   .k-online[data-state="sync"] .d{background:var(--blue);box-shadow:0 0 0 3px rgba(59,142,240,.18)}
   .k-online[data-state="failed"]{color:var(--red)}
   .k-online[data-state="failed"] .d{background:var(--red);box-shadow:0 0 0 3px rgba(255,90,90,.18)}
+  .k-online-chip{
+    display:none;align-items:center;gap:5px;border:1px solid var(--border);background:var(--card);
+    color:var(--green);border-radius:999px;padding:5px 8px;font-size:11px;font-weight:800;
+    cursor:pointer;min-height:32px;font-family:inherit;flex-shrink:0
+  }
+  .k-online-chip .d{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(31,215,96,.18);flex-shrink:0}
+  .k-online-chip .t{line-height:1}
+  .k-online-chip .n{
+    min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--gold);
+    color:#3a2a00;font-size:10px;display:inline-flex;align-items:center;justify-content:center
+  }
+  .k-online-chip[data-state="offline"]{color:var(--gold)}
+  .k-online-chip[data-state="offline"] .d{background:var(--gold);box-shadow:0 0 0 3px rgba(255,184,0,.18)}
+  .k-online-chip[data-state="sync"]{color:var(--blue)}
+  .k-online-chip[data-state="sync"] .d{background:var(--blue);box-shadow:0 0 0 3px rgba(59,142,240,.18)}
+  .k-online-chip[data-state="failed"]{color:var(--red)}
+  .k-online-chip[data-state="failed"] .d{background:var(--red);box-shadow:0 0 0 3px rgba(255,90,90,.18)}
+  .k-wh-fab{display:none}
   .k-netnote{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:inherit}
   .k-netnote:hover{color:var(--text)}
   .k-update{width:100%;margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px}
@@ -205,7 +223,7 @@ const CSS = `
   .k-wh-expiry-list{display:flex;flex-direction:column;gap:6px;padding:8px}
   .k-wh-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);min-width:0}
   .k-wh-meta b{color:var(--text);font-weight:900}
-  .k-wh-money{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .k-wh-money{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-left:auto}
   .k-wh-money span{white-space:nowrap}
   .k-wh-money b{font-weight:900;color:var(--text)}
   .k-wh-filters-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -746,7 +764,7 @@ const CSS = `
     .k-wh-stock-body,
     .k-wh-receipts-body,
     .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
-    .k-wh-receipts .k-wh-cta-spacer,
+    .k-wh-receipts .k-wh-cta-spacer{display:none}
     .k-wh-writeoffs .k-wh-cta-spacer{display:block}
     .k-catalog-bar{flex-wrap:wrap;gap:6px}
     .k-catalog-filters{flex:1 1 100%;order:3}
@@ -917,6 +935,19 @@ const CSS = `
     }
     .k-wh-cta > span{display:none}
     .k-wh-cta-spacer{display:block;height:48px}
+    .k-wh-receipts .k-wh-cta-spacer{display:none!important;height:0}
+    .k-wh-fab{
+      display:flex!important;align-items:center;justify-content:center;
+      position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
+      z-index:140;width:52px;height:52px;border-radius:50%;border:none;
+      background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+      font-size:28px;font-weight:900;line-height:1;cursor:pointer;
+      box-shadow:0 8px 22px rgba(31,215,96,.4)
+    }
+    .k-wh-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+    .k-trade:has(.k-receipt-modal-bg) .k-wh-fab{display:none!important}
+    .k-online-chip{display:inline-flex!important}
+    .k-top-net{display:flex;align-items:center}
     .k-wh-filters{flex-direction:column;align-items:stretch}
     .k-wh-filters-row{gap:6px}
     .k-wh-period{width:100%}
@@ -925,13 +956,16 @@ const CSS = `
       min-height:36px!important;font-size:14px!important;padding:6px 8px!important
     }
     .k-wh-meta{
-      gap:4px;font-size:11px;margin-top:2px;display:grid;grid-template-columns:1fr;
+      gap:6px;font-size:11px;margin:0 0 8px;padding:8px 10px;
+      display:grid;grid-template-columns:1fr;border:1px solid var(--border);
+      border-radius:10px;background:var(--card)
     }
+    .k-wh-meta-count{font-size:12px;color:var(--muted)}
     .k-wh-money{
-      margin-left:0!important;display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-size:11px;width:100%
+      margin-left:0!important;display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:11px;width:100%
     }
     .k-wh-money span{white-space:normal}
-    .k-wh-cards{display:flex;gap:6px}
+    .k-wh-cards{display:flex;gap:6px;padding-bottom:64px}
     .k-wh-card{padding:8px!important;gap:6px!important;border-radius:10px}
     .k-wh-card-top > div > div:first-child{font-size:10px!important}
     .k-wh-card-top > div > div:last-child{font-size:13px!important;margin-top:1px!important}
@@ -943,6 +977,7 @@ const CSS = `
       min-height:32px!important;min-width:0;padding:4px 6px!important;font-size:13px;border-radius:8px
     }
     .k-wh-desk-tbl{display:none!important}
+    .k-trade:has(.k-receipt-modal-bg) .k-wh-cta{display:none!important}
     .k-receipt-modal-actions{
       padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
       flex-direction:column
@@ -1068,7 +1103,7 @@ function Clock() {
   )
 }
 
-function NetworkStatus() {
+function NetworkStatus({ compact = false }: { compact?: boolean }) {
   const online = useOfflineSync(s => s.online)
   const pending = useOfflineSync(s => s.pending)
   const failed = useOfflineSync(s => s.failed)
@@ -1079,9 +1114,14 @@ function NetworkStatus() {
   const [queueOpen, setQueueOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <div className="k-online"><span className="d" />Онлайн</div>
+  if (!mounted) {
+    return compact
+      ? <span className="k-online-chip" data-state="online"><span className="d" /><span className="t">Онлайн</span></span>
+      : <div className="k-online"><span className="d" />Онлайн</div>
+  }
 
   const state = syncing ? 'sync' : !online ? 'offline' : failed > 0 ? 'failed' : 'online'
+  const shortLabel = syncing ? 'Синхр.' : online ? 'Онлайн' : 'Офлайн'
   const label = syncing
     ? `Синхронизация ${progress.total > 0 ? `${progress.done} из ${progress.total}` : ''}`.trim()
     : online
@@ -1093,6 +1133,25 @@ function NetworkStatus() {
   const lastSync = lastSyncAtIso
     ? new Date(lastSyncAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     : ''
+
+  if (compact) {
+    return (
+      <>
+        <button
+          type="button"
+          className="k-online-chip"
+          data-state={state}
+          title={label}
+          onClick={() => setQueueOpen(true)}
+        >
+          <span className="d" />
+          <span className="t">{shortLabel}</span>
+          {pending > 0 ? <span className="n">{pending}</span> : null}
+        </button>
+        {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
+      </>
+    )
+  }
 
   return (
     <>
@@ -1599,6 +1658,9 @@ function TradeAppInner({
               </div>
             )}
             <div className="k-top-end">
+              <div className="k-top-net k-hide-desk">
+                <NetworkStatus compact />
+              </div>
               <div className="k-theme-toggle" role="group" aria-label="Тема">
                 <button
                   type="button"
