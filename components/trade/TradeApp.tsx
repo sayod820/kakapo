@@ -515,7 +515,7 @@ const CSS = `
   .k-rcpt-empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:13px}
   .k-rcpt-msg{margin:0 18px 10px;padding:10px 14px;border-radius:10px;font-size:13px;background:#2a1420;color:var(--red);border:1px solid #5a2030}
   .k-rcpt-foot-stats{
-    flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;
+    flex-shrink:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;
     padding:12px 18px 16px;border-top:1px solid var(--border);background:var(--card)
   }
   .k-rcpt-stat{
@@ -527,6 +527,7 @@ const CSS = `
   .k-rcpt-stat.c1{box-shadow:inset 3px 0 0 var(--green)}
   .k-rcpt-stat.c2{box-shadow:inset 3px 0 0 #3b82f6}
   .k-rcpt-stat.c3{box-shadow:inset 3px 0 0 var(--green)}
+  .k-rcpt-stat.c5{box-shadow:inset 3px 0 0 #22c55e}
   .k-rcpt-stat.c4{box-shadow:inset 3px 0 0 var(--gold)}
   .k-wh-cta{
     display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:12px

@@ -1199,6 +1199,10 @@ export default function WarehouseReceiptsPanel({
                   <b>{fmtMoney(totals.costTotal)}</b>
                   <span>Общая сумма закуп</span>
                 </div>
+                <div className="k-rcpt-stat c5">
+                  <b style={{ color: 'var(--green)' }}>{fmtMoney(totals.retailTotal)}</b>
+                  <span>Сумма продажи</span>
+                </div>
                 <div className="k-rcpt-stat c4">
                   <b>{fmtMoney(totals.debt)}</b>
                   <span>Остаток к оплате</span>
