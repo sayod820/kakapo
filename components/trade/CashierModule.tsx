@@ -6950,41 +6950,37 @@ export default function CashierModule({
                 className="d"
                 style={{ background: netOnline ? undefined : '#e11d48' }}
               />
-              {netOnline
-                ? (netPending > 0
-                    ? (netSyncing
-                        ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
-                        : `Онлайн · ${netPending} в очереди`)
-                    : (activePosPoint?.code || 'Онлайн'))
-                : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}`}
-              {netFailed > 0 && ` · разбор: ${netFailed}`}
+              <span className="net-status-txt" title={
+                netOnline
+                  ? (netPending > 0
+                      ? (netSyncing
+                          ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
+                          : `Онлайн · ${netPending} в очереди`)
+                      : (activePosPoint?.code || 'Онлайн'))
+                  : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · разбор: ${netFailed}` : ''}`
+              }>
+                {netOnline
+                  ? (netPending > 0
+                      ? (netSyncing
+                          ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
+                          : `очередь ${netPending}`)
+                      : (activePosPoint?.code || 'Онлайн'))
+                  : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')}
+                {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
+              </span>
+              {(!netOnline || netPending > 0 || netFailed > 0) && (
+                <button
+                  type="button"
+                  className="net-sync-chip"
+                  onClick={() => { void flushNetQueue() }}
+                  disabled={netSyncing}
+                  title="Проверить связь и отправить очередь на сервер"
+                >
+                  {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
+                </button>
+              )}
             </div>
           </div>
-          {(!netOnline || netPending > 0 || netFailed > 0) && (
-            <button
-              type="button"
-              className="net-sync-chip"
-              onClick={() => { void flushNetQueue() }}
-              disabled={netSyncing}
-              title="Проверить связь и отправить очередь на сервер"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '4px 10px', borderRadius: 999,
-                border: `1px solid ${netOnline ? 'var(--line, #d7e0d9)' : '#e11d48'}`,
-                background: netOnline ? 'var(--card2, #eef3ef)' : 'rgba(225,29,72,0.12)',
-                color: netOnline ? 'var(--fg, #16321f)' : '#e11d48',
-                fontSize: 12, fontWeight: 700, cursor: netSyncing ? 'wait' : 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span style={{ fontSize: 13 }}>{netOnline ? '⟳' : '⚠'}</span>
-              {netSyncing
-                ? `Синхронизация${netProgress.total > 0 ? ` ${netProgress.done}/${netProgress.total}` : '…'}`
-                : (netPending > 0
-                    ? `Отправить (${netPending})`
-                    : (netOnline ? 'Онлайн' : 'Проверить связь'))}
-            </button>
-          )}
 
           <div className={`searchpill${q.trim() ? ' has-q' : ''}`}>
             <span className="ic" aria-hidden>
