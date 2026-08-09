@@ -211,6 +211,26 @@ export default function FinanceModule() {
     }
   }, [loadTruth])
 
+  /** После офлайн-операции сразу пересчитать книгу/KPI из локального стора */
+  const applyLocalTruthNow = useCallback(() => {
+    const s = usePosStore.getState()
+    const local = buildLocalFinanceTruth({
+      shifts: s.shifts,
+      financeMoves: s.financeMoves,
+      expenses: s.expenses,
+      sales: s.sales,
+    })
+    setTruth(local)
+    setTruthLocal(true)
+    setTruthError('')
+    void cacheFinanceTruth(apiQuery, local)
+  }, [apiQuery])
+
+  async function afterFinanceMutation(offline: boolean) {
+    if (offline) applyLocalTruthNow()
+    else await refresh()
+  }
+
   async function submitExpense() {
     if (!isOfflineV2Full() && !guardMutation(setMsg)) return
     setBusy(true)
@@ -224,7 +244,7 @@ export default function FinanceModule() {
         amount,
         note: expNote.trim() || undefined,
       })
-      if (!res.offline) await refresh()
+      await afterFinanceMutation(!!res.offline)
       setExpOpen(false)
       setExpAmount('')
       setExpNote('')
@@ -249,7 +269,7 @@ export default function FinanceModule() {
         amount,
         note: depNote.trim() || undefined,
       })
-      if (!res.offline) await refresh()
+      await afterFinanceMutation(!!res.offline)
       setDepOpen(false)
       setDepAmount('')
       setDepNote('')
@@ -266,7 +286,7 @@ export default function FinanceModule() {
     if (!confirm('Удалить запись?')) return
     try {
       const res = await financeMoveDeleteSafe(id)
-      if (!res.offline) await refresh()
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить')
     }
@@ -277,7 +297,7 @@ export default function FinanceModule() {
     if (!confirm('Удалить этот расход?')) return
     try {
       const res = await expenseDeleteSafe(id)
-      if (!res.offline) await refresh()
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить расход')
     }
