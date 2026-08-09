@@ -173,6 +173,7 @@ export default function WarehouseWriteoffsPanel({
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [reasonFilter, setReasonFilter] = useState('all')
+  const [addOpen, setAddOpen] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -208,22 +209,26 @@ export default function WarehouseWriteoffsPanel({
     clearWriteoffDraft()
     setDraft(defaultWriteoffDraft())
     setEditingId(null)
+    setAddOpen(false)
     setMsg('')
   }
 
   function openForm() {
     setEditingId(null)
+    setAddOpen(false)
     setDraft(prev => ({ ...prev, open: true }))
     setMsg('')
   }
 
   function openEditForm(writeoff: StockWriteoff) {
     setEditingId(writeoff.id)
+    setAddOpen(false)
     setDraft(writeoffToDraft(writeoff))
     setMsg('')
   }
 
   function closeForm() {
+    setAddOpen(false)
     if (editingId) {
       setDraft(prev => ({ ...prev, open: false }))
       setEditingId(null)
@@ -270,6 +275,30 @@ export default function WarehouseWriteoffsPanel({
       }
     })
     setTimeout(() => qtyRefs.current[key]?.focus(), 80)
+  }
+
+  function addProductFromFind(product: Product) {
+    setAddOpen(false)
+    setDraft(prev => {
+      const existing = prev.lines.find(l => l.productId === product.id)
+      if (existing) {
+        return { ...prev, activeLineKey: existing.key }
+      }
+      let pending = prev.lines.find(l => !l.productId)
+      let nextLines = prev.lines
+      if (!pending) {
+        pending = emptyWriteoffLine()
+        nextLines = [...nextLines, pending]
+      }
+      const filled = fillLineFromProduct(pending, product)
+      const mapped = nextLines.map(l => (l.key === pending!.key ? filled : l))
+      const hasEmpty = mapped.some(l => !l.productId)
+      return {
+        ...prev,
+        lines: hasEmpty ? mapped : [...mapped, emptyWriteoffLine()],
+        activeLineKey: pending.key,
+      }
+    })
   }
 
   function setLineQty(key: string, qty: string) {
@@ -688,6 +717,17 @@ export default function WarehouseWriteoffsPanel({
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
               <div className="k-rcpt-head-actions k-hide-desk">
+                {editingId && (
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s k-btn-del"
+                    style={{ color: 'var(--red)' }}
+                    disabled={saving || deletingId === editingId}
+                    onClick={() => void removeWriteoff(editingId)}
+                  >
+                    {deletingId === editingId ? '…' : 'Удалить'}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="k-btn k-btn-s"
@@ -696,17 +736,6 @@ export default function WarehouseWriteoffsPanel({
                 >
                   {editingId ? 'Отмена' : 'Очистить'}
                 </button>
-                {editingId && (
-                  <button
-                    type="button"
-                    className="k-btn k-btn-s"
-                    style={{ color: 'var(--red)' }}
-                    disabled={saving || deletingId === editingId}
-                    onClick={() => void removeWriteoff(editingId)}
-                  >
-                    {deletingId === editingId ? '…' : 'Удалить'}
-                  </button>
-                )}
                 <button
                   type="button"
                   className="k-btn k-btn-g"
@@ -769,6 +798,10 @@ export default function WarehouseWriteoffsPanel({
                 </div>
               </div>
 
+              {filledLines.length === 0 && (
+                <div className="k-rcpt-empty">Нажмите + чтобы найти товар</div>
+              )}
+
               {filledLines.map((line, idx) => {
                 const product = products.find(p => p.id === line.productId) || null
                 if (!product) return null
@@ -795,29 +828,6 @@ export default function WarehouseWriteoffsPanel({
                   />
                 )
               })}
-
-              {(() => {
-                const pending = [...lines].reverse().find(l => !l.productId)
-                if (!pending) return null
-                const pendingIdx = lines.filter(l => l.productId).length
-                return (
-                  <div
-                    ref={el => { lineRefs.current[pending.key] = el }}
-                    className="k-wo-add"
-                    data-wo-add="1"
-                  >
-                    <div className="k-wo-add-h">
-                      {filledLines.length ? `+ Товар ${pendingIdx + 1}` : 'Найдите товар'}
-                    </div>
-                    <WarehouseProductSelect
-                      products={products}
-                      value={null}
-                      onChange={p => { if (p) selectProduct(pending.key, p) }}
-                      placeholder="Название, артикул, штрихкод…"
-                    />
-                  </div>
-                )
-              })()}
 
               {msg && (
                 <div className="k-rcpt-msg" style={{ margin: '8px 0 0' }}>{msg}</div>
@@ -856,32 +866,36 @@ export default function WarehouseWriteoffsPanel({
             <button
               type="button"
               className="k-wh-fab k-wo-fab k-hide-desk"
-              onClick={() => {
-                const pending = [...draft.lines].reverse().find(l => !l.productId)
-                if (!pending) {
-                  const line = emptyWriteoffLine()
-                  setDraft(prev => ({
-                    ...prev,
-                    lines: [...prev.lines, line],
-                    activeLineKey: line.key,
-                  }))
-                  requestAnimationFrame(() => {
-                    lineRefs.current[line.key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                  })
-                  return
-                }
-                setActiveLine(pending.key)
-                requestAnimationFrame(() => {
-                  lineRefs.current[pending.key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                  const input = lineRefs.current[pending.key]?.querySelector('input') as HTMLInputElement | null
-                  input?.focus()
-                })
-              }}
+              onClick={() => setAddOpen(true)}
               aria-label="Добавить товар"
               title="Добавить товар"
             >
               +
             </button>
+
+            {addOpen && (
+              <div className="k-rcpt-find-bg" onClick={() => setAddOpen(false)}>
+                <div className="k-rcpt-find-modal" onClick={e => e.stopPropagation()}>
+                  <div className="k-rcpt-find-h">
+                    <div>
+                      <b>Найти товар</b>
+                      <div className="sub">Поиск по базе · штрихкод · цена · остаток · PLU</div>
+                    </div>
+                    <button type="button" className="k-rcpt-find-x" onClick={() => setAddOpen(false)}>✕</button>
+                  </div>
+                  <div className="k-rcpt-find-body">
+                    <WarehouseProductSelect
+                      products={products}
+                      value={null}
+                      onChange={p => { if (p) addProductFromFind(p) }}
+                      placeholder="Поиск или сканер: название, артикул, штрихкод…"
+                      autoFocus
+                      variant="panel"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

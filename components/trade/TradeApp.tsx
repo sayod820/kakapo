@@ -1035,8 +1035,15 @@ const CSS = `
     }
     .k-wo-modal .k-rcpt-head-title{grid-area:title}
     .k-wo-modal .k-rcpt-find-x{grid-area:x;padding:2px 6px}
-    .k-wo-modal .k-rcpt-head-actions{grid-area:actions;width:100%}
-    .k-wo-modal .k-rcpt-head-actions .k-btn-g{grid-column:1 / -1;order:-1}
+    .k-wo-modal .k-rcpt-head-actions{
+      grid-area:actions;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px
+    }
+    .k-wo-modal .k-rcpt-head-actions .k-btn-g{
+      grid-column:auto;order:2;min-height:36px!important;font-size:13px
+    }
+    .k-wo-modal .k-rcpt-head-actions .k-btn-s{order:1;min-height:36px!important}
+    .k-wo-modal .k-rcpt-head-actions .k-btn-s[style*="red"],
+    .k-wo-modal .k-rcpt-head-actions .k-btn-del{order:0;grid-column:1 / -1}
     .k-wo-line-grid{grid-template-columns:1fr 1fr;gap:5px}
     .k-wo-line-grid .k-wo-sum{grid-column:1 / -1}
     .k-wo-summary{gap:4px;padding:6px;margin-bottom:6px}
