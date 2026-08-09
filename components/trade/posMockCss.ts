@@ -29,6 +29,11 @@ export const POS_MOCK_CSS = `
   .pos-root[data-embed="1"] .overlay{
     position:fixed;
   }
+  .pos-root[data-embed="1"] .odoo-dash-top > div:first-child{display:none}
+  .pos-root[data-embed="1"] .odoo-dash-top .theme-toggle{display:none}
+  .pos-root[data-embed="1"] .odoo-dash-top{
+    padding:12px 16px;align-items:center
+  }
   /* настройки всегда fixed на весь экран — даже в embed */
   .pos-root[data-embed="1"] .pos-settings-fs{
     position:fixed !important;

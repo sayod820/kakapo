@@ -2264,10 +2264,10 @@ function TradeAppInner({
       )}
 
       <div className={posFullscreen ? 'k-pos-fs-host' : 'k-main'}>
-        {!posFullscreen && current !== 'sales' && (
+        {!posFullscreen && (
           <header className="k-top">
             <button type="button" className="k-mob-menu-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
-            {catalogBack ? (
+            {current !== 'sales' && catalogBack ? (
               <button type="button" className="k-btn k-btn-s k-top-back" onClick={catalogBack}>
                 ← К каталогу
               </button>
@@ -2298,7 +2298,7 @@ function TradeAppInner({
                 ))}
               </div>
             ) : null}
-            {showSearch ? (
+            {current !== 'sales' && showSearch ? (
               <div className="k-top-search-wrap">
                 <div className="k-search">
                   <span className="mag">🔍</span>
@@ -2400,17 +2400,8 @@ function TradeAppInner({
         </div>
       </div>
 
-      {!posFullscreen && (
+      {!posFullscreen && current !== 'sales' && (
         <nav className="k-bottom-nav" aria-label="Разделы">
-          <button
-            type="button"
-            className={menuOpen ? 'active' : ''}
-            onClick={() => setMenuOpen(true)}
-            aria-label="Меню"
-          >
-            <span className="ic">☰</span>
-            <span className="lbl">Меню</span>
-          </button>
           {MOB_QUICK.map(item => (
             <button
               key={item.id}
