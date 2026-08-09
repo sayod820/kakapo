@@ -562,7 +562,7 @@ export default function ClientsModule() {
         </div>
       </div>
 
-      <div className="k-cli-banner k-hide-mob">
+      <div className="k-cli-banner k-cli-banner-hide">
         <OfflineNotice section="клиенты" />
         {apiError && (
           <div className="k-cli-err">{apiError}</div>

@@ -158,6 +158,7 @@ const CSS = `
   .k-cli-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .k-cli-sync{font-size:12px;color:var(--muted)}
   .k-cli-banner{margin-bottom:12px}
+  .k-cli-banner-hide{display:none!important}
   .k-cli-err{
     margin-top:8px;padding:10px 14px;border-radius:10px;font-size:13px;
     background:var(--alert-error-bg);color:var(--red);border:1px solid var(--alert-error-border)
