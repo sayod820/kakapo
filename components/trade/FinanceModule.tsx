@@ -8,7 +8,7 @@ import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
-import { expenseCreateSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
+import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
 import {
   buildLocalFinanceTruth,
   cacheFinanceTruth,
@@ -269,6 +269,17 @@ export default function FinanceModule() {
       if (!res.offline) await refresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить')
+    }
+  }
+
+  async function removeExpense(id: string) {
+    if (!isOfflineV2Full() && !guardMutation()) return
+    if (!confirm('Удалить этот расход?')) return
+    try {
+      const res = await expenseDeleteSafe(id)
+      if (!res.offline) await refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось удалить расход')
     }
   }
 
@@ -658,7 +669,18 @@ export default function FinanceModule() {
                         {e.createdBy ? ` · ${e.createdBy}` : ''}
                       </small>
                     </div>
-                    <b className="k-fin-amt" style={{ color: 'var(--red)' }}>{fmtMoney(e.amount)}</b>
+                    <div className="k-fin-amt-col">
+                      <b style={{ color: 'var(--red)' }}>{fmtMoney(e.amount)}</b>
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s k-fin-del"
+                        disabled={!canEditOffline}
+                        title={canEditOffline ? 'Удалить' : OFFLINE_BLOCK_MESSAGE}
+                        onClick={() => void removeExpense(e.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

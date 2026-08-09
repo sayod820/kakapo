@@ -861,6 +861,25 @@ export function createExpense(db, data = {}) {
   return row
 }
 
+export function deleteExpense(db, id) {
+  ensurePosCollections(db)
+  const idx = db.expenses.findIndex(r => r.id === id)
+  if (idx < 0) throw new Error('Расход не найден')
+  const row = db.expenses[idx]
+  const amount = round2(row.amount)
+  db.expenses.splice(idx, 1)
+  if (row.shiftId) {
+    const shift = db.posShifts.find(s => s.id === row.shiftId)
+    if (shift) {
+      shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+    }
+  }
+  db.moneyLedger = (db.moneyLedger || []).filter(
+    e => !(e.refType === 'expense' && String(e.refId) === String(id)),
+  )
+  return { id }
+}
+
 /** Вклады / снятия — с открытой смены списывают/вносят наличные в кассу */
 export function listFinanceMoves(db) {
   ensurePosCollections(db)

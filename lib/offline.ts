@@ -37,6 +37,7 @@ export type QueueKind =
   | 'supplier_payment_create'
   | 'supplier_payment_delete'
   | 'expense_create'
+  | 'expense_delete'
   | 'finance_move_delete'
   | 'category_upsert'
   | 'category_delete'
@@ -70,6 +71,7 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   supplier_payment_create: 'Оплата поставщику',
   supplier_payment_delete: 'Отмена оплаты поставщику',
   expense_create: 'Расход',
+  expense_delete: 'Удаление расхода',
   finance_move_delete: 'Удаление движения',
   category_upsert: 'Категория',
   category_delete: 'Удаление категории',
@@ -922,6 +924,14 @@ async function sendOp(row: PendingOp): Promise<string> {
         clientRef: p.clientRef,
       } as any)
       return String((exp as any)?.id || '')
+    }
+    case 'expense_delete': {
+      const p = await resolveRefs(row.payload, ['id'])
+      const id = String(p.id || '')
+      if (id && !isLocalId(id)) {
+        await api.deleteExpense(id, { clientRef: p.clientRef })
+      }
+      return id
     }
     case 'finance_move_delete': {
       const p = await resolveRefs(row.payload, ['id'])

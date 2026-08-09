@@ -1093,6 +1093,11 @@ export const api = {
   getExpenses: () => request<PosExpense[]>('/expenses'),
   createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string; clientRef?: string }) =>
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  deleteExpense: (id: string, data?: { clientRef?: string }) =>
+    request<{ id: string }>(`/expenses/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   getFinanceMoves: () => request<FinanceMove[]>('/finance/moves'),
   createFinanceMove: (data: {
     clientRef?: string

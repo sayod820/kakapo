@@ -660,6 +660,39 @@ export async function expenseCreateSafe(input: {
   return res
 }
 
+// ── Удаление расхода (Offline V2) ──
+
+export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const clientRef = newClientRef()
+
+  if (!isOfflineV2Full()) {
+    await api.deleteExpense(id)
+    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    void persistPosSnapshot()
+    return { offline: false, data: { id } }
+  }
+
+  const applyLocal = async () => {
+    await useOfflineSync.getState().queueOp('expense_delete', { clientRef, id }, { clientRef })
+    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    void persistPosSnapshot()
+    return { id }
+  }
+
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+
+  return raceCashierOp(async () => {
+    await api.deleteExpense(id)
+    usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+    void persistPosSnapshot()
+    return { id }
+  }, applyLocal)
+}
+
 // ── Удаление движения (Offline V2) ──
 
 export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {

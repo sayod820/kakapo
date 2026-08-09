@@ -106,6 +106,7 @@ import {
   deleteSupplierPayment,
   listExpenses,
   createExpense,
+  deleteExpense,
   listFinanceMoves,
   createFinanceMove,
   applyDebtRepayToShift,
@@ -2801,6 +2802,19 @@ app.post('/expenses', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
+  }
+})
+app.delete('/expenses/:id', (req, res) => {
+  try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'expense_delete', clientRef)) return
+    const row = deleteExpense(db, req.params.id)
+    if (clientRef) rememberKnownOp('expense_delete', clientRef, row)
+    persist()
+    broadcastPosUpdate({ kind: 'expense', id: row.id, deleted: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить расход' })
   }
 })
 
