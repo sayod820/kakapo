@@ -1132,7 +1132,12 @@ const CSS = `
     .k-hide-desk{display:revert!important}
     .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
     .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
-    .k-trade:has(.k-body-pos) .k-main{height:100%!important;min-height:0!important;overflow:hidden;padding-bottom:0}
+    .k-trade:has(.k-body-pos) .k-main{
+      height:100%!important;min-height:0!important;overflow:hidden;
+      padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
+    }
+    .k-trade.pos-fs{padding-bottom:0}
+    .k-trade.pos-fs .k-pos-fs-host{height:100%;min-height:0;overflow:hidden}
     .k-trade:has(.k-body-debts){height:100vh;height:100dvh;overflow:hidden}
     .k-trade:has(.k-body-debts) .k-main{
       height:100%!important;min-height:0!important;overflow:hidden;
@@ -1192,7 +1197,11 @@ const CSS = `
     .k-body{padding:10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:calc(100dvh - 56px);max-height:calc(100dvh - 56px)
+      height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
+      max-height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px))
+    }
+    .k-trade.pos-fs .k-body-pos{
+      height:100dvh!important;max-height:100dvh!important
     }
     .k-body-debts{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
@@ -2400,7 +2409,7 @@ function TradeAppInner({
         </div>
       </div>
 
-      {!posFullscreen && current !== 'sales' && (
+      {!posFullscreen && (
         <nav className="k-bottom-nav" aria-label="Разделы">
           {MOB_QUICK.map(item => (
             <button
