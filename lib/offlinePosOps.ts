@@ -695,17 +695,57 @@ export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id:
 
 // ── Удаление движения (Offline V2) ──
 
+function reverseFinanceMoveLocal(id: string) {
+  const move = usePosStore.getState().financeMoves.find(m => m.id === id)
+  if (!move) {
+    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    return
+  }
+  const amount = round2(Number(move.amount) || 0)
+  if (move.shiftId && amount > 0) {
+    const shift = shiftById(move.shiftId)
+    if (shift) {
+      if (move.type === 'withdraw') {
+        patchShift(move.shiftId, {
+          expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
+        })
+      } else {
+        patchShift(move.shiftId, {
+          cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
+        })
+      }
+    }
+  }
+  if (move.supplierId && move.type === 'withdraw' && amount > 0) {
+    usePosStore.setState(s => ({
+      suppliers: s.suppliers.map(sup => {
+        if (sup.id !== move.supplierId) return sup
+        const totalPaid = round2(Math.max(0, (Number(sup.totalPaid) || 0) - amount))
+        const totalSupplied = Number(sup.totalSupplied) || 0
+        return {
+          ...sup,
+          totalPaid,
+          payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+        }
+      }),
+    }))
+  }
+  usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+}
+
 export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
   if (!isOfflineV2Full()) {
     await api.deleteFinanceMove(id)
+    reverseFinanceMoveLocal(id)
+    void persistPosSnapshot()
     return { offline: false, data: { id } }
   }
 
   const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('finance_move_delete', { clientRef, id }, { clientRef })
-    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    reverseFinanceMoveLocal(id)
     void persistPosSnapshot()
     return { id }
   }
@@ -718,7 +758,7 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
 
   return raceCashierOp(async () => {
     await api.deleteFinanceMove(id)
-    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    reverseFinanceMoveLocal(id)
     void persistPosSnapshot()
     return { id }
   }, applyLocal)

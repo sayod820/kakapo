@@ -1035,9 +1035,40 @@ export function applyDebtRepayToShift(db, data = {}) {
 
 export function deleteFinanceMove(db, id) {
   ensurePosCollections(db)
-  const before = db.financeMoves.length
-  db.financeMoves = db.financeMoves.filter(r => r.id !== id)
-  if (db.financeMoves.length === before) throw new Error('Запись не найдена')
+  const idx = db.financeMoves.findIndex(r => r.id === id)
+  if (idx < 0) throw new Error('Запись не найдена')
+  const row = db.financeMoves[idx]
+  const amount = round2(row.amount)
+  const type = row.type === 'withdraw' ? 'withdraw' : 'deposit'
+  db.financeMoves.splice(idx, 1)
+
+  if (row.shiftId) {
+    const shift = db.posShifts.find(s => s.id === row.shiftId)
+    if (shift) {
+      if (type === 'withdraw') {
+        shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+      } else {
+        shift.cashInTotal = round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount))
+      }
+    }
+  }
+
+  if (row.supplierId) {
+    const supplier = (db.suppliers || []).find(s => s.id === row.supplierId)
+    if (supplier) {
+      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - amount))
+      syncSupplierPayable(supplier)
+    }
+  }
+
+  db.supplierPayments = (db.supplierPayments || []).filter(
+    p => String(p.financeMoveId || '') !== String(id),
+  )
+
+  db.moneyLedger = (db.moneyLedger || []).filter(
+    e => !(e.refType === 'finance_move' && String(e.refId) === String(id)),
+  )
+
   return { id }
 }
 
