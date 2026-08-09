@@ -150,22 +150,29 @@ export default function WarehouseModule({
           </div>
         )}
 
-        <div className="k-subtabs" style={{ marginBottom: 0 }}>
-          {WAREHOUSE_TABS.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              className={`k-subtab ${tab === t.id ? 'active' : ''}`}
-              style={{ padding: '6px 12px', fontSize: 12 }}
-              onClick={() => setTab(t.id)}
-            >
-              {t.icon} {t.label}
-              {t.id === 'receipts' && receipts.length > 0 && ` (${receipts.length})`}
-              {t.id === 'writeoffs' && writeoffs.length > 0 && ` (${writeoffs.length})`}
-              {t.id === 'revisions' && revisions.length > 0 && ` (${revisions.length})`}
-              {t.id === 'expiry' && expiry.length > 0 && ` (${expiry.length})`}
-            </button>
-          ))}
+        <div className="k-subtabs k-seg-tabs" style={{ marginBottom: 0 }} role="tablist" aria-label="Разделы склада">
+          {WAREHOUSE_TABS.map(t => {
+            const count =
+              t.id === 'receipts' ? receipts.length
+                : t.id === 'writeoffs' ? writeoffs.length
+                  : t.id === 'revisions' ? revisions.length
+                    : t.id === 'expiry' ? expiry.length
+                      : 0
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`k-subtab ${tab === t.id ? 'active' : ''}`}
+                onClick={() => setTab(t.id)}
+              >
+                <span className="ic">{t.icon}</span>
+                <span className="lbl">{t.label}</span>
+                {count > 0 ? <span className="cnt">{count}</span> : null}
+              </button>
+            )
+          })}
         </div>
       </div>
 

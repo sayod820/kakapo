@@ -609,16 +609,16 @@ export default function ClientsModule() {
           value={q}
           onChange={e => setQ(e.target.value)}
         />
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('all')}>Все</button>
-          <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('debt')}>С долгом</button>
-          <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('vip')}>VIP</button>
-          <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('no_card')}>Без карты</button>
-          <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilter('blocked')}>Блок</button>
-          <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('debt')}>По долгу</button>
-          <button type="button" className={`k-subtab ${sort === 'bonus' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('bonus')}>По бонусам</button>
-          <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('name')}>По имени</button>
-          <button type="button" className={`k-subtab ${sort === 'spent' ? 'active' : ''}`} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setSort('spent')}>По покупкам</button>
+        <div className="k-subtabs k-clients-chips" style={{ marginBottom: 0 }}>
+          <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Все</button>
+          <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} onClick={() => setFilter('debt')}>С долгом</button>
+          <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} onClick={() => setFilter('vip')}>VIP</button>
+          <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} onClick={() => setFilter('no_card')}>Без карты</button>
+          <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} onClick={() => setFilter('blocked')}>Блок</button>
+          <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} onClick={() => setSort('debt')}>По долгу</button>
+          <button type="button" className={`k-subtab ${sort === 'bonus' ? 'active' : ''}`} onClick={() => setSort('bonus')}>По бонусам</button>
+          <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} onClick={() => setSort('name')}>По имени</button>
+          <button type="button" className={`k-subtab ${sort === 'spent' ? 'active' : ''}`} onClick={() => setSort('spent')}>По покупкам</button>
         </div>
       </div>
 
