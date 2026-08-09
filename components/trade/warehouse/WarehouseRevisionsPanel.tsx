@@ -89,7 +89,6 @@ function RevisionLineCard({
   freezeSystem,
   active,
   canRemove,
-  onClear,
   onRemove,
   onActivate,
   onCounted,
@@ -106,7 +105,6 @@ function RevisionLineCard({
   freezeSystem: boolean
   active: boolean
   canRemove: boolean
-  onClear: () => void
   onRemove: () => void
   onActivate: () => void
   onCounted: (v: string) => void
@@ -153,7 +151,6 @@ function RevisionLineCard({
           <button type="button" className="k-btn k-btn-s" title="Редактор товара" onClick={e => { e.stopPropagation(); onEditProduct() }}>✎</button>
           <button type="button" className="k-btn k-btn-s" title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
           <button type="button" className="k-btn k-btn-s" title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
-          <button type="button" className="k-btn k-btn-s" title="Сменить товар" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
           {canRemove && (
             <button type="button" className="k-btn k-btn-s k-rev-x" title="Удалить" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
           )}
@@ -870,7 +867,6 @@ export default function WarehouseRevisionsPanel({
                         freezeSystem={freezeSystem}
                         active={activeLineKey === line.key}
                         canRemove={filledLines.length > 0}
-                        onClear={() => selectProduct(line.key, null)}
                         onRemove={() => setDraft(prev => ({
                           ...prev,
                           lines: prev.lines.filter(l => l.key !== line.key),
