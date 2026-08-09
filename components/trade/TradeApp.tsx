@@ -948,6 +948,10 @@ const CSS = `
       box-shadow:0 8px 22px rgba(31,215,96,.4)
     }
     .k-wh-fab:disabled{opacity:.45;cursor:default;box-shadow:none}
+    .k-wh-fab.has-draft::after{
+      content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;
+      background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
+    }
     .k-trade:has(.k-receipt-modal-bg) .k-wh-fab{display:none!important}
     .k-online-chip{display:inline-flex!important}
     .k-top-net{display:flex;align-items:center}

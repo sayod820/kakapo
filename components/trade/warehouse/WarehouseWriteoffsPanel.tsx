@@ -485,13 +485,13 @@ export default function WarehouseWriteoffsPanel({
 
       <button
         type="button"
-        className="k-wh-fab k-hide-desk"
+        className={`k-wh-fab k-hide-desk${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новое списание"
-        title={hasDraft && !open ? 'Черновик' : 'Новое списание'}
+        title={hasDraft && !open ? 'Черновик списания' : 'Новое списание'}
       >
-        {hasDraft && !open ? '●' : '+'}
+        +
       </button>
 
       {!filtered.length ? (

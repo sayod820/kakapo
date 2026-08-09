@@ -792,13 +792,13 @@ export default function WarehouseReceiptsPanel({
 
       <button
         type="button"
-        className="k-wh-fab k-hide-desk"
+        className={`k-wh-fab k-hide-desk${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новый приход"
-        title={hasDraft && !open ? 'Черновик' : 'Новый приход'}
+        title={hasDraft && !open ? 'Черновик прихода' : 'Новый приход'}
       >
-        {hasDraft && !open ? '●' : '+'}
+        +
       </button>
 
       {!filteredReceipts.length ? (

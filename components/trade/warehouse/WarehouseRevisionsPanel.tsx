@@ -579,13 +579,13 @@ export default function WarehouseRevisionsPanel({
 
       <button
         type="button"
-        className="k-wh-fab k-hide-desk"
+        className={`k-wh-fab k-hide-desk${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новая ревизия"
-        title={hasDraft && !open ? 'Черновик' : 'Новая ревизия'}
+        title={hasDraft && !open ? 'Черновик ревизии' : 'Новая ревизия'}
       >
-        {hasDraft && !open ? '●' : '+'}
+        +
       </button>
 
       {!filtered.length ? (
