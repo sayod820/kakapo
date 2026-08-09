@@ -7,6 +7,7 @@ import { getKakapoDesktop, isKakapoDesktop, type DesktopPrinter } from '@/lib/de
 import { pickLabelPrinter, pickReceiptPrinter, XP235B_LABEL_HEIGHT_MM, XP235B_LABEL_WIDTH_MM } from '@/lib/printerPresets'
 import { productMatchesSearch } from '@/lib/productBarcodes'
 import type { Product, ProductStockLayer } from '@/lib/types'
+import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
@@ -56,6 +57,7 @@ export default function LabelsTab({
   search: string
 }) {
   const [labelSearch, setLabelSearch] = useState('')
+  const [labelScanOpen, setLabelScanOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [edits, setEdits] = useState<Record<string, LabelEdit>>({})
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
@@ -83,7 +85,7 @@ export default function LabelsTab({
   }
 
   function labelSearchBlocked() {
-    if (designOpen || editingKey || printerPanelOpen) return true
+    if (designOpen || editingKey || printerPanelOpen || labelScanOpen) return true
     if (document.querySelector('.k-modal-bg, .modal-card')) return true
     return false
   }
@@ -523,17 +525,29 @@ export default function LabelsTab({
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{selected.size} выбрано</span>
           </div>
           <div className="k-card-b">
-            <input
-              ref={labelSearchRef}
-              className="k-inp"
-              data-label-search
-              autoFocus
-              value={labelSearch}
-              onChange={e => setLabelSearch(e.target.value)}
-              onFocus={e => e.currentTarget.select()}
-              placeholder="Поиск: штрихкод, название, артикул…"
-              style={{ marginBottom: 8, flexShrink: 0 }}
-            />
+            <div className="k-label-search-row">
+              <input
+                ref={labelSearchRef}
+                className="k-inp"
+                data-label-search
+                autoFocus
+                value={labelSearch}
+                onChange={e => setLabelSearch(e.target.value)}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="Поиск: штрихкод, название, артикул…"
+              />
+              <button
+                type="button"
+                className="k-btn k-btn-s k-cam-scan-btn"
+                title="Сканер камеры"
+                aria-label="Сканер камеры"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => setLabelScanOpen(true)}
+                style={{ flexShrink: 0, minWidth: 44, minHeight: 44, padding: '0 10px', fontSize: 18, lineHeight: 1 }}
+              >
+                📷
+              </button>
+            </div>
             <div className="k-label-list">
               {filtered.map(p => {
                 const layers = layersByProduct[p.id]
@@ -645,6 +659,20 @@ export default function LabelsTab({
           ...DEFAULT_LABEL_DESIGN,
           elements: DEFAULT_LABEL_DESIGN.elements.map(e => ({ ...e })),
         })}
+      />
+
+      <MobileBarcodeScanner
+        open={labelScanOpen}
+        onClose={() => setLabelScanOpen(false)}
+        onDetect={code => {
+          const trimmed = String(code || '').trim()
+          setLabelScanOpen(false)
+          if (!trimmed) return
+          setLabelSearch(trimmed)
+          window.setTimeout(() => focusLabelSearch(), 0)
+        }}
+        title="Сканер этикеток"
+        hint="Наведите камеру на штрихкод товара"
       />
     </div>
   )

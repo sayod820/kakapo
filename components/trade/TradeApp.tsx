@@ -19,6 +19,7 @@ import ReportsModule from '@/components/trade/ReportsModule'
 import TradeLoginPage from '@/components/trade/TradeLoginPage'
 import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
+import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import {
   getKakapoDesktop,
   isKakapoDesktop,
@@ -708,7 +709,7 @@ const CSS = `
   .k-trade[data-theme="light"] .k-modal-bg{background:rgba(12,26,16,.45)}
   .k-modal{width:460px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--border);border-radius:18px;display:flex;flex-direction:column;overflow:hidden}
   .k-modal-wide{width:640px}
-  .k-modal-fs-bg{padding:0;align-items:stretch;justify-content:stretch;z-index:90}
+  .k-modal-fs-bg{padding:0;align-items:stretch;justify-content:stretch;z-index:160}
   .k-modal-fs{
     width:100%!important;max-width:100%!important;
     height:100vh!important;max-height:100vh!important;
@@ -717,7 +718,27 @@ const CSS = `
   }
   .k-modal-fs > .k-modal-h{flex-shrink:0}
   .k-modal-fs > .k-modal-b{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+  .k-arrivals-body{padding:16px}
+  .k-arrivals-head{align-items:flex-start}
+  .k-arrivals-head-txt{min-width:0;flex:1}
+  .k-arrivals-head-sub{font-size:12px;color:var(--muted);margin-top:4px;font-weight:500}
+  .k-arrivals-dirty{font-size:11px;color:var(--gold);margin-top:4px;font-weight:700}
   .k-arrivals-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;flex-shrink:0}
+  .k-arrivals-stock{font-size:13px;color:var(--muted);font-weight:600}
+  .k-arrivals-stock b{font-size:16px;font-weight:900}
+  .k-arrivals-stock-diff{margin-left:8px;color:var(--gold)}
+  .k-arrivals-stock-n{margin-left:10px}
+  .k-arrivals-toolbar-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .k-arrivals-add{
+    margin-bottom:14px;padding:14px;border-radius:12px;flex-shrink:0;
+    background:var(--green-d);border:1px solid rgba(31,215,96,.25)
+  }
+  .k-arrivals-add-h{font-size:13px;font-weight:800;color:var(--green);margin-bottom:10px}
+  .k-arrivals-row-acts{display:flex;gap:6px;justify-content:flex-end}
+  .k-arrivals-row-acts .k-btn{padding:6px 10px;font-size:12px;min-height:0}
+  .k-arrivals-edit{background:var(--card2);padding:14px;border-radius:10px}
+  .k-arrivals-edit-grid{margin-bottom:10px;max-width:640px}
+  .k-arrivals-edit-foot{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .k-arrivals-tbl-wrap{flex:1;min-height:0;overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
   .k-arrivals-tbl{width:100%;min-width:0;border-collapse:collapse}
   .k-arrivals-tbl th{
@@ -727,6 +748,14 @@ const CSS = `
   .k-arrivals-tbl td{padding:10px 12px;border-bottom:1px solid var(--tbl-line);font-size:13px;vertical-align:middle}
   .k-arrivals-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-arrivals-tbl tbody tr:hover{background:var(--hover)}
+  .k-top-scan-btn{
+    display:none;flex-shrink:0;width:44px;height:44px;min-height:44px;padding:0;
+    border-radius:12px;font-size:20px;line-height:1;align-items:center;justify-content:center
+  }
+  .k-cam-scan-btn{display:none}
+  .k-prod-pick .k-cam-scan-btn{display:flex}
+  .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
+  .k-label-search-row .k-inp{flex:1;min-width:0;margin-bottom:0!important}
   .k-receipt-modal-bg{
     padding:0!important;align-items:stretch!important;justify-content:stretch!important;
     z-index:180;background:var(--bg)!important;inset:0
@@ -1395,6 +1424,97 @@ const CSS = `
     .k-rcpt-find-body{padding:10px 0 0}
     .k-rcpt-find-body .k-prod-pick-panel{padding:0 10px}
     .k-rcpt-find-modal .k-cam-scan-btn{display:flex!important}
+    .k-cam-scan-btn{display:inline-flex!important;align-items:center;justify-content:center}
+    .k-top-scan-btn{display:inline-flex!important}
+    .k-search.has-scan input{padding-right:84px}
+    .k-search.has-scan .k-search-clear{right:52px}
+    .k-search.has-scan .k-top-scan-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%)}
+    .k-top-search-wrap{gap:8px;align-items:stretch}
+    .k-search.has-scan{position:relative}
+    .k-arrivals-body{padding:10px}
+    .k-arrivals-head{padding:10px 12px!important;gap:8px}
+    .k-arrivals-head-txt b{font-size:14px;line-height:1.25}
+    .k-arrivals-head-sub{font-size:11px;line-height:1.3}
+    .k-arrivals-toolbar{flex-direction:column;align-items:stretch;gap:8px;margin-bottom:10px}
+    .k-arrivals-stock{font-size:12px}
+    .k-arrivals-stock b{font-size:15px}
+    .k-arrivals-toolbar-acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
+    .k-arrivals-toolbar-acts .k-btn{width:100%;min-height:40px!important}
+    .k-arrivals-add{padding:10px;margin-bottom:10px;border-radius:10px}
+    .k-arrivals-tbl-wrap{
+      border:none;background:transparent;overflow:visible;border-radius:0;
+      padding-bottom:calc(88px + env(safe-area-inset-bottom,0px))
+    }
+    .k-arrivals-tbl,.k-arrivals-tbl tbody{display:block;width:100%}
+    .k-arrivals-tbl thead{display:none}
+    .k-arrivals-tbl tbody tr:not(.k-arrivals-edit-tr){
+      display:grid;
+      grid-template-columns:28px 1fr 1fr auto;
+      grid-template-areas:
+        "idx status status acts"
+        "sup  sup    date   acts"
+        "qty  rem    cost   cost"
+        "ret  bulk   exp    exp";
+      gap:6px 8px;align-items:start;
+      margin:0 0 8px;padding:10px;
+      border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
+    .k-arrivals-tbl tbody tr:not(.k-arrivals-edit-tr):hover{background:var(--card)}
+    .k-arrivals-tbl tbody tr.is-editing{border-color:rgba(31,215,96,.35);box-shadow:inset 0 0 0 1px rgba(31,215,96,.15)}
+    .k-arrivals-tbl td{
+      border:none!important;padding:0!important;font-size:12px;text-align:left!important
+    }
+    .k-arrivals-tbl td.a-idx{grid-area:idx;font-size:11px;color:var(--muted);font-weight:900;padding-top:3px!important}
+    .k-arrivals-tbl td.a-status{grid-area:status}
+    .k-arrivals-tbl td.a-sup{grid-area:sup;font-size:13px!important;font-weight:900!important}
+    .k-arrivals-tbl td.a-acts{grid-area:acts}
+    .k-arrivals-tbl td.a-qty{grid-area:qty}
+    .k-arrivals-tbl td.a-rem{grid-area:rem}
+    .k-arrivals-tbl td.a-cost{grid-area:cost}
+    .k-arrivals-tbl td.a-retail{grid-area:ret}
+    .k-arrivals-tbl td.a-bulk{grid-area:bulk}
+    .k-arrivals-tbl td.a-exp{grid-area:exp}
+    .k-arrivals-tbl td.a-date{grid-area:date;font-size:11px!important;color:var(--muted)!important;text-align:right!important;align-self:center}
+    .k-arrivals-tbl td.a-qty,
+    .k-arrivals-tbl td.a-rem,
+    .k-arrivals-tbl td.a-cost,
+    .k-arrivals-tbl td.a-retail,
+    .k-arrivals-tbl td.a-bulk,
+    .k-arrivals-tbl td.a-exp{
+      display:flex;flex-direction:column;gap:1px;
+      padding-top:6px!important;border-top:1px solid var(--tbl-line)!important
+    }
+    .k-arrivals-tbl td.a-qty::before,
+    .k-arrivals-tbl td.a-rem::before,
+    .k-arrivals-tbl td.a-cost::before,
+    .k-arrivals-tbl td.a-retail::before,
+    .k-arrivals-tbl td.a-bulk::before,
+    .k-arrivals-tbl td.a-exp::before{
+      content:attr(data-l);font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase
+    }
+    .k-arrivals-row-acts{flex-direction:column;gap:4px}
+    .k-arrivals-row-acts .k-btn{min-height:34px!important;padding:4px 8px!important;font-size:12px}
+    .k-arrivals-edit-tr{display:block!important;margin:-4px 0 10px;border:none;background:transparent;padding:0}
+    .k-arrivals-edit-tr > td{display:block!important;padding:0!important;border:none!important}
+    .k-arrivals-edit{
+      padding:10px;border:1px solid rgba(31,215,96,.25);border-radius:12px;
+      background:var(--green-d);margin:0
+    }
+    .k-arrivals-edit-grid{max-width:none;grid-template-columns:1fr 1fr!important;gap:8px}
+    .k-arrivals-edit-foot{
+      position:sticky;bottom:0;z-index:5;
+      display:grid;grid-template-columns:1fr 1fr;gap:8px;
+      margin:12px -10px -10px;padding:10px;
+      padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));
+      background:linear-gradient(180deg,transparent,var(--green-d) 18%);
+      border-top:1px solid rgba(31,215,96,.2)
+    }
+    .k-arrivals-edit-foot .k-btn{width:100%;min-height:46px!important;font-size:14px}
+    .k-arrivals-add .k-arrivals-edit-foot{
+      margin:12px -10px -10px;grid-template-columns:1fr
+    }
+    .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
+    .k-label-search-row .k-inp{flex:1;min-width:0;margin-bottom:0!important}
     .k-receipt-modal .k-btn{min-height:36px}
     .k-receipt-modal .k-inp,.k-receipt-modal .k-sel{min-height:36px!important;font-size:15px!important;padding:6px 8px!important}
     .k-wh-cta .k-btn-g{
@@ -1716,7 +1836,11 @@ const CSS = `
     .k-fin-row-txt small{font-size:10px;margin-top:2px}
     .k-fin-amt,.k-fin-amt-col b{font-size:12px}
     .k-body:has(.k-receipt-modal-bg) .k-bottom-nav,
-    .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav{visibility:hidden;pointer-events:none}
+    .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav,
+    .k-body:has(.k-modal-fs-bg) .k-bottom-nav,
+    .k-trade:has(.k-modal-fs-bg) .k-bottom-nav,
+    .k-body:has(.k-arrivals-modal) .k-bottom-nav,
+    .k-trade:has(.k-arrivals-modal) .k-bottom-nav{visibility:hidden;pointer-events:none}
     .k-trade:has(.k-receipt-modal-bg) .k-wh-cta{display:none!important}
     .k-bottom-nav{
       display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:150;
@@ -2045,6 +2169,7 @@ function TradeAppInner({
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [searchScanOpen, setSearchScanOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
   const [productsSub, setProductsSub] = useState<ProductsSubPage>('product')
@@ -2341,7 +2466,7 @@ function TradeAppInner({
             ) : null}
             {current !== 'sales' && showSearch ? (
               <div className="k-top-search-wrap">
-                <div className="k-search">
+                <div className="k-search has-scan">
                   <span className="mag">🔍</span>
                   <input
                     ref={searchInputRef}
@@ -2364,6 +2489,15 @@ function TradeAppInner({
                       ✕
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s k-top-scan-btn k-cam-scan-btn"
+                    title="Сканер камеры"
+                    aria-label="Сканер камеры"
+                    onClick={() => setSearchScanOpen(true)}
+                  >
+                    📷
+                  </button>
                 </div>
               </div>
             ) : current === 'products' ? (
@@ -2456,6 +2590,20 @@ function TradeAppInner({
           ))}
         </nav>
       )}
+
+      <MobileBarcodeScanner
+        open={searchScanOpen}
+        onClose={() => setSearchScanOpen(false)}
+        onDetect={code => {
+          const trimmed = String(code || '').trim()
+          setSearchScanOpen(false)
+          if (!trimmed) return
+          setSearch(trimmed)
+          window.setTimeout(focusTradeSearch, 0)
+        }}
+        title="Сканер товаров"
+        hint="Наведите камеру на штрихкод товара"
+      />
     </div>
   )
 }

@@ -256,37 +256,33 @@ export default function ProductArrivalsPanel({
   const tableColSpan = 11
 
   return (
-    <div className="k-modal-bg k-modal-fs-bg" onClick={requestClose}>
+    <div className="k-modal-bg k-modal-fs-bg k-arrivals-modal" onClick={requestClose}>
       <div className="k-modal k-modal-fs" onClick={e => e.stopPropagation()}>
-        <div className="k-modal-h">
-          <div>
-            <b>📦 Партии и приходы · {product.name}</b>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, fontWeight: 500 }}>
-              На кассе при нескольких партиях кассир выбирает цену вручную. Без выбора списание идёт FIFO (активная партия).
+        <div className="k-modal-h k-arrivals-head">
+          <div className="k-arrivals-head-txt">
+            <b>📦 Партии · {product.name}</b>
+            <div className="k-arrivals-head-sub">
+              Несколько партий — цена на кассе вручную, иначе FIFO
             </div>
             {addDirty && (
-              <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 4, fontWeight: 700 }}>
-                ● Несохранённый приход
-              </div>
+              <div className="k-arrivals-dirty">● Несохранённый приход</div>
             )}
           </div>
           <button type="button" onClick={requestClose} aria-label="Закрыть">✕</button>
         </div>
 
-        <div className="k-modal-b" style={{ padding: 16 }}>
+        <div className="k-modal-b k-arrivals-body">
           {msg && <div className="k-alert" style={{ marginBottom: 12, flexShrink: 0 }}>{msg}</div>}
 
           <div className="k-arrivals-toolbar">
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Остаток по партиям: <b style={{ color: 'var(--green)', fontSize: 16 }}>{totalQty}</b>
+            <div className="k-arrivals-stock">
+              Остаток: <b style={{ color: 'var(--green)' }}>{totalQty}</b>
               {product.stock != null && totalQty !== Number(product.stock) && (
-                <span style={{ marginLeft: 8, color: 'var(--gold)' }}>
-                  (в карточке: {product.stock})
-                </span>
+                <span className="k-arrivals-stock-diff">(карточка: {product.stock})</span>
               )}
-              <span style={{ marginLeft: 12 }}>· партий: {layers.length}</span>
+              <span className="k-arrivals-stock-n">· {layers.length} парт.</span>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="k-arrivals-toolbar-acts">
               <button
                 type="button"
                 className="k-btn k-btn-s"
@@ -305,11 +301,8 @@ export default function ProductArrivalsPanel({
           </div>
 
           {showAdd && (
-            <div style={{
-              marginBottom: 14, padding: 14, borderRadius: 12, flexShrink: 0,
-              background: 'var(--green-d)', border: '1px solid rgba(31,215,96,.25)',
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--green)', marginBottom: 10 }}>Новый приход</div>
+            <div className="k-arrivals-add">
+              <div className="k-arrivals-add-h">Новый приход</div>
               <div className="k-grid2">
                 <div className="k-field">
                   <label>Количество *</label>
@@ -328,9 +321,11 @@ export default function ProductArrivalsPanel({
                 <BulkPricingFields tiers={bulkPricing} onChange={v => { setBulkPricing(v); markAddDirty() }} sellType={product.sellType || 'piece'} />
                 {bulkHint && <div style={{ fontSize: 11, color: '#FF8C00', marginTop: 8, fontWeight: 700 }}>{bulkHint}</div>}
               </div>
-              <button type="button" className="k-btn k-btn-g" style={{ marginTop: 12 }} disabled={saving} onClick={() => void handleAdd()}>
-                {saving ? 'Сохранение…' : 'Провести приход'}
-              </button>
+              <div className="k-arrivals-edit-foot">
+                <button type="button" className="k-btn k-btn-g" disabled={saving} onClick={() => void handleAdd()}>
+                  {saving ? 'Сохранение…' : 'Провести приход'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -361,9 +356,9 @@ export default function ProductArrivalsPanel({
                 <tbody>
                   {layers.map((layer, i) => (
                     <Fragment key={layer.receiptId}>
-                      <tr>
-                        <td>{i + 1}</td>
-                        <td>
+                      <tr className={editId === layer.receiptId ? 'is-editing' : ''}>
+                        <td className="a-idx" data-l="#">{i + 1}</td>
+                        <td className="a-status" data-l="Статус">
                           <span className="k-badge" style={{
                             background: layer.isActive ? 'var(--green-d)' : 'var(--badge-cat-bg)',
                             color: layer.isActive ? 'var(--green)' : 'var(--muted)',
@@ -371,52 +366,51 @@ export default function ProductArrivalsPanel({
                             {layer.isActive ? '● Активная' : `Очередь ${layer.queueIndex + 1}`}
                           </span>
                         </td>
-                        <td style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
-                        <td className="num" style={{ fontWeight: 800 }}>{layer.qty}</td>
-                        <td className="num" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
-                        <td className="num" style={{ color: 'var(--red)', fontWeight: 800 }}>{money(layer.costPrice)}</td>
-                        <td className="num" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
-                        <td style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
-                        <td style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
-                        <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDate(layer.createdAtIso)}</td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <td className="a-sup" data-l="Поставщик" style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
+                        <td className="num a-qty" data-l="Кол-во" style={{ fontWeight: 800 }}>{layer.qty}</td>
+                        <td className="num a-rem" data-l="Остаток" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
+                        <td className="num a-cost" data-l="Закуп" style={{ color: 'var(--red)', fontWeight: 800 }}>{money(layer.costPrice)}</td>
+                        <td className="num a-retail" data-l="Розница" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
+                        <td className="a-bulk" data-l="Опт" style={{ fontSize: 12, color: 'var(--gold)', fontWeight: 700 }}>{bulkSummary(layer)}</td>
+                        <td className="a-exp" data-l="Срок" style={{ fontSize: 12, color: 'var(--muted)' }}>{layer.expiryDate || '—'}</td>
+                        <td className="a-date" data-l="Дата" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDate(layer.createdAtIso)}</td>
+                        <td className="a-acts">
+                          <div className="k-arrivals-row-acts">
                             <button
                               type="button"
                               className="k-btn k-btn-s"
-                              style={{ padding: '6px 10px', fontSize: 12 }}
                               title="Печать этикеток"
                               onClick={() => setLabelReceipt(receiptFromLayer(product, layer))}
                             >
                               🖨️
                             </button>
-                            <button type="button" className="k-btn k-btn-s" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => startEdit(layer)}>
+                            <button type="button" className="k-btn k-btn-s" onClick={() => startEdit(layer)}>
                               {editId === layer.receiptId ? '▼' : 'Изменить'}
                             </button>
                           </div>
                         </td>
                       </tr>
                       {editId === layer.receiptId && (
-                        <tr>
-                          <td colSpan={tableColSpan} style={{ background: 'var(--card2)', padding: 14 }}>
-                            <div className="k-grid2" style={{ marginBottom: 10, maxWidth: 640 }}>
-                              <div className="k-field">
-                                <label>Количество</label>
-                                <input className="k-inp" type="text" value={String(layer.qty)} readOnly disabled />
+                        <tr className="k-arrivals-edit-tr">
+                          <td colSpan={tableColSpan}>
+                            <div className="k-arrivals-edit">
+                              <div className="k-grid2 k-arrivals-edit-grid">
+                                <div className="k-field">
+                                  <label>Количество</label>
+                                  <input className="k-inp" type="text" value={String(layer.qty)} readOnly disabled />
+                                </div>
+                                <div className="k-field">
+                                  <label>Розничная</label>
+                                  <input className="k-inp" type="text" inputMode="decimal" value={editRetail} onChange={e => setEditRetail(sanitizeDecimal(e.target.value))} />
+                                </div>
                               </div>
-                              <div className="k-field">
-                                <label>Розничная</label>
-                                <input className="k-inp" type="text" inputMode="decimal" value={editRetail} onChange={e => setEditRetail(sanitizeDecimal(e.target.value))} />
-                              </div>
-                            </div>
-                            <div style={{ maxWidth: 720 }}>
                               <BulkPricingFields tiers={editBulk} onChange={setEditBulk} sellType={product.sellType || 'piece'} />
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                              <button type="button" className="k-btn k-btn-g" disabled={saving} onClick={() => void handleSaveEdit(layer)}>
-                                Сохранить партию
-                              </button>
-                              <button type="button" className="k-btn k-btn-s" onClick={() => setEditId(null)}>Отмена</button>
+                              <div className="k-arrivals-edit-foot">
+                                <button type="button" className="k-btn k-btn-g" disabled={saving} onClick={() => void handleSaveEdit(layer)}>
+                                  Сохранить партию
+                                </button>
+                                <button type="button" className="k-btn k-btn-s" onClick={() => setEditId(null)}>Отмена</button>
+                              </div>
                             </div>
                           </td>
                         </tr>
