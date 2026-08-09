@@ -120,46 +120,50 @@ function RevisionLineCard({
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
   const diff = counted != null ? counted - system : null
   const costPrice = Number(product.costPrice) || 0
-  const retailPrice = Number(product.price) || 0
   const basisPrice = moneyBasisPrice(product)
   const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
   const barcode = product.barcode || product.barcodes?.[0] || ''
   const systemReal = packRealWorld(system, packInfo)
   const diffReal = diff != null ? packRealWorld(diff, packInfo) : null
 
+  const border =
+    active ? '#3B8EF0'
+      : diff != null && diff !== 0 ? (diff > 0 ? 'var(--green)' : 'var(--red)')
+        : 'var(--border)'
+
   return (
     <div
       ref={cardRef}
       onClick={onActivate}
-      style={{
-        padding: '10px 12px',
-        borderRadius: 12,
-        border: `1px solid ${active ? '#3B8EF0' : diff != null && diff !== 0 ? (diff > 0 ? 'var(--green)' : 'var(--red)') : 'var(--border)'}`,
-        background: active ? 'rgba(59,142,240,.06)' : 'var(--card2)',
-        marginBottom: 8,
-      }}
+      className={`k-rev-line${active ? ' on' : ''}`}
+      style={{ borderColor: border, background: active ? 'rgba(59,142,240,.06)' : undefined }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--muted)', minWidth: 18 }}>{idx + 1}</span>
-        <span style={{ fontSize: 24, flexShrink: 0 }}>{product.e || '📦'}</span>
-
-        <div style={{ flex: '1 1 180px', minWidth: 140 }}>
-          <div style={{ fontWeight: 900, fontSize: 14, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+      <div className="k-rev-line-top">
+        <span className="k-rev-line-n">{idx + 1}</span>
+        <span className="k-rev-line-emo">{product.e || '📦'}</span>
+        <div className="k-rev-line-txt">
+          <b>{product.name}</b>
+          <div className="k-rev-line-meta">
             <span>{product.art || '—'}</span>
-            {barcode && <span>· 🏷 {barcode}</span>}
+            {barcode && <span>· {barcode}</span>}
             <span>
-              · было <b style={{ color: 'var(--text)' }}>{system}</b>{packInfo.qty !== 1 && ' уп.'}
-              {systemReal && <span style={{ color: 'var(--muted)' }}> ({formatQty(systemReal.value)} {systemReal.label})</span>}
+              · было <b>{system}</b>{packInfo.qty !== 1 && ' уп.'}
+              {systemReal && <span> ({formatQty(systemReal.value)} {systemReal.label})</span>}
             </span>
-            {packInfo.qty !== 1 && <span>· уп. по {packInfo.qty} {packInfo.label}</span>}
-            {retailPrice > 0 && <span>· Розн {fmtMoney(retailPrice)}</span>}
-            {costPrice > 0 && <span>· Закуп {fmtMoney(costPrice)}</span>}
           </div>
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: 100 }}>
-          <label style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>Факт ({inputUnitLabel})</label>
+        <div className="k-rev-line-btns">
+          <button type="button" className="k-btn k-btn-s" title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
+          <button type="button" className="k-btn k-btn-s" title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
+          <button type="button" className="k-btn k-btn-s" title="Сменить товар" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
+          {canRemove && (
+            <button type="button" className="k-btn k-btn-s" title="Удалить" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+          )}
+        </div>
+      </div>
+      <div className="k-rev-line-grid">
+        <div className="k-field">
+          <label>Факт ({inputUnitLabel})</label>
           <input
             ref={countedRef}
             className="k-inp"
@@ -168,35 +172,24 @@ function RevisionLineCard({
             value={line.countedStock}
             onChange={e => onCounted(sanitizeDecimalInput(e.target.value))}
             onClick={e => e.stopPropagation()}
-            style={{ fontSize: 15, fontWeight: 800, padding: '6px 8px' }}
           />
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, minWidth: 74 }}>
+        <div className="k-rev-line-diff">
           {diff != null && diff !== 0 ? (
             <>
-              <span style={{ fontSize: 13, fontWeight: 900, ...diffStyle(diff) }}>{formatDiff(diff)} {inputUnitLabel}</span>
+              <b style={diffStyle(diff)}>{formatDiff(diff)} {inputUnitLabel}</b>
               {diffReal && (
-                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
+                <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
               )}
               {basisPrice > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, ...diffStyle(costDiff ?? 0) }}>
+                <span style={diffStyle(costDiff ?? 0)}>
                   {formatMoneyDiff(costDiff ?? 0)}
-                  {costPrice <= 0 && <span style={{ fontWeight: 500, opacity: 0.7 }}> (по рознице)</span>}
+                  {costPrice <= 0 && ' · розн.'}
                 </span>
               )}
             </>
           ) : (
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>✓ ОК</span>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
-          <button type="button" className="k-btn k-btn-s" style={{ fontSize: 11, padding: '5px 8px' }} title="Сменить товар" onClick={e => { e.stopPropagation(); onClear() }}>⇄</button>
-          {canRemove && (
-            <button type="button" className="k-btn k-btn-s" style={{ padding: '5px 8px' }} title="Удалить позицию" onClick={e => { e.stopPropagation(); onRemove() }}>✕</button>
+            <b style={{ color: 'var(--green)' }}>✓ ОК</b>
           )}
         </div>
       </div>
@@ -227,6 +220,7 @@ export default function WarehouseRevisionsPanel({
   const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [layersLoaded, setLayersLoaded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -310,6 +304,7 @@ export default function WarehouseRevisionsPanel({
     setEditingId(null)
     setModalStep('scope')
     setScopeLabel('Все категории')
+    setAddOpen(false)
     setMsg('')
   }
 
@@ -317,6 +312,7 @@ export default function WarehouseRevisionsPanel({
     setEditingId(null)
     setModalStep('scope')
     setScopeLabel('Все категории')
+    setAddOpen(false)
     setDraft({ ...defaultRevisionDraft(), open: true })
     setMsg('')
   }
@@ -325,11 +321,13 @@ export default function WarehouseRevisionsPanel({
     setEditingId(revision.id)
     setModalStep('count')
     setScopeLabel('Редактирование')
+    setAddOpen(false)
     setDraft(revisionToDraft(revision))
     setMsg('')
   }
 
   function closeForm() {
+    setAddOpen(false)
     setDraft(prev => ({ ...prev, open: false }))
     if (editingId) {
       setEditingId(null)
@@ -421,6 +419,30 @@ export default function WarehouseRevisionsPanel({
       }
     })
     setTimeout(() => countedRefs.current[key]?.focus(), 80)
+  }
+
+  function addProductFromFind(product: Product) {
+    setAddOpen(false)
+    setDraft(prev => {
+      const existing = prev.lines.find(l => l.productId === product.id)
+      if (existing) {
+        return { ...prev, activeLineKey: existing.key }
+      }
+      let pending = prev.lines.find(l => !l.productId)
+      let nextLines = prev.lines
+      if (!pending) {
+        pending = emptyRevisionLine()
+        nextLines = [...nextLines, pending]
+      }
+      const filled = fillLineFromProduct(pending, product)
+      const mapped = nextLines.map(l => (l.key === pending!.key ? filled : l))
+      const hasEmpty = mapped.some(l => !l.productId)
+      return {
+        ...prev,
+        lines: hasEmpty ? mapped : [...mapped, emptyRevisionLine()],
+        activeLineKey: pending.key,
+      }
+    })
   }
 
   const onBodyScroll = useCallback(() => {
@@ -726,86 +748,110 @@ export default function WarehouseRevisionsPanel({
 
       {open && (
         <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
-          <div className="k-modal k-receipt-modal" onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="k-modal-h" style={{ flexShrink: 0 }}>
-              <div>
-                <b>
-                  {editingId ? '✎ Редактирование ревизии' : '📋 Новая ревизия'}
-                  {editingRevision && (
-                    <span style={{ fontWeight: 700, color: 'var(--muted)', fontSize: 13 }}> · {fmtDateTime(editingRevision.createdAtIso)}</span>
-                  )}
-                </b>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
-                  {modalStep === 'scope'
-                    ? 'Шаг 1: выберите категории для пересчёта'
-                    : editingId
-                      ? 'Измените фактические остатки — склад обновится'
-                      : 'Шаг 2: укажите факт по каждому товару и проведите ревизию'}
+          <div className="k-modal k-receipt-modal k-rev-modal" onClick={e => e.stopPropagation()}>
+            <div className="k-rcpt-head">
+              <div className="k-rcpt-head-title">
+                <div className="k-rcpt-head-ic" style={{ background: 'rgba(59,142,240,.15)', color: '#3B8EF0' }}>📋</div>
+                <div>
+                  <b>{editingId ? 'Редактирование' : 'Новая ревизия'}</b>
+                  <div className="sub">
+                    {modalStep === 'scope'
+                      ? 'Категории → пересчёт'
+                      : editingId
+                        ? 'Измените факт · склад обновится'
+                        : 'Факт по каждому товару → провести'}
+                    {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
+                  </div>
                 </div>
               </div>
-              <button type="button" onClick={closeForm}>✕</button>
+              <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
+              {modalStep === 'count' && (
+                <div className="k-rcpt-head-actions k-hide-desk">
+                  {editingId && (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s k-btn-del"
+                      style={{ color: 'var(--red)' }}
+                      disabled={saving || deletingId === editingId}
+                      onClick={() => void removeRevision(editingId)}
+                    >
+                      {deletingId === editingId ? '…' : 'Удалить'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    disabled={saving}
+                    onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}
+                  >
+                    {editingId ? 'Отмена' : 'Очистить'}
+                  </button>
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g"
+                    style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                    disabled={saving || totals.count === 0}
+                    onClick={() => void submit()}
+                  >
+                    {saving ? '…' : editingId
+                      ? `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`
+                      : `Провести${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
+                  </button>
+                </div>
+              )}
             </div>
 
             {!editingId && <RevisionStepBar step={modalStep} />}
 
             {modalStep === 'scope' && !editingId ? (
-              <>
-                <RevisionScopePanel
-                  products={products}
-                  categories={categories}
-                  onStart={startCountFromScope}
-                />
-                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)' }}>
-                  <button type="button" className="k-btn k-btn-s" style={{ width: '100%' }} onClick={closeForm}>Отмена</button>
-                </div>
-              </>
+              <RevisionScopePanel
+                products={products}
+                categories={categories}
+                onStart={startCountFromScope}
+                onCancel={closeForm}
+              />
             ) : (
               <>
-                <div ref={bodyRef} className="k-modal-b" onScroll={onBodyScroll} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                  <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card2)' }}>
-                    <div className="k-field" style={{ marginBottom: 10 }}>
-                      <label>Комментарий (необязательно)</label>
-                      <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Например: плановая инвентаризация зала" />
+                <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>
+                  <div className="k-rev-note">
+                    <div className="k-field" style={{ marginBottom: 0 }}>
+                      <label>Комментарий</label>
+                      <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Необязательно…" />
                     </div>
                     {!editingId && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
-                          📂 {scopeLabel} · {filledLines.length} {filledLines.length === 1 ? 'товар' : filledLines.length < 5 ? 'товара' : 'товаров'}
-                        </span>
-                        <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12 }} onClick={backToScope}>
-                          ← Изменить категории
-                        </button>
+                      <div className="k-rev-scope-chip">
+                        <span>📂 {scopeLabel} · {filledLines.length}</span>
+                        <button type="button" className="k-btn k-btn-s" onClick={backToScope}>← Категории</button>
                       </div>
                     )}
                   </div>
 
-                  <div className="k-receipt-summary" style={{
-                    padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--panel)',
-                  }}>
-                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Позиций</div><div style={{ fontWeight: 900, fontSize: 18 }}>{totals.count}</div></div>
-                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Совпало</div><div style={{ fontWeight: 900, fontSize: 18, color: 'var(--green)' }}>{totals.matched}</div></div>
-                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Излишек</div><div style={{ fontWeight: 900, fontSize: 18, color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</div></div>
-                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Δ итого</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.netDiff) }}>{totals.count ? formatDiff(totals.netDiff) : '—'}</div></div>
-                    <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{totals.costMoneyDiff < 0 ? 'Убыток (закуп)' : 'Сумма (закуп)'}</div><div style={{ fontWeight: 900, fontSize: 18, ...diffStyle(totals.costMoneyDiff) }}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</div></div>
+                  <div className="k-rev-summary">
+                    <div><span>Поз.</span><b>{totals.count}</b></div>
+                    <div><span>ОК</span><b style={{ color: 'var(--green)' }}>{totals.matched}</b></div>
+                    <div><span>Изл.</span><b style={{ color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</b></div>
+                    <div><span>Δ</span><b style={diffStyle(totals.netDiff)}>{totals.count ? formatDiff(totals.netDiff) : '—'}</b></div>
+                    <div><span>Σ</span><b style={diffStyle(totals.costMoneyDiff)}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</b></div>
                   </div>
 
                   {filledLines.length > 5 && (
-                    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <div className="k-rev-search">
                       <input
                         className="k-inp"
                         value={countSearch}
                         onChange={e => setCountSearch(e.target.value)}
-                        placeholder="Поиск в списке: название, артикул, штрихкод…"
+                        placeholder="Поиск в списке…"
                       />
                     </div>
                   )}
 
-                  <div style={{ padding: '12px 16px' }}>
                   {visibleFilledLines.length === 0 && countSearch.trim() && (
-                    <div style={{ textAlign: 'center', padding: 24, color: 'var(--muted)', fontSize: 13 }}>
-                      По запросу «{countSearch}» ничего не найдено
-                    </div>
+                    <div className="k-rcpt-empty">По запросу «{countSearch}» ничего не найдено</div>
                   )}
+                  {filledLines.length === 0 && !countSearch.trim() && (
+                    <div className="k-rcpt-empty">Нажмите + чтобы добавить товар</div>
+                  )}
+
                   {visibleFilledLines.map((line, idx) => {
                     const product = products.find(p => p.id === line.productId) || null
                     if (!product) return null
@@ -836,52 +882,38 @@ export default function WarehouseRevisionsPanel({
                     )
                   })}
 
-                  {(() => {
-                    const pending = [...lines].reverse().find(l => !l.productId)
-                    if (!pending) return null
-                    const pendingIdx = lines.filter(l => l.productId).length
-                    return (
-                      <details style={{ marginTop: 8 }}>
-                        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800, color: '#3B8EF0', padding: '8px 0' }}>
-                          + Добавить ещё один товар вручную
-                        </summary>
+                  <div className="k-rev-add-desk k-hide-mob">
+                    {(() => {
+                      const pending = [...lines].reverse().find(l => !l.productId)
+                      if (!pending) return null
+                      const pendingIdx = lines.filter(l => l.productId).length
+                      return (
                         <div
                           ref={el => { lineRefs.current[pending.key] = el }}
-                          style={{
-                            padding: 16,
-                            borderRadius: 12,
-                            border: '2px dashed #3B8EF0',
-                            background: 'rgba(59,142,240,.04)',
-                            marginTop: 8,
-                          }}
+                          className="k-rev-add"
                         >
+                          <div className="k-rev-add-h">+ Товар вручную · поз. {pendingIdx + 1}</div>
                           <WarehouseProductSelect
                             products={products}
                             value={null}
                             onChange={p => { if (p) selectProduct(pending.key, p) }}
                             placeholder="Название, артикул или штрихкод…"
                           />
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-                            Позиция {pendingIdx + 1} · если товара нет в выбранных категориях
-                          </div>
                         </div>
-                      </details>
-                    )
-                  })()}
+                      )
+                    })()}
+                  </div>
 
                   {msg && (
-                    <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: '#2a1420', color: 'var(--red)', border: '1px solid #5a2030' }}>
-                      {msg}
-                    </div>
+                    <div className="k-rcpt-msg" style={{ margin: '8px 0 0' }}>{msg}</div>
                   )}
-                  </div>
                 </div>
 
-                <div style={{ flexShrink: 0, padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--panel)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className="k-receipt-modal-actions k-hide-mob">
                   <button
                     type="button"
-                    className="k-btn k-btn-g"
-                    style={{ flex: 1, minWidth: 180, background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                    className="k-btn k-btn-g k-btn-primary-wide"
+                    style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
                     disabled={saving || totals.count === 0}
                     onClick={() => void submit()}
                   >
@@ -889,20 +921,56 @@ export default function WarehouseRevisionsPanel({
                       ? `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`
                       : `Провести ревизию${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
                   </button>
-                  <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
-                  {editingId && (
-                    <button
-                      type="button"
-                      className="k-btn k-btn-s"
-                      style={{ color: 'var(--red)' }}
-                      disabled={saving || deletingId === editingId}
-                      onClick={() => void removeRevision(editingId)}
-                    >
-                      {deletingId === editingId ? 'Удаление…' : 'Удалить'}
-                    </button>
-                  )}
-                  <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                  <div className="k-btn-row">
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}>{editingId ? 'Отмена' : 'Очистить'}</button>
+                    {editingId && (
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ color: 'var(--red)' }}
+                        disabled={saving || deletingId === editingId}
+                        onClick={() => void removeRevision(editingId)}
+                      >
+                        {deletingId === editingId ? 'Удаление…' : 'Удалить'}
+                      </button>
+                    )}
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  className="k-wh-fab k-rev-fab k-hide-desk"
+                  onClick={() => setAddOpen(true)}
+                  aria-label="Добавить товар"
+                  title="Добавить товар"
+                >
+                  +
+                </button>
+
+                {addOpen && (
+                  <div className="k-rcpt-find-bg" onClick={() => setAddOpen(false)}>
+                    <div className="k-rcpt-find-modal" onClick={e => e.stopPropagation()}>
+                      <div className="k-rcpt-find-h">
+                        <div>
+                          <b>Найти товар</b>
+                          <div className="sub">Поиск по базе · штрихкод · цена · остаток · PLU</div>
+                        </div>
+                        <button type="button" className="k-rcpt-find-x" onClick={() => setAddOpen(false)}>✕</button>
+                      </div>
+                      <div className="k-rcpt-find-body">
+                        <WarehouseProductSelect
+                          products={products}
+                          value={null}
+                          onChange={p => { if (p) addProductFromFind(p) }}
+                          placeholder="Поиск или сканер: название, артикул, штрихкод…"
+                          autoFocus
+                          variant="panel"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

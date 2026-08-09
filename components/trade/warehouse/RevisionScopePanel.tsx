@@ -32,10 +32,12 @@ export default function RevisionScopePanel({
   products,
   categories,
   onStart,
+  onCancel,
 }: {
   products: Product[]
   categories: Category[]
   onStart: (items: Product[], label: string) => void
+  onCancel?: () => void
 }) {
   const [allCats, setAllCats] = useState(true)
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
@@ -80,33 +82,26 @@ export default function RevisionScopePanel({
   }
 
   const stockFilters: { id: StockFilter; label: string }[] = [
-    { id: 'all', label: 'Все остатки' },
+    { id: 'all', label: 'Все' },
     { id: 'inStock', label: 'В наличии' },
     { id: 'low', label: 'Мало' },
     { id: 'out', label: 'Нет' },
   ]
 
-  return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'auto', padding: '16px 16px 20px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>📂</div>
-        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>Шаг 1 — Выберите категории</div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 420, margin: '0 auto' }}>
-          Отметьте одну или несколько категорий, или нажмите «Все». На следующем шаге укажете фактический остаток по каждому товару.
-        </div>
-      </div>
+  const countWord = scopeProducts.length === 1 ? 'товар' : scopeProducts.length < 5 ? 'товара' : 'товаров'
 
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>Категории · можно выбрать несколько</div>
-      <div className="k-cats" style={{ marginBottom: 14 }}>
+  return (
+    <div className="k-rev-scope">
+      <div className="k-rev-scope-lbl">Категории · можно несколько</div>
+      <div className="k-cats k-cats-compact k-rev-cats">
         <button
           type="button"
           className={`k-cat ${allCats ? 'active' : ''}`}
           onClick={pickAll}
-          style={allCats ? undefined : { opacity: 0.85 }}
         >
           <span className="ce">🏪</span>
           Все
-          <div style={{ fontSize: 10, opacity: 0.75 }}>{products.filter(p => matchStock(p, stockFlt)).length}</div>
+          <span className="cc">{products.filter(p => matchStock(p, stockFlt)).length}</span>
         </button>
         {roots.map(c => {
           const slug = categorySlug(c)
@@ -118,25 +113,23 @@ export default function RevisionScopePanel({
               type="button"
               className={`k-cat ${active ? 'active' : ''}`}
               onClick={() => toggleRoot(slug)}
-              style={!allCats && !active ? { borderColor: selectedCats.size ? 'var(--border)' : 'var(--green)', opacity: 0.9 } : undefined}
             >
               <span className="ce">{c.emoji || '📦'}</span>
               {c.name.split(' ')[0]}
-              <div style={{ fontSize: 10, opacity: 0.75 }}>{count}</div>
-              {active && <div style={{ fontSize: 9, marginTop: 2 }}>✓</div>}
+              <span className="cc">{count}</span>
+              {active && <span className="cc">✓</span>}
             </button>
           )
         })}
       </div>
 
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>Фильтр по остатку</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div className="k-rev-scope-lbl">Остаток</div>
+      <div className="k-rev-stock-flt">
         {stockFilters.map(f => (
           <button
             key={f.id}
             type="button"
             className={`k-subtab ${stockFlt === f.id ? 'active' : ''}`}
-            style={{ padding: '8px 14px', fontSize: 12 }}
             onClick={() => setStockFlt(f.id)}
           >
             {f.label}
@@ -144,35 +137,34 @@ export default function RevisionScopePanel({
         ))}
       </div>
 
-      <div style={{
-        padding: '14px 16px', borderRadius: 12, background: 'var(--card2)',
-        border: '1px solid var(--border)', marginBottom: 16, textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Будет пересчитано</div>
-        <div style={{ fontSize: 28, fontWeight: 900, color: scopeProducts.length ? '#3B8EF0' : 'var(--muted)' }}>
-          {scopeProducts.length} {scopeProducts.length === 1 ? 'товар' : scopeProducts.length < 5 ? 'товара' : 'товаров'}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{scopeLabel}</div>
+      <div className="k-rev-scope-sum">
+        <span>Пересчёт</span>
+        <b style={{ color: scopeProducts.length ? '#3B8EF0' : 'var(--muted)' }}>
+          {scopeProducts.length} {countWord}
+        </b>
+        <span className="k-rev-scope-sum-sub">{scopeLabel}</span>
       </div>
 
-      <button
-        type="button"
-        className="k-btn k-btn-g"
-        style={{
-          width: '100%', padding: '14px 20px', fontSize: 15, fontWeight: 900,
-          background: 'linear-gradient(135deg,#3B8EF0,#2563b0)',
-        }}
-        disabled={!scopeProducts.length}
-        onClick={() => onStart(scopeProducts, scopeLabel)}
-      >
-        Далее → пересчёт ({scopeProducts.length})
-      </button>
-
       {!allCats && !selectedCats.size && (
-        <div style={{ marginTop: 12, textAlign: 'center', fontSize: 12, color: 'var(--gold)' }}>
-          Выберите «Все» или отметьте нужные категории
-        </div>
+        <div className="k-rev-scope-hint">Выберите «Все» или отметьте категории</div>
       )}
+
+      <div className="k-rev-scope-actions">
+        {onCancel && (
+          <button type="button" className="k-btn k-btn-s" onClick={onCancel}>
+            Отмена
+          </button>
+        )}
+        <button
+          type="button"
+          className="k-btn k-btn-g"
+          style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+          disabled={!scopeProducts.length}
+          onClick={() => onStart(scopeProducts, scopeLabel)}
+        >
+          Далее → {scopeProducts.length}
+        </button>
+      </div>
     </div>
   )
 }
