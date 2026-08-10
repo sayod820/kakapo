@@ -928,6 +928,8 @@ export default function CashierModule({
   const [discMode, setDiscMode] = useState<'all' | 'line'>('all')
   /** % или сумма в сомах — в обе скидки */
   const [discInputKind, setDiscInputKind] = useState<'pct' | 'sum'>('pct')
+  /** В режиме «Новая цена» для строки: правим цену за ед. или итого строки */
+  const [discEditTarget, setDiscEditTarget] = useState<'unit' | 'total'>('unit')
   const [discLineKey, setDiscLineKey] = useState<string | null>(null)
   const [discPickOpen, setDiscPickOpen] = useState(false)
   const [qtyEditOpen, setQtyEditOpen] = useState(false)
@@ -5015,6 +5017,14 @@ export default function CashierModule({
     return discBaseAmount(mode, lineKey)
   }
 
+  function discLineQtyFactor(lineKey?: string | null) {
+    if (!lineKey) return 1
+    const line = cart.find(l => l.key === lineKey)
+    if (!line) return 1
+    if (line.weightKg != null) return Math.max(0.001, Number(line.weightKg) || 0.001)
+    return Math.max(0.001, Number(line.qty) || 1)
+  }
+
   function openAllDiscount() {
     if (!cart.length) {
       showToast('Чек пуст', 'Сначала добавьте товары')
@@ -5023,6 +5033,7 @@ export default function CashierModule({
     setDiscMode('all')
     setDiscLineKey(null)
     setDiscInputKind('pct')
+    setDiscEditTarget('unit')
     setDiscBuf(String(discountPct || ''))
     setAmountPad(false)
     setDiscOpen(true)
@@ -5041,8 +5052,8 @@ export default function CashierModule({
       const currentUnit = Math.round(unit * (1 - pct / 100) * 100) / 100
       setDiscMode('line')
       setDiscLineKey(targetKey)
-      // Сразу «Новая цена» — кассир меняет 2 → 1.8, % считается сам
       setDiscInputKind('sum')
+      setDiscEditTarget('unit')
       setDiscBuf(unit > 0 ? String(currentUnit) : '')
       setDiscPickOpen(false)
       setAmountPad(false)
@@ -5059,39 +5070,96 @@ export default function CashierModule({
   function switchDiscInputKind(next: 'pct' | 'sum') {
     if (next === discInputKind) return
     const sumBase = discSumBase(discMode, discLineKey)
+    const qty = discLineQtyFactor(discLineKey)
     const raw = Number(discBuf) || 0
     if (next === 'sum') {
-      // % → новая цена (за ед. / сумма чека)
       const pct = Math.min(90, Math.max(0, raw))
       const price = Math.round(sumBase * (1 - pct / 100) * 100) / 100
+      setDiscEditTarget('unit')
       setDiscBuf(sumBase > 0 ? String(price > 0 ? price : Math.round(sumBase * 100) / 100) : '')
     } else {
-      // новая цена → % скидки
-      const newPrice = Math.max(0, raw)
+      let unit = raw
+      if (discMode === 'line' && discEditTarget === 'total' && qty > 0) {
+        unit = Math.round((raw / qty) * 100) / 100
+      }
       const pct = sumBase > 0.0001
-        ? Math.round(Math.min(90, Math.max(0, (sumBase - newPrice) / sumBase * 100)) * 100) / 100
+        ? Math.round(Math.min(90, Math.max(0, (sumBase - unit) / sumBase * 100)) * 100) / 100
         : 0
+      setDiscEditTarget('unit')
       setDiscBuf(pct > 0 ? String(pct) : '')
     }
     setDiscInputKind(next)
   }
 
+  function switchDiscEditTarget(next: 'unit' | 'total') {
+    if (discMode !== 'line') return
+    const sumBase = discSumBase('line', discLineKey)
+    const qty = discLineQtyFactor(discLineKey)
+    const raw = Number(discBuf) || 0
+
+    // Если были в %, сначала переводим в сумму/цену
+    if (discInputKind !== 'sum') {
+      const pct = Math.min(90, Math.max(0, raw))
+      const unit = Math.round(sumBase * (1 - pct / 100) * 100) / 100
+      setDiscInputKind('sum')
+      if (next === 'total') {
+        setDiscEditTarget('total')
+        setDiscBuf(String(Math.round(unit * qty * 100) / 100))
+      } else {
+        setDiscEditTarget('unit')
+        setDiscBuf(sumBase > 0 ? String(unit > 0 ? unit : Math.round(sumBase * 100) / 100) : '')
+      }
+      window.setTimeout(() => {
+        amountInputRef.current?.focus()
+        amountInputRef.current?.select()
+      }, 0)
+      return
+    }
+
+    if (next === discEditTarget) {
+      window.setTimeout(() => {
+        amountInputRef.current?.focus()
+        amountInputRef.current?.select()
+      }, 0)
+      return
+    }
+    if (next === 'total') {
+      const unit = discBuf === '' ? sumBase : Math.max(0, Math.min(sumBase, raw))
+      const total = Math.round(unit * qty * 100) / 100
+      setDiscBuf(String(total))
+    } else {
+      const lineGrossAmt = discBaseAmount('line', discLineKey)
+      const total = discBuf === '' ? lineGrossAmt : Math.max(0, raw)
+      const unit = qty > 0 ? Math.round((total / qty) * 100) / 100 : 0
+      setDiscBuf(String(unit))
+    }
+    setDiscEditTarget(next)
+    window.setTimeout(() => {
+      amountInputRef.current?.focus()
+      amountInputRef.current?.select()
+    }, 0)
+  }
+
   function applyDiscount() {
     const sumBase = discSumBase(discMode, discLineKey)
-    const minPrice = Math.round(sumBase * 0.1 * 100) / 100 // макс. скидка 90%
+    const qty = discLineQtyFactor(discLineKey)
+    const minUnit = Math.round(sumBase * 0.1 * 100) / 100
     let pct = 0
     if (discInputKind === 'sum') {
-      const newPrice = Math.max(0, Number(discBuf) || 0)
-      if (newPrice > sumBase + 0.001) {
-        showToast('Выше цены', `Макс. ${sumBase.toFixed(2)} сом (без скидки)`)
+      let newUnit = Math.max(0, Number(discBuf) || 0)
+      if (discMode === 'line' && discEditTarget === 'total' && qty > 0) {
+        newUnit = Math.round((newUnit / qty) * 100) / 100
+      }
+      if (newUnit > sumBase + 0.001) {
+        showToast('Выше цены', `Макс. ${sumBase.toFixed(2)} сом за ед. (без скидки)`)
         return
       }
-      if (newPrice < minPrice - 0.001 && sumBase > 0) {
-        showToast('Слишком много', `Мин. цена ${minPrice.toFixed(2)} сом (скидка до 90%)`)
+      if (newUnit < minUnit - 0.001 && sumBase > 0) {
+        showToast('Слишком много', `Мин. ${minUnit.toFixed(2)} сом за ед. (скидка до 90%)`)
         return
       }
       pct = sumBase > 0.0001
-        ? Math.min(90, Math.round((sumBase - newPrice) / sumBase * 10000) / 100)
+        ? Math.min(90, Math.round((sumBase - newUnit) / sumBase * 10000) / 100)
         : 0
     } else {
       pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
@@ -5105,6 +5173,7 @@ export default function CashierModule({
     setDiscOpen(false)
     setDiscLineKey(null)
     setDiscInputKind('pct')
+    setDiscEditTarget('unit')
   }
 
   function openCreditNote(pending: {
@@ -8440,26 +8509,46 @@ export default function CashierModule({
       {discOpen && (() => {
         const lineTotal = discBaseAmount(discMode, discLineKey)
         const sumBase = discSumBase(discMode, discLineKey)
+        const qty = discLineQtyFactor(discLineKey)
         const raw = Number(discBuf) || 0
-        const minPrice = Math.round(sumBase * 0.1 * 100) / 100
-        const previewPct = discInputKind === 'sum'
-          ? (sumBase > 0.0001 && discBuf !== ''
-            ? Math.min(90, Math.max(0, Math.round((sumBase - Math.min(sumBase, Math.max(0, raw))) / sumBase * 10000) / 100))
-            : 0)
-          : Math.min(90, Math.max(0, raw))
-        const previewOff = Math.round(lineTotal * previewPct / 100 * 100) / 100
-        const previewPrice = Math.round((lineTotal - previewOff) * 100) / 100
-        const previewUnit = discInputKind === 'sum'
-          ? (discBuf === ''
-            ? sumBase
-            : Math.round(Math.max(0, Math.min(sumBase, raw)) * 100) / 100)
-          : Math.round(sumBase * (1 - previewPct / 100) * 100) / 100
+        const editingTotal = discMode === 'line' && discInputKind === 'sum' && discEditTarget === 'total'
+        const minUnit = Math.round(sumBase * 0.1 * 100) / 100
+        const minTotal = Math.round(minUnit * qty * 100) / 100
+
+        let previewUnit = sumBase
+        let previewPrice = lineTotal
+        let previewPct = 0
+        if (discInputKind === 'sum') {
+          if (editingTotal) {
+            previewPrice = discBuf === '' ? lineTotal : Math.round(Math.max(0, raw) * 100) / 100
+            previewUnit = qty > 0 ? Math.round((previewPrice / qty) * 100) / 100 : 0
+          } else {
+            previewUnit = discBuf === ''
+              ? sumBase
+              : Math.round(Math.max(0, Math.min(sumBase, raw)) * 100) / 100
+            previewPrice = Math.round(previewUnit * qty * 100) / 100
+          }
+          previewPct = sumBase > 0.0001
+            ? Math.min(90, Math.max(0, Math.round((sumBase - Math.min(sumBase, previewUnit)) / sumBase * 10000) / 100))
+            : 0
+        } else {
+          previewPct = Math.min(90, Math.max(0, raw))
+          previewUnit = Math.round(sumBase * (1 - previewPct / 100) * 100) / 100
+          previewPrice = Math.round(lineTotal * (1 - previewPct / 100) * 100) / 100
+        }
+        const previewOff = Math.round((lineTotal - previewPrice) * 100) / 100
         const over = discInputKind === 'sum' && sumBase > 0 && discBuf !== '' && (
-          raw > sumBase + 0.001 || raw < minPrice - 0.001
+          editingTotal
+            ? (raw > lineTotal + 0.001 || raw < minTotal - 0.001)
+            : (previewUnit > sumBase + 0.001 || previewUnit < minUnit - 0.001)
         )
-        const pricePresets = sumBase > 0
-          ? [100, 95, 90, 85, 80].map(keep => Math.round(sumBase * keep / 100 * 100) / 100)
-          : [0]
+        const pricePresets = editingTotal
+          ? (lineTotal > 0
+            ? [100, 95, 90, 85, 80].map(keep => Math.round(lineTotal * keep / 100 * 100) / 100)
+            : [0])
+          : (sumBase > 0
+            ? [100, 95, 90, 85, 80].map(keep => Math.round(sumBase * keep / 100 * 100) / 100)
+            : [0])
         const line = discMode === 'line' && discLineKey
           ? cart.find(l => l.key === discLineKey)
           : null
@@ -8470,7 +8559,7 @@ export default function CashierModule({
             : `×${fmtQty(line.qty)}`)
           : ''
         return (
-          <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}>
+          <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct'); setDiscEditTarget('unit') }}>
             <PadShell
               openPad={amountPad}
               onHidePad={() => setAmountPad(false)}
@@ -8489,6 +8578,7 @@ export default function CashierModule({
                   <span>
                     {sumBase.toFixed(2)} ЅМ/{unitLabel}
                     {qtyHint ? ` · ${qtyHint}` : ''}
+                    {` · сумма ${lineTotal.toFixed(2)}`}
                   </span>
                 </div>
               )}
@@ -8520,41 +8610,87 @@ export default function CashierModule({
               </div>
 
               <div className="disc-split">
-                <div className="disc-split-main">
+                <button
+                  type="button"
+                  className={`disc-split-main ${discInputKind === 'sum' && !editingTotal ? 'on' : ''}`}
+                  onClick={() => {
+                    if (discInputKind !== 'sum') switchDiscInputKind('sum')
+                    else if (discMode === 'line') switchDiscEditTarget('unit')
+                    else window.setTimeout(() => amountInputRef.current?.focus(), 0)
+                  }}
+                >
                   <div className="lbl">
                     {discInputKind === 'sum'
                       ? (discMode === 'line' ? `Новая цена / ${unitLabel || 'ед.'}` : 'Новая сумма чека')
                       : 'Скидка %'}
                   </div>
-                  <input
-                    ref={amountInputRef}
-                    className="disc-split-field"
-                    value={discBuf}
-                    inputMode="decimal"
-                    autoFocus
-                    onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                    onFocus={e => e.currentTarget.select()}
-                    placeholder={discInputKind === 'sum' ? (sumBase > 0 ? sumBase.toFixed(2) : '0') : '0'}
-                  />
-                  <div className={`disc-split-sub ${over ? 'bad' : ''}`}>
-                    {over
-                      ? (raw > sumBase + 0.001
-                        ? `макс. ${sumBase.toFixed(2)}`
-                        : `мин. ${minPrice.toFixed(2)}`)
-                      : discInputKind === 'sum'
-                        ? (sumBase > 0
-                          ? `было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
-                          : 'введите цену')
-                        : `цена ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`}
+                  {discInputKind === 'sum' && !editingTotal ? (
+                    <input
+                      ref={amountInputRef}
+                      className="disc-split-field"
+                      value={discBuf}
+                      inputMode="decimal"
+                      autoFocus
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                      onFocus={e => e.currentTarget.select()}
+                      placeholder={sumBase > 0 ? sumBase.toFixed(2) : '0'}
+                    />
+                  ) : discInputKind === 'pct' ? (
+                    <input
+                      ref={amountInputRef}
+                      className="disc-split-field"
+                      value={discBuf}
+                      inputMode="decimal"
+                      autoFocus
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                      onFocus={e => e.currentTarget.select()}
+                      placeholder="0"
+                    />
+                  ) : (
+                    <div className="disc-split-field readonly">{previewUnit.toFixed(2)}</div>
+                  )}
+                  <div className={`disc-split-sub ${over && !editingTotal ? 'bad' : ''}`}>
+                    {discInputKind === 'pct'
+                      ? `цена ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
+                      : `было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`}
                   </div>
-                </div>
-                <div className="disc-split-total" aria-label="Итого по строке">
+                </button>
+                <button
+                  type="button"
+                  className={`disc-split-total ${editingTotal ? 'on' : ''}`}
+                  aria-label="Итого по строке — нажмите чтобы изменить сумму"
+                  disabled={discMode !== 'line'}
+                  onClick={() => {
+                    if (discMode !== 'line') return
+                    switchDiscEditTarget('total')
+                  }}
+                >
                   <div className="lbl">Итого</div>
-                  <div className="val">{previewPrice.toFixed(2)}</div>
-                  <div className="sub">
-                    {previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'}
+                  {editingTotal ? (
+                    <input
+                      ref={amountInputRef}
+                      className="disc-split-field total"
+                      value={discBuf}
+                      inputMode="decimal"
+                      autoFocus
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                      onFocus={e => e.currentTarget.select()}
+                      placeholder={lineTotal > 0 ? lineTotal.toFixed(2) : '0'}
+                    />
+                  ) : (
+                    <div className="val">{previewPrice.toFixed(2)}</div>
+                  )}
+                  <div className={`sub ${over && editingTotal ? 'bad' : ''}`}>
+                    {editingTotal
+                      ? `цена ${previewUnit.toFixed(2)} / ${unitLabel || 'ед.'}`
+                      : (discMode === 'line'
+                        ? (previewOff > 0.001 ? `−${previewOff.toFixed(2)} · нажмите` : 'нажмите · изменить')
+                        : (previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'))}
                   </div>
-                </div>
+                </button>
               </div>
 
               <div className="qty-edit-toolbar">
@@ -8582,7 +8718,7 @@ export default function CashierModule({
                 <button
                   type="button"
                   className="btn-cancel"
-                  onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}
+                  onClick={() => { setDiscOpen(false); setDiscInputKind('pct'); setDiscEditTarget('unit') }}
                 >
                   Отмена
                 </button>
