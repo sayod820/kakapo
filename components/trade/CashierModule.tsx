@@ -774,6 +774,17 @@ export default function CashierModule({
   const scanAccumRef = useRef('')
   /** Буфер скана с первого символа (до confirm burst) — не теряем char до onChange */
   const scanTypeBufRef = useRef('')
+
+  /** USB-сканер почти всегда шлёт цифры; быстрый набор названия — буквы. */
+  function isScannerCodeText(raw: string): boolean {
+    const t = String(raw || '').trim().replace(/\s+/g, '')
+    if (t.length < 3) return false
+    // Штрихкод / PLU / артикул-число
+    if (/^\d+$/.test(t)) return true
+    // Редкие коды с дефисом, без букв
+    if (/^[\d-]+$/.test(t) && t.replace(/\D/g, '').length >= 6) return true
+    return false
+  }
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
   const [favIds, setFavIds] = useState<number[]>(loadFavIds)
@@ -1789,9 +1800,14 @@ export default function CashierModule({
           if (e.key === 'Enter') focusProductSearch()
           return
         }
+        const raw = String(scanAccumRef.current || qRef.current || '').trim()
+        const isScanner = scanBurstRef.current && isScannerCodeText(raw)
+        if (!isScanner) {
+          if (e.key === 'Enter') focusProductSearch()
+          return
+        }
         e.preventDefault()
         focusProductSearch()
-        const raw = String(scanAccumRef.current || qRef.current || '').trim()
         if (scanCommitTimer.current) {
           window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = null
@@ -1810,7 +1826,24 @@ export default function CashierModule({
       }
       if (e.key.length === 1) {
         e.preventDefault()
-        const fast = gap < 90 || (scanBurstRef.current && gap < 180)
+        const isDigitKey = /^\d$/.test(e.key)
+
+        // Буквы = поиск по названию, не сканер
+        if (!isDigitKey) {
+          if (scanCommitTimer.current) {
+            window.clearTimeout(scanCommitTimer.current)
+            scanCommitTimer.current = null
+          }
+          scanBurstRef.current = false
+          scanAccumRef.current = ''
+          scanTypeBufRef.current = ''
+          const next = String(qRef.current || '') + e.key
+          qRef.current = next
+          setQ(next)
+          focusProductSearch()
+          return
+        }
+
         if (gap >= 180) {
           scanBurstRef.current = false
           scanAccumRef.current = ''
@@ -1821,9 +1854,21 @@ export default function CashierModule({
           focusProductSearch()
           return
         }
+        const fast = gap < 50 || (scanBurstRef.current && gap < 90)
         if (fast) {
+          const prior = String(qRef.current || '')
+          if (/[^\d\s-]/.test(prior)) {
+            scanBurstRef.current = false
+            scanAccumRef.current = ''
+            scanTypeBufRef.current = ''
+            const next = prior + e.key
+            qRef.current = next
+            setQ(next)
+            focusProductSearch()
+            return
+          }
           scanBurstRef.current = true
-          if (!scanTypeBufRef.current) scanTypeBufRef.current = String(qRef.current || '')
+          if (!scanTypeBufRef.current) scanTypeBufRef.current = prior.replace(/[^\d-]/g, '')
           scanTypeBufRef.current += e.key
           scanAccumRef.current = scanTypeBufRef.current
           qRef.current = scanAccumRef.current
@@ -1832,9 +1877,14 @@ export default function CashierModule({
             scanCommitTimer.current = null
             if (!scanBurstRef.current) return
             const live = String(scanAccumRef.current || scanTypeBufRef.current || '').trim()
-            if (live.length < 3) return
+            if (!isScannerCodeText(live)) {
+              scanBurstRef.current = false
+              scanAccumRef.current = ''
+              scanTypeBufRef.current = ''
+              return
+            }
             commitPosSearchRef.current(live, { fromScanner: true })
-          }, 45)
+          }, 70)
           return
         }
         // Средний темп — обычный ручной ввод
@@ -3000,8 +3050,13 @@ export default function CashierModule({
         || qRef.current
         || '',
       ).trim()
-      // Короткие PLU/арт тоже пробиваем — commit сам решит, есть ли товар
-      if (live.length < 3) return
+      // Не пробиваем быстрый набор названия («нон», «молоко») — только коды сканера
+      if (!isScannerCodeText(live)) {
+        scanBurstRef.current = false
+        scanAccumRef.current = ''
+        scanTypeBufRef.current = ''
+        return
+      }
       commitPosSearch(live, { fromScanner: true })
     }, delayMs)
   }
@@ -3031,43 +3086,60 @@ export default function CashierModule({
     scanLastKeyTs.current = now
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      // Пауза ≥180мс — новый ввод; первый символ кладём в буфер (ещё не burst)
+      const isDigitKey = /^\d$/.test(e.key)
+
+      // Буквы / символы = ручной поиск, даже при очень быстром наборе
+      if (!isDigitKey) {
+        if (scanCommitTimer.current) {
+          window.clearTimeout(scanCommitTimer.current)
+          scanCommitTimer.current = null
+        }
+        scanBurstRef.current = false
+        scanAccumRef.current = ''
+        scanTypeBufRef.current = ''
+        return
+      }
+
+      // Пауза ≥180мс — новый ввод цифр
       if (gap >= 180) {
         scanBurstRef.current = false
         scanAccumRef.current = ''
         scanTypeBufRef.current = e.key
         // дальше onChange обновит поле — без preventDefault
-        // Цифры не фильтруют сетку (gridSearch), поэтому мигания нет
         return
       }
-      // Быстрый поток (в т.ч. gap==0) = USB-сканер
-      const fast = gap < 90 || scanBurstRef.current
+      // Быстрый поток цифр = USB-сканер (не путать с набором названия)
+      const fast = gap < 50 || (scanBurstRef.current && gap < 90)
       if (fast) {
+        const prior = String(qRef.current || searchInputRef.current?.value || '')
+        // В поле уже название буквами — продолжаем ручной ввод
+        if (/[^\d\s-]/.test(prior)) {
+          scanBurstRef.current = false
+          scanAccumRef.current = ''
+          scanTypeBufRef.current = ''
+          return
+        }
         scanBurstRef.current = true
-        // Первый быстрый gap: в буфере уже первый символ с прошлой клавиши
         if (!scanTypeBufRef.current) {
-          scanTypeBufRef.current = String(qRef.current || searchInputRef.current?.value || '')
+          scanTypeBufRef.current = prior.replace(/[^\d-]/g, '')
         }
         scanTypeBufRef.current += e.key
         scanAccumRef.current = scanTypeBufRef.current
         qRef.current = scanAccumRef.current
-        e.preventDefault() // не перерисовываем сетку на каждый символ
-        scheduleScanCommit(45)
+        e.preventDefault()
+        scheduleScanCommit(70)
         return
       }
-      // Средний темп — ручной ввод, сброс скан-буфера
+      // Средний темп цифр — ручной PLU/поиск
       scanBurstRef.current = false
       scanAccumRef.current = ''
       scanTypeBufRef.current = ''
     }
 
     if (e.key === 'Enter' || e.key === 'Tab') {
-      // Важно: scanTypeBuf после медленного ввода может держать только последний символ.
-      // Для ручного Enter всегда берём полный текст из поля, иначе «Шакар» → «р» и чужой товар.
-      const isScanner = scanBurstRef.current && !!(scanAccumRef.current || scanTypeBufRef.current).trim()
-      const fromAccum = isScanner
-        ? (scanAccumRef.current || scanTypeBufRef.current).trim()
-        : ''
+      const accum = String(scanAccumRef.current || scanTypeBufRef.current || '').trim()
+      const isScanner = scanBurstRef.current && isScannerCodeText(accum)
+      const fromAccum = isScanner ? accum : ''
       const raw = (
         fromAccum
         || (e.currentTarget as HTMLInputElement).value
@@ -3083,6 +3155,8 @@ export default function CashierModule({
       }
       scanTypeBufRef.current = ''
       scanAccumRef.current = ''
+      scanBurstRef.current = false
+      // Enter по названию — пробитие только если однозначный код/штрих, иначе фильтр уже в сетке
       commitPosSearch(raw, { fromScanner: isScanner })
     }
   }
