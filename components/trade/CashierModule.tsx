@@ -910,6 +910,8 @@ export default function CashierModule({
   const [barcodePick, setBarcodePick] = useState<{ code: string; products: Product[] } | null>(null)
   const barcodePickRef = useRef(false)
   const [clearCartConfirm, setClearCartConfirm] = useState(false)
+  /** Закрытие вкладки чека с товарами — спросить подтверждение */
+  const [closeTicketConfirmId, setCloseTicketConfirmId] = useState<string | null>(null)
 
   const [gateCash, setGateCash] = useState('0.00')
   const [gateName, setGateName] = useState(settings.cashierName)
@@ -1345,6 +1347,7 @@ export default function CashierModule({
     || !!scanBlockAlert
     || !!barcodePick
     || clearCartConfirm
+    || !!closeTicketConfirmId
 
   function focusProductSearch() {
     const el = searchInputRef.current
@@ -4907,6 +4910,7 @@ export default function CashierModule({
       setQtyEditDraftKey(null)
       setQtyEditOpen(false)
     }
+    setCloseTicketConfirmId(null)
     setTickets(prev => {
       if (prev.length <= 1) {
         return prev.map(t => t.id !== id ? t : {
@@ -4926,6 +4930,17 @@ export default function CashierModule({
       }
       return next
     })
+  }
+
+  function requestCloseTicket(id: string) {
+    const t = tickets.find(x => x.id === id)
+    if (!t) return
+    const hasItems = t.cart.length > 0 || !!t.client || (Number(t.discountPct) || 0) > 0 || (Number(t.bonusUsed) || 0) > 0
+    if (hasItems) {
+      setCloseTicketConfirmId(id)
+      return
+    }
+    closeTicket(id)
   }
 
   function afterSaleTicketReset(ticketId: string) {
@@ -7288,7 +7303,7 @@ export default function CashierModule({
                       role="button"
                       tabIndex={-1}
                       title="Закрыть чек"
-                      onClick={e => { e.stopPropagation(); closeTicket(t.id) }}
+                      onClick={e => { e.stopPropagation(); requestCloseTicket(t.id) }}
                     >
                       ×
                     </span>
@@ -8253,6 +8268,43 @@ export default function CashierModule({
           </div>
         </div>
       )}
+
+      {closeTicketConfirmId && (() => {
+        const t = tickets.find(x => x.id === closeTicketConfirmId)
+        const idx = tickets.findIndex(x => x.id === closeTicketConfirmId)
+        const n = t ? ticketLineCount(t) : 0
+        const label = t?.client?.name?.split(/\s+/)[0] || (idx >= 0 ? `Чек ${idx + 1}` : 'Чек')
+        const onlyOne = tickets.length <= 1
+        return (
+          <div className="overlay" onClick={() => setCloseTicketConfirmId(null)}>
+            <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
+              <h3>{onlyOne ? 'Очистить чек?' : 'Закрыть чек?'}</h3>
+              <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
+                В «{label}» есть товары{n > 0 ? ` (${n})` : ''}
+                {t?.client ? ` и клиент ${t.client.name}` : ''}.
+                {onlyOne
+                  ? ' Чек будет очищен. Это нельзя отменить.'
+                  : ' Чек закроется, товары пропадут. Это нельзя отменить.'}
+              </div>
+              <div className="modal-card-actions" style={{ gap: 8 }}>
+                <button type="button" className="btn-cancel" onClick={() => setCloseTicketConfirmId(null)}>
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="btn-confirm"
+                  onClick={() => {
+                    const id = closeTicketConfirmId
+                    if (id) closeTicket(id)
+                  }}
+                >
+                  {onlyOne ? 'Очистить' : 'Закрыть'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {scanBlockAlert && (
         <div className="overlay scan-block-overlay" onClick={e => e.stopPropagation()}>
