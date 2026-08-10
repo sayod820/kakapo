@@ -4865,7 +4865,7 @@ export default function CashierModule({
     setQtyEditKey(null)
     setSaleConfirm(null)
     printChoiceLockedRef.current = false
-    showToast('Новый чек', `Чек ${t.seq}`)
+    showToast('Новый чек', `Чек ${tickets.length + 1}`)
     // после клика по «+» фокус остаётся на кнопке — вернуть в поиск
     window.setTimeout(focusProductSearch, 0)
     window.setTimeout(focusProductSearch, 60)
@@ -7165,10 +7165,10 @@ export default function CashierModule({
           </div>
 
           <div className="order-tabs" aria-label="Открытые чеки">
-            {tickets.map(t => {
+            {tickets.map((t, idx) => {
               const active = t.id === activeTicketId
               const n = ticketLineCount(t)
-              const label = t.client?.name?.split(/\s+/)[0] || `Чек ${t.seq}`
+              const label = t.client?.name?.split(/\s+/)[0] || `Чек ${idx + 1}`
               const sum = ticketNetSum(t)
               return (
                 <button
