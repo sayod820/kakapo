@@ -9,7 +9,6 @@ import { localFirstOp, type OfflineResult } from './localFirst'
 import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { useProducts } from './store'
-import { assertBarcodesAvailable, productBarcodes } from './productBarcodes'
 import type { Product } from './types'
 
 export type { OfflineResult }
@@ -57,11 +56,6 @@ export async function saveProductSafe(
   const products = useProducts.getState().products
   const existingId = Number(cleaned.id)
   const editing = Number.isFinite(existingId) && existingId !== 0
-  assertBarcodesAvailable(
-    products,
-    productBarcodes(cleaned),
-    editing ? existingId : null,
-  )
 
   const applyLocal = async () => {
     const localId = editing && isLocalProductId(existingId)

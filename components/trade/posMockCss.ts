@@ -1616,7 +1616,8 @@ export const POS_MOCK_CSS = `
     background:rgba(255,255,255,.72);cursor:pointer;font:inherit;color:inherit;
   }
   .barcode-pick-row:hover{border-color:rgba(40,120,60,.45);background:rgba(230,245,232,.9);}
-  .barcode-pick-row.is-out{opacity:.72;}
+  .barcode-pick-row.is-out{opacity:.55;cursor:not-allowed;}
+  .barcode-pick-row:disabled{pointer-events:none;}
   .barcode-pick-name{font-size:14px;font-weight:700;line-height:1.3;}
   .barcode-pick-meta{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12px;color:var(--t3);}
   .barcode-pick-meta b{color:var(--t1);font-size:14px;font-variant-numeric:tabular-nums;}

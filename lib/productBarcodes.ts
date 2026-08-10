@@ -100,20 +100,43 @@ export function findBarcodeOwner(
   return null
 }
 
-/** Бросает Error, если любой код занят другим товаром. */
-export function assertBarcodesAvailable(
+/** Все владельцы штрихкода (кроме excludeId) — для подсказки при общем коде. */
+export function findBarcodeOwners(
   products: Array<Partial<Product>> | null | undefined,
-  codes: string[],
+  code: string,
   excludeId?: number | null,
-): void {
-  for (const raw of codes) {
-    const code = String(raw || '').trim()
-    if (!code) continue
-    const owner = findBarcodeOwner(products, code, excludeId)
-    if (owner) {
-      throw new Error(`Штрихкод «${code}» уже у товара «${owner.name}»`)
+): Array<{ id: number; name: string; barcode: string }> {
+  const q = String(code || '').trim()
+  if (!q) return []
+  const digits = q.replace(/\D/g, '')
+  const hits: Array<{ id: number; name: string; barcode: string }> = []
+  const seen = new Set<number>()
+  for (const p of products || []) {
+    const id = Number(p.id)
+    if (excludeId != null && Number.isFinite(id) && id === Number(excludeId)) continue
+    if (Number.isFinite(id) && seen.has(id)) continue
+    for (const c of productBarcodes(p)) {
+      if (c === q || (digits.length >= 4 && c.replace(/\D/g, '') === digits)) {
+        if (Number.isFinite(id)) seen.add(id)
+        hits.push({
+          id: Number.isFinite(id) ? id : 0,
+          name: String(p.name || `#${p.id}`),
+          barcode: c,
+        })
+        break
+      }
     }
   }
+  return hits
+}
+
+/** @deprecated уникальность штрихкода не требуется — один код может быть у нескольких товаров */
+export function assertBarcodesAvailable(
+  _products: Array<Partial<Product>> | null | undefined,
+  _codes: string[],
+  _excludeId?: number | null,
+): void {
+  /* no-op: дубликаты разрешены, на кассе показывается выбор */
 }
 
 /**

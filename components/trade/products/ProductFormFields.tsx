@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
-import { buildWeightMasterBarcode, findBarcodeOwner, nextFreeEan13 } from '@/lib/productBarcodes'
+import { buildWeightMasterBarcode, findBarcodeOwners, nextFreeEan13 } from '@/lib/productBarcodes'
 import { nextFreePlu, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
@@ -37,14 +37,16 @@ export default function ProductFormFields({
       setScanHint(`Уже есть: ${trimmed}`)
       return false
     }
-    const owner = findBarcodeOwner(products, trimmed, productId ?? null)
-    if (owner) {
-      setScanHint(`Занят: «${owner.name}» · ${owner.barcode}`)
-      return false
-    }
+    const owners = findBarcodeOwners(products, trimmed, productId ?? null)
     setForm({ ...form, barcodes: [...form.barcodes, trimmed] })
     setNewBarcode('')
-    setScanHint(`Добавлен штрихкод ${trimmed}`)
+    if (owners.length) {
+      const names = owners.slice(0, 3).map(o => o.name).join(', ')
+      const more = owners.length > 3 ? ` и ещё ${owners.length - 3}` : ''
+      setScanHint(`⚠ Повтор: уже у «${names}»${more}. Сохранить можно — на кассе будет выбор.`)
+    } else {
+      setScanHint(`Добавлен штрихкод ${trimmed}`)
+    }
     return true
   }
 
@@ -232,43 +234,85 @@ export default function ProductFormFields({
         {scanHint && (
           <div style={{
             fontSize: 11,
-            color: scanHint.startsWith('Занят') || scanHint.startsWith('Уже есть') || scanHint.startsWith('Сначала') || scanHint.startsWith('Не удалось')
+            color: scanHint.startsWith('Уже есть') || scanHint.startsWith('Сначала') || scanHint.startsWith('Не удалось')
               ? 'var(--red)'
-              : 'var(--green)',
+              : scanHint.startsWith('⚠')
+                ? 'var(--gold, #c9a227)'
+                : 'var(--green)',
             marginTop: 4,
             fontWeight: 700,
+            lineHeight: 1.35,
           }}>
             {scanHint}
           </div>
         )}
         {form.barcodes.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
-            {form.barcodes.map(code => (
-              <span
-                key={code}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '3px 8px', borderRadius: 7,
-                  background: 'var(--green-d)', border: '1px solid rgba(31,215,96,.25)',
-                  fontSize: 11, fontFamily: 'monospace',
-                }}
-              >
-                {code}
-                <button
-                  type="button"
-                  onClick={() => removeBarcode(code)}
+            {form.barcodes.map(code => {
+              const owners = findBarcodeOwners(products, code, productId ?? null)
+              const shared = owners.length > 0
+              const title = shared
+                ? `Также у: ${owners.map(o => o.name).join(', ')}`
+                : undefined
+              return (
+                <span
+                  key={code}
+                  title={title}
                   style={{
-                    border: 'none', background: 'transparent', color: 'var(--muted)',
-                    cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 13,
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '3px 8px', borderRadius: 7,
+                    background: shared ? 'rgba(201,162,39,.14)' : 'var(--green-d)',
+                    border: shared ? '1px solid rgba(201,162,39,.45)' : '1px solid rgba(31,215,96,.25)',
+                    fontSize: 11, fontFamily: 'monospace',
                   }}
-                  title="Удалить"
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  {shared ? '⚠ ' : ''}{code}
+                  <button
+                    type="button"
+                    onClick={() => removeBarcode(code)}
+                    style={{
+                      border: 'none', background: 'transparent', color: 'var(--muted)',
+                      cursor: 'pointer', padding: 0, lineHeight: 1, fontSize: 13,
+                    }}
+                    title="Удалить"
+                  >
+                    ×
+                  </button>
+                </span>
+              )
+            })}
           </div>
         )}
+        {(() => {
+          const shared = form.barcodes
+            .map(code => ({ code, owners: findBarcodeOwners(products, code, productId ?? null) }))
+            .filter(row => row.owners.length > 0)
+          if (!shared.length) return null
+          return (
+            <div style={{
+              marginTop: 8,
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'rgba(201,162,39,.12)',
+              border: '1px solid rgba(201,162,39,.35)',
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: 'var(--t2)',
+            }}>
+              <b style={{ color: 'var(--gold, #c9a227)' }}>Предупреждение:</b>{' '}
+              штрихкод уже есть у другого товара. Сохранить можно — при скане на кассе покажутся все товары с этим кодом.
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {shared.map(row => (
+                  <li key={row.code}>
+                    <code style={{ fontSize: 11 }}>{row.code}</code>
+                    {' → '}
+                    {row.owners.map(o => o.name).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })()}
       </div>
 
       <div className="k-field">

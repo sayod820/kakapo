@@ -188,11 +188,6 @@ export function allocateProductBarcodes(products, input = {}, preferSerial = nul
   if (!list.length && opts.autoIfEmpty) {
     list = [nextFreeEan13(products, preferSerial, excludeId)]
   }
-  for (const code of list) {
-    const owner = findBarcodeOwner(products, code, excludeId)
-    if (owner) {
-      throw new Error(`Штрихкод «${code}» уже у товара «${owner.name}»`)
-    }
-  }
+  // Один штрихкод может быть у нескольких карточек — на кассе кассир выбирает товар
   return { barcode: list[0] || undefined, barcodes: list }
 }

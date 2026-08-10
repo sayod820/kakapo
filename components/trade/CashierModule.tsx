@@ -1884,6 +1884,7 @@ export default function CashierModule({
           if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = window.setTimeout(() => {
             scanCommitTimer.current = null
+            if (scanBlockAlertRef.current || barcodePickRef.current) return
             if (!scanBurstRef.current) return
             const live = String(scanAccumRef.current || scanTypeBufRef.current || '').trim()
             if (!isScannerCodeText(live)) {
@@ -2821,7 +2822,13 @@ export default function CashierModule({
     setQ('')
     if (searchInputRef.current) searchInputRef.current.value = ''
     try { searchInputRef.current?.blur() } catch { /* ignore */ }
-    setBarcodePick({ code, products: list })
+    const sorted = list.slice().sort((a, b) => {
+      const sa = (Number(a.stock) || 0) > 0 ? 1 : 0
+      const sb = (Number(b.stock) || 0) > 0 ? 1 : 0
+      if (sa !== sb) return sb - sa
+      return String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+    })
+    setBarcodePick({ code, products: sorted })
   }
 
   function closeBarcodePick() {
@@ -8368,7 +8375,7 @@ export default function CashierModule({
               </button>
             </div>
             <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 8 }}>
-              Один штрихкод на {barcodePick.products.length} товара — выберите нужный. Автоматически не пробиваем.
+              Найдено {barcodePick.products.length} товара с этим штрихкодом — выберите нужный. Автоматически не пробиваем.
             </div>
             {barcodePick.code ? (
               <div className="scan-block-code" style={{ marginBottom: 12 }}>
@@ -8385,7 +8392,8 @@ export default function CashierModule({
                     key={p.id}
                     type="button"
                     className={`barcode-pick-row${out ? ' is-out' : ''}`}
-                    onClick={() => confirmBarcodePick(p)}
+                    disabled={out}
+                    onClick={() => { if (!out) confirmBarcodePick(p) }}
                   >
                     <span className="barcode-pick-name">{p.name}</span>
                     <span className="barcode-pick-meta">
