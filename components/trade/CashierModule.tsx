@@ -7537,19 +7537,17 @@ export default function CashierModule({
               <span>−{(itemDiscAmount + discAmount).toFixed(2)}</span>
             </div>
             {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
-            <div className="tot-checkout">
-              <span className="sum">{total.toFixed(2)} ЅМ</span>
-              <button
-                type="button"
-                className="btn-checkout"
-                disabled={!cart.length || busy}
-                onClick={startPay}
-                aria-label="Оплатить"
-              >
-                Оплатить
-              </button>
-            </div>
+            <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
+
+          <button
+            type="button"
+            className="btn-checkout"
+            disabled={!cart.length || busy}
+            onClick={startPay}
+          >
+            <span>🖨</span><span>Оплатить</span>
+          </button>
         </div>
 
         <nav className="pos-mob-switch" aria-label="Панели кассы">
