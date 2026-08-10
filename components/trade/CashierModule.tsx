@@ -3361,8 +3361,8 @@ export default function CashierModule({
           scaleLiveWeight: deskScaleLiveWeight,
         })
         if (printerName) {
-          setDeskPrinterName(printerName)
-          setDeskPaperMm(XP58C_RECEIPT_MM)
+        setDeskPrinterName(printerName)
+        setDeskPaperMm(XP58C_RECEIPT_MM)
         }
         if (deskScaleMode === 'plu-label' && deskScaleLiveWeight && deskScaleHost.trim()) {
           void ensureCasWeightMonitor(true)
@@ -3776,13 +3776,13 @@ export default function CashierModule({
   }
 
   function saleMatchesReceiptFilter(s: (typeof sales)[number], filter: typeof receiptFilter) {
-    const fully = isSaleFullyReturned(s)
-    const partial = isSalePartiallyReturned(s)
+        const fully = isSaleFullyReturned(s)
+        const partial = isSalePartiallyReturned(s)
     if (filter === 'returned') return fully || partial
     if (filter === 'cash') return !fully && s.paymentMethod === 'cash'
     if (filter === 'card') return !fully && (s.paymentMethod === 'card' || s.paymentMethod === 'mixed')
     if (filter === 'credit') return !fully && (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0)
-    return true
+        return true
   }
 
   function receiptPeriodBounds(fromStr: string, toStr: string): { fromMs: number; toMs: number } | null {
@@ -3895,8 +3895,8 @@ export default function CashierModule({
       }
 
       const items = s.items || []
-      const seq = saleOrderSeq(s)
-      const label = saleNumberLabel(s)
+        const seq = saleOrderSeq(s)
+        const label = saleNumberLabel(s)
 
       if (productIds.size > 0) {
         if (items.some(i => productIds.has(Number(i.productId)))) {
@@ -3906,7 +3906,7 @@ export default function CashierModule({
         continue
       }
 
-      if (looksOrderNum && qDigits) {
+        if (looksOrderNum && qDigits) {
         if (
           String(seq) === qDigits
           || label.toLowerCase() === q
@@ -3944,16 +3944,16 @@ export default function CashierModule({
         continue
       }
 
-      const hay = [
-        label,
-        seq > 0 ? String(seq) : '',
-        s.orderId,
-        s.id,
-        s.clientName,
-        s.clientPhone,
-        s.cardNum,
-        s.cashierName,
-      ].join(' ').toLowerCase()
+        const hay = [
+          label,
+          seq > 0 ? String(seq) : '',
+          s.orderId,
+          s.id,
+          s.clientName,
+          s.clientPhone,
+          s.cardNum,
+          s.cashierName,
+        ].join(' ').toLowerCase()
       if (hay.includes(q)) {
         out.push(s)
         if (limit > 0 && out.length >= limit) break
@@ -4013,8 +4013,8 @@ export default function CashierModule({
       hitName = p?.name || ''
       codes = productCodesForId(hitId)
     } else {
-      const hit = pickProductBySearch(products, qRaw)
-      if (!hit) return null
+    const hit = pickProductBySearch(products, qRaw)
+    if (!hit) return null
       hitId = Number(hit.id)
       hitName = hit.name
       codes = productCodesForId(hitId)
@@ -4334,9 +4334,9 @@ export default function CashierModule({
 
       if (existing) {
         lastPieceAddRef.current = { id: p.id, t: now }
-        pushProductToCart(p, weightKg)
-        return
-      }
+      pushProductToCart(p, weightKg)
+      return
+    }
 
       if (addInflightRef.current.has(p.id)) {
         addPendingBumpRef.current.set(p.id, (addPendingBumpRef.current.get(p.id) || 0) + 1)
@@ -4665,10 +4665,10 @@ export default function CashierModule({
       return
     }
 
-    const art = String(p.art || '').trim()
-    const barcode = productBarcodes(p)[0] || ''
+      const art = String(p.art || '').trim()
+      const barcode = productBarcodes(p)[0] || ''
 
-    if (weightKg != null) {
+      if (weightKg != null) {
       if (!(weightKg > MIN_WEIGHT_KG)) {
         setLayerPickOpen(false)
         setLayerPickProduct(null)
@@ -4679,20 +4679,20 @@ export default function CashierModule({
       const key = cartLineKey(p.id, receiptId, weightKg, preferRetailPrice)
       setCartAndSelect(prev => [...dropZeroWeightLines(prev), {
         key,
-        productId: p.id,
-        name: p.name,
-        emoji: p.e || '📦',
-        price,
-        qty: 1,
-        stock: layerStock,
+          productId: p.id,
+          name: p.name,
+          emoji: p.e || '📦',
+          price,
+          qty: 1,
+          stock: layerStock,
         unit: displaySellUnit(p),
-        art,
-        barcode,
-        weightKg,
-        receiptId,
+          art,
+          barcode,
+          weightKg,
+          receiptId,
         preferRetailPrice,
-        costPrice,
-        supplierName,
+          costPrice,
+          supplierName,
       }], key)
       setLayerPickOpen(false)
       setLayerPickProduct(null)
@@ -4708,7 +4708,7 @@ export default function CashierModule({
         if (t.id !== activeTicketId) return t
         const prev = dropZeroWeightLines(t.cart)
         const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
-        if (idx >= 0) {
+      if (idx >= 0) {
           if (prev[idx].qty >= prev[idx].stock) return t
           const updated = {
             ...prev[idx],
@@ -4733,20 +4733,20 @@ export default function CashierModule({
         revealKey = key
         const next = [...prev, {
           key,
-          productId: p.id,
-          name: p.name,
-          emoji: p.e || '📦',
-          price,
-          qty: 1,
-          stock: layerStock,
-          unit: displaySellUnit(p),
-          art,
-          barcode,
-          receiptId,
+        productId: p.id,
+        name: p.name,
+        emoji: p.e || '📦',
+        price,
+        qty: 1,
+        stock: layerStock,
+        unit: displaySellUnit(p),
+        art,
+        barcode,
+        receiptId,
           preferRetailPrice,
-          costPrice,
-          supplierName,
-        }]
+        costPrice,
+        supplierName,
+      }]
         cartRef.current = next
         return {
           ...t,
@@ -4928,7 +4928,7 @@ export default function CashierModule({
   function switchTicket(id: string) {
     if (id === activeTicketId) return
     discardWeightDraft()
-    setQtyEditDraftKey(null)
+      setQtyEditDraftKey(null)
     setQtyEditOpen(false)
     setQtyEditKey(null)
     setPayPickOpen(false)
@@ -5019,7 +5019,7 @@ export default function CashierModule({
       const remaining = prev.filter(t => t.id !== ticketId)
       if (remaining.length >= MAX_TICKETS) {
         const fallback = remaining[remaining.length - 1]
-        if (fallback) setActiveTicketId(fallback.id)
+      if (fallback) setActiveTicketId(fallback.id)
         return remaining
       }
       const seq = nextTicketSeqRef.current
@@ -5683,12 +5683,12 @@ export default function CashierModule({
         const cardNum = client.card
         const phone = client.phone
         const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
-        const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-        const nextPos = prevPos + earnedBonus
-        const base = Number(loyalty?.bonus) || 0
+          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+          const nextPos = prevPos + earnedBonus
+          const base = Number(loyalty?.bonus) || 0
         void api.updateCard(cardNum, {
-          bonus: base + earnedBonus,
-          posCashBonus: nextPos,
+            bonus: base + earnedBonus,
+            posCashBonus: nextPos,
         }).then(() => {
           if (phone) {
             recordBalanceTopup(phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
@@ -5696,14 +5696,14 @@ export default function CashierModule({
         }).catch(() => {})
       } else if (!created._offline && client?.card && USE_API && spend > 0 && !created?.orderId) {
         const cardNum = client.card
-        const base = Number(loyalty?.bonus) || 0
+          const base = Number(loyalty?.bonus) || 0
         const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
-        const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-        const nextPos = Math.max(0, prevPos - spend)
+          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
+          const nextPos = Math.max(0, prevPos - spend)
         void api.updateCard(cardNum, {
-          bonus: Math.max(0, base - spend),
-          posCashBonus: nextPos,
-          allowBonusDecrease: true,
+            bonus: Math.max(0, base - spend),
+            posCashBonus: nextPos,
+            allowBonusDecrease: true,
         }).catch(() => {})
       }
       if (!created._offline) {
@@ -7552,14 +7552,14 @@ export default function CashierModule({
               </div>
             )}
           </div>
-          {showFav && visibleProducts.length === 0 ? (
+            {showFav && visibleProducts.length === 0 ? (
             <div className="grid-wrap">
               <div className="cat-empty">
                 <div className="cat-empty-ic">★</div>
                 <b>Избранное пусто</b>
                 <span>Добавьте товары звёздочкой на плитке</span>
               </div>
-            </div>
+                      </div>
           ) : (
             <VirtualProductGrid
               products={visibleProducts}
@@ -7645,7 +7645,7 @@ export default function CashierModule({
                   <div className="ic">{line.emoji}</div>
                   <div className="info">
                     <div className="name-row">
-                      <div className="name">{line.name}</div>
+                    <div className="name">{line.name}</div>
                       <span className="unit-badge" title="Единица">{cartLineUnit(line)}</span>
                     </div>
                     <div className="meta">
@@ -7664,16 +7664,16 @@ export default function CashierModule({
                       {lineDisc > 0 ? <span className="line-disc">было {line.price.toFixed(2)} · −{lineDisc}%</span> : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="qty-btn"
+                    <button
+                      type="button"
+                      className="qty-btn"
                     title="Изменить количество"
-                    onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
-                  >
+                      onClick={e => { e.stopPropagation(); openQtyEdit(line) }}
+                    >
                     {line.weightKg != null
                       ? line.weightKg.toFixed(3)
                       : `×${fmtQty(line.qty)}`}
-                  </button>
+                    </button>
                   <div className="price">
                     {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
                     {net.toFixed(2)}
@@ -7702,7 +7702,7 @@ export default function CashierModule({
               <div className="tot-cell">
                 <span className="tot-lbl">Позиций</span>
                 <span className="tot-val">{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span>
-              </div>
+            </div>
               <div className="tot-cell">
                 <span className="tot-lbl">Сумма</span>
                 <span className="tot-val">{subtotalGross.toFixed(2)}</span>
@@ -8068,31 +8068,31 @@ export default function CashierModule({
                 </button>
                 {payDebtOn && (
                   <>
-                    <div className="pay-debt-row">
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
+                  <div className="pay-debt-row">
+                    <button
+                      type="button"
+                      className={Math.abs(payDebtAmt - Math.round(clientDebt / 2 * 100) / 100) < 0.02 ? 'on' : ''}
                         onClick={() => applyPayDebtQuick(clientDebt / 2)}
-                      >
-                        ½
-                      </button>
-                      <button
-                        type="button"
-                        className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
+                    >
+                      ½
+                    </button>
+                    <button
+                      type="button"
+                      className={Math.abs(payDebtAmt - clientDebt) < 0.02 ? 'on' : ''}
                         onClick={() => applyPayDebtQuick(clientDebt)}
-                      >
-                        Весь
-                      </button>
-                      <input
-                        className="pay-debt-amt"
+                    >
+                      Весь
+                    </button>
+                    <input
+                      className="pay-debt-amt"
                         value={payGivenBuf}
-                        inputMode="decimal"
+                      inputMode="decimal"
                         onChange={e => applyPayGiven(e.target.value)}
-                        onFocus={e => e.currentTarget.select()}
+                      onFocus={e => e.currentTarget.select()}
                         placeholder="Сколько дал"
                         aria-label="Сколько дал клиент"
-                      />
-                    </div>
+                    />
+                  </div>
                     <div className="pay-debt-hint">
                       {payDebtAmt > 0.001 || (Number(payGivenBuf) || 0) > 0.001 ? (
                         <>
@@ -8713,7 +8713,7 @@ export default function CashierModule({
               }
             >
             <div className="modal-card disc-modal-card" onClick={e => e.stopPropagation()}>
-              <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
+            <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
               {discMode === 'line' && line && (
                 <div className="disc-product-line">
                   <b>{line.name}</b>
@@ -8722,17 +8722,17 @@ export default function CashierModule({
                     {qtyHint ? ` · ${qtyHint}` : ''}
                     {` · сумма ${lineTotal.toFixed(2)}`}
                   </span>
-                </div>
-              )}
-              {discMode === 'all' && (
+              </div>
+            )}
+            {discMode === 'all' && (
                 <div className="disc-product-line">
                   <b>Весь чек</b>
                   <span>
                     сейчас {lineTotal.toFixed(2)} сом
                     {levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
                   </span>
-                </div>
-              )}
+              </div>
+            )}
 
               <div className="disc-kind-toggle" role="group" aria-label="Тип скидки">
                 <button
@@ -8760,12 +8760,12 @@ export default function CashierModule({
                         ? `Итого за ${qtyHint || `${qty} шт`}`
                         : (discMode === 'line' ? `Новая цена / ${unitLabel || 'ед.'}` : 'Новая сумма чека')}
                   </div>
-                  <input
-                    ref={amountInputRef}
+              <input
+                ref={amountInputRef}
                     className={`disc-split-field${editingTotal ? ' total' : ''}`}
-                    value={discBuf}
-                    inputMode="decimal"
-                    autoFocus
+                value={discBuf}
+                inputMode="decimal"
+                autoFocus
                     onChange={e => {
                       discWipeNextRef.current = false
                       setDiscBuf(sanitizeDecimalInput(e.target.value))
@@ -8792,7 +8792,7 @@ export default function CashierModule({
                         : editingTotal
                           ? `цена за шт: ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
                           : `итого ${previewPrice.toFixed(2)} · −${previewPct.toFixed(1)}%`}
-                  </div>
+            </div>
                 </div>
                 {discMode === 'line' && discInputKind === 'sum' ? (
                   <button
@@ -8822,8 +8822,8 @@ export default function CashierModule({
                 )}
               </div>
 
-              <div className="qty-edit-toolbar">
-                <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
+            <div className="qty-edit-toolbar">
+              <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
                   {discInputKind === 'pct'
                     ? [0, 5, 10, 15, 20].map(v => (
                       <button key={v} type="button" onClick={() => setDiscBuf(String(v))}>{v}%</button>
@@ -8833,17 +8833,17 @@ export default function CashierModule({
                         {i === 0 ? 'Полная' : v}
                       </button>
                     ))}
-                </div>
-                <button
-                  type="button"
-                  className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
-                  onClick={() => setAmountPad(v => !v)}
-                  title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
-                >
-                  ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
-                </button>
               </div>
-              <div className="modal-card-actions">
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
+            </div>
+            <div className="modal-card-actions">
                 <button
                   type="button"
                   className="btn-cancel"
@@ -8859,10 +8859,10 @@ export default function CashierModule({
                 >
                   Применить
                 </button>
-              </div>
             </div>
-            </PadShell>
           </div>
+            </PadShell>
+        </div>
         )
       })()}
 
@@ -9367,7 +9367,7 @@ export default function CashierModule({
                   Только {repayTarget.label} · макс. {fmtMoney(repayTarget.maxAmount)}
                 </div>
               ) : (
-                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Старый долг · текущий чек не затрагивается</div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--t3)' }}>Старый долг · текущий чек не затрагивается</div>
               )}
             </div>
             <div className="kp-display">
@@ -9473,13 +9473,13 @@ export default function CashierModule({
                     </span>
                   </div>
                   <div className="client-profile-meta" style={{ marginTop: 3 }}>
-                    <span>{client.phone || 'без телефона'}</span>
+                  <span>{client.phone || 'без телефона'}</span>
                     {client.card ? <><span>·</span><span>{client.card} · Активна</span></> : null}
                   </div>
                 </div>
               </div>
               <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
-            </div>
+                </div>
 
             <div className="cashier-debts-metrics">
               <div className="cashier-debts-metric">
@@ -9492,18 +9492,18 @@ export default function CashierModule({
                   {cashierDebtPanel.posOriginal > cashierDebtPanel.posRemain + 0.05
                     ? ` · из ${fmtMoney(cashierDebtPanel.posOriginal)}`
                     : ''}
-                </div>
-              </div>
+                  </div>
+                  </div>
               <div className="cashier-debts-metric">
                 <div className="kl">Наличные</div>
                 <div className="kv" style={{ color: 'var(--org)' }}>{fmtMoney(cashierDebtPanel.cashOnCard)}</div>
                 <div className="kh">Долг сверх чеков</div>
-              </div>
+                  </div>
               <div className="cashier-debts-metric">
                 <div className="kl">Итого</div>
                 <div className="kv" style={{ color: clientDebt > 0 ? 'var(--red)' : 'var(--t3)' }}>
                   {clientDebt > 0 ? fmtMoney(clientDebt) : '—'}
-                </div>
+                  </div>
                 <div className="kh">
                   {debtLimit > 0
                     ? `доступно ${fmtMoney(availableDebt)} · лимит ${fmtMoney(debtLimit)}`
@@ -9514,8 +9514,8 @@ export default function CashierModule({
                 <div className="kl">⭐ Бонусы</div>
                 <div className="kv" style={{ color: 'var(--gd)' }}>{fmtBonus(clientProfileStats.bonus)}</div>
                 <div className="kh">погашено {fmtMoney(clientProfileStats.repaid)}</div>
-              </div>
-            </div>
+                  </div>
+                </div>
 
             <div className="cashier-debts-subtabs" role="tablist">
               {([
@@ -9524,16 +9524,16 @@ export default function CashierModule({
                 ['cash', `Нал. (${cashierDebtPanel.cashRows.length + (cashierDebtPanel.residualCash > 0.005 ? 1 : 0)})`],
                 ['pay', `Оплаты (${cashierDebtPanel.payRows.length})`],
               ] as const).map(([id, label]) => (
-                <button
+                  <button
                   key={id}
-                  type="button"
+                    type="button"
                   role="tab"
                   aria-selected={histTab === id}
                   className={`cashier-debts-subtab ${histTab === id ? 'on' : ''}`}
                   onClick={() => setHistTab(id)}
                 >
                   {label}
-                </button>
+                  </button>
               ))}
             </div>
 
@@ -9561,7 +9561,7 @@ export default function CashierModule({
                           return (
                             <tr
                               key={row.key}
-                              onClick={() => {
+                    onClick={() => {
                                 if (!row.saleId) return
                                 const match = histActiveDebts.find(r => r.saleId === row.saleId)
                                   || histPaidDebts.find(r => r.id.includes(row.saleId!))
@@ -9628,18 +9628,18 @@ export default function CashierModule({
                     </div>
                     <div style={{ display: 'flex', gap: 4 }}>
                       {(['open', 'all'] as const).map(id => (
-                        <button
+                  <button
                           key={id}
-                          type="button"
+                    type="button"
                           className={`cashier-debts-subtab ${posView === id ? 'on' : ''}`}
                           style={{ padding: '4px 10px', fontSize: 11 }}
                           onClick={() => setPosView(id)}
                         >
                           {id === 'open' ? 'К оплате' : 'Все'}
-                        </button>
+                  </button>
                       ))}
+                </div>
                     </div>
-                  </div>
                   {(() => {
                     const rows = cashierDebtPanel.creditSales.filter(s => posView === 'all' || s.remain > 0.001)
                     if (!rows.length) {
@@ -9665,7 +9665,7 @@ export default function CashierModule({
                                 <tr
                                   key={s.id}
                                   style={{ cursor: 'pointer' }}
-                                  onClick={() => {
+                    onClick={() => {
                                     const match = histActiveDebts.find(r => r.saleId === s.id)
                                     if (match) { setHistDetail(match); return }
                                     const sale = sales.find(x => x.id === s.id)
@@ -9700,7 +9700,7 @@ export default function CashierModule({
                                     {s.items && (
                                       <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {s.items}
-                                      </div>
+                </div>
                                     )}
                                   </td>
                                   <td style={{ textAlign: 'right', color: 'var(--t3)', fontWeight: 800, fontSize: 12 }}>{fmtMoney(s.debtAdded)}</td>
@@ -9723,7 +9723,7 @@ export default function CashierModule({
                   <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
                     Наличные = долг на карте минус чеки. Выдача списывается из кассы смены
                     {activeShift ? ` · сейчас в кассе ${fmtMoney(tillExpected)}` : ' · смена закрыта'}.
-                  </div>
+                </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                     <input
                       className="kp-field"
@@ -9733,16 +9733,16 @@ export default function CashierModule({
                       value={cashIssueBuf}
                       onChange={e => setCashIssueBuf(sanitizeDecimalInput(e.target.value))}
                     />
-                    <button
-                      type="button"
+                  <button
+                    type="button"
                       className="btn-confirm"
                       style={{ minWidth: 120 }}
                       disabled={cashIssueBusy}
                       onClick={() => void submitCashIssue()}
                     >
                       {cashIssueBusy ? '…' : '+ Выдать'}
-                    </button>
-                  </div>
+                  </button>
+                </div>
                   {cashierDebtPanel.residualCash > 0.005 && (
                     <div style={{
                       padding: '12px 14px', borderRadius: 12, marginBottom: 8,
@@ -9754,13 +9754,13 @@ export default function CashierModule({
                           <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>Без строки в истории</div>
                         </div>
                         <div style={{ fontWeight: 900, color: 'var(--org)' }}>+{fmtMoney(cashierDebtPanel.residualCash)}</div>
-                      </div>
-                    </div>
-                  )}
+                          </div>
+                        </div>
+                      )}
                   {!cashierDebtPanel.cashRows.length && cashierDebtPanel.residualCash < 0.005 ? (
                     <div className="hist-empty">Нет выдач наличными</div>
                   ) : (
-                    <div className="hist-list compact">
+                          <div className="hist-list compact">
                       {cashierDebtPanel.cashRows.map(r => (
                         <div key={r.id} className="hist-row tone-debt sm" style={{ cursor: 'default' }}>
                           <div className="hist-main">
@@ -9772,20 +9772,20 @@ export default function CashierModule({
                           </div>
                         </div>
                       ))}
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
 
               {histTab === 'pay' && (
                 <>
                   <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
                     Погашения по чекам и оплаты долга.
-                  </div>
+                          </div>
                   {!cashierDebtPanel.payRows.length ? (
                     <div className="hist-empty">Нет оплат</div>
                   ) : (
-                    <div className="hist-list compact">
+                          <div className="hist-list compact">
                       {cashierDebtPanel.payRows.map(r => (
                         <div key={r.id} className="hist-row tone-repay sm" style={{ cursor: 'default' }}>
                           <div className="hist-main">
@@ -9794,14 +9794,14 @@ export default function CashierModule({
                           </div>
                           <div className="hist-amt-col">
                             <div className="hist-amt" style={{ color: 'var(--accent)' }}>−{fmtMoney(Math.abs(r.amount))}</div>
-                          </div>
                         </div>
+                          </div>
                       ))}
-                    </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
+                </div>
 
             <div className="cashier-debts-actions">
               <button
@@ -9829,7 +9829,7 @@ export default function CashierModule({
               >
                 Выдать наличные
               </button>
-            </div>
+                </div>
           </div>
         </div>
       )}
@@ -10003,13 +10003,13 @@ export default function CashierModule({
 
                 <div className="receipt-topbar receipt-topbar-shift">
                   <div className="pos-search receipt-search">
-                    <span className="ic">🔍</span>
-                    <input
-                      ref={receiptSearchRef}
-                      value={receiptQ}
+                  <span className="ic">🔍</span>
+                  <input
+                    ref={receiptSearchRef}
+                    value={receiptQ}
                       onChange={e => onReceiptSearchChange(e.target.value)}
                       placeholder="Номер чека, товар, клиент…"
-                      autoFocus
+                    autoFocus
                       onKeyDown={onReceiptSearchKeyDown}
                     />
                     {!!receiptQ.trim() && (
@@ -10026,23 +10026,23 @@ export default function CashierModule({
                   <div className="receipt-toolbar">
                     <div className="receipt-filters-row">
                       <div className="receipt-filters receipt-filters-sm" role="group" aria-label="Оплата">
-                        {([
-                          ['all', 'Все'],
-                          ['cash', 'Нал'],
-                          ['card', 'Карта'],
-                          ['credit', 'Долг'],
+                  {([
+                    ['all', 'Все'],
+                    ['cash', 'Нал'],
+                    ['card', 'Карта'],
+                    ['credit', 'Долг'],
                           ['returned', 'Возвр.'],
-                        ] as const).map(([id, label]) => (
-                          <button
-                            key={id}
-                            type="button"
-                            className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`receipt-filter ${receiptFilter === id ? 'on' : ''}`}
                             onClick={() => { setReceiptFilter(id); setReceiptLimit(50) }}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                       {receiptScope === 'other' && (
                         <div className="receipt-period-inline" title="Период других смен">
                           <input
@@ -10194,7 +10194,7 @@ export default function CashierModule({
                       {receiptDetail.clientName || 'Без клиента'}
                       {receiptDetail.clientPhone ? ` · ${receiptDetail.clientPhone}` : ''}
                     </b>
-                  </div>
+                </div>
                   {needsAdminReturnConfirm(receiptDetail) && !isSaleFullyReturned(receiptDetail) && (
                     <div><span>Возврат</span><b style={{ color: 'var(--org, #e8a23a)' }}>Нужен код админа (чужая/закрытая смена)</b></div>
                   )}
@@ -10290,7 +10290,7 @@ export default function CashierModule({
                         )}
                         <div className="hist-line-main">
                           <div className="hist-line-top">
-                            <b>{line.productName || `#${line.productId}`}</b>
+                          <b>{line.productName || `#${line.productId}`}</b>
                             <span className="hist-line-sum">{fmtMoney(showSum)}</span>
                           </div>
                           <span className="hist-line-meta">{metaParts.join(' · ')}</span>

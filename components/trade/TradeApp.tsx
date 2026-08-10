@@ -1912,7 +1912,7 @@ type TradeTheme = 'dark' | 'light'
 function loadTradeTheme(): TradeTheme {
   if (typeof window === 'undefined') return 'light'
   try {
-    const t = localStorage.getItem(THEME_KEY)
+  const t = localStorage.getItem(THEME_KEY)
     if (t === 'dark' || t === 'light') return t
     const shared = localStorage.getItem('kakapo_ui_theme')
     if (shared === 'dark' || shared === 'light') return shared
@@ -1925,7 +1925,7 @@ function loadTradeTheme(): TradeTheme {
 function saveTradeTheme(theme: TradeTheme) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(THEME_KEY, theme)
+  localStorage.setItem(THEME_KEY, theme)
     localStorage.setItem('kakapo_ui_theme', theme)
     window.dispatchEvent(new CustomEvent('kakapo-theme', { detail: theme }))
   } catch { /* private mode */ }
@@ -2361,9 +2361,9 @@ function TradeAppInner({
     return prefer
       .filter(id => canAccessTradePage(session.permissions, id))
       .map(id => {
-        const n = NAV.find(x => x.id === id)!
+      const n = NAV.find(x => x.id === id)!
         return { id: n.id, label: n.label, icon: n.icon }
-      })
+    })
   }, [session.permissions])
 
   function renderPage() {
@@ -2495,12 +2495,12 @@ function TradeAppInner({
             {current !== 'sales' && showSearch ? (
               <div className="k-top-search-wrap">
                 <div className="k-search has-scan">
-                  <span className="mag">🔍</span>
-                  <input
+                <span className="mag">🔍</span>
+                <input
                     ref={searchInputRef}
-                    placeholder="Поиск по названию, артикулу, штрихкоду…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
+                  placeholder="Поиск по названию, артикулу, штрихкоду…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
                     onFocus={e => e.currentTarget.select()}
                   />
                   {search.trim() ? (
@@ -2526,7 +2526,7 @@ function TradeAppInner({
                   >
                     📷
                   </button>
-                </div>
+              </div>
               </div>
             ) : current === 'products' ? (
               <div className="k-top-search-wrap" aria-hidden />
@@ -2541,7 +2541,7 @@ function TradeAppInner({
                   </div>
                 ) : (
                   <span style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900 }}>
-                    {NAV.find(n => n.id === current)?.label}
+                {NAV.find(n => n.id === current)?.label}
                   </span>
                 )}
               </div>
@@ -2550,33 +2550,33 @@ function TradeAppInner({
               <div className="k-top-net">
                 <NetworkStatus compact />
               </div>
-              <div className="k-theme-toggle" role="group" aria-label="Тема">
-                <button
-                  type="button"
-                  className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
-                  title="Тёмная тема"
-                  onClick={() => applyTheme('dark')}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
-                  title="Светлая тема"
-                  onClick={() => applyTheme('light')}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-              <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
-                <div className="av">{initials(session.name)}</div>
-                <div className="who"><b>{session.name}</b><span>Выйти</span></div>
+            <div className="k-theme-toggle" role="group" aria-label="Тема">
+              <button
+                type="button"
+                className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
+                title="Тёмная тема"
+                onClick={() => applyTheme('dark')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                </svg>
               </button>
+              <button
+                type="button"
+                className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
+                title="Светлая тема"
+                onClick={() => applyTheme('light')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
+              <div className="av">{initials(session.name)}</div>
+              <div className="who"><b>{session.name}</b><span>Выйти</span></div>
+            </button>
             </div>
           </header>
         )}
@@ -2588,15 +2588,15 @@ function TradeAppInner({
               style={salesActive ? undefined : { display: 'none' }}
               aria-hidden={!salesActive}
             >
-              <CashierModule
+            <CashierModule
                 active={salesActive}
-                embedded={!posFullscreen}
-                theme={theme}
-                onThemeChange={applyTheme}
-                onSurfaceChange={setPosSurface}
-                onExit={() => goTo(homePage)}
-                onNavigate={p => goTo(p as TradePage)}
-              />
+              embedded={!posFullscreen}
+              theme={theme}
+              onThemeChange={applyTheme}
+              onSurfaceChange={setPosSurface}
+              onExit={() => goTo(homePage)}
+              onNavigate={p => goTo(p as TradePage)}
+            />
             </div>
           )}
           {!salesActive && renderPage()}
