@@ -965,9 +965,24 @@ export const POS_MOCK_CSS = `
   .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin-bottom:6px;}
   .tot-row.disc span:last-child{color:var(--red);}
   .tot-row.disc.muted{opacity:.55;}
-  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;margin-top:6px;border-top:1px dashed var(--border);gap:12px;}
-  .tot-final b{font-family:'Unbounded';font-size:18px;font-weight:800;}
-  .tot-final .sum{font-family:'JetBrains Mono';font-size:40px;font-weight:900;color:var(--t1);letter-spacing:-.5px;line-height:1;}
+  .tot-checkout{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding-top:12px;margin-top:6px;border-top:1px dashed var(--border);
+  }
+  .tot-checkout .sum{
+    flex:1;min-width:0;text-align:left;
+    font-family:'JetBrains Mono',monospace;font-size:clamp(28px,4.5vw,40px);font-weight:900;
+    color:var(--t1);letter-spacing:-.5px;line-height:1;overflow-wrap:anywhere;
+  }
+  .pos-root button.btn-checkout{
+    flex:0 0 auto;margin:0;width:88px;height:88px;padding:8px;
+    border-radius:16px;
+    background:linear-gradient(135deg,var(--accent2),var(--accent));
+    color:var(--bg);font-weight:800;font-size:12px;line-height:1.15;
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    box-shadow:0 6px 16px rgba(31,215,96,.22);
+  }
+  .pos-root button.btn-checkout:disabled{opacity:.3;box-shadow:none;}
 
   .ops-block{padding:0 14px 8px;flex-shrink:0;}
   .ops-block.ops-client{margin:0 14px 8px;padding:10px 10px 8px;border-radius:14px;background:rgba(255,140,0,.05);border:1px solid rgba(255,140,0,.18);}
@@ -1441,9 +1456,6 @@ export const POS_MOCK_CSS = `
   .hist-row.tone-repay .hist-amt{color:var(--blue);}
   .hist-row.tone-topup .hist-amt{color:var(--accent);}
 
-  .pos-root button.btn-checkout{margin:0 14px 12px;padding:12px;border-radius:14px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:var(--bg);font-weight:800;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 16px rgba(31,215,96,.22);}
-  .pos-root button.btn-checkout:disabled{opacity:.3;box-shadow:none;}
-
   .overlay{position:fixed;inset:0;background:rgba(3,11,5,.82);display:flex;align-items:center;justify-content:center;z-index:200;animation:fadeIn .2s ease;}
   .pos-root[data-theme="light"] .overlay{background:rgba(12,26,16,.52);}
   .modal-card{width:360px;background:var(--surface);border:1.5px solid var(--border);border-radius:22px;padding:22px;animation:popIn .25s cubic-bezier(.16,1,.3,1);max-width:92vw;}
@@ -1601,7 +1613,8 @@ export const POS_MOCK_CSS = `
     .cat-nav{padding:10px 10px 4px;}
     .client-card{margin:10px 10px 0;padding:12px;min-height:52px;}
     .cart-items{-webkit-overflow-scrolling:touch;}
-    .pos-root button.btn-checkout{margin:0 10px 10px;padding:14px;font-size:15px;min-height:52px;}
+    .tot-checkout .sum{font-size:clamp(26px,8vw,34px);}
+    .pos-root button.btn-checkout{width:76px;height:76px;font-size:11.5px;border-radius:14px;}
     .pos-root button.action-chip{min-height:44px;padding:10px 12px;}
 
     .pos-mob-switch{
