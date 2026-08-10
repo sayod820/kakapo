@@ -303,6 +303,12 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   boot(1)
 
+  // Небольшой верхний край шаблона (одинаковый с низом после отрыва).
+  // XP-58C: печать начинается у головки, до линии отрыва ~несколько строк —
+  // без этого «верх» выглядит пустым за счёт прошлой подачи, а низ обрезается.
+  const EDGE_LINES = 4
+  for (let i = 0; i < EDGE_LINES; i++) chunks.push(encodeCp866('\n'))
+
   if (tpl.showStoreName) {
     setStyle({ size: tpl.sizeStoreName, bold: tpl.boldStoreName })
     txt(store)
@@ -424,12 +430,12 @@ function buildEscPosReceipt(sale, opts = {}) {
     for (const line of wrapName(footerNote, width)) txt(line)
   }
 
-  // Равный зазор сверху/снизу (~3 строки).
-  // Раньше ESC d 6 + лишние \n давали большой низ; без ножа XP-58C эта подача
-  // оставалась на рулоне и становилась огромным верхом следующего чека.
-  const EDGE_LINES = 3
+  // Низ = столько же строк, сколько верх: выводим текст за линию отрыва,
+  // иначе концовка («Дал клиент», «Спасибо») остаётся в принтере и уезжает
+  // на следующий чек. Без ножа XP-58C команду cut не шлём — GS V часто
+  // лишней подачей раздувает верх следующего чека.
   cmd(ESC, 0x64, EDGE_LINES)
-  cmd(GS, 0x56, 0x01)
+  if (opts.cut === true) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 
@@ -445,14 +451,14 @@ function packEscPosLines(lines, opts = {}) {
   cmd(ESC, 0x4D, 0x00)
   cmd(GS, 0x42, 0x00)
   cmd(ESC, 0x61, 0)
+  for (let i = 0; i < 4; i++) chunks.push(encodeCp866('\n'))
   for (const line of lines || []) {
     const t = String(line || '').trim()
     if (!t) continue
     txt(t)
   }
-  chunks.push(encodeCp866('\n'))
-  cmd(ESC, 0x64, 0x03)
-  if (opts.cut !== false) cmd(GS, 0x56, 0x01)
+  cmd(ESC, 0x64, 0x04)
+  if (opts.cut === true) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 
