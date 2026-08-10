@@ -1003,7 +1003,10 @@ export const POS_MOCK_CSS = `
   .pos-root button.rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:13px;flex-shrink:0;}
   .pos-root button.rm:hover{background:rgba(255,69,69,.12);color:var(--red);}
 
-  .check-actions{display:grid;grid-template-columns:1fr 1.2fr 1.2fr;gap:8px;padding:8px 14px;flex-shrink:0;border-top:1px solid var(--border);}
+  .check-actions{display:grid;grid-template-columns:1fr 1.2fr 1.2fr;gap:6px;padding:6px 10px;flex-shrink:0;border-top:1px solid var(--border);}
+  .pos-root .check-actions button.action-chip{min-height:32px;padding:5px 4px;gap:5px;border-radius:10px;}
+  .pos-root .check-actions .action-chip .ic-wrap{width:20px;height:20px;border-radius:6px;font-size:11px;}
+  .pos-root .check-actions .action-chip span{font-size:10px;}
   .pos-root button.ac-clear{background:rgba(255,69,69,.08);border:1.5px solid rgba(255,69,69,.28);}
   .ac-clear .ic-wrap{background:rgba(255,69,69,.15);}
   .pos-root button.ac-clear:hover{border-color:var(--red);}
@@ -1013,29 +1016,29 @@ export const POS_MOCK_CSS = `
   .pos-root button.ac-discount-all.on span{color:var(--blue);}
   .pos-root button.action-chip:disabled{opacity:.35;pointer-events:none;}
 
-  .cart-totals{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;}
+  .cart-totals{padding:8px 10px;border-top:1px solid var(--border);flex-shrink:0;}
   .tot-grid{
-    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
-    margin-bottom:4px;
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;
+    margin-bottom:2px;
   }
   .tot-cell{
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-    text-align:center;padding:8px 6px;border-radius:12px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    text-align:center;padding:5px 4px;border-radius:10px;
     background:var(--surface2);border:1px solid var(--border);min-width:0;
   }
-  .tot-cell .tot-lbl{font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);}
+  .tot-cell .tot-lbl{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);}
   .tot-cell .tot-val{
-    font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:900;color:var(--t1);
+    font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:900;color:var(--t1);
     line-height:1.1;overflow-wrap:anywhere;
   }
   .tot-cell.disc .tot-val{color:var(--red);}
   .tot-cell.disc.muted{opacity:.55;}
-  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin:8px 0 2px;}
+  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin:6px 0 2px;}
   .tot-row.disc span:last-child{color:var(--red);}
   .tot-row.disc.muted{opacity:.55;}
-  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;margin-top:6px;border-top:1px dashed var(--border);gap:12px;}
-  .tot-final b{font-family:'Unbounded';font-size:18px;font-weight:800;}
-  .tot-final .sum{font-family:'JetBrains Mono';font-size:40px;font-weight:900;color:var(--t1);letter-spacing:-.5px;line-height:1;}
+  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;margin-top:4px;border-top:1px dashed var(--border);gap:10px;}
+  .tot-final b{font-family:'Unbounded';font-size:15px;font-weight:800;}
+  .tot-final .sum{font-family:'JetBrains Mono';font-size:clamp(26px,4vw,34px);font-weight:900;color:var(--t1);letter-spacing:-.5px;line-height:1;}
 
   .ops-block{padding:0 14px 8px;flex-shrink:0;}
   .ops-block.ops-client{margin:0 14px 8px;padding:10px 10px 8px;border-radius:14px;background:rgba(255,140,0,.05);border:1px solid rgba(255,140,0,.18);}
@@ -1670,7 +1673,12 @@ export const POS_MOCK_CSS = `
     .client-card{margin:10px 10px 0;padding:12px;min-height:52px;}
     .cart-items{-webkit-overflow-scrolling:touch;}
     .pos-root button.btn-checkout{margin:0 10px 10px;padding:14px;font-size:15px;min-height:52px;}
-    .pos-root button.action-chip{min-height:44px;padding:10px 12px;}
+    .pos-root button.action-chip{min-height:40px;padding:8px 10px;}
+    .pos-root .check-actions button.action-chip{min-height:32px;padding:5px 4px;}
+    .check-actions{padding:6px 10px;gap:6px;}
+    .cart-totals{padding:8px 10px;}
+    .tot-final .sum{font-size:clamp(24px,7vw,30px);}
+    .tot-final b{font-size:14px;}
 
     .pos-mob-switch{
       display:flex;align-items:center;gap:8px;grid-column:1;
