@@ -1003,10 +1003,7 @@ export const POS_MOCK_CSS = `
   .pos-root button.rm{width:24px;height:24px;border-radius:8px;color:var(--t3);font-size:13px;flex-shrink:0;}
   .pos-root button.rm:hover{background:rgba(255,69,69,.12);color:var(--red);}
 
-  .check-actions{display:grid;grid-template-columns:1fr 1.2fr 1.2fr;gap:6px;padding:6px 10px;flex-shrink:0;border-top:1px solid var(--border);}
-  .pos-root .check-actions button.action-chip{min-height:32px;padding:5px 4px;gap:5px;border-radius:10px;}
-  .pos-root .check-actions .action-chip .ic-wrap{width:20px;height:20px;border-radius:6px;font-size:11px;}
-  .pos-root .check-actions .action-chip span{font-size:10px;}
+  .check-actions{display:grid;grid-template-columns:1fr 1.2fr 1.2fr;gap:4px;padding:4px 10px;flex-shrink:0;border-top:1px solid var(--border);}
   .pos-root button.ac-clear{background:rgba(255,69,69,.08);border:1.5px solid rgba(255,69,69,.28);}
   .ac-clear .ic-wrap{background:rgba(255,69,69,.15);}
   .pos-root button.ac-clear:hover{border-color:var(--red);}
@@ -1016,29 +1013,35 @@ export const POS_MOCK_CSS = `
   .pos-root button.ac-discount-all.on span{color:var(--blue);}
   .pos-root button.action-chip:disabled{opacity:.35;pointer-events:none;}
 
-  .cart-totals{padding:8px 10px;border-top:1px solid var(--border);flex-shrink:0;}
+  .cart-totals{padding:6px 10px 8px;border-top:1px solid var(--border);flex-shrink:0;}
   .tot-grid{
-    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;
     margin-bottom:2px;
   }
   .tot-cell{
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-    text-align:center;padding:5px 4px;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    text-align:center;padding:4px 3px;border-radius:8px;
     background:var(--surface2);border:1px solid var(--border);min-width:0;
   }
-  .tot-cell .tot-lbl{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);}
+  .tot-cell .tot-lbl{font-size:8.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);}
   .tot-cell .tot-val{
-    font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:900;color:var(--t1);
+    font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:900;color:var(--t1);
     line-height:1.1;overflow-wrap:anywhere;
   }
   .tot-cell.disc .tot-val{color:var(--red);}
   .tot-cell.disc.muted{opacity:.55;}
-  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin:6px 0 2px;}
+  .tot-row{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin:4px 0 0;}
   .tot-row.disc span:last-child{color:var(--red);}
   .tot-row.disc.muted{opacity:.55;}
-  .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;margin-top:4px;border-top:1px dashed var(--border);gap:10px;}
-  .tot-final b{font-family:'Unbounded';font-size:15px;font-weight:800;}
-  .tot-final .sum{font-family:'JetBrains Mono';font-size:clamp(26px,4vw,34px);font-weight:900;color:var(--t1);letter-spacing:-.5px;line-height:1;}
+  .tot-final{
+    display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:6px;
+    border-top:1px dashed var(--border);gap:10px;
+  }
+  .tot-final b{font-family:'Unbounded';font-size:clamp(18px,3.5vw,22px);font-weight:800;line-height:1;}
+  .tot-final .sum{
+    font-family:'JetBrains Mono',monospace;font-size:clamp(36px,6.5vw,52px);font-weight:900;
+    color:var(--t1);letter-spacing:-.04em;line-height:0.95;text-align:right;
+  }
 
   .ops-block{padding:0 14px 8px;flex-shrink:0;}
   .ops-block.ops-client{margin:0 14px 8px;padding:10px 10px 8px;border-radius:14px;background:rgba(255,140,0,.05);border:1px solid rgba(255,140,0,.18);}
@@ -1052,6 +1055,15 @@ export const POS_MOCK_CSS = `
   .pos-root button.action-chip{padding:9px 6px;border-radius:12px;text-align:center;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;min-height:42px;transition:border-color .12s,background .12s;}
   .action-chip .ic-wrap{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
   .action-chip span{font-size:11px;font-weight:700;color:var(--t2);}
+  /* Компактные кнопки чека — после общих .action-chip, иначе перебиваются */
+  .pos-root .check-actions button.action-chip{
+    min-height:26px!important;height:auto;padding:3px 4px!important;gap:4px!important;
+    border-radius:8px!important;border-width:1px;
+  }
+  .pos-root .check-actions .action-chip .ic-wrap{
+    width:16px!important;height:16px!important;border-radius:5px!important;font-size:9px!important;
+  }
+  .pos-root .check-actions .action-chip span{font-size:9px!important;line-height:1.1;font-weight:700;}
   .pos-root button.ac-discount{background:rgba(155,109,255,.08);border:1.5px solid rgba(155,109,255,.28);}
   .ac-discount .ic-wrap{background:rgba(155,109,255,.18);}
   .pos-root button.ac-discount:hover,.pos-root button.ac-discount.on{border-color:var(--pur);background:rgba(155,109,255,.14);}
@@ -1674,11 +1686,14 @@ export const POS_MOCK_CSS = `
     .cart-items{-webkit-overflow-scrolling:touch;}
     .pos-root button.btn-checkout{margin:0 10px 10px;padding:14px;font-size:15px;min-height:52px;}
     .pos-root button.action-chip{min-height:40px;padding:8px 10px;}
-    .pos-root .check-actions button.action-chip{min-height:32px;padding:5px 4px;}
-    .check-actions{padding:6px 10px;gap:6px;}
-    .cart-totals{padding:8px 10px;}
-    .tot-final .sum{font-size:clamp(24px,7vw,30px);}
-    .tot-final b{font-size:14px;}
+    .pos-root .check-actions button.action-chip{
+      min-height:26px!important;padding:3px 4px!important;
+    }
+    .check-actions{padding:4px 8px;gap:4px;}
+    .cart-totals{padding:6px 8px 8px;}
+    .tot-final .sum{font-size:clamp(40px,11vw,56px)!important;}
+    .tot-final b{font-size:clamp(18px,4.5vw,22px)!important;}
+    .pos-root button.btn-checkout{margin:0 8px 8px;padding:12px;font-size:14px;min-height:46px;}
 
     .pos-mob-switch{
       display:flex;align-items:center;gap:8px;grid-column:1;
