@@ -1,5 +1,5 @@
 import { categorySlug, findCategoryName } from '@/lib/useCategories'
-import { normalizeBarcodes, productBarcodes } from '@/lib/productBarcodes'
+import { normalizeBarcodes, productBarcodes, assertBarcodesAvailable } from '@/lib/productBarcodes'
 import { nextFreePlu, nextFreeProductCode } from '@/lib/productCodes'
 import type { Category, Product, SellType } from '@/lib/types'
 
@@ -132,6 +132,7 @@ export function buildProductPayload(
     plu = undefined
   }
   const { barcode, barcodes } = normalizeBarcodes(data.barcodes)
+  assertBarcodesAvailable(products, barcodes, existing?.id ?? null)
   return {
     ...(existing || {}),
     id: existing?.id,

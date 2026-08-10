@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { categorySlug } from '@/lib/useCategories'
-import { buildWeightMasterBarcode, nextFreeEan13 } from '@/lib/productBarcodes'
+import { buildWeightMasterBarcode, findBarcodeOwner, nextFreeEan13 } from '@/lib/productBarcodes'
 import { nextFreePlu, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
@@ -30,29 +30,33 @@ export default function ProductFormFields({
   const [scanOpen, setScanOpen] = useState(false)
   const [scanHint, setScanHint] = useState('')
 
-  function addBarcode() {
-    const code = newBarcode.trim()
-    if (!code || form.barcodes.includes(code)) {
-      setNewBarcode('')
-      return
-    }
-    setForm({ ...form, barcodes: [...form.barcodes, code] })
-    setNewBarcode('')
-    setScanHint(`Добавлен штрихкод ${code}`)
-  }
-
-  const onBarcodeScanned = useCallback((code: string) => {
+  function tryAddBarcode(code: string): boolean {
     const trimmed = code.trim()
-    setScanOpen(false)
-    if (!trimmed) return
+    if (!trimmed) return false
     if (form.barcodes.includes(trimmed)) {
       setScanHint(`Уже есть: ${trimmed}`)
-      return
+      return false
+    }
+    const owner = findBarcodeOwner(products, trimmed, productId ?? null)
+    if (owner) {
+      setScanHint(`Занят: «${owner.name}» · ${owner.barcode}`)
+      return false
     }
     setForm({ ...form, barcodes: [...form.barcodes, trimmed] })
     setNewBarcode('')
     setScanHint(`Добавлен штрихкод ${trimmed}`)
-  }, [form, setForm])
+    return true
+  }
+
+  function addBarcode() {
+    tryAddBarcode(newBarcode)
+    if (!newBarcode.trim()) setNewBarcode('')
+  }
+
+  const onBarcodeScanned = useCallback((code: string) => {
+    setScanOpen(false)
+    tryAddBarcode(code)
+  }, [form, setForm, products, productId])
 
   function generateBarcode() {
     let code: string | null = null
@@ -76,13 +80,7 @@ export default function ProductFormFields({
       code = nextFreeEan13(draftAsProducts, prefer, productId ?? null)
     }
     if (!code) return
-    if (form.barcodes.includes(code)) {
-      setScanHint(`Уже есть: ${code}`)
-      return
-    }
-    setForm({ ...form, barcodes: [...form.barcodes, code] })
-    setNewBarcode('')
-    setScanHint(isWeight ? `Добавлен весовой ${code}` : `Добавлен ${code}`)
+    tryAddBarcode(code)
   }
 
   function removeBarcode(code: string) {
@@ -232,7 +230,16 @@ export default function ProductFormFields({
           </button>
         </div>
         {scanHint && (
-          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 4, fontWeight: 700 }}>{scanHint}</div>
+          <div style={{
+            fontSize: 11,
+            color: scanHint.startsWith('Занят') || scanHint.startsWith('Уже есть') || scanHint.startsWith('Сначала') || scanHint.startsWith('Не удалось')
+              ? 'var(--red)'
+              : 'var(--green)',
+            marginTop: 4,
+            fontWeight: 700,
+          }}>
+            {scanHint}
+          </div>
         )}
         {form.barcodes.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>

@@ -136,9 +136,28 @@ export function collectUsedBarcodes(products, excludeId) {
   const used = new Set()
   for (const p of products || []) {
     if (excludeId != null && Number(p.id) === Number(excludeId)) continue
-    for (const c of productBarcodeList(p)) used.add(c)
+    for (const c of productBarcodeList(p)) {
+      used.add(c)
+      const d = c.replace(/\D/g, '')
+      if (d.length >= 4) used.add(`d:${d}`)
+    }
   }
   return used
+}
+
+export function findBarcodeOwner(products, code, excludeId = null) {
+  const q = String(code || '').trim()
+  if (!q) return null
+  const digits = q.replace(/\D/g, '')
+  for (const p of products || []) {
+    if (excludeId != null && Number(p.id) === Number(excludeId)) continue
+    for (const c of productBarcodeList(p)) {
+      if (c === q || (digits.length >= 4 && c.replace(/\D/g, '') === digits)) {
+        return { id: Number(p.id) || 0, name: String(p.name || `#${p.id}`), barcode: c }
+      }
+    }
+  }
+  return null
 }
 
 /** Свободный внутренний EAN-13: 460 + 9 цифр + контрольная */
@@ -149,7 +168,7 @@ export function nextFreeEan13(products, preferSerial, excludeId = null) {
   for (let i = 0; i < 1000000; i++) {
     const serial = ((n - 1 + i) % 999999999) + 1
     const code = buildEan13(INTERNAL_EAN_PREFIX + String(serial).padStart(9, '0'))
-    if (!used.has(code)) return code
+    if (!used.has(code) && !used.has(`d:${code.replace(/\D/g, '')}`)) return code
   }
   const stamp = Date.now() % 1000000000
   return buildEan13(INTERNAL_EAN_PREFIX + String(stamp).padStart(9, '0'))
@@ -169,10 +188,10 @@ export function allocateProductBarcodes(products, input = {}, preferSerial = nul
   if (!list.length && opts.autoIfEmpty) {
     list = [nextFreeEan13(products, preferSerial, excludeId)]
   }
-  const used = collectUsedBarcodes(products, excludeId)
   for (const code of list) {
-    if (used.has(code)) {
-      throw new Error(`Штрихкод «${code}» уже занят`)
+    const owner = findBarcodeOwner(products, code, excludeId)
+    if (owner) {
+      throw new Error(`Штрихкод «${code}» уже у товара «${owner.name}»`)
     }
   }
   return { barcode: list[0] || undefined, barcodes: list }

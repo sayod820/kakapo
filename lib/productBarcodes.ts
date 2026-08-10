@@ -67,9 +67,53 @@ export function collectUsedBarcodes(
   const used = new Set<string>()
   for (const p of products || []) {
     if (excludeId != null && p.id != null && Number(p.id) === Number(excludeId)) continue
-    for (const c of productBarcodes(p)) used.add(c)
+    for (const c of productBarcodes(p)) {
+      used.add(c)
+      const d = c.replace(/\D/g, '')
+      if (d.length >= 4) used.add(`d:${d}`)
+    }
   }
   return used
+}
+
+/** Товар, у которого уже есть этот штрихкод (кроме excludeId). */
+export function findBarcodeOwner(
+  products: Array<Partial<Product>> | null | undefined,
+  code: string,
+  excludeId?: number | null,
+): { id: number; name: string; barcode: string } | null {
+  const q = String(code || '').trim()
+  if (!q) return null
+  const digits = q.replace(/\D/g, '')
+  for (const p of products || []) {
+    if (excludeId != null && p.id != null && Number(p.id) === Number(excludeId)) continue
+    for (const c of productBarcodes(p)) {
+      if (c === q || (digits.length >= 4 && c.replace(/\D/g, '') === digits)) {
+        return {
+          id: Number(p.id) || 0,
+          name: String(p.name || `#${p.id}`),
+          barcode: c,
+        }
+      }
+    }
+  }
+  return null
+}
+
+/** Бросает Error, если любой код занят другим товаром. */
+export function assertBarcodesAvailable(
+  products: Array<Partial<Product>> | null | undefined,
+  codes: string[],
+  excludeId?: number | null,
+): void {
+  for (const raw of codes) {
+    const code = String(raw || '').trim()
+    if (!code) continue
+    const owner = findBarcodeOwner(products, code, excludeId)
+    if (owner) {
+      throw new Error(`Штрихкод «${code}» уже у товара «${owner.name}»`)
+    }
+  }
 }
 
 /**

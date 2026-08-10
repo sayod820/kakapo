@@ -991,6 +991,8 @@ app.patch('/products/:id', (req, res) => {
     const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
     const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
     const sellTouched = Object.prototype.hasOwnProperty.call(body, 'sellType')
+    const barTouched = Object.prototype.hasOwnProperty.call(body, 'barcode')
+      || Object.prototype.hasOwnProperty.call(body, 'barcodes')
     const nextSell = sellTouched ? (body.sellType || 'piece') : (p.sellType || 'piece')
     const needPlu = nextSell === 'weight'
     if (artTouched || pluTouched || sellTouched || !needPlu) {
@@ -1000,6 +1002,15 @@ app.patch('/products/:id', (req, res) => {
       }, p.id, { needPlu })
       body.art = codes.art
       body.plu = needPlu ? (codes.plu || null) : null
+    }
+    if (barTouched) {
+      const preferSerial = Number(body.art || p.art) || nextFreeProductCode(db.products, p.id)
+      const bars = allocateProductBarcodes(db.products, {
+        barcode: body.barcode,
+        barcodes: body.barcodes,
+      }, preferSerial, p.id)
+      body.barcode = bars.barcode
+      body.barcodes = bars.barcodes
     }
     // Остаток живёт в партиях — прямая запись stock иначе расходится со складом
     const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')
