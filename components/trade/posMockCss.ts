@@ -1128,6 +1128,10 @@ export const POS_MOCK_CSS = `
     background:var(--surface);border:1.5px solid var(--border);color:var(--t1);outline:none;
   }
   .pay-debt-amt:focus{border-color:rgba(255,69,69,.45);}
+  .pay-debt-hint{
+    margin-top:8px;font-size:11px;font-weight:700;color:var(--t3);line-height:1.35;
+  }
+  .pay-debt-hint b{color:var(--red);font-family:'JetBrains Mono',monospace;font-weight:800;}
   .cash-debt-split{margin:-2px 0 10px;font-size:11px;font-weight:700;color:var(--t3);text-align:center;}
   .cash-debt-split span{color:var(--red);font-weight:800;}
   .pay-bonus-box{
