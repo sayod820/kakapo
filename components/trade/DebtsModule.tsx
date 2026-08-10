@@ -494,7 +494,7 @@ export default function DebtsModule({
       })
       const nextRemain = Math.round((maxPay - amount) * 100) / 100
       setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)}`)
-      await refreshAll()
+      void refreshAll()
       if (nextRemain > 0.001) {
         setSaleRepay({ amount: String(nextRemain), saving: false })
       } else {
@@ -541,7 +541,7 @@ export default function DebtsModule({
       setHistMsg(histAdd.action === 'repay'
         ? `Оплата записана: ${fmtMoney(amount)}`
         : `Выдано наличными: ${fmtMoney(amount)}`)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
       setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
@@ -586,7 +586,7 @@ export default function DebtsModule({
         skipDebtHistory: true,
       })
       setHistMsg(`С карты убрано: ${fmtMoney(amt)}`)
-      await refreshAll()
+      void refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось')
     }
@@ -606,7 +606,7 @@ export default function DebtsModule({
     try {
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(removed, null))
       setHistMsg(`Удалено: ${fmtMoney(abs)}`)
-      await refreshAll()
+      void refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось обновить баланс')
     }
@@ -634,7 +634,7 @@ export default function DebtsModule({
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(before, after))
       setHistEdit(null)
       setHistMsg(`Запись обновлена: ${fmtMoney(amountAbs)}`)
-      await refreshAll()
+      void refreshAll()
     } catch (e) {
       setHistEdit(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Ошибка сохранения')

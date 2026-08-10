@@ -386,8 +386,12 @@ export const POS_MOCK_CSS = `
   }
   .top-loc .net-sync-chip:disabled{opacity:.55;cursor:wait;}
   .top-loc .net-sync-chip:not(:disabled):active{transform:scale(.94);}
-  .top-clock{text-align:left;line-height:1.15;padding:0 2px;border-left:1px solid var(--border);padding-left:12px;}
-  .top-clock .tm{font-family:'JetBrains Mono';font-size:18px;font-weight:800;color:var(--gd);letter-spacing:.3px;}
+  .top-clock{
+    flex:1 1 auto;min-width:0;
+    text-align:center;line-height:1.15;
+    padding:0 8px;
+  }
+  .top-clock .tm{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:18px;font-weight:800;color:var(--gd);letter-spacing:.3px;}
   .top-clock .dt{font-size:10px;color:var(--t3);margin-top:1px;white-space:nowrap;}
   .pos-root button.btn-switch-till{padding:9px 12px;border-radius:12px;background:var(--surface2);border:1.5px solid var(--border);color:var(--t1);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;flex-shrink:0;}
   .pos-root button.btn-switch-till:hover{border-color:var(--accent);color:var(--accent);}
@@ -1658,6 +1662,9 @@ export const POS_MOCK_CSS = `
     .top-loc b{font-size:11px;overflow:hidden;text-overflow:ellipsis;}
     .top-loc .net-status-txt{font-size:8.5px;letter-spacing:-.01em;}
     .top-loc .net-sync-chip{width:18px;height:18px;font-size:10px;}
+    .top-clock{order:0;flex:1 1 auto;min-width:72px;padding:0 4px;}
+    .top-clock .tm{font-size:13px;}
+    .top-clock .dt{font-size:9px;}
     .top-meta{margin-left:0;width:100%;justify-content:space-between;order:3;}
     .searchpill{flex:1 1 0;max-width:none;min-width:0;width:auto;order:1;padding:8px 10px;}
     .searchpill input{font-size:16px;}

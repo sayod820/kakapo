@@ -169,7 +169,7 @@ export default function SuppliersModule() {
         note: form.note.trim() || undefined,
       }
       const res = await saveSupplierSafe(payload, form.editingId)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
       closeForm()
     } catch (e) {
       setForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка сохранения' }))
@@ -188,7 +188,7 @@ export default function SuppliersModule() {
     try {
       const res = await deleteSupplierSafe(s.id)
       if (detailId === s.id) setDetailId(null)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить поставщика')
     } finally {

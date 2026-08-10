@@ -4,9 +4,10 @@
  * Синхронизация офлайн-интерфейса с сервера.
  *
  * Сайт (https://kakappo.shop/trade) обновляется деплоем Next.
- * Встроенный resources/ui в установщике — старый, пока не выйдет Setup.exe.
- * Этот модуль качает свежий standalone-пакет в userData/ui-cache,
- * чтобы без интернета открывался уже новый UI.
+ * Встроенный resources/ui в установщике — актуальный на момент Setup.exe.
+ * Этот модуль качает пакет в userData/ui-cache только если он НОВЕЕ
+ * встроенного UI (по builtAt), иначе свежий Setup снова «откатывается»
+ * к старому zip с канала kassa-ui.
  *
  * Канал: https://kakappo.shop/updates/kassa-ui/latest.json + ui-*.zip
  */
@@ -44,6 +45,35 @@ function uiCacheReady(userDataPath) {
   } catch {
     return false
   }
+}
+
+/** Дата сборки UI из build-info.json / built-at.txt (ms) или 0. */
+function readUiBuiltAtMs(dir) {
+  if (!dir) return 0
+  try {
+    const info = JSON.parse(fs.readFileSync(path.join(dir, 'build-info.json'), 'utf8'))
+    const iso = info.builtAtIso || info.builtAt
+    const t = Date.parse(String(iso || ''))
+    if (Number.isFinite(t) && t > 0) return t
+  } catch { /* ignore */ }
+  try {
+    const iso = fs.readFileSync(path.join(dir, 'built-at.txt'), 'utf8').trim()
+    const t = Date.parse(iso)
+    if (Number.isFinite(t) && t > 0) return t
+  } catch { /* ignore */ }
+  return 0
+}
+
+function findBundledUiDir() {
+  const dirs = []
+  if (process.resourcesPath) dirs.push(path.join(process.resourcesPath, 'ui'))
+  dirs.push(path.join(__dirname, 'ui'))
+  for (const dir of dirs) {
+    try {
+      if (fs.existsSync(path.join(dir, 'server.js'))) return dir
+    } catch { /* ignore */ }
+  }
+  return ''
 }
 
 function fetchJson(url, timeoutMs = 8000) {
@@ -162,6 +192,7 @@ function extractArchive(archivePath, destDir) {
 
 /**
  * Проверяет канал kassa-ui и при новой версии качает zip в userData/ui-cache.
+ * Не подменяет UI из Setup более старым пакетом с сервера.
  * @returns {{ updated: boolean, version: string, reason?: string }}
  */
 async function syncOfflineUi(userDataPath, { log = () => {} } = {}) {
@@ -174,13 +205,35 @@ async function syncOfflineUi(userDataPath, { log = () => {} } = {}) {
       if (!version || !fileUrl) {
         return { updated: false, version: '', reason: 'no-feed' }
       }
-      const current = readCachedVersion(userDataPath)
-      if (current === version && uiCacheReady(userDataPath)) {
-        log('ui-sync already current', version)
-        return { updated: false, version, reason: 'current' }
+
+      const remoteBuiltAt = Date.parse(String(meta?.builtAt || meta?.builtAtIso || '')) || 0
+      const bundledDir = findBundledUiDir()
+      const bundledAt = readUiBuiltAtMs(bundledDir)
+      if (bundledAt > 0) {
+        if (!remoteBuiltAt) {
+          log('ui-sync skip: no remote builtAt, keep bundled', { version, bundledAt })
+          return { updated: false, version, reason: 'bundled-newer' }
+        }
+        if (remoteBuiltAt <= bundledAt) {
+          log('ui-sync skip: bundled newer than feed', {
+            version,
+            remoteBuiltAt: new Date(remoteBuiltAt).toISOString(),
+            bundledAt: new Date(bundledAt).toISOString(),
+          })
+          return { updated: false, version, reason: 'bundled-newer' }
+        }
       }
 
-      log('ui-sync download', { version, fileUrl })
+      const current = readCachedVersion(userDataPath)
+      const cacheAt = readUiBuiltAtMs(cacheRoot(userDataPath))
+      if (current === version && uiCacheReady(userDataPath)) {
+        if (!remoteBuiltAt || !cacheAt || cacheAt >= remoteBuiltAt) {
+          log('ui-sync already current', version)
+          return { updated: false, version, reason: 'current' }
+        }
+      }
+
+      log('ui-sync download', { version, fileUrl, remoteBuiltAt: remoteBuiltAt || null })
       const staging = path.join(userDataPath, 'ui-cache-staging')
       const zipPath = path.join(userDataPath, 'ui-cache-download.zip')
       rmrf(staging)
@@ -210,6 +263,21 @@ async function syncOfflineUi(userDataPath, { log = () => {} } = {}) {
       }
       rmrf(backup)
       fs.writeFileSync(versionPath(userDataPath), `${version}\n`, 'utf8')
+      const builtIso = remoteBuiltAt
+        ? new Date(remoteBuiltAt).toISOString()
+        : new Date().toISOString()
+      try {
+        fs.writeFileSync(path.join(finalDir, 'built-at.txt'), `${builtIso}\n`, 'utf8')
+      } catch { /* ignore */ }
+      try {
+        let info = {}
+        try {
+          info = JSON.parse(fs.readFileSync(path.join(finalDir, 'build-info.json'), 'utf8'))
+        } catch { /* ignore */ }
+        info.builtAtIso = builtIso
+        info.feedVersion = version
+        fs.writeFileSync(path.join(finalDir, 'build-info.json'), `${JSON.stringify(info, null, 2)}\n`, 'utf8')
+      } catch { /* ignore */ }
       try {
         const { app } = require('electron')
         const appVer = app && typeof app.getVersion === 'function' ? String(app.getVersion() || '') : ''
@@ -235,4 +303,6 @@ module.exports = {
   readCachedVersion,
   uiCacheReady,
   cacheRoot,
+  readUiBuiltAtMs,
+  findBundledUiDir,
 }

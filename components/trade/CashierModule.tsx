@@ -14,6 +14,10 @@ import {
   debtRepaySafe,
   returnSaleSafe,
   createSaleSafe,
+  createPosPointSafe,
+  updatePosPointSafe,
+  deletePosPointSafe,
+  ensureCashierSafe,
 } from '@/lib/offlinePosOps'
 import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
 import { USE_API } from '@/lib/config'
@@ -1023,6 +1027,8 @@ export default function CashierModule({
   const [layerPickBusy, setLayerPickBusy] = useState(false)
   /** На телефоне: товары или чек (полноэкранные панели) */
   const [posMobPanel, setPosMobPanel] = useState<'shop' | 'cart'>('shop')
+  const [clockNow, setClockNow] = useState(() => new Date())
+  const [headerNow, setHeaderNow] = useState(() => new Date())
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
@@ -1151,6 +1157,11 @@ export default function CashierModule({
   useEffect(() => {
     onSurfaceChange?.(posSurface)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync initial surface to TradeApp once
+
+  useEffect(() => {
+    const id = window.setInterval(() => setClockNow(new Date()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => { startNetSync() }, [startNetSync])
 
@@ -3203,15 +3214,8 @@ export default function CashierModule({
   }
 
   async function ensureCashier(name: string, preferredId?: string) {
-    if (preferredId && preferredId !== 'local') {
-      const found = cashiers.find(c => c.id === preferredId)
-      if (found) return found
-    }
-    const trimmed = name.trim() || 'Кассир'
-    const existing = cashiers.find(c => c.name === trimmed)
-    if (existing) return existing
-    if (!USE_API) throw new Error('Нужен API сервер для кассы')
-    return api.createCashier({ name: trimmed, pin: '0000' })
+    const res = await ensureCashierSafe({ name, preferredId })
+    return res.data
   }
 
   async function openShift() {
@@ -3234,8 +3238,8 @@ export default function CashierModule({
         openingCash: cash,
         posId,
       })
+      void useOfflineSync.getState().syncNow()
       if (!opened.offline) void refresh()
-      else void useOfflineSync.getState().syncNow()
       setCart([])
       setClient(null)
       setDiscountPct(0)
@@ -3261,13 +3265,12 @@ export default function CashierModule({
     try {
       const name = newPosName.trim()
       if (!name) throw new Error('Укажите название точки продаж')
-      if (!USE_API) throw new Error('Нужен API сервер')
-      await api.createPosPoint({ name, code: newPosCode.trim() || undefined })
-      await refresh()
+      await createPosPointSafe({ name, code: newPosCode.trim() || undefined })
       setCreatePosModal(false)
       setNewPosName('')
       setNewPosCode('')
-      showToast('Точка создана', name)
+      showToast('Точка создана', `${name} · отправится в фоне`)
+      void useOfflineSync.getState().syncNow()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось создать точку')
     } finally {
@@ -3336,8 +3339,7 @@ export default function CashierModule({
     try {
       const name = editPosName.trim()
       if (!name) throw new Error('Укажите название')
-      if (!USE_API) throw new Error('Нужен API сервер')
-      await api.updatePosPoint(editPosId, {
+      await updatePosPointSafe(editPosId, {
         name,
         code: editPosCode.trim(),
         note: editPosNote.trim(),
@@ -3370,9 +3372,9 @@ export default function CashierModule({
           void ensureCasWeightMonitor(false)
         }
       }
-      await refresh()
       setEditPosId(null)
-      showToast('Сохранено', name)
+      showToast('Сохранено', `${name} · отправится в фоне`)
+      void useOfflineSync.getState().syncNow()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {
@@ -3511,12 +3513,11 @@ export default function CashierModule({
     setBusy(true)
     setMsg('')
     try {
-      if (!USE_API) throw new Error('Нужен API сервер')
       const name = posPoints.find(p => p.id === deletePosId)?.name || 'Точка'
-      await api.deletePosPoint(deletePosId)
-      await refresh()
+      await deletePosPointSafe(deletePosId)
       setDeletePosId(null)
-      showToast('Удалено', name)
+      showToast('Удалено', `${name} · отправится в фоне`)
+      void useOfflineSync.getState().syncNow()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
@@ -5537,15 +5538,10 @@ export default function CashierModule({
       cardPaid = payable
     }
 
-    // Офлайн только если браузер реально без сети.
-    // Статус «сервер недоступен» не должен блокировать попытку пробить чек онлайн.
+    // Офлайн: кошелёк/бонусы без V2 — нельзя; карта как нал — local-first в очередь.
     const apiReachable = isOnline()
     const v2Full = isOfflineV2Full()
     if (!apiReachable) {
-      if (cardPaid > 0.001 || apiMethod === 'card') {
-        showToast('Нет связи', 'Оплата картой недоступна офлайн. Проведите наличными или в долг.')
-        return false
-      }
       if (!v2Full && (walletPaid > 0.001 || apiMethod === 'wallet')) {
         showToast('Нет связи', 'Оплата с кошелька недоступна офлайн.')
         return false
@@ -5605,12 +5601,8 @@ export default function CashierModule({
         })),
       }
 
-      // Карта / кошелёк / бонусы — живой сервер, если онлайн; при V2 офлайн кошелёк+бонусы локально
-      const needsLiveServer =
-        cardPaid > 0.001
-        || apiMethod === 'card'
-        || apiMethod === 'balance'
-        || ((!v2Full || apiReachable) && (walletPaid > 0.001 || apiMethod === 'wallet' || spend > 0))
+      // Всё local-first (нал / карта / долг / кошелёк) — сервер из очереди в фоне.
+      const needsLiveServer = false
 
       const saleRes = await createSaleSafe({
         salePayload,
@@ -5719,69 +5711,65 @@ export default function CashierModule({
       let debtRepayNote = ''
       if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
         const method = cashPaid > 0.001 ? 'cash' : 'card'
-        if (created._offline && method === 'card') {
-          showToast('Долг не погашен', 'Погашение картой недоступно офлайн — примите наличными отдельно')
-        } else {
-          // Сразу локально — не ждём сервер (иначе слабый интернет тормозит «Пробиваем…»)
-          const prevDebt = Number(loyalty?.debt) || clientDebt
-          const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
-          const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
-          debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
-          try {
-            useCardStore.getState().updateCardLoyalty(client.card, { debt: nextDebt }, { skipApi: true })
-            useClientStore.getState().updateClient(client.id, { debt: nextDebt }, { skipApi: true })
-            if (client.phone) {
-              // Списываем со старых чеков (FIFO), чтобы остатки в «Чеки» сразу уменьшились
-              const history = loadDebtHistory(client.phone)
-              const creditSales = sales
-                .filter(s => {
-                  const matchId = client.id && s.clientId === client.id
-                  const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-                  if (!matchId && !matchPhone) return false
-                  return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
-                })
-                .map(s => ({
-                  id: s.id,
-                  orderId: s.orderId || s.id,
-                  dateIso: s.createdAtIso,
-                  debtAdded: Number(s.debtAdded) > 0
-                    ? Number(s.debtAdded)
-                    : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0),
-                  number: s.number,
-                }))
-                .filter(s => s.debtAdded > 0)
-              const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
-              const targets = creditSales
-                .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
-                .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
-                .map(s => ({
-                  orderId: s.orderId || s.id,
-                  remain: saleStatus[s.id]?.remain || 0,
-                  label: s.number != null && Number(s.number) > 0
-                    ? `Чек №${s.number}`
-                    : `Чек ${String(s.id).slice(-6)}`,
-                }))
-              const fifo = recordStoreDebtRepaymentFifo(client.phone, payAmt, targets, {
-                method,
-                source: 'cashier',
-                desc: 'Погашение долга с чеком',
+        // Сразу локально — карта тоже в очередь, без ожидания сети
+        const prevDebt = Number(loyalty?.debt) || clientDebt
+        const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
+        const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
+        debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
+        try {
+          useCardStore.getState().updateCardLoyalty(client.card, { debt: nextDebt }, { skipApi: true })
+          useClientStore.getState().updateClient(client.id, { debt: nextDebt }, { skipApi: true })
+          if (client.phone) {
+            // Списываем со старых чеков (FIFO), чтобы остатки в «Чеки» сразу уменьшились
+            const history = loadDebtHistory(client.phone)
+            const creditSales = sales
+              .filter(s => {
+                const matchId = client.id && s.clientId === client.id
+                const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+                if (!matchId && !matchPhone) return false
+                return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
               })
-              if (fifo.appliedToChecks > 0.001) {
-                debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
-              }
-              setHistTick(t => t + 1)
+              .map(s => ({
+                id: s.id,
+                orderId: s.orderId || s.id,
+                dateIso: s.createdAtIso,
+                debtAdded: Number(s.debtAdded) > 0
+                  ? Number(s.debtAdded)
+                  : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0),
+                number: s.number,
+              }))
+              .filter(s => s.debtAdded > 0)
+            const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
+            const targets = creditSales
+              .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
+              .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
+              .map(s => ({
+                orderId: s.orderId || s.id,
+                remain: saleStatus[s.id]?.remain || 0,
+                label: s.number != null && Number(s.number) > 0
+                  ? `Чек №${s.number}`
+                  : `Чек ${String(s.id).slice(-6)}`,
+              }))
+            const fifo = recordStoreDebtRepaymentFifo(client.phone, payAmt, targets, {
+              method,
+              source: 'cashier',
+              desc: 'Погашение долга с чеком',
+            })
+            if (fifo.appliedToChecks > 0.001) {
+              debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
             }
-          } catch { /* ignore */ }
-          void debtRepaySafe(client.card, {
-            amount: payAmt,
-            method,
-            cashierId: activeShift.cashierId,
-            shiftId: activeShift.id,
-            posId: activeShift.posId || activePosPoint?.id,
-            clientId: client.id,
-            prevDebt,
-          }).catch(() => {})
-        }
+            setHistTick(t => t + 1)
+          }
+        } catch { /* ignore */ }
+        void debtRepaySafe(client.card, {
+          amount: payAmt,
+          method,
+          cashierId: activeShift.cashierId,
+          shiftId: activeShift.id,
+          posId: activeShift.posId || activePosPoint?.id,
+          clientId: client.id,
+          prevDebt,
+        }).catch(() => {})
       }
 
       const parts: string[] = []
@@ -7275,6 +7263,15 @@ export default function CashierModule({
                   {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
                 </button>
               )}
+            </div>
+          </div>
+
+          <div className="top-clock" aria-live="polite">
+            <div className="tm">
+              {clockNow.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </div>
+            <div className="dt">
+              {clockNow.toLocaleDateString('ru-RU', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
             </div>
           </div>
 

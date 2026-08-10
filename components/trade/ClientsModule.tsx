@@ -331,14 +331,14 @@ export default function ClientsModule() {
     let card = cardForClient(client, cards)
     if (!card) {
       const res = await provisionLoyaltyCardSafe(client)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
       card = cardForClient(res.data, useCardStore.getState().cards)
     }
     if (!card) throw new Error('Не удалось получить карту лояльности')
     const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
     const base = cardLoyaltyFromCard(card, freshClient)
     await saveCardLoyalty(card, { ...base, ...patch }, 'edit')
-    await refreshAll()
+    void refreshAll()
   }
 
   function openDetail(id: string) {
@@ -395,7 +395,7 @@ export default function ClientsModule() {
           note: form.note,
         },
       })
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
       closeForm()
     } catch (e) {
       setForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка сохранения' }))
@@ -412,7 +412,7 @@ export default function ClientsModule() {
     try {
       const res = await deleteClientSafe(c.id, c.phone)
       if (detailId === c.id) setDetailId(null)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить клиента')
     } finally {
@@ -423,7 +423,7 @@ export default function ClientsModule() {
   async function toggleBlockClient(c: EnrichedClient) {
     try {
       const res = await toggleClientBlockSafe(c.id)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось изменить блокировку')
     }
@@ -433,7 +433,7 @@ export default function ClientsModule() {
     setProvisioningId(c.id)
     try {
       const res = await provisionLoyaltyCardSafe(c)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) void refreshAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось создать карту')
     } finally {

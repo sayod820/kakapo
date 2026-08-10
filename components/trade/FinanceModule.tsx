@@ -9,6 +9,7 @@ import { syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
 import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
+import { useOfflineSync } from '@/lib/offlineSync'
 import {
   buildLocalFinanceTruth,
   cacheFinanceTruth,
@@ -165,14 +166,12 @@ export default function FinanceModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    if (!USE_API) {
-      const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
-      setTruth(local)
-      setTruthLocal(true)
-      setTruthError('')
-      return
-    }
+    // Сначала локальный расчёт — экран мгновенный, API догоняет в фоне
+    const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
+    setTruth(local)
+    setTruthLocal(true)
     setTruthError('')
+    if (!USE_API) return
     try {
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
@@ -186,9 +185,6 @@ export default function FinanceModule() {
         setTruthError('Нет связи — показаны локальные данные · синк при подключении')
         return
       }
-      const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
-      setTruth(local)
-      setTruthLocal(true)
       setTruthError(
         e instanceof Error
           ? `${e.message} · показан локальный расчёт`
@@ -226,9 +222,9 @@ export default function FinanceModule() {
     void cacheFinanceTruth(apiQuery, local)
   }, [apiQuery])
 
-  async function afterFinanceMutation(offline: boolean) {
-    if (offline) applyLocalTruthNow()
-    else await refresh()
+  async function afterFinanceMutation(_offline: boolean) {
+    applyLocalTruthNow()
+    void useOfflineSync.getState().syncNow()
   }
 
   async function submitExpense() {

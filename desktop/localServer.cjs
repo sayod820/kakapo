@@ -13,14 +13,16 @@ const fs = require('fs')
 const http = require('http')
 const net = require('net')
 const path = require('path')
+const { readUiBuiltAtMs } = require('./uiSync.cjs')
 
 let child = null
 let startedUrl = ''
 
 /**
  * Каталог со сборкой:
- * 1) userData/ui-cache — только если скачан ПОСЛЕ этой версии установщика
- * 2) resources/ui — то, что было в Setup.exe (приоритет после обновления)
+ * 1) userData/ui-cache — только если скачан ПОСЛЕ этой версии Setup
+ *    и пакет не старше UI из установщика
+ * 2) resources/ui — то, что было в Setup.exe
  * 3) desktop/ui — dev
  */
 function resolveUiDir() {
@@ -39,14 +41,27 @@ function resolveUiDir() {
   if (process.resourcesPath) bundled.push(path.join(process.resourcesPath, 'ui'))
   bundled.push(path.join(__dirname, 'ui'))
 
+  let bundledAt = 0
+  for (const dir of bundled) {
+    try {
+      if (fs.existsSync(path.join(dir, 'server.js'))) {
+        bundledAt = readUiBuiltAtMs(dir)
+        break
+      }
+    } catch { /* ignore */ }
+  }
+
   const cacheOk = (() => {
     try {
       if (!cacheDir || !fs.existsSync(path.join(cacheDir, 'server.js'))) return false
-      // Кэш от старой установки не берём — иначе Setup.exe «не обновляет дизайн»
       if (!appVersion) return true
       let stamp = ''
       try { stamp = fs.readFileSync(path.join(cacheDir, 'app-version.txt'), 'utf8').trim() } catch { /* empty */ }
-      return stamp === appVersion
+      if (stamp !== appVersion) return false
+      // Старый zip с канала не должен бить свежий Setup (даже со штампом app-version)
+      const cacheAt = readUiBuiltAtMs(cacheDir)
+      if (bundledAt > 0 && (!cacheAt || cacheAt < bundledAt)) return false
+      return true
     } catch {
       return false
     }

@@ -241,13 +241,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   queueSale: async (payload) => {
     await enqueueSale(payload)
-    await get().refresh()
+    void get().refresh()
     scheduleReconnect(get, set, 2000)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
-    await get().refresh()
+    // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
+    void get().refresh()
     scheduleReconnect(get, set, 2000)
     return row
   },

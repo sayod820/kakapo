@@ -176,11 +176,10 @@ export default function ReportsModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    if (!USE_API) {
-      setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
-      setTruthLocal(true)
-      return
-    }
+    // Сначала локально — отчёты открываются сразу
+    setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
+    setTruthLocal(true)
+    if (!USE_API) return
     try {
       const { useOfflineSync } = await import('@/lib/offlineSync')
       const { isOnline } = await import('@/lib/offline')
@@ -193,6 +192,7 @@ export default function ReportsModule() {
           setTruthLocal(true)
           return
         }
+        return
       }
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
@@ -203,10 +203,7 @@ export default function ReportsModule() {
       if (cached) {
         setTruth(cached)
         setTruthLocal(true)
-        return
       }
-      setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
-      setTruthLocal(true)
     }
   }, [apiQuery, shifts, financeMoves, expenses, sales])
 

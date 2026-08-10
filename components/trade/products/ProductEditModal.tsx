@@ -54,7 +54,7 @@ export default function ProductEditModal({
       const res = await saveProductSafe(payload)
       const saved = res.data || product
       if (saved && form.photo) setPhoto(saved.id, form.photo)
-      if (!res.offline) await fetchProducts()
+      if (!res.offline) void fetchProducts()
       onSaved?.(saved)
       onClose()
     } catch (e) {

@@ -320,26 +320,18 @@ export async function debtRepaySafe(
     posId: input.posId,
   }
 
-  // Картой — только онлайн (терминал / банк)
-  if (method === 'card') {
-    try {
-      const res = await api.debtRepayCard(num, payload)
-      return {
-        offline: false,
-        data: { nextDebt: Number(res.nextDebt) || 0, bonusEarned: Number(res.bonusEarned) || 0 },
-      }
-    } catch (e) {
-      if (!isNetworkError(e)) throw e
-      throw new Error('Погашение картой недоступно без связи — примите наличными')
-    }
-  }
-
   const applyLocal = async () => {
     await useOfflineSync.getState().queueOp('debt_repay', payload)
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
     if (input.shiftId) {
       const shift = shiftById(input.shiftId)
-      if (shift) patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
+      if (shift) {
+        if (method === 'card') {
+          patchShift(shift.id, { salesCard: round2((shift.salesCard || 0) + amount) })
+        } else {
+          patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
+        }
+      }
     }
     const { useCardStore } = await import('./cardStore')
     useCardStore.getState().updateCardLoyalty(num, { debt: nextDebt }, { skipApi: true })
@@ -350,13 +342,7 @@ export async function debtRepaySafe(
     return { nextDebt, bonusEarned: 0 }
   }
 
-  return raceCashierOp(
-    async () => {
-      const res = await api.debtRepayCard(num, payload)
-      return { nextDebt: Number(res.nextDebt) || 0, bonusEarned: Number(res.bonusEarned) || 0 }
-    },
-    applyLocal,
-  )
+  return localFirstOp(applyLocal)
 }
 
 // ── Возврат чека ──
@@ -487,11 +473,16 @@ export async function createSaleSafe(
         if (!p) continue
         const dec = l.weightKg != null ? l.weightKg : l.qty
         ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
-        try {
-          const { consumeLocalLayersFifo } = await import('./stockLayersLocal')
-          await consumeLocalLayersFifo(l.productId, dec)
-        } catch { /* ignore */ }
       }
+      // Партии — в фоне: раньше await entityPut по всем слоям на каждую позицию
+      // держал «Пробиваем…» на секунды.
+      const layerLines = input.cart.map(l => ({
+        productId: l.productId,
+        qty: l.weightKg != null ? l.weightKg : l.qty,
+      }))
+      void import('./stockLayersLocal')
+        .then(m => m.consumeLocalLayersFifoBatch(layerLines))
+        .catch(() => {})
     } catch { /* ignore */ }
 
     if (client) {
@@ -604,18 +595,7 @@ export async function createSaleSafe(
     shadowMirrorSale(created)
   }
 
-  // Карта терминала без V2: нужен живой ответ (деньги с банка)
-  const apiReachable = !input.forceOffline && isOnline()
-  if (input.needsLiveServer && !isOfflineV2Full() && apiReachable) {
-    try {
-      const created = await api.createPosSale(salePayload as any)
-      patchShiftOnline(created)
-      return { offline: false, data: created as PosSale & { orderId?: string } }
-    } catch (e) {
-      if (!isNetworkError(e)) throw e
-    }
-  }
-
+  // Всегда local-first: нал и карта сразу, сервер из очереди в фоне
   return localFirstOp(applyLocal)
 }
 
@@ -797,4 +777,122 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
     void persistPosSnapshot()
     return { id }
   }, applyLocal)
+}
+
+// ── Точки продаж / кассиры (мгновенно локально) ──
+
+export async function createPosPointSafe(input: {
+  name: string
+  code?: string
+  note?: string
+  receiptPhone?: string
+}): Promise<OfflineResult<import('./types').PosPoint>> {
+  const clientRef = newClientRef()
+  const localId = newLocalId('pos')
+  const point = {
+    id: localId,
+    name: String(input.name || '').trim(),
+    code: input.code?.trim() || undefined,
+    note: input.note?.trim() || undefined,
+    receiptPhone: input.receiptPhone?.trim() || undefined,
+    active: true,
+    createdAtIso: new Date().toISOString(),
+  }
+  const applyLocal = async () => {
+    usePosStore.setState(s => ({ posPoints: [point, ...s.posPoints] }))
+    await useOfflineSync.getState().queueOp(
+      'pos_point_upsert',
+      { clientRef, localId, point },
+      { localId, clientRef },
+    )
+    void persistPosSnapshot()
+    return point
+  }
+  return localFirstOp(applyLocal)
+}
+
+export async function updatePosPointSafe(
+  id: string,
+  patch: Partial<{ name: string; code: string; note: string; receiptPhone: string; active: boolean }>,
+): Promise<OfflineResult<import('./types').PosPoint>> {
+  const clientRef = newClientRef()
+  const applyLocal = async () => {
+    const cur = usePosStore.getState().posPoints.find(p => p.id === id)
+    if (!cur) throw new Error('Точка не найдена')
+    const point = {
+      ...cur,
+      ...patch,
+      name: patch.name != null ? String(patch.name).trim() : cur.name,
+      code: patch.code != null ? String(patch.code).trim() : cur.code,
+      note: patch.note != null ? String(patch.note).trim() : cur.note,
+      receiptPhone: patch.receiptPhone != null ? String(patch.receiptPhone).trim() : cur.receiptPhone,
+    }
+    usePosStore.setState(s => ({
+      posPoints: s.posPoints.map(p => (p.id === id ? point : p)),
+    }))
+    await useOfflineSync.getState().queueOp(
+      'pos_point_upsert',
+      { clientRef, localId: id, point },
+      { localId: id, clientRef },
+    )
+    void persistPosSnapshot()
+    return point
+  }
+  return localFirstOp(applyLocal)
+}
+
+export async function deletePosPointSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const clientRef = newClientRef()
+  const applyLocal = async () => {
+    usePosStore.setState(s => ({
+      posPoints: s.posPoints.filter(p => p.id !== id),
+    }))
+    if (!isLocalId(id)) {
+      await useOfflineSync.getState().queueOp(
+        'pos_point_delete',
+        { clientRef, id },
+        { clientRef },
+      )
+    }
+    void persistPosSnapshot()
+    return { id }
+  }
+  return localFirstOp(applyLocal)
+}
+
+export async function ensureCashierSafe(input: {
+  name: string
+  preferredId?: string
+}): Promise<OfflineResult<import('./types').PosCashier>> {
+  const preferredId = input.preferredId
+  if (preferredId && preferredId !== 'local') {
+    const found = usePosStore.getState().cashiers.find(c => c.id === preferredId)
+    if (found) return { offline: false, data: found }
+  }
+  const trimmed = String(input.name || '').trim() || 'Кассир'
+  const existing = usePosStore.getState().cashiers.find(c => c.name === trimmed)
+  if (existing) return { offline: false, data: existing }
+
+  const clientRef = newClientRef()
+  const localId = newLocalId('csh')
+  const cashier = {
+    id: localId,
+    name: trimmed,
+    pin: '0000',
+    active: true,
+    salesCount: 0,
+    salesTotal: 0,
+    createdAtIso: new Date().toISOString(),
+  }
+  const applyLocal = async () => {
+    usePosStore.setState(s => ({ cashiers: [...s.cashiers, cashier] }))
+    await useOfflineSync.getState().queueOp(
+      'cashier_upsert',
+      { clientRef, localId, cashier },
+      { localId, clientRef },
+    )
+    void persistPosSnapshot()
+    return cashier
+  }
+  return localFirstOp(applyLocal)
 }

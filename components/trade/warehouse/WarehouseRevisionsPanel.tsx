@@ -242,16 +242,31 @@ export default function WarehouseRevisionsPanel({
   }, [layersByProduct, layersLoaded])
 
   const loadLayers = useCallback(async () => {
-    if (!USE_API) {
-      setLayers([])
-      setLayersLoaded(true)
-      return
-    }
     try {
-      const rows = await api.getAllStockLayers()
-      setLayers(rows)
+      const { readCachedStockLayers, cacheStockLayers } = await import('@/lib/stockLayersLocal')
+      const cached = await readCachedStockLayers()
+      if (cached.length) {
+        setLayers(cached)
+        setLayersLoaded(true)
+      }
+      if (!USE_API) {
+        if (!cached.length) {
+          setLayers([])
+          setLayersLoaded(true)
+        }
+        return
+      }
+      const { isOnline } = await import('@/lib/offline')
+      const { useOfflineSync } = await import('@/lib/offlineSync')
+      if (isOnline() && useOfflineSync.getState().online) {
+        const rows = await api.getAllStockLayers()
+        setLayers(rows)
+        void cacheStockLayers(rows)
+      } else if (!cached.length) {
+        setLayers([])
+      }
     } catch {
-      setLayers([])
+      /* keep cached if any */
     } finally {
       setLayersLoaded(true)
     }
@@ -525,7 +540,7 @@ export default function WarehouseRevisionsPanel({
         ? await updateStockRevisionSafe(editingId, payload)
         : await createStockRevisionSafe(payload)
       if (!res.offline) {
-        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+        void Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       } else {
         setMsg('Ревизия сохранена локально · отправится при связи')
       }
@@ -548,7 +563,7 @@ export default function WarehouseRevisionsPanel({
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
       if (!res.offline) {
-        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+        void Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить ревизию')

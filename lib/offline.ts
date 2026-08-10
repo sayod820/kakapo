@@ -43,6 +43,9 @@ export type QueueKind =
   | 'category_delete'
   | 'category_reorder'
   | 'card_loyalty_patch'
+  | 'pos_point_upsert'
+  | 'pos_point_delete'
+  | 'cashier_upsert'
 
 export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   sale: 'Чек',
@@ -77,6 +80,9 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   category_delete: 'Удаление категории',
   category_reorder: 'Порядок категорий',
   card_loyalty_patch: 'Долг / лояльность',
+  pos_point_upsert: 'Точка продаж',
+  pos_point_delete: 'Удаление точки',
+  cashier_upsert: 'Кассир',
 }
 
 export interface PendingOp<P = any> {
@@ -419,8 +425,12 @@ let seqCounter = 0
 async function nextSeq(): Promise<number> {
   if (!seqCounter) {
     const stored = await kvGet<number>(KEY_SEQ)
-    const queued = await getPending()
-    seqCounter = Math.max(Number(stored) || 0, ...queued.map(r => r.seq), 0)
+    seqCounter = Number(stored) || 0
+    // Полный скан очереди — только если счётчика ещё нет (дорого на кассе)
+    if (!seqCounter) {
+      const queued = await getPending()
+      seqCounter = Math.max(0, ...queued.map(r => r.seq), 0)
+    }
   }
   seqCounter += 1
   void kvSet(KEY_SEQ, seqCounter)
@@ -595,7 +605,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       }
     }
     case 'shift_open': {
-      const p = row.payload || {}
+      const p = await resolveRefs(row.payload || {}, ['cashierId', 'posId'])
       const shift = await api.openPosShift({
         clientRef: p.clientRef,
         cashierId: p.cashierId,
@@ -1035,6 +1045,93 @@ async function sendOp(row: PendingOp): Promise<string> {
         }
       }
       return num
+    }
+    case 'pos_point_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : String(p.id || '')
+      const body = { ...(p.point || p) }
+      delete body.localId
+      delete body.clientRef
+      const rawId = String(body.id || localId || '')
+      const isLocal = !rawId || isLocalId(rawId)
+      let saved: any
+      if (isLocal) {
+        const { id: _drop, ...createBody } = body
+        saved = await api.createPosPoint({
+          name: String(createBody.name || ''),
+          code: createBody.code,
+          note: createBody.note,
+          receiptPhone: createBody.receiptPhone,
+          clientRef: p.clientRef,
+        } as any)
+      } else {
+        saved = await api.updatePosPoint(rawId, {
+          name: body.name,
+          code: body.code,
+          note: body.note,
+          receiptPhone: body.receiptPhone,
+          active: body.active,
+          clientRef: p.clientRef,
+        } as any)
+      }
+      const serverId = String(saved?.id || '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { usePosStore } = await import('./posStore')
+          usePosStore.setState(s => ({
+            posPoints: s.posPoints.map(x => (
+              String(x.id) === localId ? { ...x, ...saved, id: serverId } : x
+            )),
+          }))
+          void persistPosSnapshot()
+        } catch { /* ignore */ }
+      }
+      return serverId
+    }
+    case 'pos_point_delete': {
+      const p = row.payload || {}
+      let id = String(p.id || '')
+      const map = await getIdMap()
+      if (map[id]) id = map[id]
+      if (id && !isLocalId(id)) {
+        await api.deletePosPoint(id)
+      }
+      return id
+    }
+    case 'cashier_upsert': {
+      const p = row.payload || {}
+      const localId = p.localId != null ? String(p.localId) : String(p.id || '')
+      const body = { ...(p.cashier || p) }
+      delete body.localId
+      delete body.clientRef
+      const rawId = String(body.id || localId || '')
+      const isLocal = !rawId || isLocalId(rawId)
+      let saved: any
+      if (isLocal) {
+        saved = await api.createCashier({
+          name: String(body.name || 'Кассир'),
+          pin: String(body.pin || '0000'),
+          clientRef: p.clientRef,
+        } as any)
+      } else {
+        // обновление кассира на сервере не критично — имя уже локально
+        return rawId
+      }
+      const serverId = String(saved?.id || '')
+      if (localId && serverId && localId !== serverId) {
+        await rememberId(localId, serverId)
+        try {
+          const { usePosStore } = await import('./posStore')
+          usePosStore.setState(s => ({
+            cashiers: s.cashiers.map(x => (
+              String(x.id) === localId ? { ...x, ...saved, id: serverId } : x
+            )),
+          }))
+          void persistPosSnapshot()
+        } catch { /* ignore */ }
+      }
+      return serverId
     }
     default:
       throw new Error(`Неизвестная операция: ${row.kind}`)

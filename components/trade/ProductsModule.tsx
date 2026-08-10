@@ -103,7 +103,7 @@ export default function ProductsModule({
   }, [selectedId, isNew, products, getPhoto])
 
   async function refreshAfterArrivals() {
-    await fetchProducts()
+    void fetchProducts()
     if (!selectedId || isNew) return
     formLoadedForId.current = null
     const p = useProducts.getState().products.find(x => x.id === selectedId)

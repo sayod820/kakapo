@@ -7,6 +7,9 @@ import { entityList, entityPut } from './localEntities'
 
 const KEY_STOCK_LAYERS = 'catalog_stock_layers'
 
+let entitySyncTimer: ReturnType<typeof setTimeout> | null = null
+let entitySyncPending: ProductStockLayer[] | null = null
+
 async function kvGet(): Promise<ProductStockLayer[] | null> {
   const desk = getKakapoDesktop()
   if (isKakapoDesktop() && desk?.localDbKvGet) {
@@ -38,14 +41,31 @@ export function layerKey(layer: Pick<ProductStockLayer, 'receiptId' | 'productId
   return `${layer.receiptId}:${layer.productId}`
 }
 
+/** Медленный entityPut всех партий — только в фоне, не на пути «Пробить». */
+function scheduleEntitySync(layers: ProductStockLayer[]): void {
+  entitySyncPending = layers
+  if (entitySyncTimer) return
+  entitySyncTimer = setTimeout(() => {
+    entitySyncTimer = null
+    const list = entitySyncPending
+    entitySyncPending = null
+    if (!list) return
+    void (async () => {
+      try {
+        for (const layer of list) {
+          await entityPut('stock_layer', layerKey(layer), layer, {
+            updatedAtIso: layer.createdAtIso || new Date().toISOString(),
+          })
+        }
+      } catch { /* ignore */ }
+    })()
+  }, 0)
+}
+
 export async function cacheStockLayers(layers: ProductStockLayer[]): Promise<void> {
   const list = Array.isArray(layers) ? layers : []
   await kvSet(list)
-  for (const layer of list) {
-    await entityPut('stock_layer', layerKey(layer), layer, {
-      updatedAtIso: layer.createdAtIso || new Date().toISOString(),
-    })
-  }
+  scheduleEntitySync(list)
 }
 
 export async function readCachedStockLayers(): Promise<ProductStockLayer[]> {
@@ -109,14 +129,13 @@ export async function applyLocalReceiptLayers(
   await cacheStockLayers(list)
 }
 
-/** FIFO списание qty с партий товара (локально) */
-export async function consumeLocalLayersFifo(
+function applyFifoOnList(
+  list: ProductStockLayer[],
   productId: number,
   qty: number,
-): Promise<ProductStockLayer[]> {
+): ProductStockLayer[] {
   let left = Math.round((Number(qty) || 0) * 1000) / 1000
-  if (!(left > 0)) return readCachedStockLayers()
-  const list = await readCachedStockLayers()
+  if (!(left > 0)) return list
   const pid = Number(productId)
   const next = list.map(l => ({ ...l }))
   const mine = next
@@ -130,7 +149,30 @@ export async function consumeLocalLayersFifo(
     layer.remainingQty = Math.round((have - take) * 1000) / 1000
     left = Math.round((left - take) * 1000) / 1000
   }
-  const cleaned = next.filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+  return next.filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+}
+
+/** FIFO списание qty с партий товара (локально) */
+export async function consumeLocalLayersFifo(
+  productId: number,
+  qty: number,
+): Promise<ProductStockLayer[]> {
+  const list = await readCachedStockLayers()
+  const cleaned = applyFifoOnList(list, productId, qty)
   await cacheStockLayers(cleaned)
   return cleaned
+}
+
+/** Одним чтением/записью списать весь чек — для быстрого пробития. */
+export async function consumeLocalLayersFifoBatch(
+  lines: Array<{ productId: number; qty: number }>,
+): Promise<ProductStockLayer[]> {
+  let list = await readCachedStockLayers()
+  for (const line of lines) {
+    const qty = Number(line.qty) || 0
+    if (!(qty > 0)) continue
+    list = applyFifoOnList(list, line.productId, qty)
+  }
+  await cacheStockLayers(list)
+  return list
 }
