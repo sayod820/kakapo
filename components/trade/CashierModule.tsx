@@ -1148,23 +1148,6 @@ export default function CashierModule({
 
   useEffect(() => { startNetSync() }, [startNetSync])
 
-  /** Наличные + погашение долга: из «получено» сначала чек, остаток — в долг */
-  useEffect(() => {
-    if (!cashOpen || !payDebtOn || clientDebt <= 0.001) return
-    const given = Math.round(Math.max(0, Number(cashBuf) || 0) * 100) / 100
-    const debtPart = debtAmtFromGiven(given)
-    setPayDebtBuf(prev => {
-      const cur = Math.round((Number(prev) || 0) * 100) / 100
-      if (Math.abs(cur - debtPart) < 0.001) return prev
-      return debtPart > 0 ? String(debtPart) : ''
-    })
-    setPayGivenBuf(prev => {
-      const prevN = Math.round((Number(prev) || 0) * 100) / 100
-      if (Math.abs(prevN - given) < 0.001) return prev
-      return given > 0 ? String(given) : ''
-    })
-  }, [cashOpen, cashBuf, payDebtOn, clientDebt, total]) // eslint-disable-line react-hooks/exhaustive-deps -- debtAmtFromGiven closes over total/clientDebt
-
   /** Пока идёт оплата/пробитие — не гоняем тяжёлый sync в фоне (иначе поиск «замирает») */
   useEffect(() => {
     const critical =
@@ -2770,6 +2753,27 @@ export default function CashierModule({
   const maxBonus = loyalty ? Math.min(Number(loyalty.bonus) || 0, afterDisc) : 0
   const usedBonus = Math.min(bonusUsed, maxBonus)
   const total = Math.max(0, afterDisc - usedBonus)
+
+  /** Наличные + погашение долга: из «получено» сначала чек, остаток — в долг */
+  useEffect(() => {
+    if (!cashOpen || !payDebtOn || clientDebt <= 0.001) return
+    const given = Math.round(Math.max(0, Number(cashBuf) || 0) * 100) / 100
+    const sale = Math.round(Math.max(0, total) * 100) / 100
+    const debtPart = Math.min(
+      Math.round(clientDebt * 100) / 100,
+      Math.round(Math.max(0, given - sale) * 100) / 100,
+    )
+    setPayDebtBuf(prev => {
+      const cur = Math.round((Number(prev) || 0) * 100) / 100
+      if (Math.abs(cur - debtPart) < 0.001) return prev
+      return debtPart > 0 ? String(debtPart) : ''
+    })
+    setPayGivenBuf(prev => {
+      const prevN = Math.round((Number(prev) || 0) * 100) / 100
+      if (Math.abs(prevN - given) < 0.001) return prev
+      return given > 0 ? String(given) : ''
+    })
+  }, [cashOpen, cashBuf, payDebtOn, clientDebt, total])
 
   function showToast(title: string, sub: string) {
     setToast({ title, sub })
