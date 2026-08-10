@@ -56,11 +56,16 @@ let intervalId: ReturnType<typeof setInterval> | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectAttempt = 0
 let listenersBound = false
+let syncLock = false
 
-/** Короткий ping — длинный 7с при полуживом Wi‑Fi подвешивал кассу */
-const PING_TIMEOUT_MS = 2500
-const POLL_MS = 12000
-const BACKOFF_MS = [2000, 3000, 5000, 8000, 12000, 20000, 30000]
+/** Слабый интернет: ping дольше; при очереди крутим чаще */
+const PING_TIMEOUT_MS = 4500
+const PING_QUICK_MS = 2800
+const POLL_IDLE_MS = 10000
+const POLL_BUSY_MS = 4000
+const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
+/** syncNow не должен вечно держать «чёрный круг» */
+const SYNC_WATCHDOG_MS = 55000
 
 /** Реальная проверка связи с API — не зависит от navigator.onLine */
 async function pingOnce(url: string, timeoutMs: number): Promise<boolean> {
@@ -86,9 +91,10 @@ async function pingServer(opts?: { quick?: boolean }): Promise<boolean> {
   } catch { /* ignore */ }
 
   const quick = !!opts?.quick || isCashierCritical()
-  const attempts = quick ? 1 : 2
+  const attempts = quick ? 1 : 3
+  const baseTimeout = quick ? PING_QUICK_MS : PING_TIMEOUT_MS
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const timeout = attempt === 0 ? PING_TIMEOUT_MS : PING_TIMEOUT_MS + 1500
+    const timeout = baseTimeout + attempt * 1200
     for (const url of candidates) {
       if (await pingOnce(url, timeout)) {
         noteApiOk()
@@ -100,7 +106,7 @@ async function pingServer(opts?: { quick?: boolean }): Promise<boolean> {
       noteApiOk()
       return true
     }
-    if (attempt === 0 && !quick) await new Promise(r => setTimeout(r, 400))
+    if (attempt < attempts - 1) await new Promise(r => setTimeout(r, 300 + attempt * 200))
   }
   noteApiFail()
   return false
@@ -149,22 +155,61 @@ function scheduleReconnect(
     reconnectTimer = null
     void (async () => {
       // Если сейчас идёт flush — не бросаем цепочку, повторим чуть позже
-      if (get().syncing) {
+      if (get().syncing || syncLock) {
         scheduleReconnect(get, set, 1500)
         return
       }
-      const alive = await pingServer()
-      if (!alive) {
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2500)
+        return
+      }
+      // При слабом интернете ping может врать — если есть очередь, всё равно syncNow
+      const hasWork = get().pending > 0 || get().failed > 0
+      const alive = await pingServer({ quick: !hasWork })
+      if (!alive && !hasWork) {
         set({ online: false })
-        // Продолжаем пробовать: очередь или просто «офлайн» статус
         scheduleReconnect(get, set)
         return
       }
-      resetBackoff()
-      set({ online: true })
+      if (alive) {
+        resetBackoff()
+        set({ online: true })
+      }
       await get().syncNow()
     })()
   }, wait)
+}
+
+function isTransientFailError(err: string): boolean {
+  return /сеть|связ|timeout|не отвечает|fetch|network|ECONN|ETIMEDOUT|502|503|504|смена|связанная операция|не найдена|временно|abort/i.test(err)
+}
+
+async function autoRetryFailed(): Promise<number> {
+  let n = 0
+  try {
+    const list = await getPending()
+    for (const row of list) {
+      if (!row.failed) continue
+      const err = String(row.lastError || '')
+      // На слабом интернете периодически возвращаем в очередь почти всё,
+      // кроме явного «валидационного» мусора (редко).
+      if (!err || isTransientFailError(err) || (Number(row.attempts) || 0) < 8) {
+        await retryPending(row.clientRef)
+        n++
+      }
+    }
+  } catch { /* ignore */ }
+  return n
+}
+
+function withWatchdog<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Синхронизация превысила время ожидания')), ms)
+    promise.then(
+      v => { clearTimeout(t); resolve(v) },
+      e => { clearTimeout(t); reject(e) },
+    )
+  })
 }
 
 export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
@@ -190,14 +235,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   flush: async () => {
     if (get().syncing) return
     // Не блокируем flush по navigator.onLine — сначала пробуем отправить
-    set({ syncing: true, lastError: null, progress: { done: 0, total: get().pending } })
+    set({ syncing: true, lastError: null, progress: { done: 0, total: Math.max(1, get().pending) } })
     try {
       const res = await flushQueue((done, total) => set({ progress: { done, total } }))
       let online = true
       if (res.stopped) {
-        online = await pingServer()
+        online = await pingServer({ quick: true })
       } else if (res.sent > 0) {
         noteApiOk()
+        online = true
       }
       set({
         syncing: false,
@@ -205,7 +251,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         lastSyncAtIso: res.sent > 0 ? new Date().toISOString() : get().lastSyncAtIso,
         progress: { done: 0, total: 0 },
         lastError: res.stopped && !online
-          ? 'Нет связи при отправке очереди'
+          ? 'Нет связи при отправке очереди — пробуем снова сами'
           : (res.remaining > 0 && res.failed > 0 ? 'Часть операций отклонена' : null),
       })
       await get().refresh()
@@ -214,14 +260,17 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         if (get().pending === 0 && online) {
           try {
             const { pullSyncChanges } = await import('./syncPull')
-            await pullSyncChanges()
+            await Promise.race([
+              pullSyncChanges(),
+              new Promise(resolve => setTimeout(resolve, 12000)),
+            ])
           } catch {
             try { await refetchEverything() } catch { /* следующий цикл */ }
           }
           try { await markLocalSyncAt() } catch { /* ignore */ }
         }
       }
-      if (get().pending > 0) {
+      if (get().pending > 0 || get().failed > 0) {
         scheduleReconnect(get, set, online ? 2000 : undefined)
       } else if (!online) {
         scheduleReconnect(get, set)
@@ -242,14 +291,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   queueSale: async (payload) => {
     await enqueueSale(payload)
     void get().refresh()
-    scheduleReconnect(get, set, 2000)
+    scheduleReconnect(get, set, 1500)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
     // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
     void get().refresh()
-    scheduleReconnect(get, set, 2000)
+    scheduleReconnect(get, set, 1500)
     return row
   },
 
@@ -270,58 +319,96 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   syncNow: async () => {
+    if (syncLock || get().syncing) {
+      scheduleReconnect(get, set, 2000)
+      return
+    }
     // Во время пробития/подтверждения не трогаем UI тяжёлым sync
     if (isCashierCritical()) {
       scheduleReconnect(get, set, 2500)
       return
     }
-    const alive = await pingServer({ quick: true })
-    if (!alive) {
-      set({ online: false, lastError: 'Сервер не отвечает — очередь пока ждёт' })
-      scheduleReconnect(get, set)
-      return
-    }
-    resetBackoff()
-    set({ online: true, lastError: null })
-    if (isCashierCritical()) {
-      scheduleReconnect(get, set, 2500)
-      return
-    }
-    // Сначала подтянуть смены (макс 3с) — иначе чеки падают с «Смена не найдена»
-    try {
-      const { softSyncPosAfterSale } = await import('./posStore')
-      await Promise.race([
-        softSyncPosAfterSale(),
-        new Promise(resolve => setTimeout(resolve, 3000)),
-      ])
-    } catch { /* ignore */ }
-    if (isCashierCritical()) {
-      scheduleReconnect(get, set, 2500)
-      return
-    }
-    // Вернуть в очередь отклонённые из‑за смены
-    try {
-      const list = await getPending()
-      for (const row of list) {
-        if (!row.failed) continue
-        const err = String(row.lastError || '')
-        if (/смена|связанная операция|не найдена/i.test(err)) {
-          await retryPending(row.clientRef)
-        }
-      }
+
+    syncLock = true
+    const run = async () => {
       await get().refresh()
-    } catch { /* ignore */ }
-    await get().flush()
-    if (isCashierCritical()) return
-    if (get().pending === 0 && get().online) {
-      try {
-        const { pullSyncChanges } = await import('./syncPull')
-        await pullSyncChanges()
-      } catch {
-        try { await refetchEverything() } catch { /* ignore */ }
+      const hasWork = get().pending > 0 || get().failed > 0
+
+      // Слабый интернет: ping часто «врёт» (timeout). Есть очередь — всё равно шлём.
+      const alive = await pingServer({ quick: !hasWork })
+      if (alive) {
+        resetBackoff()
+        set({ online: true, lastError: null })
+      } else if (!hasWork) {
+        set({ online: false, lastError: 'Сервер не отвечает — ждём связь, пробуем сами' })
+        scheduleReconnect(get, set)
+        return
+      } else {
+        // Очередь есть — не ставим «офлайн» навсегда, пробуем flush
+        set({ lastError: 'Слабая связь — пробуем отправить очередь…' })
       }
-      try { await markLocalSyncAt() } catch { /* ignore */ }
-      set({ lastSyncAtIso: new Date().toISOString() })
+
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2500)
+        return
+      }
+
+      // Вернуть failed в очередь (авто, без кнопки)
+      const revived = await autoRetryFailed()
+      if (revived > 0) await get().refresh()
+
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2500)
+        return
+      }
+
+      // Подтянуть смены коротко — иначе «Смена не найдена»
+      if (alive) {
+        try {
+          const { softSyncPosAfterSale } = await import('./posStore')
+          await Promise.race([
+            softSyncPosAfterSale(),
+            new Promise(resolve => setTimeout(resolve, 2500)),
+          ])
+        } catch { /* ignore */ }
+      }
+
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2500)
+        return
+      }
+
+      if (get().pending > 0) {
+        await get().flush()
+      } else if (alive) {
+        set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
+        try {
+          const { pullSyncChanges } = await import('./syncPull')
+          await Promise.race([
+            pullSyncChanges(),
+            new Promise(resolve => setTimeout(resolve, 10000)),
+          ])
+        } catch { /* ignore */ }
+        try { await markLocalSyncAt() } catch { /* ignore */ }
+      }
+
+      if (get().pending > 0 || get().failed > 0 || !get().online) {
+        scheduleReconnect(get, set, get().online ? 3000 : undefined)
+      }
+    }
+
+    try {
+      await withWatchdog(run(), SYNC_WATCHDOG_MS)
+    } catch (e) {
+      set({
+        syncing: false,
+        lastError: e instanceof Error ? e.message : 'Синхронизация прервана — повторим сами',
+        progress: { done: 0, total: 0 },
+      })
+      scheduleReconnect(get, set, 3000)
+    } finally {
+      syncLock = false
+      if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
     }
   },
 
@@ -330,23 +417,11 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     set({ started: true, online: isOnline() })
 
     const reconnect = async () => {
-      const alive = await pingServer()
-      if (!alive) {
-        set({ online: false })
-        scheduleReconnect(get, set)
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2500)
         return
       }
-      resetBackoff()
-      set({ online: true })
       await get().syncNow()
-      try {
-        const { pullSyncChanges } = await import('./syncPull')
-        // Не тянем snapshot, пока outbox не пуст
-        if (get().pending === 0) await pullSyncChanges()
-      } catch { /* ignore */ }
-      if (get().pending === 0) {
-        set({ lastSyncAtIso: new Date().toISOString() })
-      }
     }
 
     const goOnline = () => {
@@ -366,19 +441,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       const onWake = () => {
         void (async () => {
           if (isCashierCritical()) return
-          const alive = await pingServer({ quick: true })
-          if (!alive) {
-            set({ online: false })
-            scheduleReconnect(get, set)
-            return
-          }
-          const wasOffline = !get().online
           resetBackoff()
-          set({ online: true })
-          if (isCashierCritical()) return
-          if (wasOffline || get().pending > 0 || get().failed > 0) {
-            await get().syncNow()
-          }
+          await get().syncNow()
         })()
       }
       window.addEventListener('focus', onWake)
@@ -391,29 +455,22 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
     if (intervalId) clearInterval(intervalId)
     intervalId = setInterval(() => {
-      if (get().syncing) return
+      if (get().syncing || syncLock) return
       if (isCashierCritical()) return
       void (async () => {
-        const alive = await pingServer({ quick: true })
-        if (!alive) {
-          set({ online: false })
-          scheduleReconnect(get, set)
+        const hasWork = get().pending > 0 || get().failed > 0 || !get().online
+        if (!hasWork) {
+          const alive = await pingServer({ quick: true })
+          if (!alive) {
+            set({ online: false })
+            scheduleReconnect(get, set)
+          } else {
+            set({ online: true })
+          }
           return
         }
-        const wasOffline = !get().online
-        resetBackoff()
-        set({ online: true })
-        if (isCashierCritical()) return
-        if (wasOffline || get().pending > 0 || get().failed > 0) {
-          await get().syncNow()
-          if (wasOffline && !isCashierCritical()) {
-            try {
-              const { silentSyncFromServer } = await import('./offlineBootstrap')
-              await silentSyncFromServer()
-            } catch { /* ignore */ }
-          }
-        }
+        await get().syncNow()
       })()
-    }, POLL_MS)
+    }, POLL_BUSY_MS)
   },
 }))
