@@ -487,6 +487,10 @@ export async function createSaleSafe(
         if (!p) continue
         const dec = l.weightKg != null ? l.weightKg : l.qty
         ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+        try {
+          const { consumeLocalLayersFifo } = await import('./stockLayersLocal')
+          await consumeLocalLayersFifo(l.productId, dec)
+        } catch { /* ignore */ }
       }
     } catch { /* ignore */ }
 

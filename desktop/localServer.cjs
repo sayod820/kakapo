@@ -19,26 +19,81 @@ let startedUrl = ''
 
 /**
  * Каталог со сборкой:
- * 1) userData/ui-cache — свежий пакет с /updates/kassa-ui (после синка онлайн)
- * 2) resources/ui — то, что было в установщике
+ * 1) userData/ui-cache — только если скачан ПОСЛЕ этой версии установщика
+ * 2) resources/ui — то, что было в Setup.exe (приоритет после обновления)
  * 3) desktop/ui — dev
  */
 function resolveUiDir() {
   const candidates = []
+  let cacheDir = ''
+  let appVersion = ''
   try {
     const { app } = require('electron')
     if (app && typeof app.getPath === 'function') {
-      candidates.push(path.join(app.getPath('userData'), 'ui-cache'))
+      cacheDir = path.join(app.getPath('userData'), 'ui-cache')
+      try { appVersion = String(app.getVersion() || '') } catch { /* ignore */ }
     }
   } catch { /* вне Electron — пропускаем */ }
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'ui'))
-  candidates.push(path.join(__dirname, 'ui'))
+
+  const bundled = []
+  if (process.resourcesPath) bundled.push(path.join(process.resourcesPath, 'ui'))
+  bundled.push(path.join(__dirname, 'ui'))
+
+  const cacheOk = (() => {
+    try {
+      if (!cacheDir || !fs.existsSync(path.join(cacheDir, 'server.js'))) return false
+      // Кэш от старой установки не берём — иначе Setup.exe «не обновляет дизайн»
+      if (!appVersion) return true
+      let stamp = ''
+      try { stamp = fs.readFileSync(path.join(cacheDir, 'app-version.txt'), 'utf8').trim() } catch { /* empty */ }
+      return stamp === appVersion
+    } catch {
+      return false
+    }
+  })()
+
+  if (cacheOk) candidates.push(cacheDir)
+  candidates.push(...bundled)
+  // Запасной вариант: старый кэш без штампа (только если нет bundled)
+  if (cacheDir && !cacheOk) {
+    try {
+      if (fs.existsSync(path.join(cacheDir, 'server.js'))) candidates.push(cacheDir)
+    } catch { /* ignore */ }
+  }
+
   for (const dir of candidates) {
     try {
       if (fs.existsSync(path.join(dir, 'server.js'))) return dir
     } catch { /* нет доступа — пробуем следующий */ }
   }
   return ''
+}
+
+/** Сброс ui-cache при смене версии Setup — чтобы сразу шёл UI из установщика */
+function invalidateUiCacheOnAppUpdate() {
+  try {
+    const { app } = require('electron')
+    if (!app || typeof app.getPath !== 'function') return { cleared: false }
+    const userData = app.getPath('userData')
+    const ver = String(app.getVersion() || '')
+    const marker = path.join(userData, 'ui-cache-for-app.txt')
+    let prev = ''
+    try { prev = fs.readFileSync(marker, 'utf8').trim() } catch { /* ignore */ }
+    if (prev === ver) return { cleared: false, version: ver }
+    const cache = path.join(userData, 'ui-cache')
+    if (fs.existsSync(cache)) {
+      const bak = path.join(userData, `ui-cache-stale-${Date.now()}`)
+      try { fs.renameSync(cache, bak) } catch {
+        try { fs.rmSync(cache, { recursive: true, force: true }) } catch { /* ignore */ }
+      }
+      // не копим вечно
+      try { fs.rmSync(bak, { recursive: true, force: true }) } catch { /* ignore */ }
+    }
+    try { fs.writeFileSync(marker, `${ver}\n`, 'utf8') } catch { /* ignore */ }
+    return { cleared: true, version: ver, from: prev || null }
+  } catch (e) {
+    return { cleared: false, error: e?.message || String(e) }
+  }
 }
 
 function freePort() {
@@ -153,4 +208,11 @@ function localUiUrl() {
   return startedUrl
 }
 
-module.exports = { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl, resolveUiDir }
+module.exports = {
+  startLocalUi,
+  stopLocalUi,
+  restartLocalUi,
+  localUiUrl,
+  resolveUiDir,
+  invalidateUiCacheOnAppUpdate,
+}

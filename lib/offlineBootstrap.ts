@@ -237,6 +237,13 @@ export async function runLocalBootstrap(
     await withRetries('cards', () => syncCardsFromApi())
     report(5, 'cards', STEPS[4].label)
 
+    try {
+      const { api } = await import('./api')
+      const { cacheStockLayers } = await import('./stockLayersLocal')
+      const layers = await api.getAllStockLayers()
+      await cacheStockLayers(layers || [])
+    } catch { /* партии подтянутся при синке */ }
+
     // Сотрудники с паролями — обязательно до экрана логина
     try {
       await withRetries('employees', () => cacheEmployeesForOfflineLogin(), 3)
@@ -286,6 +293,19 @@ export async function silentSyncFromServer(): Promise<void> {
   if (!isOnline()) return
   const alive = await pingApiForBootstrap(4000)
   if (!alive) return
+  try {
+    const { getPending } = await import('./offline')
+    const pending = await getPending()
+    if (pending.some(r => !r.failed)) return
+  } catch { /* ignore */ }
+  try {
+    const { pullSyncChanges } = await import('./syncPull')
+    const res = await pullSyncChanges()
+    if (res.ok) {
+      await markLocalSyncAt()
+      return
+    }
+  } catch { /* fallback */ }
   const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
     import('./store'),
     import('./posStore'),
@@ -307,6 +327,14 @@ export async function silentSyncFromServer(): Promise<void> {
         const list = Array.isArray(data) ? data : []
         applyCategoriesLocal(list)
         await cacheCategories(list)
+      } catch { /* ignore */ }
+    })(),
+    (async () => {
+      try {
+        const { api } = await import('./api')
+        const { cacheStockLayers } = await import('./stockLayersLocal')
+        const layers = await api.getAllStockLayers()
+        await cacheStockLayers(layers || [])
       } catch { /* ignore */ }
     })(),
   ])

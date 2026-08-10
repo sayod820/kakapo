@@ -13,6 +13,7 @@ import {
   DATA_DIR,
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
+import { buildSyncChanges } from './syncChanges.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import {
@@ -819,6 +820,16 @@ app.get('/health', (_req, res) => {
       ? 'Подключите постоянный диск (DATA_DIR=/data) — иначе клиенты удаляются при каждом деплое'
       : undefined,
   })
+})
+
+/** Двусторонний синк: дельты после outbox flush на кассе */
+app.get('/sync/changes', (req, res) => {
+  try {
+    const since = String(req.query.since || '').trim()
+    res.json(buildSyncChanges(db, { since }))
+  } catch (e) {
+    res.status(500).json({ detail: e?.message || 'sync/changes failed' })
+  }
 })
 
 app.get('/', (_req, res) => {

@@ -25,6 +25,7 @@ export function hydrateOfflineCaches(): Promise<void> {
       hydrateClients(),
       hydrateCards(),
       hydrateCategories(),
+      hydrateStockLayers(),
     ])
   })()
   return hydrating
@@ -70,4 +71,11 @@ async function hydrateCategories() {
   const current = peekCategories()
   if (current.length && current.some(c => Number(c.id) > 0)) return
   applyCategoriesLocal(cached)
+}
+
+async function hydrateStockLayers() {
+  try {
+    const { readCachedStockLayers } = await import('./stockLayersLocal')
+    await readCachedStockLayers()
+  } catch { /* ignore */ }
 }

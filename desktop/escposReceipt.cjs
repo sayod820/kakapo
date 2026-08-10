@@ -424,12 +424,12 @@ function buildEscPosReceipt(sale, opts = {}) {
     for (const line of wrapName(footerNote, width)) txt(line)
   }
 
-  // XP-58C без автоотрезчика удерживает последние строки внутри тракта.
-  // Сначала завершаем текст, затем отдельной ESC-командой подаём бумагу:
-  // так футер не остаётся и не выходит в начале следующего чека.
-  chunks.push(encodeCp866('\n\n'))
-  cmd(ESC, 0x64, 0x06) // ESC d 6 — подать 6 строк после полного чека
-  cmd(GS, 0x56, 0x01) // на моделях с отрезчиком — резать только после подачи
+  // Равный зазор сверху/снизу (~3 строки).
+  // Раньше ESC d 6 + лишние \n давали большой низ; без ножа XP-58C эта подача
+  // оставалась на рулоне и становилась огромным верхом следующего чека.
+  const EDGE_LINES = 3
+  cmd(ESC, 0x64, EDGE_LINES)
+  cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }
 
@@ -450,7 +450,8 @@ function packEscPosLines(lines, opts = {}) {
     if (!t) continue
     txt(t)
   }
-  chunks.push(encodeCp866('\n\n\n'))
+  chunks.push(encodeCp866('\n'))
+  cmd(ESC, 0x64, 0x03)
   if (opts.cut !== false) cmd(GS, 0x56, 0x01)
   return Buffer.concat(chunks)
 }

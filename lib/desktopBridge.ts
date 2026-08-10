@@ -186,6 +186,27 @@ export type KakapoDesktopApi = {
     data: unknown
     updatedAtIso: string
   }>>
+  /** Двусторонний синк: сущности по kind+id */
+  localDbEntityPut?: (row: {
+    kind: string
+    id: string
+    data: unknown
+    updatedAtIso?: string
+    deleted?: boolean
+  }) => Promise<{ ok: boolean }>
+  localDbEntityGet?: (kind: string, id: string) => Promise<{ data: unknown; updatedAtIso: string } | null>
+  localDbEntityList?: (kind?: string, opts?: {
+    since?: string
+    limit?: number
+    includeDeleted?: boolean
+  }) => Promise<Array<{
+    kind: string
+    id: string
+    data: unknown
+    updatedAtIso: string
+    deleted?: boolean
+  }>>
+  localDbEntityDelete?: (kind: string, id: string) => Promise<{ ok: boolean }>
 }
 
 declare global {

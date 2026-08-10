@@ -441,6 +441,33 @@ export const api = {
   getProduct: (id: number) => request<Product>(`/products/${id}`),
   getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
   getAllStockLayers: () => request<ProductStockLayer[]>('/stock/layers'),
+  /** Двусторонний синк: дельты с курсором since (ISO) */
+  getSyncChanges: (since?: string) => {
+    const q = since ? `?since=${encodeURIComponent(since)}` : ''
+    return requestLongList<{
+      cursor: string
+      since: string | null
+      full: boolean
+      products: Product[]
+      categories: unknown[]
+      clients: unknown[]
+      cards: unknown[]
+      stockLayers: ProductStockLayer[]
+      pos: {
+        sales: unknown[]
+        shifts: unknown[]
+        receipts: unknown[]
+        writeoffs: unknown[]
+        revisions: unknown[]
+        financeMoves: unknown[]
+        expenses: unknown[]
+        suppliers: unknown[]
+        posPoints: unknown[]
+        cashiers: unknown[]
+        expiry: unknown[]
+      }
+    }>(`/sync/changes${q}`)
+  },
   reconcileStock: (data?: { createdBy?: string }) =>
     request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(
       '/stock/reconcile',

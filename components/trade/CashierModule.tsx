@@ -3754,9 +3754,22 @@ export default function CashierModule({
       const fromDigits = receiptBarcodeIndex.digits.get(qDigits)
       if (fromDigits != null) ids.add(fromDigits)
     }
-    if (!ids.size && (qDigits.length >= 8 || q.length >= 8)) {
+    // Полный штрихкод / несколько карточек с одним кодом
+    if (qDigits.length >= 8 || q.length >= 8) {
       for (const p of findProductsByExactBarcode(products, q)) {
         if (p.id != null) ids.add(Number(p.id))
+      }
+    }
+    // Хвост штрихкода (последние 4–7 цифр) — как на кассе
+    if (!ids.size && qDigits.length >= 4 && qDigits.length <= 13 && /^\d+$/.test(q.replace(/[\s\-]/g, ''))) {
+      for (const p of products) {
+        const id = Number(p.id)
+        if (!Number.isFinite(id)) continue
+        const hit = productBarcodes(p).some(c => {
+          const cd = c.replace(/\D/g, '')
+          return cd.length >= qDigits.length && cd.endsWith(qDigits)
+        })
+        if (hit) ids.add(id)
       }
     }
     return ids
@@ -4012,10 +4025,39 @@ export default function CashierModule({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiptQDeferred, products, receiptMatches, receiptBarcodeIndex])
 
+  function cashierDisplayName(s: { cashierId?: string; cashierName?: string; shiftId?: string } | null | undefined): string {
+    if (!s) return '—'
+    const raw = String(s.cashierName || '').trim()
+    const isGeneric = !raw || /^кассир$/i.test(raw)
+    if (!isGeneric) return raw
+    if (s.cashierId) {
+      const fromList = cashiers.find(c => c.id === s.cashierId)
+      if (fromList?.name?.trim()) return fromList.name.trim()
+    }
+    if (s.shiftId) {
+      const fromShift = shifts.find(x => x.id === s.shiftId)
+      const sn = String(fromShift?.cashierName || '').trim()
+      if (sn && !/^кассир$/i.test(sn)) return sn
+    }
+    if (s.cashierId) {
+      const fromShiftByCashier = shifts.find(x => x.cashierId === s.cashierId)
+      const sn = String(fromShiftByCashier?.cashierName || '').trim()
+      if (sn && !/^кассир$/i.test(sn)) return sn
+    }
+    const fallback = String(settings.cashierName || '').trim()
+    if (fallback && !/^кассир$/i.test(fallback)) return fallback
+    return raw || '—'
+  }
+
   function commitReceiptSearch(rawIn: string, opts?: { openIfUnique?: boolean }) {
     const raw = String(rawIn || '').trim()
     setReceiptQ(raw)
     if (!raw || !opts?.openIfUnique) return
+    // Скан товара — только фильтр списка чеков, не открываем единственный чек
+    const productIds = resolveReceiptProductIds(raw)
+    if (productIds.size > 0) return
+    const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(raw)
+    if (!looksOrderNum) return
     const hits = findReceiptsByQuery(raw, receiptFilter, receiptScope, 5)
     if (hits.length === 1) {
       setReturnQtyByIdx({})
@@ -10053,7 +10095,7 @@ export default function CashierModule({
                             : s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
                               ? 'Долг'
                               : 'Смеш.'
-                    const cashierShort = (s.cashierName || settings.cashierName || '—').split(' ')[0]
+                    const cashierLabel = cashierDisplayName(s)
                     return (
                       <button
                         key={s.id}
@@ -10072,7 +10114,7 @@ export default function CashierModule({
                             {Number.isNaN(when.getTime())
                               ? s.createdAtIso
                               : `${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${receiptScope === 'other' ? ` · ${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}` : ''}`}
-                            {` · ${cashierShort}`}
+                            {` · ${cashierLabel}`}
                             {s.clientName ? ` · ${s.clientName}` : ''}
                           </span>
                         </div>
@@ -10104,7 +10146,7 @@ export default function CashierModule({
                       : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
                   })()}</b></div>
                   <div><span>Смена</span><b>{shiftLabelForSale(receiptDetail)}</b></div>
-                  <div><span>Кассир</span><b>{receiptDetail.cashierName || settings.cashierName}</b></div>
+                  <div><span>Кассир</span><b>{cashierDisplayName(receiptDetail)}</b></div>
                   <div><span>Оплата</span><b>
                     {isSaleFullyReturned(receiptDetail)
                       ? 'Возврат'

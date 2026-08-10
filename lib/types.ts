@@ -110,6 +110,8 @@ export interface Product {
   hot: boolean
   organic?: boolean
   discount?: number
+  /** Метка для LWW при двустороннем синке */
+  updatedAtIso?: string
   photo?: string | null
   /** Миниатюра WebP (списки / касса) */
   photoThumb?: string | null

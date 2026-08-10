@@ -113,15 +113,32 @@ export default function WarehouseStockPanel({
   const [visibleCount, setVisibleCount] = useState(STOCK_PAGE)
 
   const loadLayers = useCallback(async () => {
-    if (!USE_API) {
-      setLayers([])
-      return
-    }
     setLayersLoading(true)
     try {
-      setLayers(await api.getAllStockLayers())
-    } catch {
-      setLayers([])
+      const { readCachedStockLayers, cacheStockLayers } = await import('@/lib/stockLayersLocal')
+      const cached = await readCachedStockLayers()
+      if (cached.length) setLayers(cached)
+
+      if (!USE_API) {
+        if (!cached.length) setLayers([])
+        return
+      }
+
+      try {
+        const { isOnline } = await import('@/lib/offline')
+        const { useOfflineSync } = await import('@/lib/offlineSync')
+        const online = isOnline() && useOfflineSync.getState().online
+        const pending = useOfflineSync.getState().pending
+        if (online && pending === 0) {
+          const remote = await api.getAllStockLayers()
+          setLayers(remote || [])
+          await cacheStockLayers(remote || [])
+        } else if (!cached.length) {
+          setLayers([])
+        }
+      } catch {
+        if (!cached.length) setLayers([])
+      }
     } finally {
       setLayersLoading(false)
     }

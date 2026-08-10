@@ -18,7 +18,7 @@ const {
   DEFAULT_RECEIPT_TEMPLATE,
   normalizeReceiptTemplate,
 } = require('./receiptTemplate.cjs')
-const { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl } = require('./localServer.cjs')
+const { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl, invalidateUiCacheOnAppUpdate } = require('./localServer.cjs')
 const { installUpdaterIpc } = require('./updater.cjs')
 const { installLocalDbIpc, initLocalDb } = require('./localDb.cjs')
 const { syncOfflineUi } = require('./uiSync.cjs')
@@ -1277,6 +1277,12 @@ app.whenReady().then(async () => {
     installLocalDbIpc()
   } catch (e) {
     bootLog('localDb', e?.stack || String(e))
+  }
+  try {
+    const inv = invalidateUiCacheOnAppUpdate()
+    bootLog('ui-cache invalidate', inv)
+  } catch (e) {
+    bootLog('ui-cache invalidate fail', e?.message || String(e))
   }
   // Локальный UI греем сразу — к открытию окна уже почти готов
   void startLocalUi({ timeoutMs: 25000 }).catch(err => bootLog('early local UI', err?.message || String(err)))

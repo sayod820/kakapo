@@ -182,6 +182,18 @@ export default function ReportsModule() {
       return
     }
     try {
+      const { useOfflineSync } = await import('@/lib/offlineSync')
+      const { isOnline } = await import('@/lib/offline')
+      const online = isOnline() && useOfflineSync.getState().online
+      if (!online) {
+        const { refreshLocalFinanceTruth } = await import('@/lib/localReports')
+        const local = await refreshLocalFinanceTruth(apiQuery)
+        if (local) {
+          setTruth(local)
+          setTruthLocal(true)
+          return
+        }
+      }
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
       setTruthLocal(false)

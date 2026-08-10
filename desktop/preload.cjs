@@ -52,4 +52,8 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbMirrorPut: (row) => ipcRenderer.invoke('desktop:localDbMirrorPut', row),
   localDbMirrorGet: (kind, id) => ipcRenderer.invoke('desktop:localDbMirrorGet', kind, id),
   localDbMirrorList: (kind, limit) => ipcRenderer.invoke('desktop:localDbMirrorList', kind, limit),
+  localDbEntityPut: (row) => ipcRenderer.invoke('desktop:localDbEntityPut', row),
+  localDbEntityGet: (kind, id) => ipcRenderer.invoke('desktop:localDbEntityGet', kind, id),
+  localDbEntityList: (kind, opts) => ipcRenderer.invoke('desktop:localDbEntityList', kind, opts),
+  localDbEntityDelete: (kind, id) => ipcRenderer.invoke('desktop:localDbEntityDelete', kind, id),
 })

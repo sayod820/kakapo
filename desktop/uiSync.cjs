@@ -210,6 +210,13 @@ async function syncOfflineUi(userDataPath, { log = () => {} } = {}) {
       }
       rmrf(backup)
       fs.writeFileSync(versionPath(userDataPath), `${version}\n`, 'utf8')
+      try {
+        const { app } = require('electron')
+        const appVer = app && typeof app.getVersion === 'function' ? String(app.getVersion() || '') : ''
+        if (appVer) {
+          fs.writeFileSync(path.join(finalDir, 'app-version.txt'), `${appVer}\n`, 'utf8')
+        }
+      } catch { /* ignore */ }
       log('ui-sync ready', version)
       return { updated: true, version }
     } catch (err) {

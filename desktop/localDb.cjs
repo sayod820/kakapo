@@ -133,6 +133,16 @@ function openSqlite() {
       PRIMARY KEY (kind, id)
     );
     CREATE INDEX IF NOT EXISTS idx_mirror_kind_updated ON mirror(kind, updated_at);
+    CREATE TABLE IF NOT EXISTS entities (
+      kind TEXT NOT NULL,
+      id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (kind, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entities_kind_updated ON entities(kind, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_entities_updated ON entities(updated_at);
   `)
 }
 
@@ -250,6 +260,123 @@ function sqlMetaPatch(patch) {
   return sqlMetaGetAll()
 }
 
+function sqlEntityPut(kind, id, data, updatedAt, deleted) {
+  const k = String(kind || '').trim()
+  const i = String(id || '').trim()
+  if (!k || !i) return false
+  const stamp = String(updatedAt || new Date().toISOString())
+  const del = deleted ? 1 : 0
+  db.prepare(`
+    INSERT INTO entities(kind, id, payload, updated_at, deleted) VALUES(?, ?, ?, ?, ?)
+    ON CONFLICT(kind, id) DO UPDATE SET
+      payload = excluded.payload,
+      updated_at = excluded.updated_at,
+      deleted = excluded.deleted
+  `).run(k, i, JSON.stringify(data == null ? null : data), stamp, del)
+  return true
+}
+
+function sqlEntityGet(kind, id) {
+  const row = db.prepare('SELECT payload, updated_at, deleted FROM entities WHERE kind = ? AND id = ?')
+    .get(String(kind || ''), String(id || ''))
+  if (!row || row.deleted) return null
+  try { return { data: JSON.parse(row.payload), updatedAtIso: row.updated_at } } catch { return null }
+}
+
+function sqlEntityList(kind, opts = {}) {
+  const lim = Math.max(1, Math.min(50000, Number(opts.limit) || 20000))
+  const since = opts.since ? String(opts.since) : ''
+  const includeDeleted = !!opts.includeDeleted
+  let rows
+  if (kind && since) {
+    rows = db.prepare(`
+      SELECT kind, id, payload, updated_at, deleted FROM entities
+      WHERE kind = ? AND updated_at > ?
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(String(kind), since, lim)
+  } else if (kind) {
+    rows = db.prepare(`
+      SELECT kind, id, payload, updated_at, deleted FROM entities
+      WHERE kind = ? ${includeDeleted ? '' : 'AND deleted = 0'}
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(String(kind), lim)
+  } else if (since) {
+    rows = db.prepare(`
+      SELECT kind, id, payload, updated_at, deleted FROM entities
+      WHERE updated_at > ?
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(since, lim)
+  } else {
+    rows = db.prepare(`
+      SELECT kind, id, payload, updated_at, deleted FROM entities
+      WHERE ${includeDeleted ? '1=1' : 'deleted = 0'}
+      ORDER BY updated_at ASC LIMIT ?
+    `).all(lim)
+  }
+  return rows.map(r => {
+    let data = null
+    try { data = JSON.parse(r.payload) } catch { data = null }
+    return {
+      kind: r.kind,
+      id: r.id,
+      data,
+      updatedAtIso: r.updated_at,
+      deleted: !!r.deleted,
+    }
+  })
+}
+
+function sqlEntityDelete(kind, id) {
+  return sqlEntityPut(kind, id, null, new Date().toISOString(), true)
+}
+
+function sqlEntityCount(kind) {
+  if (kind) {
+    const row = db.prepare('SELECT COUNT(*) AS n FROM entities WHERE kind = ? AND deleted = 0').get(String(kind))
+    return Number(row && row.n) || 0
+  }
+  const row = db.prepare('SELECT COUNT(*) AS n FROM entities WHERE deleted = 0').get()
+  return Number(row && row.n) || 0
+}
+
+/** Одноразовая выгрузка тяжёлых KV → entities (продукты / клиенты / партии) */
+function migrateKvCatalogsToEntitiesIfNeeded() {
+  const meta = sqlMetaGetAll()
+  if (meta.entitiesMigratedV1) return false
+  const stamp = new Date().toISOString()
+  const tx = db.transaction(() => {
+    const products = sqlKvGet('catalog_products')
+    if (Array.isArray(products)) {
+      for (const p of products) {
+        const id = String(p && p.id != null ? p.id : '')
+        if (!id) continue
+        sqlEntityPut('product', id, p, p.updatedAtIso || p.updatedAt || stamp, false)
+      }
+    }
+    const clients = sqlKvGet('catalog_clients')
+    if (Array.isArray(clients)) {
+      for (const c of clients) {
+        const id = String(c && c.id != null ? c.id : '')
+        if (!id) continue
+        sqlEntityPut('client', id, c, c.updatedAtIso || c.updatedAt || stamp, false)
+      }
+    }
+    const layers = sqlKvGet('catalog_stock_layers')
+    if (Array.isArray(layers)) {
+      for (const layer of layers) {
+        const rid = String(layer && layer.receiptId != null ? layer.receiptId : '')
+        const pid = String(layer && layer.productId != null ? layer.productId : '')
+        if (!rid || !pid) continue
+        sqlEntityPut('stock_layer', `${rid}:${pid}`, layer, layer.createdAtIso || stamp, false)
+      }
+    }
+    sqlMetaSet('entitiesMigratedV1', true)
+    if (!meta.syncCursor) sqlMetaSet('syncCursor', '')
+  })
+  tx()
+  return true
+}
+
 function renameAside(file) {
   try {
     const p = dbPath(file)
@@ -364,6 +491,9 @@ function initLocalDb() {
   }
   openSqlite()
   migrateJsonToSqliteIfNeeded()
+  try { migrateKvCatalogsToEntitiesIfNeeded() } catch (e) {
+    console.warn('[localDb] entities migrate', e && e.message)
+  }
   if (!hasInstallOkFile() && catalogReady()) writeInstallOk()
   return {
     root: rootDir,
@@ -372,6 +502,7 @@ function initLocalDb() {
     bootstrapComplete: isSetupComplete(),
     kvKeys: sqlKvKeysCount(),
     queueLen: sqlQueueLen(),
+    entityCount: sqlEntityCount(),
   }
 }
 
@@ -389,6 +520,8 @@ function installLocalDbIpc() {
     kvKeys: sqlKvKeysCount(),
     queueLen: sqlQueueLen(),
     mirrorCount: sqlMirrorCount(),
+    entityCount: sqlEntityCount(),
+    syncCursor: sqlMetaGetAll().syncCursor || '',
     lastBootstrapAt: sqlMetaGetAll().lastBootstrapAt || null,
     lastSyncAt: sqlMetaGetAll().lastSyncAt || null,
   }))
@@ -491,6 +624,49 @@ function installLocalDbIpc() {
     } catch (e) {
       console.error('[localDb] mirrorList', e)
       return []
+    }
+  })
+
+  ipcMain.handle('desktop:localDbEntityPut', (_e, row) => {
+    try {
+      const ok = sqlEntityPut(
+        row && row.kind,
+        row && row.id,
+        row && row.data,
+        row && (row.updatedAtIso || row.updatedAt),
+        !!(row && row.deleted),
+      )
+      return { ok: !!ok }
+    } catch (e) {
+      console.error('[localDb] entityPut', e)
+      return { ok: false }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbEntityGet', (_e, kind, id) => {
+    try {
+      return sqlEntityGet(kind, id)
+    } catch (e) {
+      console.error('[localDb] entityGet', e)
+      return null
+    }
+  })
+
+  ipcMain.handle('desktop:localDbEntityList', (_e, kind, opts) => {
+    try {
+      return sqlEntityList(kind, opts && typeof opts === 'object' ? opts : {})
+    } catch (e) {
+      console.error('[localDb] entityList', e)
+      return []
+    }
+  })
+
+  ipcMain.handle('desktop:localDbEntityDelete', (_e, kind, id) => {
+    try {
+      return { ok: !!sqlEntityDelete(kind, id) }
+    } catch (e) {
+      console.error('[localDb] entityDelete', e)
+      return { ok: false }
     }
   })
 }

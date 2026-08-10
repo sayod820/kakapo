@@ -50,6 +50,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
             <div className="s">
               {waiting.length > 0 ? `Ждут отправки: ${waiting.length}` : 'Всё отправлено'}
               {failed.length > 0 ? ` · требуют разбора: ${failed.length}` : ''}
+              {' · после отправки касса подтянет изменения с сервера'}
             </div>
           </div>
           <button type="button" className="k-btn k-btn-s" onClick={onClose}>Закрыть</button>

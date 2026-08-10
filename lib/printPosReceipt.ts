@@ -499,7 +499,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     width:100%;
     max-width:384px;
     background:#fff;
-    padding:10px 12px 14px;
+    padding:12px 12px 12px;
     font-family:'Courier New',Courier,monospace;
     font-weight:500;
     font-size:13px;

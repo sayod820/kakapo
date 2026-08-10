@@ -106,8 +106,14 @@ async function pingServer(opts?: { quick?: boolean }): Promise<boolean> {
   return false
 }
 
-/** Полное обновление данных после возврата связи */
+/** Полное обновление данных после возврата связи — через pull дельт */
 async function refetchEverything() {
+  try {
+    const { pullSyncChanges } = await import('./syncPull')
+    const res = await pullSyncChanges({ forceFull: false })
+    if (res.ok) return
+    if (res.skipped === 'pending') return
+  } catch { /* fallback ниже */ }
   const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
     import('./store'),
     import('./posStore'),
@@ -203,9 +209,17 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           : (res.remaining > 0 && res.failed > 0 ? 'Часть операций отклонена' : null),
       })
       await get().refresh()
-      if (res.sent > 0) {
-        try { await refetchEverything() } catch { /* следующий цикл */ }
-        try { await markLocalSyncAt() } catch { /* ignore */ }
+      if (res.sent > 0 || (res.remaining === 0 && online)) {
+        // Только после пустой/успешной очереди — входящий pull (не overwrite поверх pending)
+        if (get().pending === 0 && online) {
+          try {
+            const { pullSyncChanges } = await import('./syncPull')
+            await pullSyncChanges()
+          } catch {
+            try { await refetchEverything() } catch { /* следующий цикл */ }
+          }
+          try { await markLocalSyncAt() } catch { /* ignore */ }
+        }
       }
       if (get().pending > 0) {
         scheduleReconnect(get, set, online ? 2000 : undefined)
@@ -299,7 +313,12 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     await get().flush()
     if (isCashierCritical()) return
     if (get().pending === 0 && get().online) {
-      try { await refetchEverything() } catch { /* ignore */ }
+      try {
+        const { pullSyncChanges } = await import('./syncPull')
+        await pullSyncChanges()
+      } catch {
+        try { await refetchEverything() } catch { /* ignore */ }
+      }
       try { await markLocalSyncAt() } catch { /* ignore */ }
       set({ lastSyncAtIso: new Date().toISOString() })
     }
@@ -320,8 +339,9 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       set({ online: true })
       await get().syncNow()
       try {
-        const { silentSyncFromServer } = await import('./offlineBootstrap')
-        await silentSyncFromServer()
+        const { pullSyncChanges } = await import('./syncPull')
+        // Не тянем snapshot, пока outbox не пуст
+        if (get().pending === 0) await pullSyncChanges()
       } catch { /* ignore */ }
       if (get().pending === 0) {
         set({ lastSyncAtIso: new Date().toISOString() })

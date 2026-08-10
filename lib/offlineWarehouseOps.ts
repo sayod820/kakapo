@@ -133,6 +133,10 @@ async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
       : undefined)
   }
   patchSupplierDebt(receipt.supplierId || undefined, sign * (Number(receipt.debtAdded) || 0))
+  try {
+    const { applyLocalReceiptLayers } = await import('./stockLayersLocal')
+    await applyLocalReceiptLayers(receipt, sign)
+  } catch { /* ignore */ }
 }
 
 export async function createStockReceiptSafe(
@@ -231,6 +235,12 @@ export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<
 async function applyWriteoffStock(items: { productId: number; qty: number }[], sign: 1 | -1) {
   for (const it of items) {
     await bumpProductStock(it.productId, sign * -(Number(it.qty) || 0))
+    if (sign > 0) {
+      try {
+        const { consumeLocalLayersFifo } = await import('./stockLayersLocal')
+        await consumeLocalLayersFifo(it.productId, Number(it.qty) || 0)
+      } catch { /* ignore */ }
+    }
   }
 }
 

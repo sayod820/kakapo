@@ -80,6 +80,7 @@ export async function saveProductSafe(
       hot: !!cleaned.hot,
       old: null,
       discount: 0,
+      updatedAtIso: new Date().toISOString(),
     } as Product
 
     const payload = {
@@ -97,6 +98,10 @@ export async function saveProductSafe(
       : [...products, product]
     persistLocalCatalog(next)
     shadowMirrorPut('product', String(product.id), product)
+    try {
+      const { entityPut } = await import('./localEntities')
+      await entityPut('product', String(product.id), product, { updatedAtIso: (product as any).updatedAtIso })
+    } catch { /* ignore */ }
     return product
   }
 
