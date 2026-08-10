@@ -1014,7 +1014,23 @@ export const POS_MOCK_CSS = `
   .pos-root button.action-chip:disabled{opacity:.35;pointer-events:none;}
 
   .cart-totals{padding:12px 14px;border-top:1px solid var(--border);flex-shrink:0;}
-  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin-bottom:6px;}
+  .tot-grid{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+    margin-bottom:4px;
+  }
+  .tot-cell{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    text-align:center;padding:8px 6px;border-radius:12px;
+    background:var(--surface2);border:1px solid var(--border);min-width:0;
+  }
+  .tot-cell .tot-lbl{font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);}
+  .tot-cell .tot-val{
+    font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:900;color:var(--t1);
+    line-height:1.1;overflow-wrap:anywhere;
+  }
+  .tot-cell.disc .tot-val{color:var(--red);}
+  .tot-cell.disc.muted{opacity:.55;}
+  .tot-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--t2);margin:8px 0 2px;}
   .tot-row.disc span:last-child{color:var(--red);}
   .tot-row.disc.muted{opacity:.55;}
   .tot-final{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;margin-top:6px;border-top:1px dashed var(--border);gap:12px;}

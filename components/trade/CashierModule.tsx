@@ -7636,13 +7636,26 @@ export default function CashierModule({
           </div>
 
           <div className="cart-totals">
-            <div className="tot-row"><span>Позиций</span><span>{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span></div>
-            <div className="tot-row"><span>Сумма</span><span>{subtotalGross.toFixed(2)}</span></div>
-            <div className={`tot-row disc ${itemDiscAmount + discAmount > 0 ? '' : 'muted'}`}>
-              <span>Скидки</span>
-              <span>−{(itemDiscAmount + discAmount).toFixed(2)}</span>
+            <div className="tot-grid">
+              <div className="tot-cell">
+                <span className="tot-lbl">Позиций</span>
+                <span className="tot-val">{cart.reduce((s, l) => s + (l.weightKg != null ? 1 : l.qty), 0)}</span>
+              </div>
+              <div className="tot-cell">
+                <span className="tot-lbl">Сумма</span>
+                <span className="tot-val">{subtotalGross.toFixed(2)}</span>
+              </div>
+              <div className={`tot-cell disc ${itemDiscAmount + discAmount > 0 ? '' : 'muted'}`}>
+                <span className="tot-lbl">Скидки</span>
+                <span className="tot-val">−{(itemDiscAmount + discAmount).toFixed(2)}</span>
+              </div>
             </div>
-            {usedBonus > 0 && <div className="tot-row disc"><span>Списано бонусами</span><span>−{usedBonus.toFixed(2)}</span></div>}
+            {usedBonus > 0 && (
+              <div className="tot-row disc">
+                <span>Списано бонусами</span>
+                <span>−{usedBonus.toFixed(2)}</span>
+              </div>
+            )}
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
