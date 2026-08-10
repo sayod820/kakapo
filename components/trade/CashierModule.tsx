@@ -1940,13 +1940,11 @@ export default function CashierModule({
 
   const search = q
   const deferredSearch = useDeferredValue(search)
-  /** Сетка не фильтруется по штрихкоду/PLU — иначе при скане товары мигают. */
-  const gridSearch = useMemo(() => {
-    const s = deferredSearch.trim()
-    if (!s) return ''
-    if (/^\d+$/.test(s)) return ''
-    return s
-  }, [deferredSearch])
+  /**
+   * Сетка фильтрует и по названию, и по хвосту штрихкода (последние цифры).
+   * Полный скан USB не пишет в `q` во время burst — мигания нет.
+   */
+  const gridSearch = useMemo(() => deferredSearch.trim(), [deferredSearch])
   const favSet = useMemo(() => new Set(favIds), [favIds])
   const inStockProducts = useMemo(
     () => products
