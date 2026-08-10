@@ -778,6 +778,14 @@ export default function CashierModule({
   const scanAccumRef = useRef('')
   /** Буфер скана с первого символа (до confirm burst) — не теряем char до onChange */
   const scanTypeBufRef = useRef('')
+  /** Сколько раз удлиняли ожидание из‑за неполного штрихкода */
+  const scanExtendRef = useRef(0)
+
+  /** Пауза между символами USB/BT-сканера: раньше 70/180мс резали код пополам → «не найден». */
+  const SCAN_IDLE_MS = 160
+  const SCAN_GAP_FAST_MS = 85
+  const SCAN_GAP_BURST_MS = 150
+  const SCAN_GAP_RESET_MS = 380
 
   /** USB-сканер почти всегда шлёт цифры; быстрый набор названия — буквы. */
   function isScannerCodeText(raw: string): boolean {
@@ -787,6 +795,22 @@ export default function CashierModule({
     if (/^\d+$/.test(t)) return true
     // Редкие коды с дефисом, без букв
     if (/^[\d-]+$/.test(t) && t.replace(/\D/g, '').length >= 6) return true
+    return false
+  }
+
+  function looksIncompleteScannerCode(raw: string): boolean {
+    const digits = String(raw || '').replace(/\D/g, '')
+    // EAN-8/13, Code128 часто 8–14; обрезок 4–12 без точного hit — ждём остаток
+    return digits.length >= 4 && digits.length < 12
+  }
+
+  function hasExactProductCode(raw: string): boolean {
+    const t = String(raw || '').trim()
+    if (!t) return false
+    const digits = t.replace(/\D/g, '')
+    if (findProductsByExactBarcode(products, t).length) return true
+    if (productCodeIndex.get(t) || (digits && productCodeIndex.get(digits))) return true
+    if (digits.length >= 1 && digits.length <= 4 && productCodeIndex.get(`plu:${digits}`)) return true
     return false
   }
   const [showFav, setShowFav] = useState(false)
@@ -1027,7 +1051,6 @@ export default function CashierModule({
   const [layerPickBusy, setLayerPickBusy] = useState(false)
   /** На телефоне: товары или чек (полноэкранные панели) */
   const [posMobPanel, setPosMobPanel] = useState<'shop' | 'cart'>('shop')
-  const [clockNow, setClockNow] = useState(() => new Date())
   const [headerNow, setHeaderNow] = useState(() => new Date())
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
@@ -1157,11 +1180,6 @@ export default function CashierModule({
   useEffect(() => {
     onSurfaceChange?.(posSurface)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync initial surface to TradeApp once
-
-  useEffect(() => {
-    const id = window.setInterval(() => setClockNow(new Date()), 1000)
-    return () => window.clearInterval(id)
-  }, [])
 
   useEffect(() => { startNetSync() }, [startNetSync])
 
@@ -1864,7 +1882,13 @@ export default function CashierModule({
           return
         }
 
-        if (gap >= 180) {
+        // Продолжаем текущий штрихкод, если уже копим цифры и пауза не огромная
+        const pendingDigits = String(scanTypeBufRef.current || scanAccumRef.current || '').replace(/\D/g, '')
+        const continueBurst =
+          (scanBurstRef.current || pendingDigits.length >= 3)
+          && gap < 520
+
+        if (!continueBurst && gap >= SCAN_GAP_RESET_MS) {
           scanBurstRef.current = false
           scanAccumRef.current = ''
           scanTypeBufRef.current = e.key
@@ -1874,10 +1898,10 @@ export default function CashierModule({
           focusProductSearch()
           return
         }
-        const fast = gap < 50 || (scanBurstRef.current && gap < 90)
+        const fast = continueBurst || gap < SCAN_GAP_FAST_MS || (scanBurstRef.current && gap < SCAN_GAP_BURST_MS)
         if (fast) {
           const prior = String(qRef.current || '')
-          if (/[^\d\s-]/.test(prior)) {
+          if (/[^\d\s-]/.test(prior) && !scanBurstRef.current && pendingDigits.length < 3) {
             scanBurstRef.current = false
             scanAccumRef.current = ''
             scanTypeBufRef.current = ''
@@ -1892,6 +1916,7 @@ export default function CashierModule({
           scanTypeBufRef.current += e.key
           scanAccumRef.current = scanTypeBufRef.current
           qRef.current = scanAccumRef.current
+          scanExtendRef.current = 0
           if (scanCommitTimer.current) window.clearTimeout(scanCommitTimer.current)
           scanCommitTimer.current = window.setTimeout(() => {
             scanCommitTimer.current = null
@@ -1905,7 +1930,7 @@ export default function CashierModule({
               return
             }
             commitPosSearchRef.current(live, { fromScanner: true })
-          }, 70)
+          }, SCAN_IDLE_MS)
           return
         }
         // Средний темп — обычный ручной ввод
@@ -3046,6 +3071,16 @@ export default function CashierModule({
     if (!productHit) {
       // Скан / длинный цифровой код — блокируем кассу
       const looksNumericCode = digits.length >= 6 && /^\d[\d\s\-]*$/.test(raw)
+      // Неполный штрих (сканер ещё шлёт) — не пугаем «не найден» и не стопорим кассу
+      if (fromScanner && looksIncompleteScannerCode(raw) && !hasExactProductCode(raw) && scanExtendRef.current < 2) {
+        scanAccumRef.current = raw.replace(/\D/g, '')
+        scanTypeBufRef.current = scanAccumRef.current
+        scanBurstRef.current = true
+        qRef.current = scanAccumRef.current
+        setQ(scanAccumRef.current)
+        scheduleScanCommit(SCAN_IDLE_MS)
+        return false
+      }
       if (fromScanner || looksNumericCode) {
         openScanBlockAlert(
           'Товар не найден',
@@ -3101,8 +3136,20 @@ export default function CashierModule({
         scanBurstRef.current = false
         scanAccumRef.current = ''
         scanTypeBufRef.current = ''
+        scanExtendRef.current = 0
         return
       }
+      // Неполный код без точного hit — ждём ещё немного (сканер досылает хвост)
+      if (
+        looksIncompleteScannerCode(live)
+        && !hasExactProductCode(live)
+        && scanExtendRef.current < 2
+      ) {
+        scanExtendRef.current += 1
+        scheduleScanCommit(SCAN_IDLE_MS)
+        return
+      }
+      scanExtendRef.current = 0
       commitPosSearch(live, { fromScanner: true })
     }, delayMs)
   }
@@ -3143,23 +3190,30 @@ export default function CashierModule({
         scanBurstRef.current = false
         scanAccumRef.current = ''
         scanTypeBufRef.current = ''
+        scanExtendRef.current = 0
         return
       }
 
-      // Пауза ≥180мс — новый ввод цифр
-      if (gap >= 180) {
+      const pendingDigits = String(scanTypeBufRef.current || scanAccumRef.current || '').replace(/\D/g, '')
+      const continueBurst =
+        (scanBurstRef.current || pendingDigits.length >= 3)
+        && gap < 520
+
+      // Пауза большая и это не продолжение штрихкода — новый ввод
+      if (!continueBurst && gap >= SCAN_GAP_RESET_MS) {
         scanBurstRef.current = false
         scanAccumRef.current = ''
         scanTypeBufRef.current = e.key
+        scanExtendRef.current = 0
         // дальше onChange обновит поле — без preventDefault
         return
       }
       // Быстрый поток цифр = USB-сканер (не путать с набором названия)
-      const fast = gap < 50 || (scanBurstRef.current && gap < 90)
+      const fast = continueBurst || gap < SCAN_GAP_FAST_MS || (scanBurstRef.current && gap < SCAN_GAP_BURST_MS)
       if (fast) {
         const prior = String(qRef.current || searchInputRef.current?.value || '')
         // В поле уже название буквами — продолжаем ручной ввод
-        if (/[^\d\s-]/.test(prior)) {
+        if (/[^\d\s-]/.test(prior) && !scanBurstRef.current && pendingDigits.length < 3) {
           scanBurstRef.current = false
           scanAccumRef.current = ''
           scanTypeBufRef.current = ''
@@ -3172,14 +3226,16 @@ export default function CashierModule({
         scanTypeBufRef.current += e.key
         scanAccumRef.current = scanTypeBufRef.current
         qRef.current = scanAccumRef.current
+        scanExtendRef.current = 0
         e.preventDefault()
-        scheduleScanCommit(70)
+        scheduleScanCommit(SCAN_IDLE_MS)
         return
       }
       // Средний темп цифр — ручной PLU/поиск
       scanBurstRef.current = false
       scanAccumRef.current = ''
       scanTypeBufRef.current = ''
+      scanExtendRef.current = 0
     }
 
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -3202,6 +3258,7 @@ export default function CashierModule({
       scanTypeBufRef.current = ''
       scanAccumRef.current = ''
       scanBurstRef.current = false
+      scanExtendRef.current = 0
       // Enter по названию — пробитие только если однозначный код/штрих, иначе фильтр уже в сетке
       commitPosSearch(raw, { fromScanner: isScanner })
     }
@@ -7263,15 +7320,6 @@ export default function CashierModule({
                   {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
                 </button>
               )}
-            </div>
-          </div>
-
-          <div className="top-clock" aria-live="polite">
-            <div className="tm">
-              {clockNow.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </div>
-            <div className="dt">
-              {clockNow.toLocaleDateString('ru-RU', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
             </div>
           </div>
 
