@@ -410,8 +410,16 @@ export const POS_MOCK_CSS = `
   }
   .searchpill .search-clear:hover{background:var(--border2);color:var(--t1);}
   .pos-root[data-theme="light"] .searchpill:focus-within{box-shadow:0 0 0 3px rgba(18,155,69,.12);}
-  .scan-tag{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;font-size:12px;color:var(--t2);background:var(--surface);border:1px solid var(--border);flex-shrink:0;padding:0;cursor:pointer;line-height:1;}
-  .scan-tag:active{transform:scale(0.94);}
+  /* Камера в поиске — только на мобилке (на ПК USB-сканер) */
+  .scan-tag{display:none;}
+  @media (max-width:900px){
+    .scan-tag{
+      display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+      border-radius:8px;font-size:12px;color:var(--t2);background:var(--surface);
+      border:1px solid var(--border);flex-shrink:0;padding:0;cursor:pointer;line-height:1;
+    }
+    .scan-tag:active{transform:scale(0.94);}
+  }
 
   .order-tabs{
     flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;

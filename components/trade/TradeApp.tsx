@@ -772,11 +772,7 @@ const CSS = `
     align-items:center;justify-content:center;box-shadow:none
   }
   .k-top-scan-btn:active{background:var(--border);color:var(--text)}
-  .k-search.has-scan input{padding-right:42px}
-  .k-search.has-scan:has(.k-search-clear) input{padding-right:74px}
-  .k-search.has-scan:has(.k-search-clear) .k-top-scan-btn{right:38px}
-  .k-cam-scan-btn{display:none}
-  .k-prod-pick .k-cam-scan-btn{display:flex}
+  .k-cam-scan-btn{display:none!important}
   .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
   .k-label-search-row .k-inp{flex:1;min-width:0;margin-bottom:0!important}
   .k-receipt-modal-bg{
