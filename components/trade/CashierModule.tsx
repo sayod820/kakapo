@@ -7500,13 +7500,17 @@ export default function CashierModule({
                     <div className="meta">
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
-                      <span>{`${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}</span>
+                      <span>
+                        {lineDisc > 0
+                          ? `${(Math.round(line.price * (1 - lineDisc / 100) * 100) / 100).toFixed(2)} ЅМ/${cartLineUnit(line)}`
+                          : `${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}
+                      </span>
                       {line.preferRetailPrice != null ? (
                         <span className="line-batch">FIFO</span>
                       ) : line.receiptId && line.supplierName ? (
                         <span className="line-batch">{line.supplierName}</span>
                       ) : null}
-                      {lineDisc > 0 ? <span className="line-disc">−{lineDisc}%</span> : null}
+                      {lineDisc > 0 ? <span className="line-disc">было {line.price.toFixed(2)} · −{lineDisc}%</span> : null}
                     </div>
                   </div>
                   <button
@@ -8439,17 +8443,20 @@ export default function CashierModule({
         const raw = Number(discBuf) || 0
         const minPrice = Math.round(sumBase * 0.1 * 100) / 100
         const previewPct = discInputKind === 'sum'
-          ? (sumBase > 0.0001
+          ? (sumBase > 0.0001 && discBuf !== ''
             ? Math.min(90, Math.max(0, Math.round((sumBase - Math.min(sumBase, Math.max(0, raw))) / sumBase * 10000) / 100))
             : 0)
           : Math.min(90, Math.max(0, raw))
         const previewOff = Math.round(lineTotal * previewPct / 100 * 100) / 100
         const previewPrice = Math.round((lineTotal - previewOff) * 100) / 100
-        const previewUnit = Math.round(sumBase * (1 - previewPct / 100) * 100) / 100
-        const over = discInputKind === 'sum' && sumBase > 0 && (
+        const previewUnit = discInputKind === 'sum'
+          ? (discBuf === ''
+            ? sumBase
+            : Math.round(Math.max(0, Math.min(sumBase, raw)) * 100) / 100)
+          : Math.round(sumBase * (1 - previewPct / 100) * 100) / 100
+        const over = discInputKind === 'sum' && sumBase > 0 && discBuf !== '' && (
           raw > sumBase + 0.001 || raw < minPrice - 0.001
         )
-        // Быстрые новые цены: полная и после 5/10/15/20%
         const pricePresets = sumBase > 0
           ? [100, 95, 90, 85, 80].map(keep => Math.round(sumBase * keep / 100 * 100) / 100)
           : [0]
@@ -8457,6 +8464,11 @@ export default function CashierModule({
           ? cart.find(l => l.key === discLineKey)
           : null
         const unitLabel = line ? cartLineUnit(line) : ''
+        const qtyHint = line
+          ? (line.weightKg != null
+            ? `${line.weightKg.toFixed(3)} ${unitLabel}`
+            : `×${fmtQty(line.qty)}`)
+          : ''
         return (
           <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct') }}>
             <PadShell
@@ -8469,18 +8481,24 @@ export default function CashierModule({
                 />
               }
             >
-            <div className="modal-card">
+            <div className="modal-card disc-modal-card" onClick={e => e.stopPropagation()}>
               <h3>{discMode === 'line' ? '🏷 Скидка на товар' : '🏷 Скидка на всё'}</h3>
               {discMode === 'line' && line && (
-                <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12 }}>
-                  {line.name}
-                  {sumBase > 0 ? ` · цена ${sumBase.toFixed(2)} ЅМ/${unitLabel}` : ''}
+                <div className="disc-product-line">
+                  <b>{line.name}</b>
+                  <span>
+                    {sumBase.toFixed(2)} ЅМ/{unitLabel}
+                    {qtyHint ? ` · ${qtyHint}` : ''}
+                  </span>
                 </div>
               )}
               {discMode === 'all' && (
-                <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>
-                  На весь чек{lineTotal > 0 ? ` · сейчас ${lineTotal.toFixed(2)} сом` : ''}
-                  {levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
+                <div className="disc-product-line">
+                  <b>Весь чек</b>
+                  <span>
+                    сейчас {lineTotal.toFixed(2)} сом
+                    {levelDiscPct > 0 ? ` · уже +${levelDiscPct}% статус` : ''}
+                  </span>
                 </div>
               )}
 
@@ -8501,38 +8519,44 @@ export default function CashierModule({
                 </button>
               </div>
 
-              <div className="kp-display">
-                <div className="lbl">
-                  {discInputKind === 'sum'
-                    ? (discMode === 'line' ? `НОВАЯ ЦЕНА, ЅМ/${unitLabel || 'ед.'}` : 'НОВАЯ СУММА, СОМ')
-                    : 'СКИДКА, %'}
-                </div>
-                <input
-                  ref={amountInputRef}
-                  className="kp-field"
-                  value={discBuf}
-                  inputMode="decimal"
-                  autoFocus
-                  onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                  onFocus={e => e.currentTarget.select()}
-                  placeholder={discInputKind === 'sum' ? (sumBase > 0 ? sumBase.toFixed(2) : '0') : '0'}
-                />
-                {(raw > 0 || (discInputKind === 'sum' && discBuf !== '')) && (
-                  <div className="disc-preview">
+              <div className="disc-split">
+                <div className="disc-split-main">
+                  <div className="lbl">
                     {discInputKind === 'sum'
-                      ? (raw > sumBase + 0.001
-                        ? `выше цены (${sumBase.toFixed(2)})`
-                        : raw < minPrice - 0.001 && sumBase > 0
-                          ? `мин. ${minPrice.toFixed(2)} (до −90%)`
-                          : discMode === 'line'
-                            ? `итого ${previewPrice.toFixed(2)} сом · было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewOff.toFixed(2)} сом`
-                            : `итого ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`)
-                      : discMode === 'line'
-                        ? `итого ${previewPrice.toFixed(2)} сом · ${previewUnit.toFixed(2)} ЅМ/${unitLabel || 'ед.'} (−${previewOff.toFixed(2)})`
-                        : `итого ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`}
+                      ? (discMode === 'line' ? `Новая цена / ${unitLabel || 'ед.'}` : 'Новая сумма чека')
+                      : 'Скидка %'}
                   </div>
-                )}
+                  <input
+                    ref={amountInputRef}
+                    className="disc-split-field"
+                    value={discBuf}
+                    inputMode="decimal"
+                    autoFocus
+                    onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
+                    onFocus={e => e.currentTarget.select()}
+                    placeholder={discInputKind === 'sum' ? (sumBase > 0 ? sumBase.toFixed(2) : '0') : '0'}
+                  />
+                  <div className={`disc-split-sub ${over ? 'bad' : ''}`}>
+                    {over
+                      ? (raw > sumBase + 0.001
+                        ? `макс. ${sumBase.toFixed(2)}`
+                        : `мин. ${minPrice.toFixed(2)}`)
+                      : discInputKind === 'sum'
+                        ? (sumBase > 0
+                          ? `было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
+                          : 'введите цену')
+                        : `цена ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`}
+                  </div>
+                </div>
+                <div className="disc-split-total" aria-label="Итого по строке">
+                  <div className="lbl">Итого</div>
+                  <div className="val">{previewPrice.toFixed(2)}</div>
+                  <div className="sub">
+                    {previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'}
+                  </div>
+                </div>
               </div>
+
               <div className="qty-edit-toolbar">
                 <div className="kp-quick" style={{ margin: 0, flex: 1 }}>
                   {discInputKind === 'pct'
