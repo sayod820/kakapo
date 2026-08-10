@@ -8525,11 +8525,11 @@ export default function CashierModule({
                         : raw < minPrice - 0.001 && sumBase > 0
                           ? `мин. ${minPrice.toFixed(2)} (до −90%)`
                           : discMode === 'line'
-                            ? `скидка −${previewPct.toFixed(2)}% · было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewOff.toFixed(2)} сом`
-                            : `скидка −${previewPct.toFixed(2)}% (−${previewOff.toFixed(2)} сом)`)
+                            ? `итого ${previewPrice.toFixed(2)} сом · было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewOff.toFixed(2)} сом`
+                            : `итого ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`)
                       : discMode === 'line'
-                        ? `= ${previewUnit.toFixed(2)} ЅМ/${unitLabel || 'ед.'} · строка ${previewPrice.toFixed(2)} (−${previewOff.toFixed(2)})`
-                        : `= ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`}
+                        ? `итого ${previewPrice.toFixed(2)} сом · ${previewUnit.toFixed(2)} ЅМ/${unitLabel || 'ед.'} (−${previewOff.toFixed(2)})`
+                        : `итого ${previewPrice.toFixed(2)} сом (−${previewOff.toFixed(2)})`}
                   </div>
                 )}
               </div>
