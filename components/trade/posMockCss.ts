@@ -950,12 +950,14 @@ export const POS_MOCK_CSS = `
     margin-bottom:12px;
   }
   .pos-root button.disc-split-main,
-  .pos-root button.disc-split-total{
+  .pos-root button.disc-split-total,
+  .disc-split-main{
     min-width:0;padding:12px 12px;border-radius:16px;cursor:pointer;text-align:center;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
     background:var(--surface2);border:1.5px solid var(--border);color:inherit;
   }
-  .pos-root button.disc-split-main.on{
+  .pos-root button.disc-split-main.on,
+  .disc-split-main.on{
     border-color:var(--accent);background:rgba(31,215,96,.08);
   }
   .pos-root button.disc-split-total{

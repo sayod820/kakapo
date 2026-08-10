@@ -8639,105 +8639,74 @@ export default function CashierModule({
               </div>
 
               <div className="disc-split">
-                <button
-                  type="button"
-                  className={`disc-split-main ${discInputKind === 'sum' && !editingTotal ? 'on' : ''}`}
-                  onClick={() => {
-                    if (discInputKind !== 'sum') switchDiscInputKind('sum')
-                    else if (discMode === 'line') switchDiscEditTarget('unit')
-                    else window.setTimeout(() => amountInputRef.current?.focus(), 0)
-                  }}
-                >
+                <div className={`disc-split-main on`}>
                   <div className="lbl">
-                    {discInputKind === 'sum'
-                      ? (discMode === 'line' ? `Новая цена / ${unitLabel || 'ед.'}` : 'Новая сумма чека')
-                      : 'Скидка %'}
-                  </div>
-                  {discInputKind === 'sum' && !editingTotal ? (
-                    <input
-                      ref={amountInputRef}
-                      className="disc-split-field"
-                      value={discBuf}
-                      inputMode="decimal"
-                      autoFocus
-                      onClick={e => e.stopPropagation()}
-                      onChange={e => {
-                        discWipeNextRef.current = false
-                        setDiscBuf(sanitizeDecimalInput(e.target.value))
-                      }}
-                      onFocus={e => {
-                        discWipeNextRef.current = true
-                        e.currentTarget.select()
-                      }}
-                      placeholder={sumBase > 0 ? sumBase.toFixed(2) : '0'}
-                    />
-                  ) : discInputKind === 'pct' ? (
-                    <input
-                      ref={amountInputRef}
-                      className="disc-split-field"
-                      value={discBuf}
-                      inputMode="decimal"
-                      autoFocus
-                      onClick={e => e.stopPropagation()}
-                      onChange={e => {
-                        discWipeNextRef.current = false
-                        setDiscBuf(sanitizeDecimalInput(e.target.value))
-                      }}
-                      onFocus={e => {
-                        discWipeNextRef.current = true
-                        e.currentTarget.select()
-                      }}
-                      placeholder="0"
-                    />
-                  ) : (
-                    <div className="disc-split-field readonly">{previewUnit.toFixed(2)}</div>
-                  )}
-                  <div className={`disc-split-sub ${over && !editingTotal ? 'bad' : ''}`}>
                     {discInputKind === 'pct'
-                      ? `цена ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
-                      : `было ${sumBase.toFixed(2)} → ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`}
+                      ? 'Скидка %'
+                      : editingTotal
+                        ? `Итого за ${qtyHint || `${qty} шт`}`
+                        : (discMode === 'line' ? `Новая цена / ${unitLabel || 'ед.'}` : 'Новая сумма чека')}
                   </div>
-                </button>
-                <button
-                  type="button"
-                  className={`disc-split-total ${editingTotal ? 'on' : ''}`}
-                  aria-label="Итого по строке — нажмите чтобы изменить сумму"
-                  disabled={discMode !== 'line'}
-                  onClick={() => {
-                    if (discMode !== 'line') return
-                    switchDiscEditTarget('total')
-                  }}
-                >
-                  <div className="lbl">Итого</div>
-                  {editingTotal ? (
-                    <input
-                      ref={amountInputRef}
-                      className="disc-split-field total"
-                      value={discBuf}
-                      inputMode="decimal"
-                      autoFocus
-                      onClick={e => e.stopPropagation()}
-                      onChange={e => {
-                        discWipeNextRef.current = false
-                        setDiscBuf(sanitizeDecimalInput(e.target.value))
-                      }}
-                      onFocus={e => {
-                        discWipeNextRef.current = true
-                        e.currentTarget.select()
-                      }}
-                      placeholder={lineTotal > 0 ? lineTotal.toFixed(2) : '0'}
-                    />
-                  ) : (
+                  <input
+                    ref={amountInputRef}
+                    className={`disc-split-field${editingTotal ? ' total' : ''}`}
+                    value={discBuf}
+                    inputMode="decimal"
+                    autoFocus
+                    onChange={e => {
+                      discWipeNextRef.current = false
+                      setDiscBuf(sanitizeDecimalInput(e.target.value))
+                    }}
+                    onFocus={e => {
+                      discWipeNextRef.current = true
+                      e.currentTarget.select()
+                    }}
+                    placeholder={
+                      discInputKind === 'pct'
+                        ? '0'
+                        : editingTotal
+                          ? (lineTotal > 0 ? lineTotal.toFixed(2) : '0')
+                          : (sumBase > 0 ? sumBase.toFixed(2) : '0')
+                    }
+                  />
+                  <div className={`disc-split-sub ${over ? 'bad' : ''}`}>
+                    {over
+                      ? (editingTotal
+                        ? `от ${minTotal.toFixed(2)} до ${lineTotal.toFixed(2)}`
+                        : `от ${minUnit.toFixed(2)} до ${sumBase.toFixed(2)}`)
+                      : discInputKind === 'pct'
+                        ? `цена ${previewUnit.toFixed(2)} · итого ${previewPrice.toFixed(2)}`
+                        : editingTotal
+                          ? `цена за шт: ${previewUnit.toFixed(2)} · −${previewPct.toFixed(1)}%`
+                          : `итого ${previewPrice.toFixed(2)} · −${previewPct.toFixed(1)}%`}
+                  </div>
+                </div>
+                {discMode === 'line' && discInputKind === 'sum' ? (
+                  <button
+                    type="button"
+                    className={`disc-split-total ${editingTotal ? '' : 'on'}`}
+                    aria-label={editingTotal ? 'Редактировать цену за штуку' : 'Редактировать итоговую сумму'}
+                    onClick={() => switchDiscEditTarget(editingTotal ? 'unit' : 'total')}
+                  >
+                    <div className="lbl">{editingTotal ? `Цена / ${unitLabel || 'шт'}` : 'Итого'}</div>
+                    <div className="val">
+                      {editingTotal ? previewUnit.toFixed(2) : previewPrice.toFixed(2)}
+                    </div>
+                    <div className="sub">
+                      {editingTotal
+                        ? 'нажмите · цена за шт'
+                        : 'нажмите · изменить сумму'}
+                    </div>
+                  </button>
+                ) : (
+                  <div className="disc-split-total">
+                    <div className="lbl">Итого</div>
                     <div className="val">{previewPrice.toFixed(2)}</div>
-                  )}
-                  <div className={`sub ${over && editingTotal ? 'bad' : ''}`}>
-                    {editingTotal
-                      ? `цена ${previewUnit.toFixed(2)} / ${unitLabel || 'ед.'} · ×${qty % 1 ? qty.toFixed(3) : qty}`
-                      : (discMode === 'line'
-                        ? (previewOff > 0.001 ? `−${previewOff.toFixed(2)} · нажмите` : 'нажмите · изменить')
-                        : (previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'))}
+                    <div className="sub">
+                      {previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'}
+                    </div>
                   </div>
-                </button>
+                )}
               </div>
 
               <div className="qty-edit-toolbar">
