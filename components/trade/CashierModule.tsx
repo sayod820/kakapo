@@ -930,6 +930,8 @@ export default function CashierModule({
   const [discInputKind, setDiscInputKind] = useState<'pct' | 'sum'>('pct')
   /** В режиме «Новая цена» для строки: правим цену за ед. или итого строки */
   const [discEditTarget, setDiscEditTarget] = useState<'unit' | 'total'>('unit')
+  /** Следующая цифра с экранной клавиатуры заменяет выделенное значение (не дописывает к 18→186) */
+  const discWipeNextRef = useRef(false)
   const [discLineKey, setDiscLineKey] = useState<string | null>(null)
   const [discPickOpen, setDiscPickOpen] = useState(false)
   const [qtyEditOpen, setQtyEditOpen] = useState(false)
@@ -5021,8 +5023,34 @@ export default function CashierModule({
     if (!lineKey) return 1
     const line = cart.find(l => l.key === lineKey)
     if (!line) return 1
-    if (line.weightKg != null) return Math.max(0.001, Number(line.weightKg) || 0.001)
+    // Весовой: только если реально весим (кг), иначе штуки — даже если в названии «0,5»
+    if (line.weightKg != null && line.weightKg > 0) {
+      return Math.max(0.001, Number(line.weightKg) || 0.001)
+    }
     return Math.max(0.001, Number(line.qty) || 1)
+  }
+
+  function typeDiscDigit(k: string) {
+    const maxLen = discInputKind === 'sum' ? 8 : 5
+    setDiscBuf(b => {
+      const el = amountInputRef.current
+      const len = String(el?.value ?? b).length
+      const selectedAll = !!el
+        && el.selectionStart === 0
+        && el.selectionEnd === len
+        && len > 0
+      const wipe = discWipeNextRef.current || selectedAll
+      discWipeNextRef.current = false
+      return appendDigit(wipe ? '' : b, k, maxLen)
+    })
+  }
+
+  function focusDiscField() {
+    discWipeNextRef.current = true
+    window.setTimeout(() => {
+      amountInputRef.current?.focus()
+      amountInputRef.current?.select()
+    }, 0)
   }
 
   function openAllDiscount() {
@@ -5055,6 +5083,7 @@ export default function CashierModule({
       setDiscInputKind('sum')
       setDiscEditTarget('unit')
       setDiscBuf(unit > 0 ? String(currentUnit) : '')
+      discWipeNextRef.current = true
       setDiscPickOpen(false)
       setAmountPad(false)
       setDiscOpen(true)
@@ -5109,18 +5138,12 @@ export default function CashierModule({
         setDiscEditTarget('unit')
         setDiscBuf(sumBase > 0 ? String(unit > 0 ? unit : Math.round(sumBase * 100) / 100) : '')
       }
-      window.setTimeout(() => {
-        amountInputRef.current?.focus()
-        amountInputRef.current?.select()
-      }, 0)
+      focusDiscField()
       return
     }
 
     if (next === discEditTarget) {
-      window.setTimeout(() => {
-        amountInputRef.current?.focus()
-        amountInputRef.current?.select()
-      }, 0)
+      focusDiscField()
       return
     }
     if (next === 'total') {
@@ -5134,10 +5157,7 @@ export default function CashierModule({
       setDiscBuf(String(unit))
     }
     setDiscEditTarget(next)
-    window.setTimeout(() => {
-      amountInputRef.current?.focus()
-      amountInputRef.current?.select()
-    }, 0)
+    focusDiscField()
   }
 
   function applyDiscount() {
@@ -8509,7 +8529,12 @@ export default function CashierModule({
       {discOpen && (() => {
         const lineTotal = discBaseAmount(discMode, discLineKey)
         const sumBase = discSumBase(discMode, discLineKey)
-        const qty = discLineQtyFactor(discLineKey)
+        // Кол-во надёжнее из суммы строки / цены (6×3=18), не только из line.qty
+        const qtyFromLine = discLineQtyFactor(discLineKey)
+        const qtyFromSum = sumBase > 0.0001
+          ? Math.round((lineTotal / sumBase) * 1000) / 1000
+          : 0
+        const qty = qtyFromSum > 0.0001 ? qtyFromSum : qtyFromLine
         const raw = Number(discBuf) || 0
         const editingTotal = discMode === 'line' && discInputKind === 'sum' && discEditTarget === 'total'
         const minUnit = Math.round(sumBase * 0.1 * 100) / 100
@@ -8523,13 +8548,14 @@ export default function CashierModule({
             previewPrice = discBuf === '' ? lineTotal : Math.round(Math.max(0, raw) * 100) / 100
             previewUnit = qty > 0 ? Math.round((previewPrice / qty) * 100) / 100 : 0
           } else {
+            // Не режем Math.min при наборе — иначе 6 сразу «ломает» итого
             previewUnit = discBuf === ''
               ? sumBase
-              : Math.round(Math.max(0, Math.min(sumBase, raw)) * 100) / 100
+              : Math.round(Math.max(0, raw) * 100) / 100
             previewPrice = Math.round(previewUnit * qty * 100) / 100
           }
           previewPct = sumBase > 0.0001
-            ? Math.min(90, Math.max(0, Math.round((sumBase - Math.min(sumBase, previewUnit)) / sumBase * 10000) / 100))
+            ? Math.min(90, Math.max(0, Math.round((sumBase - Math.min(sumBase, Math.max(0, previewUnit))) / sumBase * 10000) / 100))
             : 0
         } else {
           previewPct = Math.min(90, Math.max(0, raw))
@@ -8565,8 +8591,11 @@ export default function CashierModule({
               onHidePad={() => setAmountPad(false)}
               pad={
                 <Keypad
-                  onDigit={k => setDiscBuf(b => appendDigit(b, k, discInputKind === 'sum' ? 8 : 5))}
-                  onBack={() => setDiscBuf(b => b.slice(0, -1))}
+                  onDigit={k => typeDiscDigit(k)}
+                  onBack={() => {
+                    discWipeNextRef.current = false
+                    setDiscBuf(b => b.slice(0, -1))
+                  }}
                 />
               }
             >
@@ -8632,8 +8661,14 @@ export default function CashierModule({
                       inputMode="decimal"
                       autoFocus
                       onClick={e => e.stopPropagation()}
-                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => {
+                        discWipeNextRef.current = false
+                        setDiscBuf(sanitizeDecimalInput(e.target.value))
+                      }}
+                      onFocus={e => {
+                        discWipeNextRef.current = true
+                        e.currentTarget.select()
+                      }}
                       placeholder={sumBase > 0 ? sumBase.toFixed(2) : '0'}
                     />
                   ) : discInputKind === 'pct' ? (
@@ -8644,8 +8679,14 @@ export default function CashierModule({
                       inputMode="decimal"
                       autoFocus
                       onClick={e => e.stopPropagation()}
-                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => {
+                        discWipeNextRef.current = false
+                        setDiscBuf(sanitizeDecimalInput(e.target.value))
+                      }}
+                      onFocus={e => {
+                        discWipeNextRef.current = true
+                        e.currentTarget.select()
+                      }}
                       placeholder="0"
                     />
                   ) : (
@@ -8676,8 +8717,14 @@ export default function CashierModule({
                       inputMode="decimal"
                       autoFocus
                       onClick={e => e.stopPropagation()}
-                      onChange={e => setDiscBuf(sanitizeDecimalInput(e.target.value))}
-                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => {
+                        discWipeNextRef.current = false
+                        setDiscBuf(sanitizeDecimalInput(e.target.value))
+                      }}
+                      onFocus={e => {
+                        discWipeNextRef.current = true
+                        e.currentTarget.select()
+                      }}
                       placeholder={lineTotal > 0 ? lineTotal.toFixed(2) : '0'}
                     />
                   ) : (
@@ -8685,7 +8732,7 @@ export default function CashierModule({
                   )}
                   <div className={`sub ${over && editingTotal ? 'bad' : ''}`}>
                     {editingTotal
-                      ? `цена ${previewUnit.toFixed(2)} / ${unitLabel || 'ед.'}`
+                      ? `цена ${previewUnit.toFixed(2)} / ${unitLabel || 'ед.'} · ×${qty % 1 ? qty.toFixed(3) : qty}`
                       : (discMode === 'line'
                         ? (previewOff > 0.001 ? `−${previewOff.toFixed(2)} · нажмите` : 'нажмите · изменить')
                         : (previewOff > 0.001 ? `−${previewOff.toFixed(2)} сом` : 'без скидки'))}
