@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fitsSystemWindows="false"
     android:background="@color/splashBackground"
     android:overScrollMode="never"
     tools:context=".MainActivity">
@@ -10,6 +11,7 @@
     <WebView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:fitsSystemWindows="false"
         android:overScrollMode="never"
         android:scrollbars="none" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

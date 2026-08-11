@@ -15,18 +15,18 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
-    backgroundColor: '#070C09',
+    backgroundColor: '#F3F7F4',
     appendUserAgent: ' KakapoTradeAndroid/1.0',
   },
   plugins: {
     SplashScreen: {
       launchShowDuration: 400,
-      backgroundColor: '#070C09',
+      backgroundColor: '#F3F7F4',
       showSpinner: false,
     },
     StatusBar: {
-      style: 'DARK',
-      backgroundColor: '#070C09',
+      style: 'LIGHT',
+      backgroundColor: '#F3F7F4',
       overlaysWebView: true,
     },
   },
