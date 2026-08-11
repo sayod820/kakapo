@@ -1141,6 +1141,8 @@ export default function CashierModule({
   const lastCommittedGramsRef = useRef(0)
   /** Сколько граммов на платформе было в момент последнего commit */
   const platterBaselineGramsRef = useRef(0)
+  /** Сброс буфера семплов при каждом новом открытии окна веса */
+  const scaleSamplesEpochRef = useRef(0)
   const [scaleHolding, setScaleHolding] = useState(false)
   const [scaleMoving, setScaleMoving] = useState(false)
   const [receiptTemplateOpen, setReceiptTemplateOpen] = useState(false)
@@ -1581,6 +1583,15 @@ export default function CashierModule({
     /** @type {{ grams: number, t: number }[]} */
     let samples: { grams: number, t: number }[] = []
     let pollBusy = false
+    let samplesEpoch = scaleSamplesEpochRef.current
+
+    const resetSamplesIfNeeded = () => {
+      const ep = scaleSamplesEpochRef.current
+      if (ep !== samplesEpoch) {
+        samplesEpoch = ep
+        samples = []
+      }
+    }
 
     const evaluateUiStable = (now: number) => {
       const cutoff = now - STABLE_BUFFER_MS
@@ -1646,6 +1657,7 @@ export default function CashierModule({
       port?: number
       stable?: boolean
     }) => {
+      resetSamplesIfNeeded()
       const now = Date.now()
       const kgIn = Math.round((Number(payload.weightKg) || 0) * 1000) / 1000
       const rawG = Number.isFinite(Number(payload.grams))
@@ -1692,6 +1704,10 @@ export default function CashierModule({
           setScaleHolding(true)
           setQtyEditMode('qty')
           setQtyEditBuf((saved / 1000).toFixed(3))
+        } else {
+          // Готовы принять следующий вес как «первый» (после сохранения / нового товара)
+          scaleSawZeroRef.current = true
+          setScaleHolding(false)
         }
         return
       }
@@ -4636,35 +4652,53 @@ export default function CashierModule({
     setScaleHolding(false)
     setScaleMoving(false)
 
-    const existing = Math.round((Number(seedKg != null ? seedKg : qtyEditBuf) || 0) * 1000)
-    const scaleG = casWeight.stable && casWeight.weightKg > SCALE_ZERO_KG
-      ? (Number.isFinite(Number(casWeight.grams))
-        ? Math.round(Number(casWeight.grams))
-        : Math.round(casWeight.weightKg * 1000))
-      : 0
+    // Каждое открытие окна — как новый сеанс (после «Сохранить» второй товар тоже берёт вес)
+    scaleSamplesEpochRef.current += 1
+    lastCommittedGramsRef.current = 0
+    lastHeldKgRef.current = 0
+    platterBaselineGramsRef.current = 0
+    scaleSawZeroRef.current = true
 
-    if (existing > 0) {
-      lastCommittedGramsRef.current = existing
-      lastHeldKgRef.current = existing / 1000
-      if (scaleG > 0) {
-        // Уже есть вес в поле и товар на весах — не удваиваем, ждём досып/снятие
-        platterBaselineGramsRef.current = scaleG
-        scaleSawZeroRef.current = false
-      } else {
-        platterBaselineGramsRef.current = 0
-        scaleSawZeroRef.current = true
-      }
-    } else if (scaleG > 0) {
-      applyScaleKgToModal(casWeight.weightKg, casWeight.grams)
+    const seedG = Math.round((Number(seedKg) || 0) * 1000)
+    // Не требуем флаг stable — после сохранения он часто «залипает» и блокирует повтор
+    const liveKg = Number(casWeight.weightKg) || 0
+    const liveG = Number.isFinite(Number(casWeight.grams))
+      ? Math.round(Number(casWeight.grams))
+      : Math.round(liveKg * 1000)
+    const scaleG = liveG >= SCALE_STEP_G || liveKg > SCALE_ZERO_KG ? Math.max(liveG, Math.round(liveKg * 1000)) : 0
+
+    if (scaleG >= SCALE_STEP_G) {
+      applyScaleKgToModal(scaleG / 1000, scaleG)
+    } else if (seedG >= SCALE_STEP_G) {
+      // Показать прошлый вес в поле, но ждать новый STOP с весов
+      setQtyEditMode('qty')
+      setQtyEditBuf((seedG / 1000).toFixed(3))
     } else {
-      lastCommittedGramsRef.current = 0
-      lastHeldKgRef.current = 0
-      platterBaselineGramsRef.current = 0
-      scaleSawZeroRef.current = false
+      setQtyEditMode('qty')
+      setQtyEditBuf('')
     }
 
     if (!liveWeightEnabled()) return
     void ensureCasWeightMonitor(true)
+    // Сразу один опрос — не ждать интервал 450 мс
+    const desk = getKakapoDesktop()
+    const host = deskScaleHostRef.current.trim()
+    if (desk?.readCasWeight && host) {
+      void desk.readCasWeight({
+        host,
+        port: deskScalePortRef.current,
+        timeoutMs: 2200,
+        forceDirect: false,
+      }).then(res => {
+        if (!qtyEditOpenRef.current || !qtyEditIsWeightRef.current) return
+        const g = Number.isFinite(Number(res.grams))
+          ? Math.round(Number(res.grams))
+          : Math.round((Number(res.weightKg) || 0) * 1000)
+        if (g >= SCALE_STEP_G) {
+          applyScaleKgToModal((Number(res.weightKg) || g / 1000), g)
+        }
+      }).catch(() => undefined)
+    }
   }
 
   function stopWeightModalMonitor() {
@@ -4673,7 +4707,8 @@ export default function CashierModule({
     lastHeldKgRef.current = 0
     lastCommittedGramsRef.current = 0
     platterBaselineGramsRef.current = 0
-    scaleSawZeroRef.current = false
+    scaleSawZeroRef.current = true
+    scaleSamplesEpochRef.current += 1
     setScaleHolding(false)
     setScaleMoving(false)
   }
