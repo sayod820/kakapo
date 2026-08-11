@@ -87,11 +87,11 @@ const CSS = `
   .k-navitem:hover{background:var(--nav-hover);color:var(--text)}
   .k-navitem.active{background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;box-shadow:0 8px 20px rgba(31,215,96,.25)}
   .k-navitem.active .tag{background:rgba(5,33,13,.2);color:#05210D}
-  .k-side-foot{padding:12px;border-top:1px solid var(--border)}
-  .k-store{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
-  .k-store .name{font-weight:800}
-  .k-online{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--green);font-weight:700;margin-top:4px}
-  .k-online .d{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(31,215,96,.18)}
+  .k-side-foot{padding:8px;border-top:1px solid var(--border)}
+  .k-store{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px}
+  .k-store .name{font-weight:800;font-size:12px;line-height:1.2}
+  .k-online{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--green);font-weight:700;margin-top:0}
+  .k-online .d{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 2px rgba(31,215,96,.18)}
   .k-online[data-state="offline"]{color:var(--gold)}
   .k-online[data-state="offline"] .d{background:var(--gold);box-shadow:0 0 0 3px rgba(255,184,0,.18)}
   .k-online[data-state="sync"]{color:var(--blue)}
@@ -549,29 +549,32 @@ const CSS = `
   }
   .k-rev-add-h{font-size:12px;font-weight:900;color:#3B8EF0;margin-bottom:6px}
   .k-netblock{
-    margin-top:6px;width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--border);
+    margin-top:5px;width:100%;padding:5px 7px;border-radius:8px;border:1px solid var(--border);
     background:var(--card2);color:inherit;font:inherit;text-align:left;cursor:pointer;
-    display:flex;flex-direction:column;align-items:flex-start;gap:2px
+    display:flex;flex-direction:column;align-items:flex-start;gap:1px
   }
   .k-netblock:hover{border-color:var(--green)}
   .k-netblock .k-online{margin-top:0}
-  .k-netnote{margin-top:2px;font-size:11px;color:var(--muted);line-height:1.35}
+  .k-netnote{margin-top:0;font-size:10px;color:var(--muted);line-height:1.25}
   .k-netblock:hover .k-netnote{color:var(--text)}
-  .k-net-hint{margin-top:3px;font-size:10px;font-weight:700;color:var(--green)}
+  .k-net-hint{margin-top:1px;font-size:9px;font-weight:700;color:var(--green)}
   .k-online{cursor:inherit}
-  .k-update{width:100%;margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px}
+  .k-update{width:100%;margin-top:6px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--card2);color:var(--text);font:inherit;font-size:11px;font-weight:700;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:1px}
   .k-update:hover:not(:disabled){border-color:var(--green)}
   .k-update:disabled{opacity:.7;cursor:default}
   .k-update[data-state="available"],.k-update[data-state="downloaded"]{border-color:rgba(31,215,96,.45);background:rgba(31,215,96,.08)}
   .k-update[data-state="error"]{border-color:rgba(255,184,0,.4)}
-  .k-update .u-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .k-update .u-sub{font-size:11px;font-weight:600;color:var(--muted);line-height:1.3}
-  .k-update .u-bar{height:4px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:4px}
+  .k-update .u-title{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .k-update .u-sub{font-size:10px;font-weight:600;color:var(--muted);line-height:1.25}
+  .k-update .u-bar{height:3px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:3px}
   .k-update .u-bar>i{display:block;height:100%;background:var(--green);width:0;transition:width .2s ease}
-  .k-clock{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
-  .k-clock .date{font-size:12px;color:var(--muted)}
-  .k-clock .time{font-size:26px;font-weight:900;line-height:1.1}
-  .k-clock .day{font-size:12px;color:var(--muted)}
+  .k-clock{margin-top:6px;padding-top:6px;border-top:1px solid var(--border)}
+  .k-clock .date{font-size:10px;color:var(--muted);line-height:1.2}
+  .k-clock .time{font-size:16px;font-weight:900;line-height:1.15;letter-spacing:.02em}
+  .k-clock .day{font-size:10px;color:var(--muted);line-height:1.2}
+  .k-store .k-logout{
+    width:100%;margin-top:6px;padding:6px 8px;font-size:11px;min-height:0;border-radius:8px
+  }
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
@@ -1977,11 +1980,13 @@ function Clock() {
     return () => clearInterval(t)
   }, [])
   if (!now) return <div className="k-clock"><div className="time">--:--</div></div>
+  const date = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+  const day = now.toLocaleDateString('ru-RU', { weekday: 'short' })
+  const time = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   return (
     <div className="k-clock">
-      <div className="date">{now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-      <div className="time">{now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>
-      <div className="day" style={{ textTransform: 'capitalize' }}>{now.toLocaleDateString('ru-RU', { weekday: 'long' })}</div>
+      <div className="date">{date} · <span style={{ textTransform: 'capitalize' }}>{day}</span></div>
+      <div className="time">{time}</div>
     </div>
   )
 }
@@ -2022,7 +2027,6 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
     e?.stopPropagation()
     setQueueOpen(true)
   }
-  const hasQueue = pending > 0 || failed > 0
 
   if (compact) {
     return (
@@ -2054,14 +2058,17 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
       >
         <div className="k-online" data-state={state}><span className="d" />{label}</div>
         <div className="k-netnote">
-          {pending > 0 && <div>Ждут отправки: {pending}</div>}
-          {failed > 0 && <div>Требуют разбора: {failed}</div>}
-          {!!lastSync && <div>Синхронизация в {lastSync}</div>}
-          {!hasQueue && !lastSync && <div>Очередь пуста</div>}
+          {pending > 0 && failed > 0
+            ? `Ждут: ${pending} · разбор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
+            : pending > 0
+              ? `Ждут: ${pending}${lastSync ? ` · синхр. ${lastSync}` : ''}`
+              : failed > 0
+                ? `Разбор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
+                : lastSync
+                  ? `Синхр. ${lastSync}`
+                  : 'Очередь пуста'}
         </div>
-        <div className="k-net-hint">
-          {hasQueue ? 'Нажмите — открыть очередь' : 'Нажмите — очередь синхронизации'}
-        </div>
+        <div className="k-net-hint">Очередь →</div>
       </button>
       {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
     </>
@@ -2473,8 +2480,7 @@ function TradeAppInner({
                 <DesktopUpdateButton />
                 <button
                   type="button"
-                  className="k-btn k-btn-s"
-                  style={{ width: '100%', marginTop: 10, padding: '8px 10px', fontSize: 12 }}
+                  className="k-btn k-btn-s k-logout"
                   onClick={onLogout}
                 >
                   Выйти

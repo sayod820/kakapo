@@ -429,9 +429,17 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   forceSync: async (opts) => {
+    if (isCashierCritical()) {
+      scheduleReconnect(get, set, 2000)
+      return
+    }
     // Ждём, пока обычный sync отпустит замок (пользователь нажал «отправить»)
     for (let i = 0; i < 40 && (syncLock || get().syncing); i++) {
       await new Promise(r => setTimeout(r, 250))
+      if (isCashierCritical()) {
+        scheduleReconnect(get, set, 2000)
+        return
+      }
     }
     if (syncLock || get().syncing) {
       scheduleReconnect(get, set, 1500)

@@ -10,6 +10,7 @@ import { syncPushFromApi } from './pushStore'
 import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
+import { isCashierCritical } from './cashierUiGate'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
@@ -48,17 +49,20 @@ function createDebouncedPullers() {
       void syncClientsFromApi()
       void syncCardsFromApi()
     }),
-    /** Полный снимок — только по редкой необходимости */
     pos: () => schedule('pos', () => {
+      if (isCashierCritical()) return
       void syncPosFromApi()
     }),
     products: () => schedule('products', () => {
+      if (isCashierCritical()) return
       void useProducts.getState().fetchProducts()
     }),
     posSoft: () => schedule('posSoft', () => {
+      if (isCashierCritical()) return
       void softSyncPosAfterSale()
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
+      if (isCashierCritical()) return
       void softSyncWarehouse()
     }),
     flushAll: () => {
@@ -214,6 +218,9 @@ export function useApiSync(mode: SyncMode = 'all') {
 
     const load = async () => {
       try {
+        // Касса: пока идёт поиск/оплата — не трогаем UI тяжёлым sync
+        if (mode === 'pos' && isCashierCritical()) return
+
         if (mode === 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
         }

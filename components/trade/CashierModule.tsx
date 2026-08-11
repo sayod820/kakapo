@@ -67,7 +67,7 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { getOfflineV2Mode, isOfflineV2Full, setOfflineV2Mode } from '@/lib/offlineV2'
-import { beginCashierCritical, endCashierCritical, isCashierCritical } from '@/lib/cashierUiGate'
+import { beginCashierCritical, endCashierCritical, isCashierCritical, noteCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
@@ -723,6 +723,63 @@ function VirtualProductGrid({
   )
 }
 
+/** Отдельный чип сети — syncing не перерисовывает поле поиска кассы */
+const CashierNetChip = memo(function CashierNetChip({
+  onlineCode,
+  onOpenQueue,
+}: {
+  onlineCode?: string
+  onOpenQueue: () => void
+}) {
+  const netOnline = useOfflineSync(s => s.online)
+  const netPending = useOfflineSync(s => s.pending)
+  const netFailed = useOfflineSync(s => s.failed)
+  const netSyncing = useOfflineSync(s => s.syncing)
+  const netProgress = useOfflineSync(s => s.progress)
+  const title = netOnline
+    ? (netPending > 0
+        ? (netSyncing
+            ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
+            : `Онлайн · ${netPending} в очереди`)
+        : (onlineCode || 'Онлайн'))
+    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · разбор: ${netFailed}` : ''}`
+  const label = netOnline
+    ? (netPending > 0
+        ? (netSyncing
+            ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
+            : `очередь ${netPending}`)
+        : (onlineCode || 'Онлайн'))
+    : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+
+  return (
+    <>
+      <span className="d" style={{ background: netOnline ? undefined : '#e11d48' }} />
+      <span
+        className="net-status-txt"
+        role="button"
+        tabIndex={0}
+        style={{ cursor: 'pointer' }}
+        onClick={onOpenQueue}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpenQueue() }}
+        title={title}
+      >
+        {label}
+        {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
+      </span>
+      {(!netOnline || netPending > 0 || netFailed > 0) && (
+        <button
+          type="button"
+          className="net-sync-chip"
+          onClick={onOpenQueue}
+          title="Открыть очередь синхронизации"
+        >
+          {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
+        </button>
+      )}
+    </>
+  )
+})
+
 export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
@@ -746,11 +803,7 @@ export default function CashierModule({
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
-  const netOnline = useOfflineSync(s => s.online)
-  const netPending = useOfflineSync(s => s.pending)
-  const netFailed = useOfflineSync(s => s.failed)
-  const netSyncing = useOfflineSync(s => s.syncing)
-  const netProgress = useOfflineSync(s => s.progress)
+  // online/syncing — только в CashierNetChip, иначе каждый тик sync перерисовывает поиск
   const startNetSync = useOfflineSync(s => s.start)
   const [queueOpen, setQueueOpen] = useState(false)
   const shifts = usePosStore(s => s.shifts)
@@ -3172,6 +3225,7 @@ export default function CashierModule({
   }
 
   function onProductSearchChange(value: string) {
+    noteCashierSearchActivity()
     // Во время burst сканера поле/сетку не трогаем — код копится в scanAccumRef
     if (scanBurstRef.current) {
       qRef.current = scanAccumRef.current || qRef.current
@@ -3182,6 +3236,7 @@ export default function CashierModule({
   }
 
   function onProductSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    noteCashierSearchActivity()
     if (scanBlockAlertRef.current || barcodePickRef.current) {
       e.preventDefault()
       e.stopPropagation()
@@ -7353,45 +7408,10 @@ export default function CashierModule({
           <div className="top-loc">
             <b>{activePosPoint?.name || 'Точка продаж'}</b>
             <div className="dot-row">
-              <span
-                className="d"
-                style={{ background: netOnline ? undefined : '#e11d48' }}
+              <CashierNetChip
+                onlineCode={activePosPoint?.code}
+                onOpenQueue={() => setQueueOpen(true)}
               />
-              <span
-                className="net-status-txt"
-                role="button"
-                tabIndex={0}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setQueueOpen(true)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setQueueOpen(true) }}
-                title={
-                netOnline
-                  ? (netPending > 0
-                      ? (netSyncing
-                          ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
-                          : `Онлайн · ${netPending} в очереди`)
-                      : (activePosPoint?.code || 'Онлайн'))
-                  : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · разбор: ${netFailed}` : ''}`
-              }>
-                {netOnline
-                  ? (netPending > 0
-                      ? (netSyncing
-                          ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
-                          : `очередь ${netPending}`)
-                      : (activePosPoint?.code || 'Онлайн'))
-                  : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')}
-                {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
-              </span>
-              {(!netOnline || netPending > 0 || netFailed > 0) && (
-                <button
-                  type="button"
-                  className="net-sync-chip"
-                  onClick={() => setQueueOpen(true)}
-                  title="Открыть очередь синхронизации"
-                >
-                  {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
-                </button>
-              )}
             </div>
           </div>
 
@@ -7404,8 +7424,10 @@ export default function CashierModule({
             </span>
             <input
               ref={searchInputRef}
+              data-cashier-search="1"
               value={q}
               onChange={e => onProductSearchChange(e.target.value)}
+              onFocus={() => noteCashierSearchActivity(5000)}
               placeholder="Товар, штрихкод…"
               autoFocus
               onKeyDown={onProductSearchKeyDown}
