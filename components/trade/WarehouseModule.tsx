@@ -26,10 +26,7 @@ export default function WarehouseModule({
   const [tab, setTab] = useState<WarehouseTab>(() => loadWarehouseTab() || 'stock')
   const [expiryDays, setExpiryDays] = useState(14)
   const [expiry, setExpiry] = useState<ExpiryRow[]>([])
-  const [expiryLoading, setExpiryLoading] = useState(false)
   const [refreshGen, setRefreshGen] = useState(0)
-  /** Сначала рисуем шапку/вкладки — тяжёлую таблицу после paint */
-  const [bodyReady, setBodyReady] = useState(false)
 
   const receipts = usePosStore(s => s.receipts)
   const writeoffs = usePosStore(s => s.writeoffs)
@@ -43,19 +40,6 @@ export default function WarehouseModule({
   useEffect(() => {
     saveWarehouseTab(tab)
   }, [tab])
-
-  useEffect(() => {
-    let cancelled = false
-    const raf = window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        if (!cancelled) setBodyReady(true)
-      }, 0)
-    })
-    return () => {
-      cancelled = true
-      window.cancelAnimationFrame(raf)
-    }
-  }, [])
 
   const { totalStock, low, out } = useMemo(() => {
     let totalStock = 0
@@ -71,20 +55,16 @@ export default function WarehouseModule({
   }, [products])
 
   const refreshAll = useCallback(() => {
-    // Сразу обновляем UI из локального; сеть — в фоне
+    // Сразу обновляем UI из локального; сеть — в фоне. Без reconcile (он тяжёлый и тормозит раздел).
     setRefreshGen(g => g + 1)
     void softSyncWarehouse({ expiryDays })
     void fetchProducts()
-    if (USE_API) {
-      void api.reconcileStock().catch(() => undefined)
-    }
   }, [fetchProducts, expiryDays])
 
   const loadExpiry = useCallback(async (days: number) => {
     // Сразу локальный снимок — никогда не блокируем вкладку на сеть
     const local = usePosStore.getState().expiry || []
     setExpiry(local.filter(r => Number(r.daysLeft) <= days) as ExpiryRow[])
-    setExpiryLoading(false)
     if (!USE_API) return
     void api.getStockExpiry(days).then(rows => {
       setExpiry(rows)
@@ -95,9 +75,8 @@ export default function WarehouseModule({
   }, [])
 
   useEffect(() => {
-    if (!bodyReady) return
     if (tab === 'expiry') void loadExpiry(expiryDays)
-  }, [bodyReady, tab, expiryDays, loadExpiry])
+  }, [tab, expiryDays, loadExpiry])
 
   // Подтянуть сроки из стора, если уже были в snapshot
   useEffect(() => {
@@ -183,56 +162,44 @@ export default function WarehouseModule({
       </div>
 
       <div className="k-wh-body">
-        {!bodyReady ? (
-          <div className="k-empty" style={{ padding: '20px 12px' }}>
-            Загрузка раздела…
-          </div>
-        ) : (
-          <>
-            {tab === 'stock' && (
-              <WarehouseStockPanel
-                products={products}
-                search={search}
-                onRefresh={refreshAll}
-                refreshGen={refreshGen}
-              />
-            )}
-            {tab === 'receipts' && (
-              <WarehouseReceiptsPanel
-                receipts={receipts}
-                suppliers={suppliers}
-                products={products}
-                onRefresh={refreshAll}
-              />
-            )}
-            {tab === 'writeoffs' && (
-              <WarehouseWriteoffsPanel
-                writeoffs={writeoffs}
-                products={products}
-                onRefresh={refreshAll}
-              />
-            )}
-            {tab === 'revisions' && (
-              <WarehouseRevisionsPanel
-                revisions={revisions}
-                products={products}
-                onRefresh={refreshAll}
-              />
-            )}
-            {tab === 'expiry' && (
-              expiryLoading
-                ? <div className="k-empty">Загрузка…</div>
-                : (
-                  <WarehouseExpiryPanel
-                    expiry={expiry}
-                    days={expiryDays}
-                    products={products}
-                    onDaysChange={setExpiryDays}
-                    onWriteOff={writeOffExpiredBatch}
-                  />
-                )
-            )}
-          </>
+        {tab === 'stock' && (
+          <WarehouseStockPanel
+            products={products}
+            search={search}
+            onRefresh={refreshAll}
+            refreshGen={refreshGen}
+          />
+        )}
+        {tab === 'receipts' && (
+          <WarehouseReceiptsPanel
+            receipts={receipts}
+            suppliers={suppliers}
+            products={products}
+            onRefresh={refreshAll}
+          />
+        )}
+        {tab === 'writeoffs' && (
+          <WarehouseWriteoffsPanel
+            writeoffs={writeoffs}
+            products={products}
+            onRefresh={refreshAll}
+          />
+        )}
+        {tab === 'revisions' && (
+          <WarehouseRevisionsPanel
+            revisions={revisions}
+            products={products}
+            onRefresh={refreshAll}
+          />
+        )}
+        {tab === 'expiry' && (
+          <WarehouseExpiryPanel
+            expiry={expiry}
+            days={expiryDays}
+            products={products}
+            onDaysChange={setExpiryDays}
+            onWriteOff={writeOffExpiredBatch}
+          />
         )}
       </div>
     </div>

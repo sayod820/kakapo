@@ -21,12 +21,27 @@ export function noteCashierSearchActivity(holdMs = 3500) {
   if (until > searchBusyUntil) searchBusyUntil = until
 }
 
-export function isCashierCritical(): boolean {
-  if (depth > 0) return true
+/** Уход со кассы / keep-alive скрыт — не держим «критично» из-за фокуса */
+export function clearCashierSearchActivity() {
+  searchBusyUntil = 0
+}
+
+/** Оплата / пробитие / модалки — нельзя трогать очередь и UI */
+export function isCashierPaymentCritical(): boolean {
+  return depth > 0
+}
+
+/** Поиск кассы: не дёргать каталог/pull, но очередь отправлять можно */
+export function isCashierSearchBusy(): boolean {
   if (Date.now() < searchBusyUntil) return true
   if (typeof document !== 'undefined') {
     const ae = document.activeElement as HTMLElement | null
     if (ae?.getAttribute('data-cashier-search') === '1') return true
   }
   return false
+}
+
+/** Полный блок: оплата ИЛИ поиск (для тяжёлых softSync / fetchProducts) */
+export function isCashierCritical(): boolean {
+  return isCashierPaymentCritical() || isCashierSearchBusy()
 }

@@ -67,7 +67,7 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { getOfflineV2Mode, isOfflineV2Full, setOfflineV2Mode } from '@/lib/offlineV2'
-import { beginCashierCritical, endCashierCritical, isCashierCritical, noteCashierSearchActivity } from '@/lib/cashierUiGate'
+import { beginCashierCritical, endCashierCritical, isCashierCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
@@ -1239,11 +1239,15 @@ export default function CashierModule({
 
   useEffect(() => { startNetSync() }, [startNetSync])
 
-  /** Пока идёт оплата/пробитие — не гоняем тяжёлый sync в фоне (иначе поиск «замирает») */
+  /** Пока идёт оплата/пробитие — не гоняем тяжёлый sync в фоне (иначе поиск «замирает»).
+   *  Важно: только когда касса ВИДНА. Keep-alive в фоне не должен блокировать автосинк на Складе. */
   useEffect(() => {
+    if (!active) {
+      clearCashierSearchActivity()
+      return
+    }
     const critical =
       busy
-      || cashierScreen === 'receipts'
       || !!saleConfirm
       || payPickOpen
       || cashOpen
@@ -1256,8 +1260,8 @@ export default function CashierModule({
     beginCashierCritical()
     return () => { endCashierCritical() }
   }, [
+    active,
     busy,
-    cashierScreen,
     saleConfirm,
     payPickOpen,
     cashOpen,
@@ -1267,6 +1271,31 @@ export default function CashierModule({
     repayOpen,
     tillMoveKind,
   ])
+
+  /** Ушли со кассы — сразу догоняем очередь (чеки после пробития) */
+  useEffect(() => {
+    if (active) return
+    clearCashierSearchActivity()
+    const t = window.setTimeout(() => {
+      void useOfflineSync.getState().syncNow()
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [active])
+
+  /** После окончания пробития — автоотправка очереди (не ждать ручную кнопку) */
+  const wasBusyRef = useRef(false)
+  useEffect(() => {
+    if (busy) {
+      wasBusyRef.current = true
+      return
+    }
+    if (!wasBusyRef.current) return
+    wasBusyRef.current = false
+    const t = window.setTimeout(() => {
+      void useOfflineSync.getState().syncNow()
+    }, 350)
+    return () => window.clearTimeout(t)
+  }, [busy])
 
   /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
   useEffect(() => {

@@ -224,45 +224,55 @@ function mergeLocalDocs<T extends { id?: string }>(local: T[], server: T[]): T[]
   return localOnly.length ? [...localOnly, ...server] : server
 }
 
-export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
-  try {
-    const days = opts?.expiryDays ?? 14
-    const [receipts, writeoffs, revisions, suppliers, expiry] = await Promise.all([
-      api.getStockReceipts(),
-      api.getStockWriteoffs(),
-      api.getStockRevisions(),
-      api.getSuppliers(),
-      api.getStockExpiry(days),
-    ])
+let warehouseSoftSyncInFlight: Promise<void> | null = null
 
-    const cur = usePosStore.getState()
-    usePosStore.setState({
-      receipts: mergeLocalDocs(cur.receipts, receipts),
-      writeoffs: mergeLocalDocs(cur.writeoffs, writeoffs),
-      revisions: mergeLocalDocs(cur.revisions, revisions),
-      suppliers: mergeLocalDocs(cur.suppliers as { id?: string }[], suppliers as { id?: string }[]) as typeof cur.suppliers,
-      expiry,
-      apiReady: true,
-      apiError: '',
-    })
+export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
+  // Не гоняем параллельно несколько тяжёлых pull — склад «замирает»
+  if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
+  warehouseSoftSyncInFlight = (async () => {
     try {
-      const { cacheData } = await import('./offline')
-      const snap = usePosStore.getState()
-      void cacheData('pos_snapshot', {
-        cashiers: snap.cashiers,
-        posPoints: snap.posPoints,
-        shifts: snap.shifts,
-        sales: snap.sales,
-        receipts: snap.receipts,
-        writeoffs: snap.writeoffs,
-        revisions: snap.revisions,
-        suppliers: snap.suppliers,
-        expenses: snap.expenses,
-        financeMoves: snap.financeMoves,
-        expiry: snap.expiry,
-        financeSummary: snap.financeSummary,
-        report: snap.report,
+      const days = opts?.expiryDays ?? 14
+      const [receipts, writeoffs, revisions, suppliers, expiry] = await Promise.all([
+        api.getStockReceipts(),
+        api.getStockWriteoffs(),
+        api.getStockRevisions(),
+        api.getSuppliers(),
+        api.getStockExpiry(days),
+      ])
+
+      const cur = usePosStore.getState()
+      usePosStore.setState({
+        receipts: mergeLocalDocs(cur.receipts, receipts),
+        writeoffs: mergeLocalDocs(cur.writeoffs, writeoffs),
+        revisions: mergeLocalDocs(cur.revisions, revisions),
+        suppliers: mergeLocalDocs(cur.suppliers as { id?: string }[], suppliers as { id?: string }[]) as typeof cur.suppliers,
+        expiry,
+        apiReady: true,
+        apiError: '',
       })
-    } catch { /* ignore */ }
-  } catch { /* нет связи — оставляем локальный снимок */ }
+      try {
+        const { cacheData } = await import('./offline')
+        const snap = usePosStore.getState()
+        void cacheData('pos_snapshot', {
+          cashiers: snap.cashiers,
+          posPoints: snap.posPoints,
+          shifts: snap.shifts,
+          sales: snap.sales,
+          receipts: snap.receipts,
+          writeoffs: snap.writeoffs,
+          revisions: snap.revisions,
+          suppliers: snap.suppliers,
+          expenses: snap.expenses,
+          financeMoves: snap.financeMoves,
+          expiry: snap.expiry,
+          financeSummary: snap.financeSummary,
+          report: snap.report,
+        })
+      } catch { /* ignore */ }
+    } catch { /* нет связи — оставляем локальный снимок */ }
+    finally {
+      warehouseSoftSyncInFlight = null
+    }
+  })()
+  return warehouseSoftSyncInFlight
 }

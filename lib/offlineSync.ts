@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import { getApiUrl } from './config'
 import { noteApiFail, noteApiOk } from './apiReachability'
-import { isCashierCritical } from './cashierUiGate'
+import { isCashierCritical, isCashierPaymentCritical, isCashierSearchBusy } from './cashierUiGate'
 import {
   flushQueue,
   getPending,
@@ -164,8 +164,9 @@ function scheduleReconnect(
         scheduleReconnect(get, set, 1500)
         return
       }
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2500)
+      // Оплата/пробитие — ждём; поиск кассы не должен блокировать отправку очереди
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 2000)
         return
       }
       // При слабом интернете ping может врать — если есть очередь, всё равно syncNow
@@ -309,14 +310,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   queueSale: async (payload) => {
     await enqueueSale(payload)
     void get().refresh()
-    scheduleReconnect(get, set, 1500)
+    // Сразу пробуем уйти на сервер (не ждём 10с опроса)
+    scheduleReconnect(get, set, 600)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
     // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
     void get().refresh()
-    scheduleReconnect(get, set, 1500)
+    scheduleReconnect(get, set, 600)
     return row
   },
 
@@ -339,9 +341,9 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       scheduleReconnect(get, set, 2000)
       return
     }
-    // Во время пробития/подтверждения не трогаем UI тяжёлым sync
-    if (isCashierCritical()) {
-      scheduleReconnect(get, set, 2500)
+    // Только оплата/пробитие — полный стоп. Поиск кассы НЕ блокирует отправку очереди.
+    if (isCashierPaymentCritical()) {
+      scheduleReconnect(get, set, 2000)
       return
     }
 
@@ -349,6 +351,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     const run = async () => {
       await get().refresh()
       const hasWork = get().pending > 0 || get().failed > 0
+      const searchBusy = isCashierSearchBusy()
 
       // Слабый интернет: ping часто «врёт» (timeout). Есть очередь — всё равно шлём.
       const alive = await pingServer({ quick: !hasWork })
@@ -364,8 +367,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         set({ lastError: 'Слабая связь — пробуем отправить очередь…' })
       }
 
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2500)
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 2000)
         return
       }
 
@@ -373,13 +376,13 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       const revived = await autoRetryFailed()
       if (revived > 0) await get().refresh()
 
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2500)
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 2000)
         return
       }
 
-      // Подтянуть смены коротко — иначе «Смена не найдена»
-      if (alive) {
+      // Тяжёлый pull смен — не во время поиска (дёргает UI), очередь ниже всё равно уйдёт
+      if (alive && !searchBusy && !isCashierCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
           await Promise.race([
@@ -389,14 +392,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         } catch { /* ignore */ }
       }
 
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2500)
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 2000)
         return
       }
 
       if (get().pending > 0) {
         await get().flush()
-      } else if (alive) {
+      } else if (alive && !searchBusy) {
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
         try {
           const { pullSyncChanges } = await import('./syncPull')
@@ -409,7 +412,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       }
 
       if (get().pending > 0 || get().failed > 0 || !get().online) {
-        scheduleReconnect(get, set, get().online ? 3000 : undefined)
+        scheduleReconnect(get, set, get().online ? 2500 : undefined)
       }
     }
 
@@ -429,15 +432,16 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   forceSync: async (opts) => {
-    if (isCashierCritical()) {
-      scheduleReconnect(get, set, 2000)
+    // Ручная отправка: блокируем только реальное пробитие, не поиск
+    if (isCashierPaymentCritical()) {
+      scheduleReconnect(get, set, 1500)
       return
     }
     // Ждём, пока обычный sync отпустит замок (пользователь нажал «отправить»)
     for (let i = 0; i < 40 && (syncLock || get().syncing); i++) {
       await new Promise(r => setTimeout(r, 250))
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2000)
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 1500)
         return
       }
     }
@@ -551,8 +555,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     set({ started: true, online: isOnline() })
 
     const reconnect = async () => {
-      if (isCashierCritical()) {
-        scheduleReconnect(get, set, 2500)
+      if (isCashierPaymentCritical()) {
+        scheduleReconnect(get, set, 2000)
         return
       }
       await get().syncNow()
@@ -574,7 +578,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       // После сворачивания / возврата в окно — сразу проверить связь
       const onWake = () => {
         void (async () => {
-          if (isCashierCritical()) return
+          if (isCashierPaymentCritical()) return
           resetBackoff()
           await get().syncNow()
         })()
@@ -590,13 +594,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     if (intervalId) clearInterval(intervalId)
     intervalId = setInterval(() => {
       if (get().syncing || syncLock) return
-      if (isCashierCritical()) return
+      if (isCashierPaymentCritical()) return
       void (async () => {
         await get().refresh()
         const failed = get().failed
         const pending = get().pending
         const hasWork = pending > 0 || failed > 0 || !get().online
         if (!hasWork) {
+          // Нет очереди — лёгкий ping; поиск не мешает
+          if (isCashierSearchBusy()) return
           const alive = await pingServer({ quick: true })
           if (!alive) {
             set({ online: false })
@@ -606,7 +612,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           }
           return
         }
-        // В фоне обычный sync; принудительный — только по кнопке в окне очереди
+        // Есть очередь — шлём даже если фокус в поиске
         await get().syncNow()
       })()
     }, POLL_BUSY_MS)

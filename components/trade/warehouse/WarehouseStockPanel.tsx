@@ -149,13 +149,22 @@ export default function WarehouseStockPanel({
     return map
   }, [layers])
 
-  const aggByProduct = useMemo(() => {
-    const map = new Map<number, ProductStockAgg>()
-    for (const p of products) {
-      map.set(p.id, buildAgg(layersByProduct.get(p.id) || [], p))
+  /** Только qty по товару — без полного agg на весь каталог (главный тормоз склада) */
+  const qtyByProduct = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const layer of layers) {
+      const qty = Number(layer.remainingQty) || 0
+      if (!(qty > 0)) continue
+      const pid = Number(layer.productId)
+      map.set(pid, round2((map.get(pid) || 0) + qty))
     }
     return map
-  }, [products, layersByProduct])
+  }, [layers])
+
+  const stockOf = useCallback((p: Product) => {
+    if (qtyByProduct.has(p.id)) return qtyByProduct.get(p.id)!
+    return Number(p.stock) || 0
+  }, [qtyByProduct])
 
   const rows = useMemo(() => {
     const query = deferredQ
@@ -165,30 +174,35 @@ export default function WarehouseStockPanel({
       query,
       p => categoryDisplayLabel(categories, p.catId, p.cat),
     ).filter(p => {
-      const agg = aggByProduct.get(p.id)
-      const stock = agg?.layerQty ?? (Number(p.stock) || 0)
+      const stock = stockOf(p)
       return filter === 'all' ? true
         : filter === 'inStock' ? stock > 5
           : filter === 'low' ? stock > 0 && stock <= 5
             : stock <= 0
     })
 
-    // Один товар по штрихкоду — без тяжёлой сортировки всего каталога
     if (list.length <= 1) return list
 
+    const needAgg = sort === 'cost' || sort === 'retail' || sort === 'value'
+    const aggCache = needAgg
+      ? new Map(list.map(p => [p.id, buildAgg(layersByProduct.get(p.id) || [], p)]))
+      : null
+
     list = [...list].sort((a, b) => {
-      const aa = aggByProduct.get(a.id)!
-      const bb = aggByProduct.get(b.id)!
       let cmp = 0
       if (sort === 'name') cmp = a.name.localeCompare(b.name, 'ru')
-      else if (sort === 'stock') cmp = aa.layerQty - bb.layerQty
-      else if (sort === 'cost') cmp = (aa.groups[0]?.cost || 0) - (bb.groups[0]?.cost || 0)
-      else if (sort === 'retail') cmp = (aa.groups[0]?.retail || 0) - (bb.groups[0]?.retail || 0)
-      else if (sort === 'value') cmp = aa.costSum - bb.costSum
+      else if (sort === 'stock') cmp = stockOf(a) - stockOf(b)
+      else if (aggCache) {
+        const aa = aggCache.get(a.id)!
+        const bb = aggCache.get(b.id)!
+        if (sort === 'cost') cmp = (aa.groups[0]?.cost || 0) - (bb.groups[0]?.cost || 0)
+        else if (sort === 'retail') cmp = (aa.groups[0]?.retail || 0) - (bb.groups[0]?.retail || 0)
+        else cmp = aa.costSum - bb.costSum
+      }
       return sortDesc ? -cmp : cmp
     })
     return list
-  }, [products, categories, deferredQ, filter, sort, sortDesc, aggByProduct, codeIndex])
+  }, [products, categories, deferredQ, filter, sort, sortDesc, stockOf, layersByProduct, codeIndex])
 
   useEffect(() => {
     setVisibleCount(STOCK_PAGE)
@@ -199,31 +213,53 @@ export default function WarehouseStockPanel({
     [rows, visibleCount],
   )
 
+  /** Полный agg только для видимых строк таблицы */
+  const aggByProduct = useMemo(() => {
+    const map = new Map<number, ProductStockAgg>()
+    for (const p of visibleRows) {
+      map.set(p.id, buildAgg(layersByProduct.get(p.id) || [], p))
+    }
+    return map
+  }, [visibleRows, layersByProduct])
+
   const totals = useMemo(() => {
     let costSum = 0
     let retailSum = 0
     let qtySum = 0
+    // Итоги по отфильтрованному списку — лёгкий расчёт без buildAgg на каждую строку
     for (const p of rows) {
-      const agg = aggByProduct.get(p.id)!
-      qtySum = round2(qtySum + agg.layerQty)
-      costSum = round2(costSum + agg.costSum)
-      retailSum = round2(retailSum + agg.retailSum)
+      const stock = stockOf(p)
+      qtySum = round2(qtySum + stock)
+      const layersOf = layersByProduct.get(p.id)
+      if (layersOf?.length) {
+        for (const layer of layersOf) {
+          const qty = Number(layer.remainingQty) || 0
+          if (!(qty > 0)) continue
+          const cost = Number(layer.costPrice) || 0
+          const retail = Number(layer.retailPrice) > 0 ? Number(layer.retailPrice) : (Number(p.price) || 0)
+          costSum = round2(costSum + cost * qty)
+          retailSum = round2(retailSum + retail * qty)
+        }
+      } else {
+        costSum = round2(costSum + (Number(p.costPrice) || 0) * stock)
+        retailSum = round2(retailSum + (Number(p.price) || 0) * stock)
+      }
     }
     return { costSum, retailSum, qtySum, count: rows.length }
-  }, [rows, aggByProduct])
+  }, [rows, stockOf, layersByProduct])
 
   const filterCounts = useMemo(() => {
     let inStock = 0
     let low = 0
     let out = 0
     for (const p of products) {
-      const s = aggByProduct.get(p.id)?.layerQty || 0
+      const s = stockOf(p)
       if (s > 5) inStock += 1
       else if (s > 0) low += 1
       else out += 1
     }
     return { all: products.length, inStock, low, out }
-  }, [products, aggByProduct])
+  }, [products, stockOf])
 
   function toggleSort(key: SortKey) {
     if (sort === key) setSortDesc(d => !d)
@@ -309,7 +345,7 @@ export default function WarehouseStockPanel({
             </thead>
             <tbody>
               {visibleRows.map(p => {
-                const agg = aggByProduct.get(p.id)!
+                const agg = aggByProduct.get(p.id) || buildAgg(layersByProduct.get(p.id) || [], p)
                 const stock = agg.layerQty
                 const badge = stockBadge(stock)
                 const catLabel = categoryDisplayLabel(categories, p.catId, p.cat)
