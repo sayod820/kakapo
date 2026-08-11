@@ -48,6 +48,11 @@ interface OfflineSyncState {
   drop: (clientRef: string) => Promise<void>
   /** отправить очередь прямо сейчас (сначала ping) */
   syncNow: () => Promise<void>
+  /**
+   * Принудительная синхронизация: вернуть ВСЕ failed в очередь
+   * и несколько раз подряд прогнать отправку (для «застрявших»).
+   */
+  forceSync: (opts?: { clientRef?: string }) => Promise<void>
   /** запустить слушатели online/offline и периодический flush */
   start: () => void
 }
@@ -184,16 +189,29 @@ function isTransientFailError(err: string): boolean {
   return /сеть|связ|timeout|не отвечает|fetch|network|ECONN|ETIMEDOUT|502|503|504|смена|связанная операция|не найдена|временно|abort/i.test(err)
 }
 
-async function autoRetryFailed(): Promise<number> {
+/** Явные ошибки валидации — бессмысленно долбить бесконечно в фоне */
+function isHardValidationError(err: string): boolean {
+  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав/i.test(err)
+    && !isTransientFailError(err)
+}
+
+async function autoRetryFailed(opts?: { forceAll?: boolean }): Promise<number> {
   let n = 0
   try {
     const list = await getPending()
+    const forceAll = !!opts?.forceAll
     for (const row of list) {
       if (!row.failed) continue
       const err = String(row.lastError || '')
-      // На слабом интернете периодически возвращаем в очередь почти всё,
-      // кроме явного «валидационного» мусора (редко).
-      if (!err || isTransientFailError(err) || (Number(row.attempts) || 0) < 8) {
+      const attempts = Number(row.attempts) || 0
+      // Обычный фон: почти всё возвращаем; жёсткую валидацию — только с force
+      if (
+        forceAll
+        || !err
+        || isTransientFailError(err)
+        || attempts < 12
+        || !isHardValidationError(err)
+      ) {
         await retryPending(row.clientRef)
         n++
       }
@@ -308,9 +326,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   retry: async (clientRef) => {
-    await retryPending(clientRef)
-    await get().refresh()
-    await get().syncNow()
+    await get().forceSync({ clientRef })
   },
 
   drop: async (clientRef) => {
@@ -412,6 +428,116 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     }
   },
 
+  forceSync: async (opts) => {
+    // Ждём, пока обычный sync отпустит замок (пользователь нажал «отправить»)
+    for (let i = 0; i < 40 && (syncLock || get().syncing); i++) {
+      await new Promise(r => setTimeout(r, 250))
+    }
+    if (syncLock || get().syncing) {
+      scheduleReconnect(get, set, 1500)
+      return
+    }
+
+    syncLock = true
+    set({ lastError: 'Принудительная синхронизация…' })
+
+    const run = async () => {
+      await get().refresh()
+
+      if (opts?.clientRef) {
+        await retryPending(opts.clientRef)
+      } else {
+        await autoRetryFailed({ forceAll: true })
+      }
+      await get().refresh()
+
+      const hasWork = get().pending > 0 || get().failed > 0
+      if (!hasWork) {
+        set({ lastError: null })
+        return
+      }
+
+      // Несколько кругов: слабый интернет + «смена не найдена»
+      const rounds = 4
+      for (let round = 0; round < rounds; round++) {
+        await get().refresh()
+        if (get().pending === 0 && get().failed === 0) break
+
+        // Снова поднять то, что снова упало как failed (кроме жёсткой валидации на последнем круге)
+        await autoRetryFailed({ forceAll: round < rounds - 1 })
+        await get().refresh()
+        if (get().pending === 0) break
+
+        const alive = await pingServer({ quick: false })
+        if (alive) {
+          resetBackoff()
+          set({ online: true })
+          try {
+            const { softSyncPosAfterSale } = await import('./posStore')
+            await Promise.race([
+              softSyncPosAfterSale(),
+              new Promise(resolve => setTimeout(resolve, 3500)),
+            ])
+          } catch { /* ignore */ }
+        } else {
+          set({ lastError: 'Слабая связь — принудительно пробуем отправить…' })
+        }
+
+        const before = get().pending + get().failed
+        await get().flush()
+        await get().refresh()
+        const after = get().pending + get().failed
+
+        if (after === 0) {
+          set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
+          try {
+            const { pullSyncChanges } = await import('./syncPull')
+            await Promise.race([
+              pullSyncChanges(),
+              new Promise(resolve => setTimeout(resolve, 10000)),
+            ])
+          } catch { /* ignore */ }
+          try { await markLocalSyncAt() } catch { /* ignore */ }
+          break
+        }
+
+        // Прогресс есть — ещё круг; нет — пауза и ещё попытка
+        if (after >= before) {
+          await new Promise(r => setTimeout(r, 1200 + round * 800))
+        } else {
+          await new Promise(r => setTimeout(r, 400))
+        }
+      }
+
+      await get().refresh()
+      if (get().pending > 0 || get().failed > 0) {
+        set({
+          lastError: get().failed > 0
+            ? 'Часть операций всё ещё не ушла — откройте очередь'
+            : 'Очередь ещё ждёт связь — пробуем сами',
+        })
+        scheduleReconnect(get, set, 2000)
+      } else {
+        set({ lastError: null, lastSyncAtIso: new Date().toISOString() })
+      }
+    }
+
+    try {
+      await withWatchdog(run(), 90000)
+    } catch (e) {
+      set({
+        syncing: false,
+        lastError: e instanceof Error ? e.message : 'Принудительная синхронизация прервана',
+        progress: { done: 0, total: 0 },
+      })
+      scheduleReconnect(get, set, 2500)
+    } finally {
+      syncLock = false
+      if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
+      await get().refresh()
+    }
+  },
+
   start: () => {
     if (get().started || typeof window === 'undefined') return
     set({ started: true, online: isOnline() })
@@ -458,7 +584,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       if (get().syncing || syncLock) return
       if (isCashierCritical()) return
       void (async () => {
-        const hasWork = get().pending > 0 || get().failed > 0 || !get().online
+        await get().refresh()
+        const failed = get().failed
+        const pending = get().pending
+        const hasWork = pending > 0 || failed > 0 || !get().online
         if (!hasWork) {
           const alive = await pingServer({ quick: true })
           if (!alive) {
@@ -469,7 +598,12 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           }
           return
         }
-        await get().syncNow()
+        // Застрявшие (failed) — принудительно, иначе обычный sync
+        if (failed > 0) {
+          await get().forceSync()
+        } else {
+          await get().syncNow()
+        }
       })()
     }, POLL_BUSY_MS)
   },

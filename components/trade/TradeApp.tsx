@@ -548,8 +548,17 @@ const CSS = `
     background:rgba(59,142,240,.04);margin-top:8px
   }
   .k-rev-add-h{font-size:12px;font-weight:900;color:#3B8EF0;margin-bottom:6px}
-  .k-netnote{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:inherit}
-  .k-netnote:hover{color:var(--text)}
+  .k-netblock{
+    margin-top:6px;width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--border);
+    background:var(--card2);color:inherit;font:inherit;text-align:left;cursor:pointer;
+    display:flex;flex-direction:column;align-items:flex-start;gap:2px
+  }
+  .k-netblock:hover{border-color:var(--green)}
+  .k-netblock .k-online{margin-top:0}
+  .k-netnote{margin-top:2px;font-size:11px;color:var(--muted);line-height:1.35}
+  .k-netblock:hover .k-netnote{color:var(--text)}
+  .k-net-hint{margin-top:3px;font-size:10px;font-weight:700;color:var(--green)}
+  .k-online{cursor:inherit}
   .k-update{width:100%;margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:2px}
   .k-update:hover:not(:disabled){border-color:var(--green)}
   .k-update:disabled{opacity:.7;cursor:default}
@@ -2005,6 +2014,9 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
     ? new Date(lastSyncAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     : ''
 
+  const openQueue = () => setQueueOpen(true)
+  const hasQueue = pending > 0 || failed > 0
+
   if (compact) {
     return (
       <>
@@ -2012,12 +2024,12 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
           type="button"
           className="k-online-chip"
           data-state={state}
-          title={label}
-          onClick={() => setQueueOpen(true)}
+          title={`${label} — нажмите, чтобы открыть очередь`}
+          onClick={openQueue}
         >
           <span className="d" />
           <span className="t">{shortLabel}</span>
-          {pending > 0 ? <span className="n">{pending}</span> : null}
+          {(pending + failed) > 0 ? <span className="n">{pending + failed}</span> : null}
         </button>
         {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
       </>
@@ -2026,14 +2038,24 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
 
   return (
     <>
-      <div className="k-online" data-state={state}><span className="d" />{label}</div>
-      {(pending > 0 || failed > 0 || !!lastSync) && (
-        <button type="button" className="k-netnote" onClick={() => setQueueOpen(true)}>
+      <button
+        type="button"
+        className="k-netblock"
+        data-state={state}
+        title="Открыть очередь синхронизации"
+        onClick={openQueue}
+      >
+        <div className="k-online" data-state={state}><span className="d" />{label}</div>
+        <div className="k-netnote">
           {pending > 0 && <div>Ждут отправки: {pending}</div>}
           {failed > 0 && <div>Требуют разбора: {failed}</div>}
           {!!lastSync && <div>Синхронизация в {lastSync}</div>}
-        </button>
-      )}
+          {!hasQueue && !lastSync && <div>Очередь пуста</div>}
+        </div>
+        <div className="k-net-hint">
+          {hasQueue ? 'Нажмите — очередь и ручная отправка' : 'Нажмите — очередь синхронизации'}
+        </div>
+      </button>
       {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
     </>
   )

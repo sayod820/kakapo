@@ -3806,6 +3806,7 @@ export default function CashierModule({
     const q = qRaw.trim()
     if (!q) return ids
     const qDigits = q.replace(/\D/g, '')
+    const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(q)
     const fromExact = receiptBarcodeIndex.exact.get(q) ?? receiptBarcodeIndex.exact.get(q.toLowerCase())
     if (fromExact != null) ids.add(fromExact)
     if (qDigits) {
@@ -3830,7 +3831,31 @@ export default function CashierModule({
         if (hit) ids.add(id)
       }
     }
+    // Поиск по названию товара → id (чтобы в истории остались только чеки с ним)
+    if (!ids.size && !looksOrderNum && q.length >= 2) {
+      for (const p of filterProductsBySearch(products, q, 40)) {
+        if (p.id != null) ids.add(Number(p.id))
+      }
+    }
     return ids
+  }
+
+  /** Чек содержит один из товаров (по id или имени строки — на случай рассинхрона id) */
+  function saleHasAnyProduct(
+    s: (typeof sales)[number],
+    productIds: Set<number>,
+    nameHints: Set<string>,
+    qHint = '',
+  ): boolean {
+    if (!productIds.size) return false
+    const qn = qHint.toLowerCase().trim()
+    for (const it of s.items || []) {
+      if (productIds.has(Number(it.productId))) return true
+      const nm = String(it.productName || '').toLowerCase().trim()
+      if (nm && nameHints.has(nm)) return true
+      if (qn.length >= 2 && nm.includes(qn)) return true
+    }
+    return false
   }
 
   function saleMatchesReceiptFilter(s: (typeof sales)[number], filter: typeof receiptFilter) {
@@ -3927,13 +3952,15 @@ export default function CashierModule({
     const q = qRaw.toLowerCase()
     const qDigits = qRaw.replace(/[^\d]/g, '')
     const looksOrderNum = /^(?:k-?\s*)?[#№]?\s*\d{1,6}$/i.test(qRaw)
-    const productIds = qRaw ? resolveReceiptProductIds(qRaw) : new Set<number>()
+    const productIds = qRaw && !looksOrderNum ? resolveReceiptProductIds(qRaw) : new Set<number>()
     const isBarcodeLike = productIds.size > 0 || qDigits.length >= 8
 
-    const namedIds = new Set<number>()
-    if (qRaw && !looksOrderNum && !isBarcodeLike && q.length >= 2) {
-      for (const p of filterProductsBySearch(products, qRaw, 24)) {
-        if (p.id != null) namedIds.add(Number(p.id))
+    const nameHints = new Set<string>()
+    if (productIds.size) {
+      for (const id of productIds) {
+        const p = products.find(x => Number(x.id) === id)
+        const nm = String(p?.name || '').toLowerCase().trim()
+        if (nm) nameHints.add(nm)
       }
     }
 
@@ -3953,18 +3980,19 @@ export default function CashierModule({
       }
 
       const items = s.items || []
-        const seq = saleOrderSeq(s)
-        const label = saleNumberLabel(s)
+      const seq = saleOrderSeq(s)
+      const label = saleNumberLabel(s)
 
+      // Товар (штрих / название / арт) — строго только чеки с этим товаром
       if (productIds.size > 0) {
-        if (items.some(i => productIds.has(Number(i.productId)))) {
+        if (saleHasAnyProduct(s, productIds, nameHints, q)) {
           out.push(s)
           if (limit > 0 && out.length >= limit) break
         }
         continue
       }
 
-        if (looksOrderNum && qDigits) {
+      if (looksOrderNum && qDigits) {
         if (
           String(seq) === qDigits
           || label.toLowerCase() === q
@@ -3977,12 +4005,7 @@ export default function CashierModule({
         continue
       }
 
-      if (namedIds.size && items.some(i => namedIds.has(Number(i.productId)))) {
-        out.push(s)
-        if (limit > 0 && out.length >= limit) break
-        continue
-      }
-
+      // Текст: сначала строки чека (название / коды товара)
       if (items.some(i => (i.productName || '').toLowerCase().includes(q))) {
         out.push(s)
         if (limit > 0 && out.length >= limit) break
@@ -3994,6 +4017,7 @@ export default function CashierModule({
         return (
           codes.art.toLowerCase().includes(q)
           || codes.barcode.toLowerCase().includes(q)
+          || (qDigits.length >= 4 && codes.barcode.replace(/\D/g, '').endsWith(qDigits))
           || codes.plu === qDigits
         )
       })) {
@@ -4002,6 +4026,8 @@ export default function CashierModule({
         continue
       }
 
+      // Клиент / номер чека — только если это не «товарный» запрос
+      if (!isBarcodeLike) {
         const hay = [
           label,
           seq > 0 ? String(seq) : '',
@@ -4012,9 +4038,10 @@ export default function CashierModule({
           s.cardNum,
           s.cashierName,
         ].join(' ').toLowerCase()
-      if (hay.includes(q)) {
-        out.push(s)
-        if (limit > 0 && out.length >= limit) break
+        if (hay.includes(q)) {
+          out.push(s)
+          if (limit > 0 && out.length >= limit) break
+        }
       }
     }
     return out
@@ -4078,7 +4105,9 @@ export default function CashierModule({
       codes = productCodesForId(hitId)
     }
     if (hitId == null || !hitName) return null
-    const n = receiptMatches.filter(s => (s.items || []).some(i => Number(i.productId) === hitId)).length
+    const nameHints = new Set([hitName.toLowerCase().trim()].filter(Boolean))
+    const idSet = new Set<number>([hitId])
+    const n = receiptMatches.filter(s => saleHasAnyProduct(s, idSet, nameHints, qRaw.toLowerCase())).length
     return { name: hitName, count: n, art: codes.art, barcode: codes.barcode, plu: codes.plu }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiptQDeferred, products, receiptMatches, receiptBarcodeIndex])
