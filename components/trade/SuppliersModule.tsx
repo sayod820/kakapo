@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
 import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
@@ -61,7 +61,9 @@ export default function SuppliersModule() {
   const [form, setForm] = useState<SupplierFormState>(emptySupplierForm)
   const [payForm, setPayForm] = useState<PaymentFormState>(emptyPaymentForm)
 
-  const refreshAll = useCallback(() => syncPosFromApi(), [])
+  const refreshAll = useCallback(() => {
+    void softSyncWarehouse()
+  }, [])
 
   const loadPayments = useCallback(async (supplierId: string) => {
     if (!USE_API) return
@@ -224,7 +226,8 @@ export default function SuppliersModule() {
           [payForm.supplierId]: [res.data, ...(prev[payForm.supplierId] || [])],
         }))
       } else {
-        await Promise.all([refreshAll(), loadPayments(payForm.supplierId)])
+        void refreshAll()
+        void loadPayments(payForm.supplierId)
       }
       closePayForm()
     } catch (e) {
@@ -246,7 +249,8 @@ export default function SuppliersModule() {
           [supplierId]: (prev[supplierId] || []).filter(p => p.id !== paymentId),
         }))
       } else {
-        await Promise.all([refreshAll(), loadPayments(supplierId)])
+        void refreshAll()
+        void loadPayments(supplierId)
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить платёж')

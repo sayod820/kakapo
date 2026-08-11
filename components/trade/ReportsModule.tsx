@@ -10,7 +10,7 @@ import {
   readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
@@ -208,14 +208,18 @@ export default function ReportsModule() {
   }, [apiQuery, shifts, financeMoves, expenses, sales])
 
   useEffect(() => {
-    if (!apiReady) return
     void loadTruth()
-  }, [apiReady, loadTruth])
+  }, [loadTruth])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([syncPosFromApi(), syncClientsFromApi(), loadTruth()])
+      await Promise.all([
+        softSyncPosAfterSale(),
+        softSyncWarehouse(),
+        syncClientsFromApi(),
+        loadTruth(),
+      ])
     } finally {
       setRefreshing(false)
     }
@@ -287,13 +291,7 @@ export default function ReportsModule() {
     )
   }
 
-  if (!apiReady) {
-    return (
-      <div className="k-reports-mod">
-        <div className="k-empty">Загрузка…</div>
-      </div>
-    )
-  }
+  // Не блокируем «Загрузка…» — сначала локальные продажи/отчёты
 
   const filterCount = [
     posFilter,
@@ -305,7 +303,10 @@ export default function ReportsModule() {
 
   return (
     <div className="k-reports-mod">
-      {truthLocal && (
+      {!apiReady && (
+        <div className="k-rep-sync-bar">Локальные данные · синхронизация…</div>
+      )}
+      {truthLocal && apiReady && (
         <div className="k-rep-sync-bar">Локальные данные · обновятся при связи</div>
       )}
 

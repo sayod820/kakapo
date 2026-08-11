@@ -2239,9 +2239,8 @@ function TradeAppInner({
     onThemeChange(next)
   }
 
-  useEffect(() => {
-    void useProducts.getState().fetchProducts()
-  }, [])
+  // Каталог уже подтягивает hydrate + useApiSync — лишний fetch на mount не нужен
+  // (на слабом интернете дублировал тяжёлую загрузку)
 
   useEffect(() => {
     setMenuOpen(false)

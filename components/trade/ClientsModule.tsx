@@ -13,9 +13,9 @@ import {
 import {
   earnedAutoLevelForClient,
   loyaltySummaryForClient,
-  saveCardLoyalty,
 } from '@/lib/clientCardSync'
 import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
+import { saveCardLoyaltySafe } from '@/lib/offlineLoyaltyOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -337,8 +337,8 @@ export default function ClientsModule() {
     if (!card) throw new Error('Не удалось получить карту лояльности')
     const freshClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
     const base = cardLoyaltyFromCard(card, freshClient)
-    await saveCardLoyalty(card, { ...base, ...patch }, 'edit')
-    void refreshAll()
+    const res = await saveCardLoyaltySafe(card, { ...base, ...patch }, 'edit')
+    if (!res.offline) void refreshAll()
   }
 
   function openDetail(id: string) {

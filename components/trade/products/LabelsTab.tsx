@@ -217,7 +217,7 @@ export default function LabelsTab({
     })
 
   const loadLayers = useCallback(async (productId: number) => {
-    if (!USE_API || loadingRef.current.has(productId)) return
+    if (loadingRef.current.has(productId)) return
     let skip = false
     setLayersByProduct(prev => {
       if (prev[productId] !== undefined) { skip = true; return prev }
@@ -227,8 +227,21 @@ export default function LabelsTab({
     loadingRef.current.add(productId)
     setLoadingLayers(prev => new Set(prev).add(productId))
     try {
-      const layers = await api.getProductStockLayers(productId)
-      setLayersByProduct(prev => ({ ...prev, [productId]: layers }))
+      const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
+      const cached = (await readCachedStockLayers()).filter(l => Number(l.productId) === productId)
+      if (cached.length) {
+        setLayersByProduct(prev => ({ ...prev, [productId]: cached }))
+      }
+      if (!USE_API) {
+        if (!cached.length) setLayersByProduct(prev => ({ ...prev, [productId]: [] }))
+        return
+      }
+      // Сеть в фоне — не блокируем печать этикеток
+      void api.getProductStockLayers(productId).then(layers => {
+        setLayersByProduct(prev => ({ ...prev, [productId]: layers }))
+      }).catch(() => {
+        if (!cached.length) setLayersByProduct(prev => ({ ...prev, [productId]: [] }))
+      })
     } catch {
       setLayersByProduct(prev => ({ ...prev, [productId]: [] }))
     } finally {
@@ -238,8 +251,38 @@ export default function LabelsTab({
   }, [])
 
   useEffect(() => {
+    // Один раз из локального кэша партий — без 30 сетевых запросов
+    let cancelled = false
+    void (async () => {
+      try {
+        const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
+        const all = await readCachedStockLayers()
+        if (cancelled || !all.length) return
+        const map: Record<number, typeof all> = {}
+        for (const layer of all) {
+          const pid = Number(layer.productId)
+          if (!Number.isFinite(pid)) continue
+          ;(map[pid] ||= []).push(layer)
+        }
+        setLayersByProduct(prev => {
+          const next = { ...prev }
+          for (const [pid, list] of Object.entries(map)) {
+            const id = Number(pid)
+            if (next[id] === undefined) next[id] = list
+          }
+          return next
+        })
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     if (!USE_API) return
-    void Promise.all(filtered.slice(0, 30).map(p => loadLayers(p.id)))
+    // Догружаем только видимые без кэша — в фоне
+    for (const p of filtered.slice(0, 20)) {
+      void loadLayers(p.id)
+    }
   }, [filtered, loadLayers])
 
   function getEdit(pick: LabelPick): LabelEdit {

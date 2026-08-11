@@ -70,14 +70,11 @@ export default function WarehouseModule({
     return { totalStock, low, out }
   }, [products])
 
-  const refreshAll = useCallback(async () => {
-    // Слабый интернет: лёгкий sync склада, без reconcile + 13 эндпоинтов
-    await Promise.all([
-      softSyncWarehouse({ expiryDays }),
-      fetchProducts(),
-    ])
+  const refreshAll = useCallback(() => {
+    // Сразу обновляем UI из локального; сеть — в фоне
     setRefreshGen(g => g + 1)
-    // Тяжёлую сверку остатков — только в фоне, не блокируем кнопку
+    void softSyncWarehouse({ expiryDays })
+    void fetchProducts()
     if (USE_API) {
       void api.reconcileStock().catch(() => undefined)
     }

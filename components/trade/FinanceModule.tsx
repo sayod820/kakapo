@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isOfflineV2Full } from '@/lib/offlineV2'
 import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
@@ -194,14 +194,20 @@ export default function FinanceModule() {
   }, [apiQuery, shifts, financeMoves, expenses, sales])
 
   useEffect(() => {
-    if (!apiReady || !USE_API) return
+    // Не ждём apiReady — считаем из локального стора сразу
     void loadTruth()
-  }, [apiReady, loadTruth])
+  }, [loadTruth])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([syncPosFromApi(), syncClientsFromApi(), loadTruth()])
+      // Как касса: лёгкий sync, без полного POS-снимка
+      await Promise.all([
+        softSyncPosAfterSale(),
+        softSyncWarehouse(),
+        syncClientsFromApi(),
+        loadTruth(),
+      ])
     } finally {
       setRefreshing(false)
     }
@@ -309,13 +315,8 @@ export default function FinanceModule() {
     return diff < 0 ? 'var(--red)' : 'var(--green)'
   }
 
-  if (!apiReady) {
-    return (
-      <div className="k-finance-mod">
-        <div className="k-empty">Загрузка…</div>
-      </div>
-    )
-  }
+  // Не блокируем раздел «Загрузка…» — рисуем локальные данные сразу
+  // (apiReady приходит из hydrate; сеть догоняет в фоне)
 
   const alerts = truth?.alerts
   const vs = truth?.expectedVsActual
@@ -327,7 +328,10 @@ export default function FinanceModule() {
 
   return (
     <div className="k-finance-mod">
-      {truthLocal && (
+      {!apiReady && (
+        <div className="k-fin-sync-bar">Локальные данные · синхронизация…</div>
+      )}
+      {truthLocal && apiReady && (
         <div className="k-fin-sync-bar">Локальные данные · обновятся при связи</div>
       )}
 

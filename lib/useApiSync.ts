@@ -7,14 +7,15 @@ import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
 import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
-import { softSyncPosAfterSale, syncPosFromApi } from './posStore'
+import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
-const POS_INTERVAL_MS = 30000
+/** Торговля: реже и легче — полный POS-снимок больше не гоняем каждые 30с */
+const POS_INTERVAL_MS = 45000
 /** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
 const PULL_DEBOUNCE_MS = 400
 
@@ -26,7 +27,7 @@ function wsRoleForMode(mode: SyncMode) {
   return 'admin' as const
 }
 
-type PullKind = 'crm' | 'pos' | 'products' | 'posSoft'
+type PullKind = 'crm' | 'pos' | 'posSoft' | 'posWarehouse' | 'products'
 
 function createDebouncedPullers() {
   const timers: Partial<Record<PullKind, ReturnType<typeof setTimeout>>> = {}
@@ -47,6 +48,7 @@ function createDebouncedPullers() {
       void syncClientsFromApi()
       void syncCardsFromApi()
     }),
+    /** Полный снимок — только по редкой необходимости */
     pos: () => schedule('pos', () => {
       void syncPosFromApi()
     }),
@@ -55,6 +57,9 @@ function createDebouncedPullers() {
     }),
     posSoft: () => schedule('posSoft', () => {
       void softSyncPosAfterSale()
+    }),
+    posWarehouse: () => schedule('posWarehouse', () => {
+      void softSyncWarehouse()
     }),
     flushAll: () => {
       for (const t of Object.values(timers)) if (t) clearTimeout(t)
@@ -68,6 +73,7 @@ export function useApiSync(mode: SyncMode = 'all') {
   const pullersRef = useRef<ReturnType<typeof createDebouncedPullers> | null>(null)
   if (!pullersRef.current) pullersRef.current = createDebouncedPullers()
   const pull = pullersRef.current
+  const posTickRef = useRef(0)
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
@@ -116,7 +122,6 @@ export function useApiSync(mode: SyncMode = 'all') {
         })
       }
       pull.products()
-      if (mode === 'pos') pull.pos()
       return
     }
     if (msg.event === 'restaurant_update') {
@@ -152,18 +157,30 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'pos_update') {
       const kind = String(msg.payload?.kind || msg.payload?.reason || '')
-      pull.products()
       // CRM / лояльность — сразу клиенты и карты
       if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
         pull.crm()
       }
-      // Лёгкий sync продаж/смен vs полный снимок склада/финансов
+      // Продажа / смена — только лёгкий sync (как касса)
       if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
         pull.posSoft()
-        pull.pos()
-      } else {
-        pull.pos()
+        return
       }
+      // Склад / поставщики / финансы — лёгкий warehouse sync, без 13 эндпоинтов
+      if (
+        kind.includes('stock')
+        || kind.includes('receipt')
+        || kind.includes('writeoff')
+        || kind.includes('revision')
+        || kind.includes('supplier')
+        || kind.includes('expense')
+        || kind.includes('finance')
+      ) {
+        pull.posWarehouse()
+        return
+      }
+      // Неизвестный kind — мягко, не полный снимок
+      pull.posSoft()
       return
     }
     if (msg.order) {
@@ -186,7 +203,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
     else if (mode === 'pos') {
-      pull.pos()
+      pull.posSoft()
       pull.crm()
     }
     else if (mode === 'all') orders.fetchOrders()
@@ -201,35 +218,52 @@ export function useApiSync(mode: SyncMode = 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
         }
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
+        if (mode === 'pos') {
+          // Торговля как касса: локально уже есть данные; фон — лёгкий sync
+          posTickRef.current += 1
+          const tick = posTickRef.current
+          const tasks: Promise<unknown>[] = [
+            syncLoyaltyStatusConfigFromApi(),
+            softSyncPosAfterSale(),
+            softSyncWarehouse(),
+            syncClientsFromApi(),
+            syncCardsFromApi(),
+          ]
+          // Каталог товаров — не каждый тик (тяжело на слабом интернете)
+          if (tick === 1 || tick % 3 === 0) {
+            tasks.push(useProducts.getState().fetchProducts())
+          }
+          // Полный POS-снимок — редко (раз в ~3 мин при 45с интервале)
+          if (tick === 1 || tick % 4 === 0) {
+            tasks.push(syncPosFromApi())
+          }
+          await Promise.allSettled(tasks)
+          return
+        }
+
         const tasks: Promise<unknown>[] = [
           syncLoyaltyStatusConfigFromApi(),
           useProducts.getState().fetchProducts(),
+          usePromos.getState().fetchPromos(),
+          useRestaurants.getState().fetchRestaurants(),
+          syncCourierStoresFromApi(),
         ]
-        if (mode === 'pos') {
-          // Касса: только товары, клиенты, карты и снимок POS
-          tasks.push(syncClientsFromApi(), syncCardsFromApi(), syncPosFromApi())
-        } else {
-          tasks.push(
-            usePromos.getState().fetchPromos(),
-            useRestaurants.getState().fetchRestaurants(),
-            syncCourierStoresFromApi(),
-          )
-          if (mode === 'all') {
-            tasks.push(syncAssemblerTeamFromApi(), syncPushFromApi())
-          }
-          if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
-          else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
-          else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
-          else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
+        if (mode === 'all') {
+          tasks.push(syncAssemblerTeamFromApi(), syncPushFromApi())
         }
+        if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
+        else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
+        else if (mode === 'restaurant') tasks.push(useOrders.getState().fetchRestaurantOrders())
+        else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())
         await Promise.allSettled(tasks)
       } catch (e) {
         console.error('[kakapo] useApiSync load failed', e)
       }
     }
 
-    load()
-    const id = setInterval(load, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
+    // Не блокируем UI: старт в фоне
+    void load()
+    const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
     return () => {
       clearInterval(id)
       pull.flushAll()

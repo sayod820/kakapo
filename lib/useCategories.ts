@@ -262,7 +262,8 @@ export function useCategories() {
   useEffect(() => { void reload() }, [reload])
 
   useEffect(() => {
-    const onSync = () => { void reload(true) }
+    // Локальные мутации уже обновили memoryCategories — не дёргаем API при каждом событии
+    const onSync = () => { void reload(false) }
     window.addEventListener('kakapo:categories', onSync)
     return () => window.removeEventListener('kakapo:categories', onSync)
   }, [reload])
@@ -289,7 +290,7 @@ export function useCategories() {
   }) => {
     const { createCategorySafe } = await import('./offlineCategoryOps')
     const res = await createCategorySafe(data)
-    if (!res.offline) await reload(true)
+    if (!res.offline) void reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
     return res.data
   }, [reload])
@@ -297,7 +298,7 @@ export function useCategories() {
   const updateCategory = useCallback(async (id: number, data: Partial<Category>) => {
     const { updateCategorySafe } = await import('./offlineCategoryOps')
     const res = await updateCategorySafe(id, data)
-    if (!res.offline) await reload(true)
+    if (!res.offline) void reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
     return res.data
   }, [reload])
@@ -306,7 +307,7 @@ export function useCategories() {
     if (!items.length) return
     const { reorderCategoriesSafe } = await import('./offlineCategoryOps')
     const res = await reorderCategoriesSafe(items)
-    if (!res.offline) await reload(true)
+    if (!res.offline) void reload(true)
     window.dispatchEvent(new CustomEvent('kakapo:categories'))
   }, [reload])
 
@@ -314,7 +315,7 @@ export function useCategories() {
     const { deleteCategorySafe } = await import('./offlineCategoryOps')
     try {
       const res = await deleteCategorySafe(id)
-      if (!res.offline) await reload(true)
+      if (!res.offline) void reload(true)
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
     } catch (e) {
       throw e instanceof Error ? e : new Error('Не удалось удалить категорию')
@@ -325,7 +326,7 @@ export function useCategories() {
     const { deleteCategoriesSafe } = await import('./offlineCategoryOps')
     try {
       const res = await deleteCategoriesSafe(ids)
-      if (!res.offline) await reload(true)
+      if (!res.offline) void reload(true)
       window.dispatchEvent(new CustomEvent('kakapo:categories'))
       return res.data
     } catch (e) {
