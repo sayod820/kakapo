@@ -85,6 +85,7 @@ import {
   type CasWeightEvent,
   type DesktopPrinter,
 } from '@/lib/desktopBridge'
+import { hideTradeHardwareUi } from '@/lib/tradeAndroid'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
@@ -798,6 +799,7 @@ export default function CashierModule({
   theme?: ThemeName
   onThemeChange?: (theme: ThemeName) => void
 }) {
+  const hideHardware = hideTradeHardwareUi()
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const clients = useClientStore(s => s.clients)
@@ -5425,6 +5427,10 @@ export default function CashierModule({
   }
 
   async function doPrintSale(sale: PosSale) {
+    if (hideTradeHardwareUi()) {
+      showToast('Чек', 'Печать только на кассе Windows')
+      return
+    }
     try {
       const posPoint = sale.posId
         ? posPoints.find(p => p.id === sale.posId)
@@ -6614,7 +6620,7 @@ export default function CashierModule({
             <div className="pos-settings-top">
               <div style={{ minWidth: 0 }}>
                 <h2>Настройки точки продаж</h2>
-                <p>Касса · чек · принтер XP-58C · весы CAS</p>
+                <p>{hideHardware ? 'Касса · название · телефон' : 'Касса · чек · принтер XP-58C · весы CAS'}</p>
               </div>
               <div className="pos-settings-top-actions">
                 <button
@@ -6673,6 +6679,7 @@ export default function CashierModule({
                   </div>
                 </div>
 
+                {!hideHardware && (
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
                   <p className="hint">Лента 58 мм · ESC/POS · шапка: название + телефон</p>
@@ -7025,6 +7032,7 @@ export default function CashierModule({
                     <div className="pos-settings-status warn">Нужен desktop KAKAPO Касса</div>
                   )}
                 </div>
+                )}
 
                 <div className="pos-settings-card">
                   <h3>Офлайн Trade (V2)</h3>
@@ -7088,7 +7096,7 @@ export default function CashierModule({
           </div>
         )}
 
-        {receiptTemplateOpen && (
+        {receiptTemplateOpen && !hideHardware && (
           <div
             className="pos-settings-fs receipt-tpl-fs"
             style={{ zIndex: 8200 }}

@@ -1,6 +1,7 @@
 import type { PosSale } from '@/lib/types'
 import { getKakapoDesktop, isKakapoDesktop } from '@/lib/desktopBridge'
 import { pickReceiptPrinter, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
+import { hideTradeHardwareUi } from '@/lib/tradeAndroid'
 
 const STORE_KEY = 'kakapo_trade_receipt_store'
 
@@ -574,6 +575,9 @@ export async function printPosReceipt(
   opts?: PosReceiptPrintOpts,
 ): Promise<void> {
   if (typeof window === 'undefined') return
+
+  // Android / телефон: нет USB XP-58C — продажа уже сохранена, печать пропускаем
+  if (hideTradeHardwareUi()) return
 
   const tpl = resolveTemplateOpts(opts)
   const printOpts: PosReceiptPrintOpts = {
