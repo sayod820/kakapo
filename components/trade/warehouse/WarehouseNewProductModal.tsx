@@ -71,7 +71,7 @@ export default function WarehouseNewProductModal({
       const saved = res.data
       if (saved && form.photo) setPhoto(saved.id, form.photo)
       // В полном офлайне каталог уже обновлён локально — лишний fetch не нужен
-      if (!res.offline) await fetchProducts()
+      if (!res.offline) void fetchProducts()
       onCreated(saved)
       onClose()
     } catch (e) {

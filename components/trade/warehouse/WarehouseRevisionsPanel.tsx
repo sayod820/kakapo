@@ -513,7 +513,6 @@ export default function WarehouseRevisionsPanel({
   const hasDraft = !editingId && lines.some(l => l.productId || l.countedStock)
 
   async function submit() {
-    if (!USE_API) return
     const items = lines
       .filter(l => l.productId != null && l.countedStock !== '')
       .map(l => ({ productId: l.productId!, countedStock: Number(l.countedStock) }))
@@ -542,7 +541,6 @@ export default function WarehouseRevisionsPanel({
   }
 
   async function removeRevision(id: string) {
-    if (!USE_API) return
     const revision = revisions.find(r => r.id === id)
     if (!revision) return
     if (!confirm(`Удалить ревизию от ${fmtDateTime(revision.createdAtIso)}?\n\nОстатки вернутся к значениям до ревизии.`)) return

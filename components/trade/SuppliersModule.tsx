@@ -66,16 +66,43 @@ export default function SuppliersModule() {
   }, [])
 
   const loadPayments = useCallback(async (supplierId: string) => {
-    if (!USE_API) return
-    setPaymentsLoading(prev => ({ ...prev, [supplierId]: true }))
+    const cacheKey = `supplier_payments_${supplierId}`
     try {
-      const rows = await api.getSupplierPayments(supplierId)
-      setPayments(prev => ({ ...prev, [supplierId]: rows }))
+      const { readCachedData } = await import('@/lib/offline')
+      const cached = await readCachedData<SupplierPayment[]>(cacheKey)
+      if (cached?.length) {
+        setPayments(prev => ({ ...prev, [supplierId]: cached }))
+        setPaymentsLoading(prev => ({ ...prev, [supplierId]: false }))
+      } else {
+        setPaymentsLoading(prev => ({ ...prev, [supplierId]: true }))
+      }
     } catch {
-      setPayments(prev => ({ ...prev, [supplierId]: [] }))
-    } finally {
-      setPaymentsLoading(prev => ({ ...prev, [supplierId]: false }))
+      setPaymentsLoading(prev => ({ ...prev, [supplierId]: true }))
     }
+    if (!USE_API) {
+      setPaymentsLoading(prev => ({ ...prev, [supplierId]: false }))
+      return
+    }
+    // Сеть в фоне — список не ждёт ответ
+    void api.getSupplierPayments(supplierId).then(async rows => {
+      setPayments(prev => {
+        const localOnly = (prev[supplierId] || []).filter(p => {
+          const id = String(p.id || '')
+          return id.startsWith('off-')
+        })
+        const serverIds = new Set(rows.map(r => String(r.id)))
+        const keepLocal = localOnly.filter(p => !serverIds.has(String(p.id)))
+        return { ...prev, [supplierId]: keepLocal.length ? [...keepLocal, ...rows] : rows }
+      })
+      try {
+        const { cacheData } = await import('@/lib/offline')
+        void cacheData(cacheKey, rows)
+      } catch { /* ignore */ }
+    }).catch(() => {
+      setPayments(prev => ({ ...prev, [supplierId]: prev[supplierId] || [] }))
+    }).finally(() => {
+      setPaymentsLoading(prev => ({ ...prev, [supplierId]: false }))
+    })
   }, [])
 
   function openDetail(id: string) {
@@ -221,10 +248,13 @@ export default function SuppliersModule() {
         note: payForm.note.trim() || undefined,
       })
       if (res.offline) {
-        setPayments(prev => ({
-          ...prev,
-          [payForm.supplierId]: [res.data, ...(prev[payForm.supplierId] || [])],
-        }))
+        setPayments(prev => {
+          const next = [res.data, ...(prev[payForm.supplierId] || [])]
+          void import('@/lib/offline').then(({ cacheData }) => {
+            void cacheData(`supplier_payments_${payForm.supplierId}`, next)
+          })
+          return { ...prev, [payForm.supplierId]: next }
+        })
       } else {
         void refreshAll()
         void loadPayments(payForm.supplierId)
@@ -244,10 +274,13 @@ export default function SuppliersModule() {
     try {
       const res = await deleteSupplierPaymentSafe(supplierId, paymentId, amountHint)
       if (res.offline) {
-        setPayments(prev => ({
-          ...prev,
-          [supplierId]: (prev[supplierId] || []).filter(p => p.id !== paymentId),
-        }))
+        setPayments(prev => {
+          const next = (prev[supplierId] || []).filter(p => p.id !== paymentId)
+          void import('@/lib/offline').then(({ cacheData }) => {
+            void cacheData(`supplier_payments_${supplierId}`, next)
+          })
+          return { ...prev, [supplierId]: next }
+        })
       } else {
         void refreshAll()
         void loadPayments(supplierId)

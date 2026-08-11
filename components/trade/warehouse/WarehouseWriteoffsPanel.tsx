@@ -383,7 +383,6 @@ export default function WarehouseWriteoffsPanel({
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty)
 
   async function submit() {
-    if (!USE_API) return
     const finalReason = reason === 'Другое' ? customReason.trim() : reason
     if (!finalReason) {
       setMsg('Укажите причину списания')
@@ -427,7 +426,6 @@ export default function WarehouseWriteoffsPanel({
   }
 
   async function removeWriteoff(id: string) {
-    if (!USE_API) return
     const writeoff = writeoffs.find(w => w.id === id)
     if (!writeoff) return
     if (!confirm(`Удалить списание от ${fmtDateTime(writeoff.createdAtIso)}?\n\nТовар вернётся на склад.`)) return

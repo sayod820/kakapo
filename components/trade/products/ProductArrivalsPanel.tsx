@@ -87,29 +87,19 @@ export default function ProductArrivalsPanel({
     try {
       const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
       const cached = (await readCachedStockLayers()).filter(l => Number(l.productId) === product.id)
-      if (cached.length) {
-        setLayers(cached)
-        if (!opts?.silent) setLoading(false)
-      }
-      if (!USE_API) {
-        if (!cached.length) setLayers([])
-        return
-      }
+      setLayers(cached)
+      if (!opts?.silent) setLoading(false)
+      if (!USE_API) return
       // Сеть в фоне — не блокируем окно при слабом интернете
-      void (async () => {
-        try {
-          const rows = await api.getProductStockLayers(product.id)
-          setLayers(rows)
-        } catch (e) {
-          if (!cached.length && !opts?.silent) {
-            setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
-          }
-        } finally {
-          if (!opts?.silent) setLoading(false)
+      void api.getProductStockLayers(product.id).then(rows => {
+        setLayers(rows)
+      }).catch((e: unknown) => {
+        if (!cached.length && !opts?.silent) {
+          setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
         }
-      })()
-      if (cached.length) return
+      })
     } catch (e) {
+      setLayers([])
       if (!opts?.silent) {
         setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
         setLoading(false)

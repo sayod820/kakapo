@@ -316,8 +316,8 @@ export default function DebtsModule({
   const [saleRepay, setSaleRepay] = useState<{ amount: string; saving: boolean } | null>(null)
   const [posView, setPosView] = useState<PosViewFilter>('open')
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+  const refreshAll = useCallback(() => {
+    void Promise.all([syncClientsFromApi(), syncCardsFromApi()])
   }, [])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])

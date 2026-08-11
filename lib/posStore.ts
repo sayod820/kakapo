@@ -212,7 +212,18 @@ export async function softSyncPosAfterSale() {
 /**
  * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
  * Без sales/finance/reconcile — чтобы слабый интернет не «замораживал» раздел.
+ * Локальные (off-*) записи НЕ затираются сервером.
  */
+function mergeLocalDocs<T extends { id?: string }>(local: T[], server: T[]): T[] {
+  const serverIds = new Set(server.map(s => String(s.id || '')))
+  const localOnly = local.filter(s => {
+    const id = String(s.id || '')
+    if (!id || serverIds.has(id)) return false
+    return id.startsWith('off-') || !!(s as { _offline?: boolean })._offline
+  })
+  return localOnly.length ? [...localOnly, ...server] : server
+}
+
 export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   try {
     const days = opts?.expiryDays ?? 14
@@ -223,32 +234,34 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
       api.getSuppliers(),
       api.getStockExpiry(days),
     ])
+
+    const cur = usePosStore.getState()
     usePosStore.setState({
-      receipts,
-      writeoffs,
-      revisions,
-      suppliers,
+      receipts: mergeLocalDocs(cur.receipts, receipts),
+      writeoffs: mergeLocalDocs(cur.writeoffs, writeoffs),
+      revisions: mergeLocalDocs(cur.revisions, revisions),
+      suppliers: mergeLocalDocs(cur.suppliers as { id?: string }[], suppliers as { id?: string }[]) as typeof cur.suppliers,
       expiry,
       apiReady: true,
       apiError: '',
     })
     try {
       const { cacheData } = await import('./offline')
-      const cur = usePosStore.getState()
+      const snap = usePosStore.getState()
       void cacheData('pos_snapshot', {
-        cashiers: cur.cashiers,
-        posPoints: cur.posPoints,
-        shifts: cur.shifts,
-        sales: cur.sales,
-        receipts: cur.receipts,
-        writeoffs: cur.writeoffs,
-        revisions: cur.revisions,
-        suppliers: cur.suppliers,
-        expenses: cur.expenses,
-        financeMoves: cur.financeMoves,
-        expiry: cur.expiry,
-        financeSummary: cur.financeSummary,
-        report: cur.report,
+        cashiers: snap.cashiers,
+        posPoints: snap.posPoints,
+        shifts: snap.shifts,
+        sales: snap.sales,
+        receipts: snap.receipts,
+        writeoffs: snap.writeoffs,
+        revisions: snap.revisions,
+        suppliers: snap.suppliers,
+        expenses: snap.expenses,
+        financeMoves: snap.financeMoves,
+        expiry: snap.expiry,
+        financeSummary: snap.financeSummary,
+        report: snap.report,
       })
     } catch { /* ignore */ }
   } catch { /* нет связи — оставляем локальный снимок */ }

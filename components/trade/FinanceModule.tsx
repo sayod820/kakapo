@@ -198,19 +198,14 @@ export default function FinanceModule() {
     void loadTruth()
   }, [loadTruth])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     setRefreshing(true)
-    try {
-      // Как касса: лёгкий sync, без полного POS-снимка
-      await Promise.all([
-        softSyncPosAfterSale(),
-        softSyncWarehouse(),
-        syncClientsFromApi(),
-        loadTruth(),
-      ])
-    } finally {
-      setRefreshing(false)
-    }
+    void Promise.all([
+      softSyncPosAfterSale(),
+      softSyncWarehouse(),
+      syncClientsFromApi(),
+      loadTruth(),
+    ]).finally(() => setRefreshing(false))
   }, [loadTruth])
 
   /** После офлайн-операции сразу пересчитать книгу/KPI из локального стора */

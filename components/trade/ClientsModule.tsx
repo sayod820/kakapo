@@ -250,8 +250,8 @@ export default function ClientsModule() {
   const welcomeBonus = useMemo(() => getRegistrationWelcomeBonus(), [])
   const unlinkedCards = useMemo(() => cards.filter(c => c.status === 'unlinked'), [cards])
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+  const refreshAll = useCallback(() => {
+    void Promise.all([syncClientsFromApi(), syncCardsFromApi()])
   }, [])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])

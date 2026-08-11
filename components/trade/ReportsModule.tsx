@@ -211,18 +211,14 @@ export default function ReportsModule() {
     void loadTruth()
   }, [loadTruth])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     setRefreshing(true)
-    try {
-      await Promise.all([
-        softSyncPosAfterSale(),
-        softSyncWarehouse(),
-        syncClientsFromApi(),
-        loadTruth(),
-      ])
-    } finally {
-      setRefreshing(false)
-    }
+    void Promise.all([
+      softSyncPosAfterSale(),
+      softSyncWarehouse(),
+      syncClientsFromApi(),
+      loadTruth(),
+    ]).finally(() => setRefreshing(false))
   }, [loadTruth])
 
   function resetFilters() {

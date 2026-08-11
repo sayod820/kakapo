@@ -683,7 +683,6 @@ export default function WarehouseReceiptsPanel({
   }, [lines, paidNow])
 
   async function submit() {
-    if (!USE_API) return
     const items = lines
       .filter(l => l.productId && Number(l.qty) > 0)
       .map(l => ({
@@ -727,7 +726,6 @@ export default function WarehouseReceiptsPanel({
   }
 
   async function removeReceipt(id: string) {
-    if (!USE_API) return
     const receipt = receipts.find(r => r.id === id)
     if (!receipt) return
     if (!confirm(`Удалить приход от ${fmtDateTime(receipt.createdAtIso)}?\n\nТовар будет списан со склада, долг поставщику скорректируется.`)) return

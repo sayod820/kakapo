@@ -81,25 +81,17 @@ export default function WarehouseModule({
   }, [fetchProducts, expiryDays])
 
   const loadExpiry = useCallback(async (days: number) => {
-    // Сразу показываем локальный снимок
+    // Сразу локальный снимок — никогда не блокируем вкладку на сеть
     const local = usePosStore.getState().expiry || []
-    if (local.length) {
-      setExpiry(local.filter(r => Number(r.daysLeft) <= days) as ExpiryRow[])
-    }
-    if (!USE_API) {
-      if (!local.length) setExpiry([])
-      return
-    }
-    setExpiryLoading(!local.length)
-    try {
-      const rows = await api.getStockExpiry(days)
+    setExpiry(local.filter(r => Number(r.daysLeft) <= days) as ExpiryRow[])
+    setExpiryLoading(false)
+    if (!USE_API) return
+    void api.getStockExpiry(days).then(rows => {
       setExpiry(rows)
       usePosStore.setState({ expiry: rows })
-    } catch {
-      if (!local.length) setExpiry([])
-    } finally {
-      setExpiryLoading(false)
-    }
+    }).catch(() => {
+      /* оставляем локальные */
+    })
   }, [])
 
   useEffect(() => {
@@ -115,19 +107,14 @@ export default function WarehouseModule({
   }, [tab, storeExpiry, expiry.length, expiryDays])
 
   const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
-    if (!USE_API) return
     const res = await createStockWriteoffSafe({
       reason: 'Просрочка',
       note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
       items: [{ productId: row.productId, qty: row.qty }],
     })
-    if (!res.offline) {
-      void refreshAll()
-      void loadExpiry(expiryDays)
-    } else {
-      void loadExpiry(expiryDays)
-      void refreshAll()
-    }
+    void loadExpiry(expiryDays)
+    void refreshAll()
+    return res
   }, [refreshAll, loadExpiry, expiryDays])
 
   return (
