@@ -208,3 +208,48 @@ export async function softSyncPosAfterSale() {
     } catch { /* ignore */ }
   } catch { /* нет связи — локальный чек уже на экране */ }
 }
+
+/**
+ * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
+ * Без sales/finance/reconcile — чтобы слабый интернет не «замораживал» раздел.
+ */
+export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
+  try {
+    const days = opts?.expiryDays ?? 14
+    const [receipts, writeoffs, revisions, suppliers, expiry] = await Promise.all([
+      api.getStockReceipts(),
+      api.getStockWriteoffs(),
+      api.getStockRevisions(),
+      api.getSuppliers(),
+      api.getStockExpiry(days),
+    ])
+    usePosStore.setState({
+      receipts,
+      writeoffs,
+      revisions,
+      suppliers,
+      expiry,
+      apiReady: true,
+      apiError: '',
+    })
+    try {
+      const { cacheData } = await import('./offline')
+      const cur = usePosStore.getState()
+      void cacheData('pos_snapshot', {
+        cashiers: cur.cashiers,
+        posPoints: cur.posPoints,
+        shifts: cur.shifts,
+        sales: cur.sales,
+        receipts: cur.receipts,
+        writeoffs: cur.writeoffs,
+        revisions: cur.revisions,
+        suppliers: cur.suppliers,
+        expenses: cur.expenses,
+        financeMoves: cur.financeMoves,
+        expiry: cur.expiry,
+        financeSummary: cur.financeSummary,
+        report: cur.report,
+      })
+    } catch { /* ignore */ }
+  } catch { /* нет связи — оставляем локальный снимок */ }
+}

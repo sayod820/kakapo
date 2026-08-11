@@ -91,6 +91,7 @@ function ReceiptLineEditModal({
   onPurchaseTotal,
   onRetail,
   onSaleTotal,
+  onMarkup,
   onBulkPricing,
 }: {
   line: ReceiptDraftLine
@@ -101,18 +102,23 @@ function ReceiptLineEditModal({
   onPurchaseTotal: (v: string) => void
   onRetail: (v: string) => void
   onSaleTotal: (v: string) => void
+  onMarkup: (v: string) => void
   onBulkPricing: (tiers: BulkPricingRow[]) => void
 }) {
   const lineCost = linePurchaseSum(line)
   const qtyNum = Number(line.qty) || 0
   const retailNum = Number(line.retailPrice) || 0
+  const costNum = Number(line.costPrice) || 0
   const lineSale = roundMoney(qtyNum * retailNum)
   const packInfo = parsePackUnit(product.unit)
   const inputUnitLabel = packInputUnitLabel(packInfo)
   const realWorld = qtyNum > 0 ? packRealWorld(qtyNum, packInfo) : null
-  const unitCost = Number(line.costPrice) || 0
+  const unitCost = costNum
   const qtyRef = useRef<HTMLInputElement>(null)
   const saleTotalStr = qtyNum > 0 && retailNum > 0 ? String(lineSale) : (line.retailPrice ? String(lineSale) : '')
+  const markupStr = line.markupPct !== ''
+    ? line.markupPct
+    : (costNum > 0 && retailNum > 0 ? String(markupFromRetail(costNum, retailNum)) : '')
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -142,7 +148,7 @@ function ReceiptLineEditModal({
 
         <div className="k-rcpt-line-body">
           <div className="k-rcpt-line-grid">
-            <div className="k-field k-rcpt-line-span2">
+            <div className="k-field">
               <label>Количество ({inputUnitLabel})</label>
               <div className="k-rcpt-line-qty">
                 <button type="button" className="k-rcpt-stepper" onClick={() => onQty(bumpQty(line.qty, -1))}>−</button>
@@ -159,6 +165,26 @@ function ReceiptLineEditModal({
               {realWorld && (
                 <div className="k-rcpt-line-hint">= {formatQty(realWorld.value)} {realWorld.label}</div>
               )}
+            </div>
+
+            <div className="k-field">
+              <label>Наценка %</label>
+              <div className="k-rcpt-line-pct">
+                <input
+                  className="k-inp"
+                  type="text"
+                  inputMode="decimal"
+                  value={markupStr}
+                  onChange={e => onMarkup(sanitizeDecimalInput(e.target.value))}
+                  placeholder="30"
+                />
+                <span className="k-rcpt-line-pct-suf">%</span>
+              </div>
+              <div className="k-rcpt-line-hint">
+                {costNum > 0 && markupStr !== ''
+                  ? `Цена и сумма продажи от себестоимости`
+                  : 'Сначала укажите закуп / себестоимость'}
+              </div>
             </div>
 
             <div className="k-field">
@@ -531,9 +557,18 @@ export default function WarehouseReceiptsPanel({
       ...prev,
       lines: prev.lines.map(l => {
         if (l.key !== key) return l
-        const cost = Number(l.costPrice) || 0
+        const qty = Number(l.qty) || 0
+        let cost = Number(l.costPrice) || 0
+        if (!(cost > 0) && qty > 0 && Number(l.purchaseTotal) > 0) {
+          cost = costFromPurchaseTotal(qty, Number(l.purchaseTotal))
+        }
         if (cost > 0 && markupPct !== '') {
-          return { ...l, markupPct, retailPrice: String(retailFromMarkup(cost, Number(markupPct) || 0)) }
+          return {
+            ...l,
+            markupPct,
+            costPrice: l.costPrice || String(cost),
+            retailPrice: String(retailFromMarkup(cost, Number(markupPct) || 0)),
+          }
         }
         return { ...l, markupPct }
       }),
@@ -1273,6 +1308,7 @@ export default function WarehouseReceiptsPanel({
                 onPurchaseTotal={v => setLinePurchaseTotal(editLine.key, v)}
                 onRetail={v => setLineRetail(editLine.key, v)}
                 onSaleTotal={v => setLineSaleTotal(editLine.key, v)}
+                onMarkup={v => setLineMarkup(editLine.key, v)}
                 onBulkPricing={tiers => updateLine(editLine.key, { bulkPricing: tiers })}
               />
             )

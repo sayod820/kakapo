@@ -1,8 +1,6 @@
 'use client'
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
-import { api } from '@/lib/api'
-import { USE_API } from '@/lib/config'
 import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
 import type { Product, ProductStockLayer } from '@/lib/types'
@@ -115,30 +113,14 @@ export default function WarehouseStockPanel({
   const loadLayers = useCallback(async () => {
     setLayersLoading(true)
     try {
-      const { readCachedStockLayers, cacheStockLayers } = await import('@/lib/stockLayersLocal')
-      const cached = await readCachedStockLayers()
-      if (cached.length) setLayers(cached)
-
-      if (!USE_API) {
-        if (!cached.length) setLayers([])
-        return
-      }
-
-      try {
-        const { isOnline } = await import('@/lib/offline')
-        const { useOfflineSync } = await import('@/lib/offlineSync')
-        const online = isOnline() && useOfflineSync.getState().online
-        const pending = useOfflineSync.getState().pending
-        if (online && pending === 0) {
-          const remote = await api.getAllStockLayers()
-          setLayers(remote || [])
-          await cacheStockLayers(remote || [])
-        } else if (!cached.length) {
-          setLayers([])
-        }
-      } catch {
-        if (!cached.length) setLayers([])
-      }
+      const { loadStockLayersCacheFirst } = await import('@/lib/stockLayersLocal')
+      const cached = await loadStockLayersCacheFirst(remote => {
+        setLayers(remote)
+        setLayersLoading(false)
+      })
+      setLayers(cached)
+    } catch {
+      setLayers([])
     } finally {
       setLayersLoading(false)
     }

@@ -886,7 +886,10 @@ const CSS = `
   .k-rcpt-line-grid .k-field label{font-size:10px;margin-bottom:3px}
   .k-rcpt-line-span2{grid-column:1 / -1}
   .k-rcpt-line-qty{display:flex;align-items:center;gap:4px}
-  .k-rcpt-line-qty .k-inp{text-align:center;font-weight:800;padding:8px 6px}
+  .k-rcpt-line-qty .k-inp{text-align:center;font-weight:800;padding:8px 6px;min-width:0}
+  .k-rcpt-line-pct{display:flex;align-items:center;gap:6px}
+  .k-rcpt-line-pct .k-inp{text-align:center;font-weight:800;padding:8px 6px;min-width:0}
+  .k-rcpt-line-pct-suf{font-size:14px;font-weight:900;color:var(--muted);flex-shrink:0}
   .k-rcpt-line-hint{font-size:10px;color:var(--muted);margin-top:2px}
   .k-rcpt-line-sum{
     display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;

@@ -79,20 +79,41 @@ export default function ProductArrivalsPanel({
   const sessionRef = useRef<{ productId: number | null }>({ productId: null })
 
   const loadLayers = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!USE_API || !product.id) {
+    if (!product.id) {
       setLayers([])
       return
     }
     if (!opts?.silent) setLoading(true)
     try {
-      const rows = await api.getProductStockLayers(product.id)
-      setLayers(rows)
+      const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
+      const cached = (await readCachedStockLayers()).filter(l => Number(l.productId) === product.id)
+      if (cached.length) {
+        setLayers(cached)
+        if (!opts?.silent) setLoading(false)
+      }
+      if (!USE_API) {
+        if (!cached.length) setLayers([])
+        return
+      }
+      // Сеть в фоне — не блокируем окно при слабом интернете
+      void (async () => {
+        try {
+          const rows = await api.getProductStockLayers(product.id)
+          setLayers(rows)
+        } catch (e) {
+          if (!cached.length && !opts?.silent) {
+            setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
+          }
+        } finally {
+          if (!opts?.silent) setLoading(false)
+        }
+      })()
+      if (cached.length) return
     } catch (e) {
       if (!opts?.silent) {
         setMsg(e instanceof Error ? e.message : 'Не удалось загрузить партии')
+        setLoading(false)
       }
-    } finally {
-      if (!opts?.silent) setLoading(false)
     }
   }, [product.id])
 

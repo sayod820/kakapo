@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import OfflineNotice from './OfflineNotice'
 import { USE_API } from '@/lib/config'
 import { createStockWriteoffSafe } from '@/lib/offlineWarehouseOps'
-import { syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
 import WarehouseStockPanel from './warehouse/WarehouseStockPanel'
@@ -35,6 +35,7 @@ export default function WarehouseModule({
   const writeoffs = usePosStore(s => s.writeoffs)
   const revisions = usePosStore(s => s.revisions)
   const suppliers = usePosStore(s => s.suppliers)
+  const storeExpiry = usePosStore(s => s.expiry)
   const apiSyncing = usePosStore(s => s.apiSyncing)
   const apiError = usePosStore(s => s.apiError)
   const fetchProducts = useProducts(s => s.fetchProducts)
@@ -70,24 +71,35 @@ export default function WarehouseModule({
   }, [products])
 
   const refreshAll = useCallback(async () => {
-    if (USE_API) {
-      try { await api.reconcileStock() } catch { /* ignore */ }
-    }
-    await Promise.all([syncPosFromApi(), fetchProducts()])
+    // Слабый интернет: лёгкий sync склада, без reconcile + 13 эндпоинтов
+    await Promise.all([
+      softSyncWarehouse({ expiryDays }),
+      fetchProducts(),
+    ])
     setRefreshGen(g => g + 1)
-  }, [fetchProducts])
+    // Тяжёлую сверку остатков — только в фоне, не блокируем кнопку
+    if (USE_API) {
+      void api.reconcileStock().catch(() => undefined)
+    }
+  }, [fetchProducts, expiryDays])
 
   const loadExpiry = useCallback(async (days: number) => {
+    // Сразу показываем локальный снимок
+    const local = usePosStore.getState().expiry || []
+    if (local.length) {
+      setExpiry(local.filter(r => Number(r.daysLeft) <= days) as ExpiryRow[])
+    }
     if (!USE_API) {
-      setExpiry([])
+      if (!local.length) setExpiry([])
       return
     }
-    setExpiryLoading(true)
+    setExpiryLoading(!local.length)
     try {
       const rows = await api.getStockExpiry(days)
       setExpiry(rows)
+      usePosStore.setState({ expiry: rows })
     } catch {
-      setExpiry([])
+      if (!local.length) setExpiry([])
     } finally {
       setExpiryLoading(false)
     }
@@ -98,6 +110,13 @@ export default function WarehouseModule({
     if (tab === 'expiry') void loadExpiry(expiryDays)
   }, [bodyReady, tab, expiryDays, loadExpiry])
 
+  // Подтянуть сроки из стора, если уже были в snapshot
+  useEffect(() => {
+    if (tab !== 'expiry') return
+    if (expiry.length || !storeExpiry.length) return
+    setExpiry(storeExpiry.filter(r => Number(r.daysLeft) <= expiryDays) as ExpiryRow[])
+  }, [tab, storeExpiry, expiry.length, expiryDays])
+
   const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
     if (!USE_API) return
     const res = await createStockWriteoffSafe({
@@ -105,9 +124,11 @@ export default function WarehouseModule({
       note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
       items: [{ productId: row.productId, qty: row.qty }],
     })
-    if (!res.offline) await Promise.all([refreshAll(), loadExpiry(expiryDays)])
-    else {
-      await loadExpiry(expiryDays)
+    if (!res.offline) {
+      void refreshAll()
+      void loadExpiry(expiryDays)
+    } else {
+      void loadExpiry(expiryDays)
       void refreshAll()
     }
   }, [refreshAll, loadExpiry, expiryDays])

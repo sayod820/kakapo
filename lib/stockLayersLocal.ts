@@ -75,6 +75,34 @@ export async function readCachedStockLayers(): Promise<ProductStockLayer[]> {
   return rows.map(r => r.data).filter(Boolean)
 }
 
+/**
+ * Сначала локальный кэш, затем сеть в фоне (не блокирует UI на слабом интернете).
+ * onRemote вызывается, когда сервер ответил.
+ */
+export async function loadStockLayersCacheFirst(
+  onRemote?: (layers: ProductStockLayer[]) => void,
+): Promise<ProductStockLayer[]> {
+  const cached = await readCachedStockLayers()
+  void (async () => {
+    try {
+      const { USE_API } = await import('./config')
+      if (!USE_API) return
+      const { isOnline } = await import('./offline')
+      const { useOfflineSync } = await import('./offlineSync')
+      const st = useOfflineSync.getState()
+      if (!(isOnline() && st.online)) return
+      // Есть очередь — не затираем локальные партии сервером
+      if (st.pending > 0) return
+      const { api } = await import('./api')
+      const remote = await api.getAllStockLayers()
+      const list = remote || []
+      await cacheStockLayers(list)
+      onRemote?.(list)
+    } catch { /* оставляем кэш */ }
+  })()
+  return cached
+}
+
 export async function upsertLocalStockLayer(layer: ProductStockLayer): Promise<ProductStockLayer[]> {
   const list = await readCachedStockLayers()
   const key = layerKey(layer)

@@ -243,30 +243,14 @@ export default function WarehouseRevisionsPanel({
 
   const loadLayers = useCallback(async () => {
     try {
-      const { readCachedStockLayers, cacheStockLayers } = await import('@/lib/stockLayersLocal')
-      const cached = await readCachedStockLayers()
-      if (cached.length) {
-        setLayers(cached)
+      const { loadStockLayersCacheFirst } = await import('@/lib/stockLayersLocal')
+      const cached = await loadStockLayersCacheFirst(remote => {
+        setLayers(remote)
         setLayersLoaded(true)
-      }
-      if (!USE_API) {
-        if (!cached.length) {
-          setLayers([])
-          setLayersLoaded(true)
-        }
-        return
-      }
-      const { isOnline } = await import('@/lib/offline')
-      const { useOfflineSync } = await import('@/lib/offlineSync')
-      if (isOnline() && useOfflineSync.getState().online) {
-        const rows = await api.getAllStockLayers()
-        setLayers(rows)
-        void cacheStockLayers(rows)
-      } else if (!cached.length) {
-        setLayers([])
-      }
+      })
+      setLayers(cached)
     } catch {
-      /* keep cached if any */
+      /* keep previous */
     } finally {
       setLayersLoaded(true)
     }
@@ -365,18 +349,23 @@ export default function WarehouseRevisionsPanel({
 
   async function startCountFromScope(toAdd: Product[], label: string) {
     if (!toAdd.length) return
-    await loadLayers()
-    // Берём актуальные партии после загрузки (через API ещё раз — state может не успеть)
-    let qtyMap = new Map<number, number>()
-    if (USE_API) {
+    // Не ждём сеть — берём уже загруженный/кэшированный остаток
+    let source = layers
+    if (!layersLoaded || !source.length) {
       try {
-        const rows = await api.getAllStockLayers()
-        setLayers(rows)
-        setLayersLoaded(true)
-        for (const layer of rows) {
-          qtyMap.set(layer.productId, (qtyMap.get(layer.productId) || 0) + (Number(layer.remainingQty) || 0))
+        const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
+        const cached = await readCachedStockLayers()
+        if (cached.length) {
+          source = cached
+          setLayers(cached)
+          setLayersLoaded(true)
         }
-      } catch { /* fallback ниже */ }
+      } catch { /* ignore */ }
+    }
+    void loadLayers()
+    const qtyMap = new Map<number, number>()
+    for (const layer of source) {
+      qtyMap.set(layer.productId, (qtyMap.get(layer.productId) || 0) + (Number(layer.remainingQty) || 0))
     }
     const qtyOf = (p: Product) => {
       if (qtyMap.size) return Math.round((qtyMap.get(p.id) || 0) * 100) / 100
