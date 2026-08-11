@@ -20,7 +20,6 @@ import {
   deletePosPointSafe,
   ensureCashierSafe,
 } from '@/lib/offlinePosOps'
-import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
@@ -1128,8 +1127,6 @@ export default function CashierModule({
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [posView, setPosView] = useState<'open' | 'all'>('open')
-  const [cashIssueBuf, setCashIssueBuf] = useState('')
-  const [cashIssueBusy, setCashIssueBusy] = useState(false)
   const [payPickOpen, setPayPickOpen] = useState(false)
   const [creditNoteOpen, setCreditNoteOpen] = useState(false)
   const [creditNoteBuf, setCreditNoteBuf] = useState('')
@@ -2765,68 +2762,6 @@ export default function CashierModule({
       creditSales,
     }
   }, [client, sales, clientDebt, histTick, products])
-
-  async function submitCashIssue() {
-    if (!client) return
-    const amount = Math.round((Number(cashIssueBuf) || 0) * 100) / 100
-    if (!(amount > 0)) {
-      showToast('Сумма', 'Укажите сумму')
-      return
-    }
-    if (!activeShift) {
-      showToast('Смена закрыта', 'Откройте смену — выдача наличных списывается с кассы')
-      return
-    }
-    if (amount > tillExpected + 0.009) {
-      showToast('Недостаточно в кассе', `В кассе только ${fmtMoney(tillExpected)}`)
-      return
-    }
-    setCashIssueBusy(true)
-    try {
-      // Сначала минус из кассы, потом долг на карте — чтобы при ошибке откатить внесение
-      const moved = await financeMoveSafe({
-        type: 'withdraw',
-        amount,
-        note: `Выдача наличных в долг · ${client.name}`,
-        reason: 'Выдача наличных в долг',
-        createdBy: settings.cashierName,
-        cashierId: settings.cashierId || activeShift.cashierId,
-        cashierName: settings.cashierName || activeShift.cashierName,
-        shiftId: activeShift.id,
-        posId: activeShift.posId || activePosPoint?.id,
-      })
-      try {
-        await adjustClientDebtSafe(client, { action: 'charge', amount })
-      } catch (debtErr) {
-        try {
-          await financeMoveSafe({
-            type: 'deposit',
-            amount,
-            note: `Откат выдачи в долг · ${client.name}`,
-            reason: 'Откат выдачи наличных в долг',
-            createdBy: settings.cashierName,
-            cashierId: settings.cashierId || activeShift.cashierId,
-            cashierName: settings.cashierName || activeShift.cashierName,
-            shiftId: activeShift.id,
-            posId: activeShift.posId || activePosPoint?.id,
-          })
-        } catch {
-          /* ignore */
-        }
-        throw debtErr
-      }
-      if (!moved.offline) void refresh()
-      else void useOfflineSync.getState().syncNow()
-      setCashIssueBuf('')
-      setHistTick(t => t + 1)
-      void refresh()
-      showToast('Выдано наличными', `${client.name}: −${fmtMoney(amount)} из кассы`)
-    } catch (e) {
-      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать')
-    } finally {
-      setCashIssueBusy(false)
-    }
-  }
 
   function renderHistRow(row: ClientHistRow, opts?: { compact?: boolean }) {
     return (
@@ -9899,27 +9834,7 @@ export default function CashierModule({
               {histTab === 'cash' && (
                 <>
                   <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
-                    Наличные = долг на карте минус чеки. Выдача списывается из кассы смены
-                    {activeShift ? ` · сейчас в кассе ${fmtMoney(tillExpected)}` : ' · смена закрыта'}.
-                </div>
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                    <input
-                      className="kp-field"
-                      style={{ flex: 1, minWidth: 120, height: 40, fontSize: 14 }}
-                      inputMode="decimal"
-                      placeholder="Сумма выдачи"
-                      value={cashIssueBuf}
-                      onChange={e => setCashIssueBuf(sanitizeDecimalInput(e.target.value))}
-                    />
-                  <button
-                    type="button"
-                      className="btn-confirm"
-                      style={{ minWidth: 120 }}
-                      disabled={cashIssueBusy}
-                      onClick={() => void submitCashIssue()}
-                    >
-                      {cashIssueBusy ? '…' : '+ Выдать'}
-                  </button>
+                    Наличные = долг на карте минус чеки. Выдача наличных — только в разделе «Долг».
                 </div>
                   {cashierDebtPanel.residualCash > 0.005 && (
                     <div style={{
@@ -9996,16 +9911,6 @@ export default function CashierModule({
                 }}
               >
                 ✓ Погасить долг
-              </button>
-              <button
-                type="button"
-                className="btn-cancel"
-                onClick={() => {
-                  setHistTab('cash')
-                  setCashIssueBuf('')
-                }}
-              >
-                Выдать наличные
               </button>
                 </div>
           </div>
