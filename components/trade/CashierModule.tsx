@@ -3864,10 +3864,19 @@ export default function CashierModule({
         return s.posId === posId
       })
       .sort((a, b) => {
+        // Сначала — свежесть по createdAtIso, иначе «временные» офлайн-чеки
+        // (когда orderId ещё без цифровой части) могут уйти за лимит списка.
+        const tb = Date.parse(String(b.createdAtIso || '')) || 0
+        const ta = Date.parse(String(a.createdAtIso || '')) || 0
+        if (tb !== ta) return tb - ta
+
+        // Потом — привычная сортировка по номеру/порядковому хвосту orderId.
         const nb = saleOrderSeq(b)
         const na = saleOrderSeq(a)
         if (nb !== na) return nb - na
-        return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+
+        // И наконец — детерминированный тай-брейкер.
+        return String(b.id || '').localeCompare(String(a.id || ''))
       })
   }, [sales, activeShift?.posId])
 

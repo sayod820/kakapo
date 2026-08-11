@@ -46,6 +46,17 @@ import {
   sanitizeDecimalInput,
 } from './warehouseShared'
 
+function toInputDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function todayInputDate() {
+  return toInputDate(new Date())
+}
+
 function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptDraftLine {
   const cost = product.costPrice != null ? String(product.costPrice) : line.costPrice
   const costNum = Number(cost) || 0
@@ -350,8 +361,9 @@ export default function WarehouseReceiptsPanel({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // По умолчанию фильтр "День": меньше вычислений и быстрее вход в раздел "Склад → Приход"
+  const [dateFrom, setDateFrom] = useState(() => todayInputDate())
+  const [dateTo, setDateTo] = useState(() => todayInputDate())
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
@@ -830,7 +842,8 @@ export default function WarehouseReceiptsPanel({
             to={dateTo}
             onFromChange={setDateFrom}
             onToChange={setDateTo}
-            onClear={() => { setDateFrom(''); setDateTo('') }}
+            // "Сбросить" возвращает в дефолт "День", а не убирает фильтр целиком
+            onClear={() => { setDateFrom(todayInputDate()); setDateTo(todayInputDate()) }}
           />
           {(dateFrom || dateTo) && (
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
