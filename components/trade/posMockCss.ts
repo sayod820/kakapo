@@ -1420,6 +1420,8 @@ export const POS_MOCK_CSS = `
 
   .modal-card.hist-card{width:520px;max-height:min(90vh,820px);display:flex;flex-direction:column;}
   .overlay.hist-fs-overlay{z-index:280;padding:12px;align-items:stretch;justify-content:stretch;}
+  /* Погашение/пополнение поверх истории клиента — иначе «Погасить долг» открывается «под» панелью */
+  .overlay.stack-above-hist{z-index:320;}
   .modal-card.hist-card-fs{
     width:min(1100px,100%);max-width:100%;height:min(96vh,100%);max-height:96vh;
     margin:0 auto;border-radius:18px;display:flex;flex-direction:column;

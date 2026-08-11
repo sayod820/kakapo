@@ -9458,7 +9458,7 @@ export default function CashierModule({
       )}
 
       {topupOpen && client && (
-        <div className="overlay" onClick={() => !busy && setTopupOpen(false)}>
+        <div className="overlay stack-above-hist" onClick={() => !busy && setTopupOpen(false)}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -9514,7 +9514,7 @@ export default function CashierModule({
       )}
 
       {repayOpen && client && (
-        <div className="overlay" onClick={() => {
+        <div className="overlay stack-above-hist" onClick={() => {
           if (busy) return
           setRepayOpen(false)
           setRepayTarget(null)
