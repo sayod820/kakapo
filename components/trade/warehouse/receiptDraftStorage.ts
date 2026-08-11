@@ -143,31 +143,53 @@ export function defaultMarkupPct(product?: { costPrice?: number | null; price?: 
   return '30'
 }
 
+function receiptItemsToDraftLines(receipt: import('@/lib/types').StockReceipt, keyPrefix: string): ReceiptDraftLine[] {
+  return [
+    ...receipt.items.map(item => {
+      const cost = Number(item.costPrice) || 0
+      const retail = Number(item.retailPrice) || 0
+      const qty = Number(item.qty) || 0
+      return {
+        key: `${keyPrefix}-${item.productId}-${Math.random().toString(36).slice(2, 9)}`,
+        productId: item.productId,
+        qty: String(qty),
+        purchaseTotal: String(roundMoney(qty * cost)),
+        costPrice: String(cost),
+        retailPrice: retail > 0 ? String(retail) : '',
+        markupPct: cost > 0 && retail > 0 ? String(markupFromRetail(cost, retail)) : '',
+        expiryDate: item.expiryDate || '',
+        bulkPricing: (item.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
+      }
+    }),
+    emptyReceiptLine(),
+  ]
+}
+
+/** Открыть приход на редактирование (сохранение = UPDATE, пересчёт остатков). */
 export function receiptToDraft(receipt: import('@/lib/types').StockReceipt): ReceiptDraft {
   return {
     open: true,
     editingId: receipt.id,
     supplierId: receipt.supplierId || '',
     paidNow: String(receipt.paidNow ?? ''),
-    lines: [
-      ...receipt.items.map(item => {
-        const cost = Number(item.costPrice) || 0
-        const retail = Number(item.retailPrice) || 0
-        const qty = Number(item.qty) || 0
-        return {
-          key: `edit-${item.productId}-${Math.random()}`,
-          productId: item.productId,
-          qty: String(qty),
-          purchaseTotal: String(roundMoney(qty * cost)),
-          costPrice: String(cost),
-          retailPrice: retail > 0 ? String(retail) : '',
-          markupPct: cost > 0 && retail > 0 ? String(markupFromRetail(cost, retail)) : '',
-          expiryDate: item.expiryDate || '',
-          bulkPricing: (item.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
-        }
-      }),
-      emptyReceiptLine(),
-    ],
+    lines: receiptItemsToDraftLines(receipt, 'edit'),
+    activeLineKey: null,
+    scrollTop: 0,
+    formStep: 'items',
+  }
+}
+
+/**
+ * Скопировать все строки в НОВЫЙ черновик (editingId = null).
+ * Остатки не меняются, пока пользователь не нажмёт «Сохранить приход».
+ */
+export function receiptToNewDraft(receipt: import('@/lib/types').StockReceipt): ReceiptDraft {
+  return {
+    open: true,
+    editingId: null,
+    supplierId: receipt.supplierId || '',
+    paidNow: '',
+    lines: receiptItemsToDraftLines(receipt, 'copy'),
     activeLineKey: null,
     scrollTop: 0,
     formStep: 'items',

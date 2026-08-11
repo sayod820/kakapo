@@ -28,6 +28,7 @@ import {
   markupFromRetail,
   receiptHasConsumption,
   receiptToDraft,
+  receiptToNewDraft,
   retailFromMarkup,
   roundMoney,
   saveReceiptDraft,
@@ -362,6 +363,8 @@ export default function WarehouseReceiptsPanel({
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  /** Черновик заполнен копированием прихода — подсказка про остатки */
+  const [copiedFromHint, setCopiedFromHint] = useState(false)
 
   const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
 
@@ -418,6 +421,7 @@ export default function WarehouseReceiptsPanel({
   function resetForm() {
     clearReceiptDraft()
     setDraft(defaultReceiptDraft())
+    setCopiedFromHint(false)
     setAddOpen(false)
     setMsg('')
   }
@@ -431,6 +435,7 @@ export default function WarehouseReceiptsPanel({
       }
       return { ...prev, open: true, editingId: null, formStep: prev.formStep || 'items' }
     })
+    setCopiedFromHint(false)
     setAddOpen(false)
     setMsg('')
     scrollRestored.current = false
@@ -440,9 +445,29 @@ export default function WarehouseReceiptsPanel({
     const next = receiptToDraft(receipt)
     setDraft(next)
     saveReceiptDraft(next)
+    setCopiedFromHint(false)
     setAddOpen(false)
     setMsg('')
     scrollRestored.current = false
+  }
+
+  /** Все строки прихода → новый черновик (остатки не трогаем до «Сохранить»). */
+  function openCopyAsNewDraft(receipt: StockReceipt) {
+    const filled = draft.lines.some(l => l.productId || l.qty || l.costPrice)
+    if (filled && !draft.editingId) {
+      if (!confirm('Заменить текущий черновик строками из этого прихода?')) return
+    }
+    const n = receipt.items.length
+    // Не блокируем UI на большом списке — заполняем на следующем кадре
+    window.requestAnimationFrame(() => {
+      const next = receiptToNewDraft(receipt)
+      setDraft(next)
+      saveReceiptDraft(next)
+      setCopiedFromHint(true)
+      setAddOpen(false)
+      setMsg(`Скопировано ${n} поз. · остатки не меняются, пока не сохраните`)
+      scrollRestored.current = false
+    })
   }
 
   function setActiveLine(key: string | null) {
@@ -876,9 +901,17 @@ export default function WarehouseReceiptsPanel({
                       </div>
                     </div>
                   </div>
-                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto' }}>
                     <button type="button" className="k-btn k-btn-s" onClick={() => setLabelReceipt(r)}>🖨️</button>
-                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(r)}>✎</button>
+                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      onClick={() => openCopyAsNewDraft(r)}
+                      title="Скопировать все строки в новый приход (без изменения остатков)"
+                    >
+                      ⧉
+                    </button>
                     <button
                       type="button"
                       className="k-btn k-btn-s"
@@ -962,6 +995,15 @@ export default function WarehouseReceiptsPanel({
                           🖨️
                         </button>
                         <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} disabled={!USE_API} onClick={() => openEditForm(r)} title="Редактировать">✎</button>
+                        <button
+                          type="button"
+                          className="k-btn k-btn-s"
+                          style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }}
+                          onClick={() => openCopyAsNewDraft(r)}
+                          title="Скопировать все строки в новый приход (без изменения остатков)"
+                        >
+                          ⧉
+                        </button>
                         <button
                           type="button"
                           className="k-btn k-btn-s"
@@ -1066,7 +1108,11 @@ export default function WarehouseReceiptsPanel({
                   <div>
                     <b>{editingId ? 'Редактирование прихода' : 'Новый приход'}</b>
                     <div className="sub">
-                      {editingId ? 'Изменения пересчитают остатки' : 'Черновик сохраняется автоматически'}
+                      {editingId
+                        ? 'Изменения пересчитают остатки'
+                        : copiedFromHint
+                          ? `Черновик из прихода · ${lines.filter(l => l.productId).length} поз. · остатки не меняются, пока не сохраните`
+                          : 'Черновик сохраняется автоматически'}
                     </div>
                   </div>
                 </div>
