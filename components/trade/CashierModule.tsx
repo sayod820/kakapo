@@ -5785,6 +5785,7 @@ export default function CashierModule({
         clientRef: newClientRef(),
         createdAtIso: new Date().toISOString(),
         cashierId: activeShift.cashierId,
+        cashierName: activeShift.cashierName || settings.cashierName || undefined,
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
         clientId: client?.id,
