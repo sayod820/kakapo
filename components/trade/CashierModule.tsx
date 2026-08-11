@@ -4,6 +4,7 @@ import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMem
 import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
+import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import {
@@ -751,7 +752,7 @@ export default function CashierModule({
   const netSyncing = useOfflineSync(s => s.syncing)
   const netProgress = useOfflineSync(s => s.progress)
   const startNetSync = useOfflineSync(s => s.start)
-  const flushNetQueue = useOfflineSync(s => s.syncNow)
+  const [queueOpen, setQueueOpen] = useState(false)
   const shifts = usePosStore(s => s.shifts)
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
@@ -7311,6 +7312,7 @@ export default function CashierModule({
   return (
     <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
       <style>{POS_MOCK_CSS}</style>
+      {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
       <div className="app" data-mob-panel={posMobPanel}>
         <div className="topbar">
           <div className="top-loc">
@@ -7320,7 +7322,14 @@ export default function CashierModule({
                 className="d"
                 style={{ background: netOnline ? undefined : '#e11d48' }}
               />
-              <span className="net-status-txt" title={
+              <span
+                className="net-status-txt"
+                role="button"
+                tabIndex={0}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setQueueOpen(true)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setQueueOpen(true) }}
+                title={
                 netOnline
                   ? (netPending > 0
                       ? (netSyncing
@@ -7342,9 +7351,8 @@ export default function CashierModule({
                 <button
                   type="button"
                   className="net-sync-chip"
-                  onClick={() => { void flushNetQueue() }}
-                  disabled={netSyncing}
-                  title="Проверить связь и отправить очередь на сервер"
+                  onClick={() => setQueueOpen(true)}
+                  title="Открыть очередь синхронизации"
                 >
                   {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
                 </button>

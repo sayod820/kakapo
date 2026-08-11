@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
@@ -2014,7 +2014,11 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
     ? new Date(lastSyncAtIso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     : ''
 
-  const openQueue = () => setQueueOpen(true)
+  const openQueue = (e?: MouseEvent) => {
+    e?.preventDefault()
+    e?.stopPropagation()
+    setQueueOpen(true)
+  }
   const hasQueue = pending > 0 || failed > 0
 
   if (compact) {
@@ -2053,7 +2057,7 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
           {!hasQueue && !lastSync && <div>Очередь пуста</div>}
         </div>
         <div className="k-net-hint">
-          {hasQueue ? 'Нажмите — очередь и ручная отправка' : 'Нажмите — очередь синхронизации'}
+          {hasQueue ? 'Нажмите — открыть очередь' : 'Нажмите — очередь синхронизации'}
         </div>
       </button>
       {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}

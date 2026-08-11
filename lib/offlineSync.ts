@@ -598,12 +598,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           }
           return
         }
-        // Застрявшие (failed) — принудительно, иначе обычный sync
-        if (failed > 0) {
-          await get().forceSync()
-        } else {
-          await get().syncNow()
-        }
+        // В фоне обычный sync; принудительный — только по кнопке в окне очереди
+        await get().syncNow()
       })()
     }, POLL_BUSY_MS)
   },

@@ -1,12 +1,20 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { QUEUE_KIND_LABEL, type PendingOp } from '@/lib/offline'
 
 const CSS = `
-  .k-queue-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
-  .k-queue{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:min(620px,100%);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+  .k-queue-back{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;
+    display:flex;align-items:center;justify-content:center;padding:16px;
+  }
+  .k-queue{
+    background:var(--panel);border:1px solid var(--border);border-radius:16px;
+    width:min(620px,100%);max-height:85vh;display:flex;flex-direction:column;
+    overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.35);
+  }
   .k-queue-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
   .k-queue-head .t{font-weight:900;font-size:16px}
   .k-queue-head .s{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4}
@@ -78,30 +86,21 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   const forceSync = useOfflineSync(s => s.forceSync)
   const refresh = useOfflineSync(s => s.refresh)
   const [busyRef, setBusyRef] = useState<string | null>(null)
-  const autoForced = useRef(false)
+  const [mounted, setMounted] = useState(false)
+  /** Не закрывать по клику на фон в том же жесте, что открыл окно */
+  const [canCloseBackdrop, setCanCloseBackdrop] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const t = window.setTimeout(() => setCanCloseBackdrop(true), 280)
     void refresh()
+    return () => {
+      document.body.style.overflow = prev
+      window.clearTimeout(t)
+    }
   }, [refresh])
-
-  // При открытии окна — сразу принудительно прогнать застрявшие
-  useEffect(() => {
-    if (autoForced.current) return
-    autoForced.current = true
-    void (async () => {
-      await refresh()
-      const st = useOfflineSync.getState()
-      if (st.pending > 0 || st.failed > 0) {
-        setBusyRef('__all__')
-        try {
-          await forceSync()
-        } finally {
-          setBusyRef(null)
-          await refresh()
-        }
-      }
-    })()
-  }, [forceSync, refresh])
 
   const waiting = items.filter(i => !i.failed)
   const failed = items.filter(i => i.failed)
@@ -176,10 +175,18 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
 
   const forcing = syncing || busyRef === '__all__'
 
-  return (
-    <div className="k-queue-back" onClick={onClose}>
+  if (!mounted || typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="k-queue-back"
+      onMouseDown={e => {
+        if (!canCloseBackdrop) return
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <style>{CSS}</style>
-      <div className="k-queue" onClick={e => e.stopPropagation()}>
+      <div className="k-queue" onMouseDown={e => e.stopPropagation()}>
         <div className="k-queue-head">
           <div>
             <div className="t">Очередь синхронизации</div>
@@ -194,13 +201,10 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
         </div>
 
         <div className="k-queue-list">
-          {items.length === 0 && !forcing && (
+          {items.length === 0 && (
             <div className="k-queue-empty">
               Очередь пуста — всё уже на сервере
             </div>
-          )}
-          {items.length === 0 && forcing && (
-            <div className="k-queue-empty">Принудительная синхронизация…</div>
           )}
 
           {failed.length > 0 && (
@@ -237,6 +241,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
