@@ -1382,9 +1382,17 @@ const CSS = `
     .k-rcpt-side-extra{gap:4px}
     .k-rcpt-side-extra > div{font-size:11px}
     .k-rcpt-th{display:none}
-    .k-rcpt-table{border:none;background:transparent;overflow:visible;display:flex;flex-direction:column;gap:6px}
+    .k-rcpt-table{border:none;background:transparent;overflow:visible;display:flex;flex-direction:column;gap:8px}
     .k-rcpt-tr{
-      border:1px solid var(--border);border-radius:10px;background:var(--card);overflow:hidden
+      border:1.5px solid color-mix(in srgb, var(--green) 28%, var(--border));
+      border-radius:12px;
+      background:var(--green-d);
+      overflow:hidden;
+      box-shadow:0 1px 2px rgba(0,0,0,.05)
+    }
+    .k-rcpt-tr:nth-child(even){
+      background:color-mix(in srgb, var(--blue) 11%, var(--card));
+      border-color:color-mix(in srgb, var(--blue) 24%, var(--border))
     }
     .k-rcpt-tr-main{
       display:grid;
@@ -1392,17 +1400,17 @@ const CSS = `
       grid-template-areas:
         "idx prod acts"
         "metrics metrics metrics";
-      gap:5px;padding:7px
+      gap:5px;padding:8px
     }
     .k-rcpt-tr-main:hover{background:transparent}
-    .k-rcpt-td.idx{grid-area:idx;align-self:start;padding-top:4px;font-size:11px}
+    .k-rcpt-td.idx{grid-area:idx;align-self:start;padding-top:4px;font-size:11px;color:var(--green);font-weight:900}
     .k-rcpt-td.prod{grid-area:prod}
-    .k-rcpt-td.prod .emo{width:28px;height:28px;font-size:14px;border-radius:7px}
+    .k-rcpt-td.prod .emo{width:28px;height:28px;font-size:14px;border-radius:7px;background:var(--card)}
     .k-rcpt-td.prod b{font-size:12px;white-space:normal;line-height:1.25}
     .k-rcpt-td.prod small{font-size:9px;white-space:normal;word-break:break-word;margin-top:0}
     .k-rcpt-td.acts{grid-area:acts;align-self:start;gap:2px}
     .k-rcpt-td.acts .k-btn{
-      min-width:28px!important;min-height:28px!important;padding:0!important;font-size:12px;border-radius:7px
+      min-width:28px!important;min-height:28px!important;padding:0!important;font-size:12px;border-radius:7px;background:var(--card)
     }
     .k-rcpt-td-metrics{
       grid-area:metrics;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px
@@ -1411,9 +1419,10 @@ const CSS = `
     .k-rcpt-td.cost,
     .k-rcpt-td.retail,
     .k-rcpt-td.sum,
-    .k-rcpt-td.markup{
+    .k-rcpt-td.markup,
+    .k-rcpt-td.exp{
       display:flex;flex-direction:column;gap:1px;
-      padding:5px 6px;border-radius:7px;background:var(--card2);border:1px solid var(--border);
+      padding:5px 6px;border-radius:7px;background:var(--card);border:1px solid var(--border);
       font-size:11px;font-weight:900;text-align:left;min-width:0
     }
     .k-rcpt-td.sum{grid-column:auto;text-align:left}
@@ -1421,7 +1430,8 @@ const CSS = `
     .k-rcpt-td.cost::before,
     .k-rcpt-td.retail::before,
     .k-rcpt-td.sum::before,
-    .k-rcpt-td.markup::before{
+    .k-rcpt-td.markup::before,
+    .k-rcpt-td.exp::before{
       content:attr(data-label);font-size:8px;font-weight:700;color:var(--muted)
     }
     .k-rcpt-tr-more{padding-left:10px}
