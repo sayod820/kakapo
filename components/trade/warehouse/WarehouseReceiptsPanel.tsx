@@ -102,8 +102,8 @@ function ReceiptLineEditModal({
   onCost,
   onPurchaseTotal,
   onRetail,
-  onSaleTotal,
   onMarkup,
+  onExpiry,
   onBulkPricing,
 }: {
   line: ReceiptDraftLine
@@ -113,8 +113,8 @@ function ReceiptLineEditModal({
   onCost: (v: string) => void
   onPurchaseTotal: (v: string) => void
   onRetail: (v: string) => void
-  onSaleTotal: (v: string) => void
   onMarkup: (v: string) => void
+  onExpiry: (v: string) => void
   onBulkPricing: (tiers: BulkPricingRow[]) => void
 }) {
   const lineCost = linePurchaseSum(line)
@@ -127,7 +127,6 @@ function ReceiptLineEditModal({
   const realWorld = qtyNum > 0 ? packRealWorld(qtyNum, packInfo) : null
   const unitCost = costNum
   const qtyRef = useRef<HTMLInputElement>(null)
-  const saleTotalStr = qtyNum > 0 && retailNum > 0 ? String(lineSale) : (line.retailPrice ? String(lineSale) : '')
   const markupStr = line.markupPct !== ''
     ? line.markupPct
     : (costNum > 0 && retailNum > 0 ? String(markupFromRetail(costNum, retailNum)) : '')
@@ -236,15 +235,16 @@ function ReceiptLineEditModal({
             </div>
 
             <div className="k-field">
-              <label>Сумма продажи</label>
+              <label>Срок годности</label>
               <input
                 className="k-inp"
-                type="text"
-                inputMode="decimal"
-                value={saleTotalStr}
-                onChange={e => onSaleTotal(sanitizeDecimalInput(e.target.value))}
-                placeholder={qtyNum > 0 && retailNum > 0 ? String(lineSale) : '0'}
+                type="date"
+                value={line.expiryDate || ''}
+                onChange={e => onExpiry(e.target.value)}
               />
+              <div className="k-rcpt-line-hint">
+                {line.expiryDate ? 'Партия со сроком' : 'Необязательно'}
+              </div>
             </div>
           </div>
 
@@ -330,6 +330,7 @@ function ReceiptTableRow({
               </b>
             ) : '—'}
           </span>
+          <span className="k-rcpt-td exp" data-label="Срок">{line.expiryDate || '—'}</span>
         </div>
         <div className="k-rcpt-td acts">
           <button type="button" className="k-btn k-btn-s" title="Изменить" onClick={onEdit}>✎</button>
@@ -623,27 +624,6 @@ export default function WarehouseReceiptsPanel({
           return { ...l, retailPrice, markupPct: String(markupFromRetail(cost, retail)) }
         }
         return { ...l, retailPrice }
-      }),
-    }))
-  }
-
-  /** Сумма продажи → цена за единицу (как сумма закупа → себестоимость). */
-  function setLineSaleTotal(key: string, saleTotal: string) {
-    setDraft(prev => ({
-      ...prev,
-      lines: prev.lines.map(l => {
-        if (l.key !== key) return l
-        const qty = Number(l.qty) || 0
-        const total = Number(saleTotal) || 0
-        if (qty > 0 && saleTotal !== '') {
-          const retail = String(roundMoney(total / qty))
-          const cost = Number(l.costPrice) || 0
-          if (cost > 0) {
-            return { ...l, retailPrice: retail, markupPct: String(markupFromRetail(cost, Number(retail) || 0)) }
-          }
-          return { ...l, retailPrice: retail }
-        }
-        return l
       }),
     }))
   }
@@ -1364,8 +1344,8 @@ export default function WarehouseReceiptsPanel({
                 onCost={v => setLineCost(editLine.key, v)}
                 onPurchaseTotal={v => setLinePurchaseTotal(editLine.key, v)}
                 onRetail={v => setLineRetail(editLine.key, v)}
-                onSaleTotal={v => setLineSaleTotal(editLine.key, v)}
                 onMarkup={v => setLineMarkup(editLine.key, v)}
+                onExpiry={v => updateLine(editLine.key, { expiryDate: v })}
                 onBulkPricing={tiers => updateLine(editLine.key, { bulkPricing: tiers })}
               />
             )
