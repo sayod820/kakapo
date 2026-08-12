@@ -445,6 +445,58 @@ export function updateProductStockLayer(db, receiptId, productId, patch = {}) {
   return listProductStockLayers(db, productId)
 }
 
+/** Удалить одну партию (позицию прихода). Если в приходе больше ничего нет — удаляет весь приход. */
+export function deleteProductStockLayer(db, receiptId, productId) {
+  ensurePosCollections(db)
+  const receipt = (db.stockReceipts || []).find(r => r.id === receiptId)
+  if (!receipt) throw new Error('Приход не найден')
+  const itemIdx = (receipt.items || []).findIndex(i => Number(i.productId) === Number(productId))
+  if (itemIdx < 0) throw new Error('Партия не найдена')
+  const item = receipt.items[itemIdx]
+  if (!(Number(item.remainingQty) > 0)) throw new Error('Партия уже израсходована')
+
+  const itemsLeft = (receipt.items || []).filter((_, i) => i !== itemIdx)
+  if (!itemsLeft.length) {
+    reverseStockReceipt(db, receipt)
+    return {
+      receiptId,
+      productId: Number(productId),
+      deletedReceipt: true,
+      layers: listProductStockLayers(db, productId),
+    }
+  }
+
+  const oldTotal = round2(receipt.totalCost)
+  const oldDebt = round2(receipt.debtAdded)
+  const oldPaid = round2(receipt.paidNow)
+  if (receipt.supplierId) {
+    reverseSupplierDebt(db, receipt.supplierId, oldTotal, oldDebt)
+  }
+
+  receipt.items = itemsLeft
+  const newTotal = round2(itemsLeft.reduce(
+    (s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0),
+    0,
+  ))
+  const newPaid = round2(Math.min(oldPaid, newTotal))
+  receipt.totalCost = newTotal
+  receipt.paidNow = newPaid
+  receipt.debtAdded = round2(Math.max(0, newTotal - newPaid))
+
+  if (receipt.supplierId) {
+    updateSupplierDebt(db, receipt.supplierId, newTotal, newPaid)
+  }
+
+  syncProductStock(db, productId)
+  syncProductPricingFromActiveLayer(db, productId)
+  return {
+    receiptId,
+    productId: Number(productId),
+    deletedReceipt: false,
+    layers: listProductStockLayers(db, productId),
+  }
+}
+
 function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', preferRetailPrice = null) {
   let left = round2(qty)
   let cogs = 0

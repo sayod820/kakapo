@@ -260,6 +260,13 @@ export async function upsertLocalStockLayer(layer: ProductStockLayer): Promise<P
   return next
 }
 
+export async function removeLocalStockLayer(receiptId: string, productId: number): Promise<ProductStockLayer[]> {
+  const list = await readCachedStockLayers()
+  const next = list.filter(l => !(l.receiptId === receiptId && Number(l.productId) === Number(productId)))
+  await cacheStockLayers(next)
+  return next
+}
+
 export async function applyLocalReceiptLayers(
   receipt: {
     id: string

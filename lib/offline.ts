@@ -25,6 +25,7 @@ export type QueueKind =
   | 'stock_writeoff_update'
   | 'stock_writeoff_delete'
   | 'stock_layer_update'
+  | 'stock_layer_delete'
   | 'stock_revision_create'
   | 'stock_revision_update'
   | 'stock_revision_delete'
@@ -62,6 +63,7 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   stock_writeoff_update: 'Изменение списания',
   stock_writeoff_delete: 'Удаление списания',
   stock_layer_update: 'Правка партии',
+  stock_layer_delete: 'Удаление партии',
   stock_revision_create: 'Ревизия',
   stock_revision_update: 'Изменение ревизии',
   stock_revision_delete: 'Удаление ревизии',
@@ -776,6 +778,13 @@ async function sendOp(row: PendingOp): Promise<string> {
         expiryDate: p.expiryDate,
         clientRef: p.clientRef,
       } as any)
+      return String(p.receiptId || '')
+    }
+    case 'stock_layer_delete': {
+      const p = await resolveRefs(row.payload, ['receiptId'])
+      await api.deleteProductStockLayer(String(p.receiptId), Number(p.productId), {
+        clientRef: p.clientRef,
+      })
       return String(p.receiptId || '')
     }
     case 'stock_revision_create': {

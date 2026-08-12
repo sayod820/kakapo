@@ -494,6 +494,16 @@ export const api = {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
+  deleteProductStockLayer: (receiptId: string, productId: number, data?: { clientRef?: string }) =>
+    request<{
+      receiptId: string
+      productId: number
+      deletedReceipt: boolean
+      layers: ProductStockLayer[]
+    }>(`/stock/layers/${encodeURIComponent(receiptId)}/${productId}`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProduct: (id: number, data?: { clientRef?: string }) =>

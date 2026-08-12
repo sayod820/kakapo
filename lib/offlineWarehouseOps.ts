@@ -604,3 +604,102 @@ export async function updateStockLayerSafe(
     applyLocal,
   )
 }
+
+/** Удалить одну партию (остаток снимется со склада). */
+export async function deleteStockLayerSafe(
+  receiptId: string,
+  productId: number,
+): Promise<OfflineResult<{
+  receiptId: string
+  productId: number
+  deletedReceipt: boolean
+  layers: ProductStockLayer[]
+}>> {
+  const clientRef = newClientRef()
+  const body = { clientRef, receiptId, productId }
+
+  const applyLocal = async () => {
+    const receipt = usePosStore.getState().receipts.find(r => r.id === receiptId)
+    const item = receipt?.items.find(it => Number(it.productId) === Number(productId))
+    let remFromCache = round2(Number(item?.remainingQty) || 0)
+    if (!(remFromCache > 0)) {
+      try {
+        const { readCachedStockLayers } = await import('./stockLayersLocal')
+        const hit = (await readCachedStockLayers()).find(
+          l => l.receiptId === receiptId && Number(l.productId) === Number(productId),
+        )
+        remFromCache = round2(Number(hit?.remainingQty) || 0)
+      } catch { /* ignore */ }
+    }
+    if (!(remFromCache > 0) && item && !(Number(item.remainingQty) > 0)) {
+      throw new Error('Партия уже израсходована')
+    }
+    if (!(remFromCache > 0) && !item) {
+      // Нет в сторе и нет остатка — всё равно чистим кэш партии
+      remFromCache = 0
+    }
+
+    await useOfflineSync.getState().queueOp('stock_layer_delete', body, { clientRef })
+
+    const itemsLeft = receipt
+      ? receipt.items.filter(it => Number(it.productId) !== Number(productId))
+      : []
+    const deletedReceipt = !!(receipt && itemsLeft.length === 0)
+
+    if (receipt) {
+      if (deletedReceipt) {
+        const debtDelta = -round2(Number(receipt.debtAdded) || 0)
+        patchSupplierDebt(receipt.supplierId || undefined, debtDelta)
+        usePosStore.setState(s => ({ receipts: s.receipts.filter(r => r.id !== receiptId) }))
+      } else {
+        const oldDebt = round2(Number(receipt.debtAdded) || 0)
+        const newTotal = round2(itemsLeft.reduce(
+          (s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0),
+          0,
+        ))
+        const newPaid = round2(Math.min(Number(receipt.paidNow) || 0, newTotal))
+        const newDebt = round2(Math.max(0, newTotal - newPaid))
+        patchSupplierDebt(receipt.supplierId || undefined, newDebt - oldDebt)
+        usePosStore.setState(s => ({
+          receipts: s.receipts.map(r => (
+            r.id !== receiptId
+              ? r
+              : {
+                  ...r,
+                  items: itemsLeft,
+                  totalCost: newTotal,
+                  paidNow: newPaid,
+                  debtAdded: newDebt,
+                }
+          )),
+        }))
+      }
+    }
+
+    if (remFromCache > 0) {
+      await bumpProductStock(productId, -remFromCache)
+    }
+
+    const { removeLocalStockLayer, readCachedStockLayers } = await import('./stockLayersLocal')
+    await removeLocalStockLayer(receiptId, productId)
+    const layers = (await readCachedStockLayers()).filter(l => Number(l.productId) === Number(productId))
+
+    return {
+      receiptId,
+      productId,
+      deletedReceipt,
+      layers,
+    }
+  }
+
+  if (isLocalId(receiptId)) {
+    const dataLocal = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data: dataLocal }
+  }
+
+  return raceWarehouseOp(
+    () => api.deleteProductStockLayer(receiptId, productId, { clientRef }),
+    applyLocal,
+  )
+}

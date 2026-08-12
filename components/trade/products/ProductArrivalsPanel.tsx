@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import { createStockReceiptSafe, updateStockLayerSafe } from '@/lib/offlineWarehouseOps'
+import { createStockReceiptSafe, deleteStockLayerSafe, updateStockLayerSafe } from '@/lib/offlineWarehouseOps'
 import { formatBulkPricingHint, serializeBulkPricing } from '@/lib/productBulkPricing'
 import type { Product, ProductStockLayer, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from './BulkPricingFields'
@@ -259,6 +259,34 @@ export default function ProductArrivalsPanel({
     }
   }
 
+  async function handleDelete(layer: ProductStockLayer) {
+    const rem = Number(layer.remainingQty) || 0
+    const sold = Math.max(0, (Number(layer.qty) || 0) - rem)
+    const warn = sold > 0
+      ? `\n\nЧасть уже продана (${sold}). Удалится только остаток ${rem}.`
+      : ''
+    if (!confirm(
+      `Удалить партию?\n\n${product.name}\nОстаток: ${rem}\nЗакуп: ${money(layer.costPrice)}\nРозница: ${money(layer.retailPrice)}${warn}\n\nОстаток снимется со склада.`,
+    )) return
+
+    setSaving(true)
+    setMsg('')
+    try {
+      const res = await deleteStockLayerSafe(layer.receiptId, product.id)
+      setEditId(null)
+      setLayers(prev => prev.filter(l => l.receiptId !== layer.receiptId))
+      setMsg(res.offline
+        ? 'Партия удалена локально · отправится при связи'
+        : 'Партия удалена')
+      onUpdated?.()
+      if (!res.offline) await loadLayers({ silent: true })
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить партию')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!open) return null
 
   const totalQty = layers.reduce((s, l) => s + l.remainingQty, 0)
@@ -364,7 +392,7 @@ export default function ProductArrivalsPanel({
                     <th>Опт</th>
                     <th>Срок</th>
                     <th>Дата</th>
-                    <th style={{ width: 140 }} />
+                    <th style={{ width: 200 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -401,6 +429,16 @@ export default function ProductArrivalsPanel({
                             <button type="button" className="k-btn k-btn-s" onClick={() => startEdit(layer)}>
                               {editId === layer.receiptId ? '▼' : 'Изменить'}
                             </button>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-s"
+                              style={{ color: 'var(--red)' }}
+                              title="Удалить партию"
+                              disabled={saving}
+                              onClick={() => void handleDelete(layer)}
+                            >
+                              🗑
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -422,6 +460,15 @@ export default function ProductArrivalsPanel({
                               <div className="k-arrivals-edit-foot">
                                 <button type="button" className="k-btn k-btn-g" disabled={saving} onClick={() => void handleSaveEdit(layer)}>
                                   Сохранить партию
+                                </button>
+                                <button
+                                  type="button"
+                                  className="k-btn k-btn-s"
+                                  style={{ color: 'var(--red)' }}
+                                  disabled={saving}
+                                  onClick={() => void handleDelete(layer)}
+                                >
+                                  Удалить партию
                                 </button>
                                 <button type="button" className="k-btn k-btn-s" onClick={() => setEditId(null)}>Отмена</button>
                               </div>

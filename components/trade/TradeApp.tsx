@@ -812,16 +812,16 @@ const CSS = `
   .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
   .k-label-search-row .k-inp{flex:1;min-width:0;margin-bottom:0!important}
   .k-receipt-modal-bg{
-    z-index:180;padding:24px;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.6)
+    z-index:180;padding:0;align-items:stretch;justify-content:stretch;
+    background:var(--bg)
   }
-  .k-trade[data-theme="light"] .k-receipt-modal-bg{background:rgba(12,26,16,.45)}
+  .k-trade[data-theme="light"] .k-receipt-modal-bg{background:var(--bg)}
   .k-receipt-modal{
-    width:min(1180px,100%);max-width:1180px;
-    height:min(900px,92vh);max-height:92vh;
+    width:100%;max-width:100%;
+    height:100vh;max-height:100vh;
+    height:100dvh;max-height:100dvh;
     margin:0;display:flex;flex-direction:column;overflow:hidden;min-height:0;
-    background:var(--panel);border:1px solid var(--border);border-radius:18px;
-    box-shadow:0 24px 64px rgba(0,0,0,.35)
+    background:var(--panel);border:none;border-radius:0;box-shadow:none
   }
   .k-receipt-scroll{
     flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;

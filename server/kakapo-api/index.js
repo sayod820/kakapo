@@ -120,6 +120,7 @@ import {
   listAllOpenStockLayers,
   addProductStockLayer,
   updateProductStockLayer,
+  deleteProductStockLayer,
   sumProductLayers,
   setProductStockExact,
   reconcileAllProductStock,
@@ -1121,6 +1122,34 @@ app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
     res.json(layers)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить партию' })
+  }
+})
+app.delete('/stock/layers/:receiptId/:productId', (req, res) => {
+  try {
+    const clientRef = takeClientRef(req)
+    if (replyIfKnownOp(res, 'stock_layer_delete', clientRef)) return
+    const result = deleteProductStockLayer(db, req.params.receiptId, Number(req.params.productId))
+    if (clientRef) rememberKnownOp('stock_layer_delete', clientRef, result)
+    auditFromReq(db, req, {
+      action: 'delete',
+      entity: 'stock',
+      entityId: result.receiptId,
+      entityName: `layer:${result.productId}`,
+      summary: result.deletedReceipt
+        ? `Удалена партия (весь приход) · товар #${result.productId}`
+        : `Удалена партия · товар #${result.productId}`,
+    })
+    persist()
+    broadcastPosUpdate({
+      kind: 'receipt',
+      id: result.receiptId,
+      deleted: !!result.deletedReceipt,
+      updated: !result.deletedReceipt,
+    })
+    broadcastProduct({ id: Number(req.params.productId), reason: 'stock-layer-delete' })
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось удалить партию' })
   }
 })
 app.delete('/products/:id', (req, res) => {
