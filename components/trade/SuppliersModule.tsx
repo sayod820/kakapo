@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
@@ -44,9 +44,9 @@ function emptyPaymentForm(): PaymentFormState {
 
 export default function SuppliersModule() {
   const canMutateOnline = useCanMutate()
-  const canMutate = canMutateOnline || isOfflineV2Full()
+  const canMutate = canMutateOnline || isTradeLocalFirst()
   // Оплаты: онлайн всегда; офлайн — только при V2
-  const canPay = canMutateOnline || isOfflineV2Full()
+  const canPay = canMutateOnline || isTradeLocalFirst()
   const suppliers = usePosStore(s => s.suppliers)
   const receipts = usePosStore(s => s.receipts)
   const apiSyncing = usePosStore(s => s.apiSyncing)
@@ -181,8 +181,8 @@ export default function SuppliersModule() {
   }
 
   async function submitForm() {
-    if (!USE_API && !isOfflineV2Full()) return
-    if (!isOfflineV2Full() && !guardMutation(msg => setForm(prev => ({ ...prev, msg })))) return
+    if (!USE_API && !isTradeLocalFirst()) return
+    if (!isTradeLocalFirst() && !guardMutation(msg => setForm(prev => ({ ...prev, msg })))) return
     const name = form.name.trim()
     if (!name) {
       setForm(prev => ({ ...prev, msg: 'Укажите название поставщика' }))
@@ -206,8 +206,8 @@ export default function SuppliersModule() {
   }
 
   async function removeSupplier(s: PosSupplier) {
-    if (!USE_API && !isOfflineV2Full()) return
-    if (!isOfflineV2Full() && !guardMutation()) return
+    if (!USE_API && !isTradeLocalFirst()) return
+    if (!isTradeLocalFirst() && !guardMutation()) return
     if ((Number(s.payableAmount) || 0) > 0) {
       alert('Нельзя удалить поставщика с непогашенным долгом — сначала оплатите задолженность')
       return
@@ -234,8 +234,8 @@ export default function SuppliersModule() {
   }
 
   async function submitPayment() {
-    if (!USE_API && !isOfflineV2Full()) return
-    if (!isOfflineV2Full() && !guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
+    if (!USE_API && !isTradeLocalFirst()) return
+    if (!isTradeLocalFirst() && !guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
     const amount = Number(payForm.amount)
     if (!(amount > 0)) {
       setPayForm(prev => ({ ...prev, msg: 'Укажите сумму оплаты' }))
@@ -266,8 +266,8 @@ export default function SuppliersModule() {
   }
 
   async function removePayment(supplierId: string, paymentId: string) {
-    if (!USE_API && !isOfflineV2Full()) return
-    if (!isOfflineV2Full() && !guardMutation()) return
+    if (!USE_API && !isTradeLocalFirst()) return
+    if (!isTradeLocalFirst() && !guardMutation()) return
     if (!confirm('Удалить этот платёж? Долг поставщику будет восстановлен.')) return
     const amountHint = payments[supplierId]?.find(p => p.id === paymentId)?.amount
     setDeletingPaymentId(paymentId)
@@ -373,13 +373,13 @@ export default function SuppliersModule() {
                   </div>
                 </button>
                 <div className="k-sup-actions">
-                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isOfflineV2Full()} onClick={() => openPayForm(s)} title="Оплата">💰</button>
-                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isOfflineV2Full()} onClick={() => openEditForm(s)} title="Редактировать">✎</button>
+                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isTradeLocalFirst()} onClick={() => openPayForm(s)} title="Оплата">💰</button>
+                  <button type="button" className="k-btn k-btn-s" disabled={!USE_API && !isTradeLocalFirst()} onClick={() => openEditForm(s)} title="Редактировать">✎</button>
                   <button
                     type="button"
                     className="k-btn k-btn-s"
                     style={{ color: debt > 0 ? 'var(--muted)' : 'var(--red)' }}
-                    disabled={(!USE_API && !isOfflineV2Full()) || deletingId === s.id || debt > 0}
+                    disabled={(!USE_API && !isTradeLocalFirst()) || deletingId === s.id || debt > 0}
                     title={debt > 0 ? 'Сначала погасите долг' : 'Удалить'}
                     onClick={() => void removeSupplier(s)}
                   >
@@ -395,7 +395,7 @@ export default function SuppliersModule() {
       <button
         type="button"
         className="k-wh-fab k-sup-fab"
-        disabled={(!USE_API && !isOfflineV2Full()) || !canMutate}
+        disabled={(!USE_API && !isTradeLocalFirst()) || !canMutate}
         title={canMutate ? 'Новый поставщик' : OFFLINE_BLOCK_MESSAGE}
         aria-label="Новый поставщик"
         onClick={openNewForm}

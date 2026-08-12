@@ -5,7 +5,7 @@ import { useProducts } from '@/lib/store'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useCategories } from '@/lib/useCategories'
 import { guardMutation } from '@/lib/offlineGuard'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { deleteProductSafe, saveProductSafe } from '@/lib/offlineProductOps'
 import OfflineNotice from '@/components/trade/OfflineNotice'
 import ProductTab from '@/components/trade/products/ProductTab'
@@ -148,7 +148,7 @@ export default function ProductsModule({
   }
 
   async function handleSave() {
-    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
     setSaving(true)
     setMsg('')
     try {
@@ -176,7 +176,7 @@ export default function ProductsModule({
   }
 
   async function handleDelete(id: number, name: string) {
-    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
     if (!confirm(`Удалить товар «${name}»?`)) return
     try {
       const res = await deleteProductSafe(id)
@@ -200,11 +200,11 @@ export default function ProductsModule({
 
   async function handleDeleteProducts(ids: number[]) {
     if (!ids.length) return
-    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
     try {
       let removed = 0
       let anyOffline = false
-      if (isOfflineV2Full()) {
+      if (isTradeLocalFirst()) {
         for (const id of ids) {
           const res = await deleteProductSafe(id)
           removed += 1

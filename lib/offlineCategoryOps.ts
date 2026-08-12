@@ -4,7 +4,7 @@
 import { api } from './api'
 import { newClientRef } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import {
   applyCategoriesLocal,
@@ -62,7 +62,7 @@ export type CategoryCreateInput = {
 }
 
 export async function createCategorySafe(data: CategoryCreateInput): Promise<OfflineResult<Category>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const created = await api.createCategory(data) as Category
     shadowMirrorPut('product', `cat:${created.id}`, created)
     return { offline: false, data: created }
@@ -104,7 +104,7 @@ export async function updateCategorySafe(
   id: number,
   data: Partial<Category>,
 ): Promise<OfflineResult<Category>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const updated = await api.updateCategory(id, data)
     shadowMirrorPut('product', `cat:${updated.id}`, updated)
     return { offline: false, data: updated }
@@ -151,7 +151,7 @@ export async function reorderCategoriesSafe(
 ): Promise<OfflineResult<{ ok: boolean }>> {
   if (!items.length) return { offline: false, data: { ok: true } }
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await api.reorderCategories(items)
     return { offline: false, data: { ok: true } }
   }
@@ -181,7 +181,7 @@ export async function reorderCategoriesSafe(
 }
 
 export async function deleteCategorySafe(id: number): Promise<OfflineResult<{ id: number }>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const res = await api.deleteCategory(id)
     applyCategoryDeletion({
       ids: res?.deleted?.length ? res.deleted : [id],
@@ -230,7 +230,7 @@ export async function deleteCategoriesSafe(
   const unique = [...new Set((ids || []).map(Number).filter(n => Number.isFinite(n)))]
   if (!unique.length) return { offline: false, data: { removed: 0, movedProducts: 0 } }
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const res = await api.deleteCategories(unique.filter(id => id > 0))
     applyCategoryDeletion({
       ids: res?.deleted?.length ? res.deleted : unique,

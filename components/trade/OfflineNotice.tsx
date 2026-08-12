@@ -1,7 +1,7 @@
 'use client'
 
 import { useCanMutate } from '@/lib/offlineGuard'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 
 /**
  * Плашка офлайн-режима для разделов торговли.
@@ -17,7 +17,7 @@ export default function OfflineNotice({
 }) {
   const online = useCanMutate()
   if (online) return null
-  const effective = mode === 'queue' || isOfflineV2Full() ? 'queue' : 'view'
+  const effective = mode === 'queue' || isTradeLocalFirst() ? 'queue' : 'view'
   return (
     <div
       className="k-offline-notice"

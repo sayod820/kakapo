@@ -17,7 +17,7 @@ import {
 import { useClientStore } from './clientStore'
 import { cacheData, isLocalId, newClientRef, newLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 
 export type { OfflineResult }
@@ -59,7 +59,7 @@ export async function saveClientSafe(input: {
   const { editingId, withCard, profile } = input
   const patch = profileToPatch(profile)
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     if (!editingId && withCard) {
       const client = await registerClientAccount({
         ...patch,
@@ -149,7 +149,7 @@ export async function deleteClientSafe(
 ): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     if (USE_API) await api.deleteClient(id, phone)
     else useClientStore.getState().removeClient(id)
     return { offline: false, data: { id } }
@@ -186,7 +186,7 @@ export async function toggleClientBlockSafe(id: string): Promise<OfflineResult<A
   if (!client) throw new Error('Клиент не найден')
   const blocked = !client.blocked
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     useClientStore.getState().toggleBlock(id)
     const updated = findClient(id)!
     return { offline: false, data: updated }
@@ -218,7 +218,7 @@ export async function toggleClientBlockSafe(id: string): Promise<OfflineResult<A
 
 /** Выдать карту лояльности. При V2=on — локально + очередь (сервер создаст карту при PATCH). */
 export async function provisionLoyaltyCardSafe(client: AdminClient): Promise<OfflineResult<AdminClient>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const updated = await provisionLoyaltyCardForClient(client)
     return { offline: false, data: updated }
   }

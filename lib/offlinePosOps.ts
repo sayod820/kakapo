@@ -3,10 +3,10 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot } from './offline'
+import { isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
 import { cardNumsMatch } from './cardCrm'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
@@ -42,6 +42,32 @@ export type CreateSaleSafeInput = {
 
 /** @deprecated — оставлен для совместимости типов */
 export type { OfflineResult }
+
+const KEY_LOCAL_ORDER_SEQ = 'local_order_seq'
+const KEY_LOCAL_SALE_NUM = 'local_sale_num'
+
+/** Локальный K-… и №… для печати, пока сервер не присвоил свой номер */
+async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: string }> {
+  const sales = usePosStore.getState().sales || []
+  let maxOrder = 0
+  let maxNum = 0
+  for (const s of sales) {
+    maxNum = Math.max(maxNum, Number(s.number) || 0)
+    const m = String(s.orderId || '').match(/^K-(\d+)$/i)
+    if (m) maxOrder = Math.max(maxOrder, Number(m[1]) || 0)
+  }
+  let storedOrder = 0
+  let storedNum = 0
+  try {
+    storedOrder = Number(await readCachedData<number>(KEY_LOCAL_ORDER_SEQ)) || 0
+    storedNum = Number(await readCachedData<number>(KEY_LOCAL_SALE_NUM)) || 0
+  } catch { /* ignore */ }
+  const nextOrder = Math.max(maxOrder, storedOrder) + 1
+  const nextNum = Math.max(maxNum, storedNum) + 1
+  void cacheData(KEY_LOCAL_ORDER_SEQ, nextOrder)
+  void cacheData(KEY_LOCAL_SALE_NUM, nextNum)
+  return { number: nextNum, orderId: `K-${nextOrder}` }
+}
 
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
@@ -168,7 +194,7 @@ export async function financeMoveSafe(input: {
   const payload = { ...input, clientRef, amount: round2(input.amount) }
 
   // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
-  if (input.supplierId && !isOfflineV2Full()) {
+  if (input.supplierId && !isTradeLocalFirst()) {
     try {
       const move = await api.createFinanceMove(payload)
       return { offline: false, data: move }
@@ -541,10 +567,12 @@ export async function createSaleSafe(
       }
     }
 
+    const display = await allocateLocalSaleDisplay()
     const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
       ...(salePayload as unknown as PosSale),
       id: offlineSaleId,
-      orderId: String(salePayload.clientRef || ''),
+      number: display.number,
+      orderId: display.orderId,
       total: input.total,
       _offline: true,
     }
@@ -630,7 +658,7 @@ export async function expenseCreateSafe(input: {
     category: String(input.category || 'Прочее').trim() || 'Прочее',
   }
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const exp = await api.createExpense(payload)
     if (exp?.shiftId) {
       applyExpenseToShift(String(exp.shiftId), Number(exp.amount) || payload.amount, 1)
@@ -680,7 +708,7 @@ function reverseExpenseLocal(id: string) {
 export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await api.deleteExpense(id)
     reverseExpenseLocal(id)
     void persistPosSnapshot()
@@ -751,7 +779,7 @@ function reverseFinanceMoveLocal(id: string) {
 export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await api.deleteFinanceMove(id)
     reverseFinanceMoveLocal(id)
     void persistPosSnapshot()

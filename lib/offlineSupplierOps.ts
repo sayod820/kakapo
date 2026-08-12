@@ -6,7 +6,7 @@
 import { api } from './api'
 import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { PosSupplier, SupplierPayment } from './types'
@@ -65,7 +65,7 @@ export async function saveSupplierSafe(
     note: payload.note?.trim() || undefined,
   }
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const saved = editingId
       ? await api.updateSupplier(editingId, cleaned)
       : await api.createSupplier(cleaned)
@@ -136,7 +136,7 @@ export async function saveSupplierSafe(
 export async function deleteSupplierSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await api.deleteSupplier(id)
     return { offline: false, data: { id } }
   }
@@ -168,7 +168,7 @@ export async function createSupplierPaymentSafe(
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const pay = await api.createSupplierPayment(supplierId, {
       amount,
       note: input.note,
@@ -226,7 +226,7 @@ export async function deleteSupplierPaymentSafe(
   paymentId: string,
   amountHint?: number,
 ): Promise<OfflineResult<{ id: string }>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await api.deleteSupplierPayment(supplierId, paymentId)
     return { offline: false, data: { id: paymentId } }
   }

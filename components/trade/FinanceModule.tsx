@@ -7,7 +7,7 @@ import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
 import { useOfflineSync } from '@/lib/offlineSync'
 import {
@@ -54,7 +54,7 @@ const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string 
 
 export default function FinanceModule() {
   const canMutate = useCanMutate()
-  const canEditOffline = canMutate || isOfflineV2Full()
+  const canEditOffline = canMutate || isTradeLocalFirst()
   const sales = usePosStore(s => s.sales)
   const shifts = usePosStore(s => s.shifts)
   const expenses = usePosStore(s => s.expenses)
@@ -229,13 +229,13 @@ export default function FinanceModule() {
   }
 
   async function submitExpense() {
-    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
       const amount = Number(expAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму расхода')
-      if (!USE_API && !isOfflineV2Full()) throw new Error('Нужен API')
+      if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
       const res = await expenseCreateSafe({
         category: expCat.trim() || 'Прочее',
         amount,
@@ -254,13 +254,13 @@ export default function FinanceModule() {
   }
 
   async function submitDeposit() {
-    if (!isOfflineV2Full() && !guardMutation(setMsg)) return
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
     setBusy(true)
     setMsg('')
     try {
       const amount = Number(depAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму')
-      if (!USE_API && !isOfflineV2Full()) throw new Error('Нужен API')
+      if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
       const res = await financeMoveSafe({
         type: depType,
         amount,
@@ -279,7 +279,7 @@ export default function FinanceModule() {
   }
 
   async function removeMove(id: string) {
-    if (!isOfflineV2Full() && !guardMutation()) return
+    if (!isTradeLocalFirst() && !guardMutation()) return
     if (!confirm('Удалить запись?')) return
     try {
       const res = await financeMoveDeleteSafe(id)
@@ -290,7 +290,7 @@ export default function FinanceModule() {
   }
 
   async function removeExpense(id: string) {
-    if (!isOfflineV2Full() && !guardMutation()) return
+    if (!isTradeLocalFirst() && !guardMutation()) return
     if (!confirm('Удалить этот расход?')) return
     try {
       const res = await expenseDeleteSafe(id)

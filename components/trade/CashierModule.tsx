@@ -65,12 +65,13 @@ import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { getOfflineV2Mode, isOfflineV2Full, setOfflineV2Mode } from '@/lib/offlineV2'
+import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
   buildPosReceiptHtml,
+  formatSaleOrderNo,
   DEFAULT_RECEIPT_STORE,
   loadReceiptStore,
   normalizeReceiptStore,
@@ -359,10 +360,7 @@ function saleOrderSeq(s: { orderId?: string; number?: number; id?: string }) {
 }
 
 function saleNumberLabel(s: { orderId?: string; number?: number; id?: string }) {
-  const oid = String(s.orderId || '').trim()
-  if (oid) return oid
-  const n = saleNumber(s)
-  return n > 0 ? `№${n}` : (s.id || '—')
+  return formatSaleOrderNo(s)
 }
 
 function stockUnitLabel(p: Product): string {
@@ -5745,7 +5743,7 @@ export default function CashierModule({
 
     // Офлайн: кошелёк/бонусы без V2 — нельзя; карта как нал — local-first в очередь.
     const apiReachable = isOnline()
-    const v2Full = isOfflineV2Full()
+    const v2Full = isTradeLocalFirst()
     if (!apiReachable) {
       if (!v2Full && (walletPaid > 0.001 || apiMethod === 'wallet')) {
         showToast('Нет связи', 'Оплата с кошелька недоступна офлайн.')
@@ -5876,41 +5874,23 @@ export default function CashierModule({
       if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
         earnedBonus = calcCashDepositBonus(cashPaid)
       }
-      // Бонусы — в фоне, не блокируют подтверждение чека
-      if (!created._offline && client?.card && USE_API && earnedBonus > 0) {
-        const cardNum = client.card
-        const phone = client.phone
-        const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
-          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-          const nextPos = prevPos + earnedBonus
-          const base = Number(loyalty?.bonus) || 0
-        void api.updateCard(cardNum, {
-            bonus: base + earnedBonus,
-            posCashBonus: nextPos,
-        }).then(() => {
-          if (phone) {
-            recordBalanceTopup(phone, cashPaid, earnedBonus, apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)')
-          }
-        }).catch(() => {})
-      } else if (!created._offline && client?.card && USE_API && spend > 0 && !created?.orderId) {
-        const cardNum = client.card
-          const base = Number(loyalty?.bonus) || 0
-        const cardRow = cards.find(c => cardNumsMatch(c.num, cardNum))
-          const prevPos = Math.max(0, Number(cardRow?.posCashBonus) || 0)
-          const nextPos = Math.max(0, prevPos - spend)
-        void api.updateCard(cardNum, {
-            bonus: Math.max(0, base - spend),
-            posCashBonus: nextPos,
-            allowBonusDecrease: true,
-        }).catch(() => {})
+      // Бонусы уже учтены в createSaleSafe / очереди — без прямого api.updateCard
+      if (earnedBonus > 0 && client?.phone) {
+        try {
+          recordBalanceTopup(
+            client.phone,
+            cashPaid,
+            earnedBonus,
+            apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)',
+          )
+        } catch { /* ignore */ }
       }
+      // Исходящая очередь + входящие чеки с сервера (браузер → ПК)
+      void softSyncPosAfterSale()
+      useOfflineSync.getState().scheduleSyncDebounced()
       if (!created._offline) {
-        void softSyncPosAfterSale()
         void syncClientsFromApi()
         void syncCardsFromApi()
-        if (useOfflineSync.getState().pending > 0) {
-          void useOfflineSync.getState().syncNow()
-        }
       }
 
       const debtRepay = payDebtForSale

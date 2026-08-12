@@ -287,11 +287,37 @@ function payLabel(sale: PosSale) {
   return '—'
 }
 
-function orderNo(sale: PosSale) {
+/** Человекочитаемый номер заказа/чека — не UUID и не off-* */
+export function isHumanReadableOrderId(oid: string): boolean {
+  const s = String(oid || '').trim()
+  if (!s) return false
+  if (/^[A-Za-z]{1,6}-\d{1,10}$/i.test(s)) return true
+  if (/^№\s*\d{1,10}$/i.test(s)) return true
+  if (/^\d{1,10}$/.test(s)) return true
+  return false
+}
+
+/** Номер для печати и UI: K-1234 или №56, без «шифровки» UUID */
+export function formatSaleOrderNo(sale: {
+  orderId?: string
+  number?: number
+  id?: string
+}): string {
   const oid = String(sale.orderId || '').trim()
-  if (oid) return oid
-  if (sale.number) return `№${sale.number}`
-  return sale.id || 'Чек'
+  if (oid && isHumanReadableOrderId(oid)) return oid
+  const n = Number(sale.number)
+  if (Number.isFinite(n) && n > 0) return `№${n}`
+  const id = String(sale.id || '').trim()
+  if (id.startsWith('off-')) {
+    const digits = id.replace(/\D/g, '').slice(-6)
+    return digits ? `№${digits}` : 'Чек'
+  }
+  if (id && id.length <= 12 && !/[a-f0-9]{8}-[a-f0-9]{4}/i.test(id)) return id
+  return 'Чек'
+}
+
+function orderNo(sale: PosSale) {
+  return formatSaleOrderNo(sale)
 }
 
 function row(label: string, value?: string | number | null) {
@@ -443,8 +469,8 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     && (Number.isFinite(Number(balBefore)) || Number.isFinite(Number(balAfter)))
 
   const meta = [
-    tpl.showOrderNo ? row(tpl.labelOrderNo, orderNo(sale)) : '',
-    tpl.showReceiptNo && sale.number != null ? row(tpl.labelReceiptNo, `№${sale.number}`) : '',
+    tpl.showOrderNo ? row(tpl.labelOrderNo, formatSaleOrderNo(sale)) : '',
+    tpl.showReceiptNo && Number(sale.number) > 0 ? row(tpl.labelReceiptNo, `№${sale.number}`) : '',
     tpl.showDate ? row(tpl.labelDate, when) : '',
     tpl.showPos && pos ? row(tpl.labelPos, pos) : '',
     tpl.showCashier && cashier ? row(tpl.labelCashier, cashier) : '',

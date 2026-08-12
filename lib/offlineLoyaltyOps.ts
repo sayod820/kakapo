@@ -15,7 +15,7 @@ import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
 import { cacheData, newClientRef } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 
 export type { OfflineResult }
@@ -48,7 +48,7 @@ export async function saveCardLoyaltySafe(
   mode: 'link' | 'edit',
   opts?: { skipDebtHistory?: boolean },
 ): Promise<OfflineResult<void>> {
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await saveCardLoyalty(card, form, mode, opts)
     return { offline: false, data: undefined }
   }
@@ -138,7 +138,7 @@ export async function adjustClientDebtSafe(
   let card = findCardForClient(client, useCardStore.getState().cards) || null
 
   if (!card) {
-    if (isOfflineV2Full()) {
+    if (isTradeLocalFirst()) {
       // Офлайн: локальная карта-заглушка + очередь на сервер
       const { provisionLoyaltyCardSafe } = await import('./offlineClientOps')
       const provisioned = await provisionLoyaltyCardSafe(client)

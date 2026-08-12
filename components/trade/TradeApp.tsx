@@ -2773,10 +2773,14 @@ function TradeAppGate() {
   const [localDbReady, setLocalDbReady] = useState<boolean | null>(() => (isKakapoDesktop() ? null : true))
 
   useEffect(() => {
+    void import('@/lib/offlineV2').then(m => m.ensureDesktopLocalFirst()).catch(() => {})
     void hydrateOfflineCaches()
     useOfflineSync.getState().start()
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
+  }, [])
+
+  useEffect(() => {
     if (isKakapoDesktop()) {
       void isLocalBootstrapComplete().then(done => {
         setLocalDbReady(done)

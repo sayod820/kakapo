@@ -6,7 +6,7 @@
 import { api } from './api'
 import { cacheProducts, newClientRef } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { isOfflineV2Full, shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { useProducts } from './store'
 import type { Product } from './types'
@@ -46,7 +46,7 @@ export async function saveProductSafe(
   const cleaned = { ...data, old: null as null, discount: 0 }
 
   // Полный офлайн не включён — обычный онлайн API (как раньше)
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     const saved = await useProducts.getState().saveProduct(cleaned)
     if (!saved) throw new Error('Не удалось сохранить товар')
     shadowMirrorPut('product', String(saved.id), saved)
@@ -127,7 +127,7 @@ export async function saveProductSafe(
 export async function deleteProductSafe(id: number): Promise<OfflineResult<{ id: number }>> {
   const clientRef = newClientRef()
 
-  if (!isOfflineV2Full()) {
+  if (!isTradeLocalFirst()) {
     await useProducts.getState().removeProduct(id)
     return { offline: false, data: { id } }
   }

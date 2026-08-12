@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { USE_API } from '@/lib/config'
-import { isOfflineV2Full } from '@/lib/offlineV2'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { saveSupplierSafe } from '@/lib/offlineSupplierOps'
 import type { PosSupplier } from '@/lib/types'
 
@@ -41,7 +41,7 @@ export default function WarehouseNewSupplierModal({
   if (!open) return null
 
   async function handleSave() {
-    if (!USE_API && !isOfflineV2Full()) return
+    if (!USE_API && !isTradeLocalFirst()) return
     const trimmed = name.trim()
     if (!trimmed) {
       setMsg('Укажите название поставщика')

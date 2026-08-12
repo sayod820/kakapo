@@ -6,11 +6,11 @@
  * - shadow  — только теневая запись в SQLite (касса не меняется)
  * - on      — полный офлайн: товары, категории, клиенты, поставщики, финансы, долги
  *
- * По умолчанию:
- * - Desktop KAKAPO Касса → on
- * - Браузер → off
+ * Правило:
+ * - Desktop KAKAPO Касса → ВСЕГДА on (SQLite + очередь + двусторонний sync)
+ * - Браузер → off (сервер напрямую; локальный режим не нужен)
  *
- * Явно задать:
+ * Явно задать (только браузер):
  *   localStorage.setItem('kakapo-offline-v2', 'shadow' | 'on' | 'off')
  */
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
@@ -31,17 +31,22 @@ const LS_KEY = 'kakapo-offline-v2'
 
 export function getOfflineV2Mode(): OfflineV2Mode {
   if (typeof window === 'undefined') return 'off'
+  // ПК-приложение: всегда полный local-first, нельзя выключить через LS
+  if (isKakapoDesktop()) return 'on'
   try {
     const raw = String(localStorage.getItem(LS_KEY) || '').trim().toLowerCase()
     if (raw === 'shadow' || raw === 'on' || raw === 'off') return raw
   } catch { /* ignore */ }
-  // Desktop: полный офлайн по умолчанию (SQLite + очередь).
-  // Браузер: выкл — без локальной SQLite.
-  return isKakapoDesktop() ? 'on' : 'off'
+  return 'off'
 }
 
 export function setOfflineV2Mode(mode: OfflineV2Mode) {
   if (typeof window === 'undefined') return
+  // На ПК режим всегда on — не даём записать off/shadow
+  if (isKakapoDesktop()) {
+    try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
+    return
+  }
   try {
     localStorage.setItem(LS_KEY, mode)
   } catch { /* ignore */ }
@@ -54,6 +59,20 @@ export function isOfflineV2Shadow(): boolean {
 
 export function isOfflineV2Full(): boolean {
   return getOfflineV2Mode() === 'on'
+}
+
+/**
+ * Trade local-first: сначала локально (SQLite/стор/очередь), потом sync.
+ * На ПК-приложении всегда true.
+ */
+export function isTradeLocalFirst(): boolean {
+  return isKakapoDesktop() || isOfflineV2Full()
+}
+
+/** Вызвать при старте Trade: зафиксировать on на ПК */
+export function ensureDesktopLocalFirst(): void {
+  if (!isKakapoDesktop()) return
+  try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
 }
 
 /**
