@@ -33,6 +33,7 @@ import {
   type LabelEdit,
   type LabelPick,
 } from './labelShared'
+import { isTradeMobileUi } from '@/lib/tradeAndroid'
 
 const LABEL_CSS = `
   .k-label-pick{border:1px solid var(--border);border-radius:8px;margin-bottom:4px;background:var(--card2);overflow:hidden}
@@ -78,6 +79,7 @@ export default function LabelsTab({
   const [printerPanelOpen, setPrinterPanelOpen] = useState(false)
 
   function focusLabelSearch() {
+    if (isTradeMobileUi()) return false
     const el = labelSearchRef.current
     if (!el || el.disabled) return false
     try { el.focus({ preventScroll: true }) } catch { el.focus() }
@@ -110,9 +112,10 @@ export default function LabelsTab({
     return () => { cancelled = true }
   }, [])
 
-  // Сразу при входе + повторно (клик по вкладке часто оставляет фокус на кнопке)
+  // Desktop: сразу фокус в поиске. Мобильный — без автофокуса (клавиатура).
   useEffect(() => {
     if (designOpen || editingKey || printerPanelOpen) return
+    if (isTradeMobileUi()) return
     let cancelled = false
     const tryFocus = () => {
       if (cancelled || labelSearchBlocked()) return
@@ -126,8 +129,9 @@ export default function LabelsTab({
     }
   }, [designOpen, editingKey, printerPanelOpen])
 
-  // Этикетки: курсор всегда в поиске (сканер / клик по окну)
+  // Desktop: курсор всегда в поиске (сканер). Мобильный — только по тапу.
   useEffect(() => {
+    if (isTradeMobileUi()) return
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (labelSearchBlocked()) return
@@ -573,7 +577,7 @@ export default function LabelsTab({
                 ref={labelSearchRef}
                 className="k-inp"
                 data-label-search
-                autoFocus
+                autoFocus={!isTradeMobileUi()}
                 value={labelSearch}
                 onChange={e => setLabelSearch(e.target.value)}
                 onFocus={e => e.currentTarget.select()}

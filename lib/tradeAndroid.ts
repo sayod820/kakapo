@@ -24,6 +24,19 @@ export function isTradeAndroid(): boolean {
   return false
 }
 
+/** Мобильный UI (телефон / узкий экран) — без автофокуса поиска и клавиатуры. */
+export function isTradeMobileUi(): boolean {
+  if (typeof window === 'undefined') return false
+  if (isTradeAndroid()) return true
+  try {
+    if (window.matchMedia('(max-width: 900px)').matches) return true
+    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) return true
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
 /** На телефоне нет USB-принтера / весов / шаблона чека */
 export function hideTradeHardwareUi(): boolean {
   return isTradeAndroid()

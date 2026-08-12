@@ -85,7 +85,7 @@ import {
   type CasWeightEvent,
   type DesktopPrinter,
 } from '@/lib/desktopBridge'
-import { hideTradeHardwareUi } from '@/lib/tradeAndroid'
+import { hideTradeHardwareUi, isTradeMobileUi } from '@/lib/tradeAndroid'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
@@ -1463,6 +1463,7 @@ export default function CashierModule({
     || !!closeTicketConfirmId
 
   function focusProductSearch() {
+    if (isTradeMobileUi()) return
     const el = searchInputRef.current
     if (!el) return
     try {
@@ -1882,11 +1883,12 @@ export default function CashierModule({
   }, [active])
 
   /**
-   * Главный экран кассы: поиск товара всегда в фокусе.
-   * Иначе после клика по плитке/кнопке сканер не пробивает.
+   * Desktop: поиск товара всегда в фокусе (сканер).
+   * Мобильный: без автофокуса — иначе сразу открывается клавиатура.
    */
   useEffect(() => {
     if (overlayBlocksSearch) return
+    if (isTradeMobileUi()) return
 
     const scheduleFocus = (delay = 0) => {
       window.setTimeout(() => {
@@ -7413,7 +7415,7 @@ export default function CashierModule({
               onChange={e => onProductSearchChange(e.target.value)}
               onFocus={() => noteCashierSearchActivity(5000)}
               placeholder="Товар, штрихкод…"
-              autoFocus
+              autoFocus={!isTradeMobileUi()}
               onKeyDown={onProductSearchKeyDown}
             />
             {!!q.trim() && (

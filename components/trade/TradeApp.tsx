@@ -37,6 +37,7 @@ import {
   firstAllowedTradePage,
   type TradePageId,
 } from '@/lib/tradeAccess'
+import { isTradeMobileUi } from '@/lib/tradeAndroid'
 
 /* ══════════════════════════════════════════════════════════════
    6-е приложение KAKAPO — «Торговля»
@@ -2384,6 +2385,7 @@ function TradeAppInner({
 
   useEffect(() => {
     if (current !== 'products' || productsSub !== 'labels') return
+    if (isTradeMobileUi()) return
     let cancelled = false
     const focusLabels = () => {
       if (cancelled) return
@@ -2400,6 +2402,7 @@ function TradeAppInner({
   }, [current, productsSub])
 
   function focusTradeSearch() {
+    if (isTradeMobileUi()) return
     const el = searchInputRef.current
     if (!el) return
     try { el.focus({ preventScroll: true }) } catch { el.focus() }
@@ -2414,19 +2417,22 @@ function TradeAppInner({
   useEffect(() => {
     if (!showSearch) return
     setSearch('')
+    if (isTradeMobileUi()) return
     const t = window.setTimeout(focusTradeSearch, 40)
     return () => window.clearTimeout(t)
   }, [current, showSearch])
 
   useEffect(() => {
     if (!showSearch || catalogBack) return
+    if (isTradeMobileUi()) return
     const t = window.setTimeout(focusTradeSearch, 40)
     return () => window.clearTimeout(t)
   }, [catalogBack, showSearch])
 
-  // Товар/Склад: курсор всегда в поиске (сканер / повторный клик по окну)
+  // Desktop: курсор всегда в поиске (сканер). На мобильном — только по тапу в поле.
   useEffect(() => {
     if (!showSearch) return
+    if (isTradeMobileUi()) return
 
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -2600,7 +2606,7 @@ function TradeAppInner({
                     className={`k-subtab ${productsSub === item.id ? 'active' : ''}`}
                     onClick={() => {
                       setProductsSub(item.id)
-                      if (item.id === 'labels') {
+                      if (item.id === 'labels' && !isTradeMobileUi()) {
                         window.setTimeout(() => {
                           const el = document.querySelector('input[data-label-search]') as HTMLInputElement | null
                           if (!el) return
