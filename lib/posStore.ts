@@ -171,24 +171,51 @@ export async function softSyncPosAfterSale() {
     const pending = await getPending()
     const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
 
-    const localSales = usePosStore.getState().sales
-    const serverSaleIds = new Set(sales.map(s => String(s.id)))
+    // Серверные чеки + локальные ещё не ушедшие; имя кассира не затираем пустым «Кассир»
+    const localById = new Map(localSales.map(s => [String(s.id), s]))
+    const localByRef = new Map(
+      localSales
+        .filter(s => (s as { clientRef?: string }).clientRef)
+        .map(s => [String((s as { clientRef?: string }).clientRef), s]),
+    )
+    const isGenericCashier = (n?: string) => {
+      const t = String(n || '').trim()
+      return !t || /^кассир$/i.test(t)
+    }
+    const enrichedServer = sales.map(s => {
+      const local = localById.get(String(s.id))
+        || (s.clientRef ? localByRef.get(String(s.clientRef)) : undefined)
+      if (!local) return s
+      if (isGenericCashier(s.cashierName) && !isGenericCashier(local.cashierName)) {
+        return { ...s, cashierName: local.cashierName, cashierId: s.cashierId || local.cashierId }
+      }
+      return s
+    })
+    const serverSaleIds = new Set(enrichedServer.map(s => String(s.id)))
     const localOnlySales = localSales.filter(s => {
       const id = String(s.id)
       if (serverSaleIds.has(id)) return false
       return isLocalId(id) || !!(s as { _offline?: boolean })._offline
     })
-    // Серверные чеки (в т.ч. с браузера) + ещё не ушедшие локальные
-    const mergedSales = localOnlySales.length ? [...localOnlySales, ...sales] : sales
+    const mergedSales = localOnlySales.length ? [...localOnlySales, ...enrichedServer] : enrichedServer
 
     const prevIds = new Set(localSales.map(s => String(s.id)))
-    const hasNewFromServer = sales.some(s => !prevIds.has(String(s.id)))
+    const hasNewFromServer = enrichedServer.some(s => !prevIds.has(String(s.id)))
+
+    const localShifts = usePosStore.getState().shifts
+    const enrichedShifts = (shifts || []).map(sh => {
+      const local = localShifts.find(x => String(x.id) === String(sh.id))
+      if (local && isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
+        return { ...sh, cashierName: local.cashierName }
+      }
+      return sh
+    })
 
     if (protectShifts) {
       // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
       usePosStore.setState({ sales: mergedSales })
     } else {
-      usePosStore.setState({ sales: mergedSales, shifts })
+      usePosStore.setState({ sales: mergedSales, shifts: enrichedShifts })
     }
 
     if (hasNewFromServer || localOnlySales.length || mergedSales.length !== localSales.length) {
@@ -274,6 +301,12 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
           financeSummary: snap.financeSummary,
           report: snap.report,
         })
+      } catch { /* ignore */ }
+
+      // Партии + остатки на кассе (приход с телефона → сразу видно)
+      try {
+        const { pullStockLayersFromServer } = await import('./stockLayersLocal')
+        await pullStockLayersFromServer({ bumpProducts: true })
       } catch { /* ignore */ }
     } catch { /* нет связи — оставляем локальный снимок */ }
     finally {

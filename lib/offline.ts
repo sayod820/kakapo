@@ -637,6 +637,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       const shift = await api.openPosShift({
         clientRef: p.clientRef,
         cashierId: p.cashierId,
+        cashierName: p.cashierName,
         openingCash: Number(p.openingCash) || 0,
         note: p.note,
         posId: p.posId,

@@ -645,8 +645,12 @@ export function listPosShifts(db) {
 
 export function openPosShift(db, data = {}) {
   ensurePosCollections(db)
-  const cashier = db.cashiers.find(c => c.id === data.cashierId)
+  const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   if (!cashier) throw new Error('Кассир не найден')
+  const named = String(data.cashierName || '').trim()
+  if (named && named !== cashier.name && !/^кассир$/i.test(named)) {
+    cashier.name = named
+  }
   const posId = String(data.posId || '').trim() || (db.posPoints[0]?.id || DEFAULT_POS_ID)
   const pos = db.posPoints.find(p => p.id === posId)
   if (!pos || pos.active === false) throw new Error('Точка продаж не найдена')
@@ -654,11 +658,12 @@ export function openPosShift(db, data = {}) {
   if (openOnPos) throw new Error('На этой точке продаж уже открыта сессия')
   const existing = db.posShifts.find(s => s.cashierId === cashier.id && s.status === 'open')
   if (existing) throw new Error('У кассира уже открыта смена')
+  const cashierName = named || String(cashier.name || '').trim() || 'Кассир'
   const row = {
     id: nextId('SHIFT'),
     posId,
     cashierId: cashier.id,
-    cashierName: cashier.name,
+    cashierName,
     openedAtIso: nowIso(),
     closedAtIso: null,
     openingCash: round2(data.openingCash),
@@ -681,7 +686,7 @@ export function openPosShift(db, data = {}) {
     posId,
     shiftId: row.id,
     cashierId: cashier.id,
-    cashierName: cashier.name,
+    cashierName,
     refType: 'shift',
     refId: row.id,
     reason: 'Открытие смены · разменный фонд',
@@ -1461,6 +1466,15 @@ export function createPosSale(db, data = {}) {
   const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
   // Один счётчик с онлайн-заказами: K-4864 …
   const orderId = nextOrderId(db)
+  const cashierName = String(
+    data.cashierName
+    || shift?.cashierName
+    || cashier?.name
+    || '',
+  ).trim()
+  if (cashier && cashierName && cashierName !== cashier.name && !/^кассир$/i.test(cashierName)) {
+    cashier.name = cashierName
+  }
 
   const offlineIso = clientRef && data.createdAtIso && !Number.isNaN(Date.parse(data.createdAtIso))
     ? new Date(data.createdAtIso).toISOString()
@@ -1471,8 +1485,8 @@ export function createPosSale(db, data = {}) {
     orderId,
     clientRef: clientRef || undefined,
     createdAtIso: offlineIso,
-    cashierId: cashier?.id || '',
-    cashierName: cashier?.name || '',
+    cashierId: cashier?.id || data.cashierId || '',
+    cashierName,
     shiftId: shift?.id || '',
     posId,
     clientId: data.clientId || '',
@@ -1563,8 +1577,8 @@ export function createPosSale(db, data = {}) {
   const baseLed = {
     posId,
     shiftId: shift?.id || '',
-    cashierId: cashier?.id || '',
-    cashierName: cashier?.name || '',
+    cashierId: cashier?.id || data.cashierId || '',
+    cashierName: cashierName || cashier?.name || '',
     refType: 'sale',
     refId: sale.id,
     createdAtIso: sale.createdAtIso,

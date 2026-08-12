@@ -65,7 +65,8 @@ function createDebouncedPullers() {
       void softSyncPosAfterSale()
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
-      if (isCashierCritical()) return
+      // Поиск не блокирует: приход с телефона должен сразу обновить кассу
+      if (isCashierPaymentCritical()) return
       void softSyncWarehouse()
     }),
     flushAll: () => {
@@ -230,8 +231,11 @@ export function useApiSync(mode: SyncMode = 'all') {
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
         if (mode === 'pos') {
           const searchBusy = isCashierCritical() && !isCashierPaymentCritical()
-          // Всегда тянем продажи/смены — иначе чек с браузера не виден на ПК
-          const tasks: Promise<unknown>[] = [softSyncPosAfterSale()]
+          // Всегда тянем продажи и партии — иначе чек/приход с телефона не видны на ПК
+          const tasks: Promise<unknown>[] = [
+            softSyncPosAfterSale(),
+            softSyncWarehouse(),
+          ]
           if (searchBusy) {
             await Promise.allSettled(tasks)
             return
@@ -241,7 +245,6 @@ export function useApiSync(mode: SyncMode = 'all') {
           const tick = posTickRef.current
           tasks.push(
             syncLoyaltyStatusConfigFromApi(),
-            softSyncWarehouse(),
             syncClientsFromApi(),
             syncCardsFromApi(),
           )

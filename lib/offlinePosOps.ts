@@ -107,6 +107,7 @@ export async function openShiftSafe(input: {
   const payload = {
     clientRef,
     cashierId: input.cashierId,
+    cashierName: input.cashierName,
     openingCash: round2(input.openingCash),
     posId: input.posId,
     note: input.note,

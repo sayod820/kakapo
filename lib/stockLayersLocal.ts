@@ -145,22 +145,110 @@ export async function loadStockLayersCacheFirst(
   const cached = await readCachedStockLayers()
   void (async () => {
     try {
-      const { USE_API } = await import('./config')
-      if (!USE_API) return
-      const { isOnline } = await import('./offline')
-      const { useOfflineSync } = await import('./offlineSync')
-      const st = useOfflineSync.getState()
-      if (!(isOnline() && st.online)) return
-      // Есть очередь — не затираем локальные партии сервером
-      if (st.pending > 0) return
-      const { api } = await import('./api')
-      const remote = await api.getAllStockLayers()
-      const list = remote || []
-      await cacheStockLayers(list)
-      onRemote?.(list)
+      const list = await pullStockLayersFromServer({ bumpProducts: true })
+      if (list) onRemote?.(list)
     } catch { /* оставляем кэш */ }
   })()
   return cached
+}
+
+/**
+ * Подтянуть партии с сервера.
+ * При очереди — merge (не затираем локальные off-*), без очереди — полная замена.
+ * Нужно, чтобы приход с телефона сразу появился на кассе.
+ */
+export async function pullStockLayersFromServer(opts?: {
+  bumpProducts?: boolean
+}): Promise<ProductStockLayer[] | null> {
+  try {
+    const { USE_API } = await import('./config')
+    if (!USE_API) return null
+    const { isOnline } = await import('./offline')
+    const { useOfflineSync } = await import('./offlineSync')
+    const st = useOfflineSync.getState()
+    if (!(isOnline() && st.online)) return null
+
+    const { api } = await import('./api')
+    const remote = (await api.getAllStockLayers()) || []
+    const pending = st.pending > 0
+    let next: ProductStockLayer[]
+    if (pending) {
+      const local = await readCachedStockLayers()
+      next = mergeRemoteLayersKeepingLocal(local, remote)
+    } else {
+      next = remote
+    }
+    await cacheStockLayers(next)
+    if (opts?.bumpProducts !== false) {
+      await bumpProductStockFromLayers(next)
+    }
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('kakapo:stock-layers', { detail: { count: next.length } }))
+      }
+    } catch { /* ignore */ }
+    return next
+  } catch {
+    return null
+  }
+}
+
+/** Серверные партии + локальные off-* (ещё не ушедшие приходы) */
+export function mergeRemoteLayersKeepingLocal(
+  local: ProductStockLayer[],
+  remote: ProductStockLayer[],
+): ProductStockLayer[] {
+  const map = new Map<string, ProductStockLayer>()
+  for (const r of remote || []) {
+    if ((Number(r.remainingQty) || 0) <= 0.0001) continue
+    map.set(layerKey(r), r)
+  }
+  for (const l of local || []) {
+    const rid = String(l.receiptId || '')
+    const isLocalOnly = rid.startsWith('off-')
+    if (!isLocalOnly) continue
+    if ((Number(l.remainingQty) || 0) <= 0.0001) continue
+    const key = layerKey(l)
+    if (!map.has(key)) map.set(key, l)
+  }
+  return [...map.values()]
+}
+
+async function bumpProductStockFromLayers(layers: ProductStockLayer[]): Promise<void> {
+  try {
+    const { useProducts } = await import('./store')
+    const byPid = new Map<number, number>()
+    for (const l of layers || []) {
+      const pid = Number(l.productId) || 0
+      if (!pid) continue
+      const qty = Number(l.remainingQty) || 0
+      if (!(qty > 0.0001)) continue
+      byPid.set(pid, Math.round(((byPid.get(pid) || 0) + qty) * 1000) / 1000)
+    }
+    // Трогаем только товары, которые были в партиях или есть сейчас — не весь каталог
+    const touched = new Set<number>(byPid.keys())
+    for (const l of memoryCache || []) {
+      const pid = Number(l.productId) || 0
+      if (pid) touched.add(pid)
+    }
+    if (!touched.size) return
+
+    const ps = useProducts.getState()
+    let changed = false
+    const next = ps.products.map(p => {
+      if (!touched.has(p.id)) return p
+      const stock = byPid.get(p.id) || 0
+      if (Math.abs(stock - (Number(p.stock) || 0)) < 0.0001) return p
+      changed = true
+      return { ...p, stock }
+    })
+    if (!changed) return
+    useProducts.setState({ products: next })
+    try {
+      const { cacheProducts } = await import('./offline')
+      void cacheProducts(next)
+    } catch { /* ignore */ }
+  } catch { /* ignore */ }
 }
 
 export async function upsertLocalStockLayer(layer: ProductStockLayer): Promise<ProductStockLayer[]> {

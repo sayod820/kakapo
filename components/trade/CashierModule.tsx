@@ -7,6 +7,7 @@ import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
+import { loadTradeEmployeeSession } from '@/lib/employeeSession'
 import {
   openShiftSafe,
   closeShiftSafe,
@@ -396,18 +397,27 @@ function expectedTillCash(shift: {
 }
 
 function loadSettings(): PosSettings {
-  if (typeof window === 'undefined') return { cashierId: '', cashierName: 'Кассир', initials: 'К' }
+  const empName = (() => {
+    try { return String(loadTradeEmployeeSession()?.name || '').trim() } catch { return '' }
+  })()
+  if (typeof window === 'undefined') {
+    return { cashierId: '', cashierName: empName || 'Кассир', initials: initialsOf(empName || 'К') }
+  }
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return { cashierId: '', cashierName: 'Кассир', initials: 'К' }
+    if (!raw) {
+      return { cashierId: '', cashierName: empName || 'Кассир', initials: initialsOf(empName || 'К') }
+    }
     const p = JSON.parse(raw) as PosSettings
+    const storedName = String(p.cashierName || '').trim()
+    const name = (storedName && !/^кассир$/i.test(storedName)) ? storedName : (empName || storedName || 'Кассир')
     return {
       cashierId: String(p.cashierId || ''),
-      cashierName: String(p.cashierName || 'Кассир'),
-      initials: String(p.initials || initialsOf(p.cashierName || 'К')),
+      cashierName: name,
+      initials: String(p.initials || initialsOf(name)),
     }
   } catch {
-    return { cashierId: '', cashierName: 'Кассир', initials: 'К' }
+    return { cashierId: '', cashierName: empName || 'Кассир', initials: initialsOf(empName || 'К') }
   }
 }
 
@@ -1226,6 +1236,21 @@ export default function CashierModule({
     void syncClientsFromApi()
     void syncCardsFromApi()
   }, [fetchProducts])
+
+  // Имя сотрудника Trade → кассир (если в настройках ещё «Кассир»)
+  useEffect(() => {
+    try {
+      const emp = String(loadTradeEmployeeSession()?.name || '').trim()
+      if (!emp) return
+      setSettings(prev => {
+        if (prev.cashierName && !/^кассир$/i.test(prev.cashierName)) return prev
+        const next = { ...prev, cashierName: emp, initials: initialsOf(emp) }
+        saveSettings(next)
+        return next
+      })
+      setGateName(prev => (!prev || /^кассир$/i.test(prev) ? emp : prev))
+    } catch { /* ignore */ }
+  }, [])
 
   useEffect(() => {
     if (!cashierMenuOpen) return
@@ -2115,8 +2140,17 @@ export default function CashierModule({
         if (!cancelled) setStockLayersLoaded(true)
       })
 
+    const onLayersEvent = () => {
+      void import('@/lib/stockLayersLocal')
+        .then(m => m.readCachedStockLayers())
+        .then(applyLayers)
+        .catch(() => {})
+    }
+    window.addEventListener('kakapo:stock-layers', onLayersEvent)
+
     return () => {
       cancelled = true
+      window.removeEventListener('kakapo:stock-layers', onLayersEvent)
     }
   }, [products, receipts.length, revisions.length, sales.length, writeoffs.length])
 
@@ -4206,14 +4240,38 @@ export default function CashierModule({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiptQDeferred, products, receiptMatches, receiptBarcodeIndex])
 
+  function resolveCashierName(opts?: {
+    cashierId?: string
+    cashierName?: string
+    shiftId?: string
+  } | null): string {
+    const fromSale = cashierDisplayName(opts || null)
+    if (fromSale && fromSale !== '—' && !/^кассир$/i.test(fromSale)) return fromSale
+    const fromShift = String(activeShift?.cashierName || '').trim()
+    if (fromShift && !/^кассир$/i.test(fromShift)) return fromShift
+    const fromSettings = String(settings.cashierName || '').trim()
+    if (fromSettings && !/^кассир$/i.test(fromSettings)) return fromSettings
+    try {
+      const emp = String(loadTradeEmployeeSession()?.name || '').trim()
+      if (emp) return emp
+    } catch { /* ignore */ }
+    return fromSale !== '—' ? fromSale : (fromSettings || 'Кассир')
+  }
+
   function cashierDisplayName(s: { cashierId?: string; cashierName?: string; shiftId?: string } | null | undefined): string {
-    if (!s) return '—'
+    if (!s) {
+      try {
+        const emp = String(loadTradeEmployeeSession()?.name || '').trim()
+        if (emp) return emp
+      } catch { /* ignore */ }
+      return '—'
+    }
     const raw = String(s.cashierName || '').trim()
     const isGeneric = !raw || /^кассир$/i.test(raw)
     if (!isGeneric) return raw
     if (s.cashierId) {
       const fromList = cashiers.find(c => c.id === s.cashierId)
-      if (fromList?.name?.trim()) return fromList.name.trim()
+      if (fromList?.name?.trim() && !/^кассир$/i.test(fromList.name.trim())) return fromList.name.trim()
     }
     if (s.shiftId) {
       const fromShift = shifts.find(x => x.id === s.shiftId)
@@ -4227,6 +4285,10 @@ export default function CashierModule({
     }
     const fallback = String(settings.cashierName || '').trim()
     if (fallback && !/^кассир$/i.test(fallback)) return fallback
+    try {
+      const emp = String(loadTradeEmployeeSession()?.name || '').trim()
+      if (emp) return emp
+    } catch { /* ignore */ }
     return raw || '—'
   }
 
@@ -5489,7 +5551,7 @@ export default function CashierModule({
         storePhone,
         subtitle: '',
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
-        cashierName: sale.cashierName || settings.cashierName,
+        cashierName: resolveCashierName(sale),
       })
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Не удалось напечатать чек')
@@ -5773,7 +5835,11 @@ export default function CashierModule({
         clientRef: newClientRef(),
         createdAtIso: new Date().toISOString(),
         cashierId: activeShift.cashierId,
-        cashierName: activeShift.cashierName || settings.cashierName || undefined,
+        cashierName: resolveCashierName({
+          cashierId: activeShift.cashierId,
+          cashierName: activeShift.cashierName || settings.cashierName,
+          shiftId: activeShift.id,
+        }),
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
         clientId: client?.id,
