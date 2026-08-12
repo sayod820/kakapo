@@ -16,6 +16,16 @@ function queryKey(q?: Record<string, string>): string {
     .join('&') || 'default'
 }
 
+function inRange(iso: string | undefined, fromMs?: number | null, toMs?: number | null) {
+  if (fromMs == null && toMs == null) return true
+  if (!iso) return false
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return false
+  if (fromMs != null && Number.isFinite(fromMs) && t < fromMs) return false
+  if (toMs != null && Number.isFinite(toMs) && t > toMs) return false
+  return true
+}
+
 export async function cacheFinanceTruth(
   q: Record<string, string> | undefined,
   data: FinanceTruthBundle,
@@ -37,17 +47,54 @@ export async function readCachedFinanceTruth(
   return readCachedData<FinanceTruthBundle>(`${CACHE_PREFIX}__last`)
 }
 
-/** Минимальный локальный снимок из POS-стора, если кэша нет. */
-export function buildLocalFinanceTruth(input: {
+export type LocalFinanceTruthInput = {
   shifts: PosShift[]
-  financeMoves?: { type: string; amount: number; createdAtIso?: string; note?: string; id?: string }[]
-  expenses?: { amount: number; createdAtIso?: string; category?: string; id?: string }[]
-  sales?: { total?: number; paidCash?: number; createdAtIso?: string; status?: string }[]
-}): FinanceTruthBundle {
-  const shifts = input.shifts || []
-  const moves = input.financeMoves || []
-  const expenses = input.expenses || []
-  const sales = (input.sales || []).filter(s => s.status !== 'returned')
+  financeMoves?: { type: string; amount: number; createdAtIso?: string; note?: string; id?: string; posId?: string; cashierId?: string }[]
+  expenses?: { amount: number; createdAtIso?: string; category?: string; id?: string; posId?: string; cashierId?: string }[]
+  sales?: {
+    total?: number
+    paidCash?: number
+    paidCard?: number
+    debtAdded?: number
+    createdAtIso?: string
+    status?: string
+    posId?: string
+    cashierId?: string
+    totalCost?: number
+  }[]
+  /** Фильтры периода / точки (как у API) */
+  fromMs?: number | null
+  toMs?: number | null
+  posId?: string
+  cashierId?: string
+}
+
+/** Локальный снимок из POS-стора — работает без сервера. */
+export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTruthBundle {
+  const fromMs = input.fromMs ?? null
+  const toMs = input.toMs ?? null
+  const posId = String(input.posId || '').trim()
+  const cashierId = String(input.cashierId || '').trim()
+
+  const matchEntity = (row: { posId?: string; cashierId?: string; createdAtIso?: string; openedAtIso?: string }) => {
+    const iso = row.createdAtIso || row.openedAtIso
+    if (!inRange(iso, fromMs, toMs)) return false
+    if (posId && String(row.posId || '') !== posId) return false
+    if (cashierId && String(row.cashierId || '') !== cashierId) return false
+    return true
+  }
+
+  const shifts = (input.shifts || []).filter(s => matchEntity({
+    posId: s.posId,
+    cashierId: s.cashierId,
+    openedAtIso: s.openedAtIso,
+    createdAtIso: s.openedAtIso,
+  }))
+  const moves = (input.financeMoves || []).filter(m => matchEntity(m))
+  const expenses = (input.expenses || []).filter(e => matchEntity(e))
+  const sales = (input.sales || [])
+    .filter(s => s.status !== 'returned')
+    .filter(s => matchEntity(s))
 
   const rows = shifts.map(s => {
     const openingCash = Number(s.openingCash) || 0
@@ -76,6 +123,7 @@ export function buildLocalFinanceTruth(input: {
   })
 
   const revenue = Math.round(sales.reduce((a, s) => a + (Number(s.total) || 0), 0) * 100) / 100
+  const cogs = Math.round(sales.reduce((a, s) => a + (Number(s.totalCost) || 0), 0) * 100) / 100
   const expenseSum = Math.round(expenses.reduce((a, e) => a + (Number(e.amount) || 0), 0) * 100) / 100
   const depositSum = Math.round(
     moves.filter(m => m.type === 'deposit').reduce((a, m) => a + (Number(m.amount) || 0), 0) * 100,
@@ -83,11 +131,26 @@ export function buildLocalFinanceTruth(input: {
   const withdrawSum = Math.round(
     moves.filter(m => m.type === 'withdraw').reduce((a, m) => a + (Number(m.amount) || 0), 0) * 100,
   ) / 100
-  const inflow = Math.round((revenue + depositSum) * 100) / 100
+  const cashSales = Math.round(sales.reduce((a, s) => a + (Number(s.paidCash) || 0), 0) * 100) / 100
+  const inflow = Math.round((cashSales + depositSum) * 100) / 100
   const outflow = Math.round((expenseSum + withdrawSum) * 100) / 100
   const balance = Math.round((inflow - outflow) * 100) / 100
+  const profitAmt = Math.round((revenue - cogs - expenseSum) * 100) / 100
 
   const entries: MoneyLedgerEntry[] = [
+    ...sales.filter(s => (Number(s.paidCash) || 0) > 0.001).map(s => {
+      const amount = Number(s.paidCash) || 0
+      return {
+        id: `sale-cash-${(s as { id?: string }).id || s.createdAtIso}`,
+        type: 'sale_cash',
+        amount,
+        direction: 'in' as const,
+        signedAmount: amount,
+        cashAffect: true,
+        createdAtIso: s.createdAtIso || new Date().toISOString(),
+        note: 'Продажа нал',
+      }
+    }),
     ...moves.map(m => {
       const amount = Number(m.amount) || 0
       const isIn = m.type === 'deposit'
@@ -118,6 +181,15 @@ export function buildLocalFinanceTruth(input: {
   ].sort((a, b) => String(b.createdAtIso).localeCompare(String(a.createdAtIso)))
 
   const withAlert = rows.filter(r => r.alert).length
+  const alerts = rows.filter(r => r.alert).map(r => ({
+    id: `shift-diff-${r.shiftId}`,
+    severity: Math.abs(r.cashDiff) > 50 ? 'high' as const : 'medium' as const,
+    title: r.cashDiff < 0 ? 'Недостача в кассе' : 'Излишек в кассе',
+    message: `${r.cashierName || 'Кассир'} · ожид. ${r.expectedCash} / факт ${r.actualCash}`,
+    amount: r.cashDiff,
+    atIso: r.closedAtIso || r.openedAtIso,
+  }))
+
   return {
     cashBook: {
       balance,
@@ -139,15 +211,31 @@ export function buildLocalFinanceTruth(input: {
     profit: {
       summary: {
         revenue,
-        cogs: 0,
-        profit: Math.round((revenue - expenseSum) * 100) / 100,
-        marginPct: revenue > 0 ? Math.round(((revenue - expenseSum) / revenue) * 10000) / 100 : 0,
+        cogs,
+        profit: profitAmt,
+        marginPct: revenue > 0 ? Math.round((profitAmt / revenue) * 10000) / 100 : 0,
         salesCount: sales.length,
       },
       products: [],
     },
     journal: entries,
-    alerts: { threshold: 1, alerts: [], count: 0 },
+    alerts: { threshold: 1, alerts, count: alerts.length },
     generatedAtIso: new Date().toISOString(),
   }
+}
+
+/** Собрать локальный truth из apiQuery (from/to/posId/cashierId). */
+export function buildLocalFinanceTruthFromQuery(
+  input: Omit<LocalFinanceTruthInput, 'fromMs' | 'toMs' | 'posId' | 'cashierId'>,
+  q?: Record<string, string>,
+): FinanceTruthBundle {
+  const fromMs = q?.from ? Date.parse(q.from) : null
+  const toMs = q?.to ? Date.parse(q.to) : null
+  return buildLocalFinanceTruth({
+    ...input,
+    fromMs: Number.isFinite(fromMs as number) ? fromMs : null,
+    toMs: Number.isFinite(toMs as number) ? toMs : null,
+    posId: q?.posId,
+    cashierId: q?.cashierId,
+  })
 }

@@ -166,46 +166,59 @@ export default function FinanceModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    // Сначала локальный расчёт — экран мгновенный, API догоняет в фоне
-    const local = buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales })
+    // Всегда локальный расчёт — Финансы работают без сервера
+    const local = buildLocalFinanceTruth({
+      shifts,
+      financeMoves,
+      expenses,
+      sales,
+      fromMs: from,
+      toMs: to,
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
+    })
     setTruth(local)
     setTruthLocal(true)
     setTruthError('')
+    void cacheFinanceTruth(apiQuery, local)
+
     if (!USE_API) return
     try {
+      const { isOnline } = await import('@/lib/offline')
+      const online = isOnline() && useOfflineSync.getState().online
+      if (!online) return
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
       setTruthLocal(false)
       void cacheFinanceTruth(apiQuery, data)
-    } catch (e) {
-      const cached = await readCachedFinanceTruth(apiQuery)
-      if (cached) {
-        setTruth(cached)
-        setTruthLocal(true)
-        setTruthError('Нет связи — показаны локальные данные · синк при подключении')
-        return
-      }
-      setTruthError(
-        e instanceof Error
-          ? `${e.message} · показан локальный расчёт`
-          : 'Показан локальный расчёт без сети',
-      )
+    } catch {
+      // Сеть упала — оставляем локальный расчёт, без красной ошибки «нет сервера»
+      setTruthError('')
     }
-  }, [apiQuery, shifts, financeMoves, expenses, sales])
+  }, [apiQuery, shifts, financeMoves, expenses, sales, from, to, posFilter, cashierFilter])
 
   useEffect(() => {
-    // Не ждём apiReady — считаем из локального стора сразу
     void loadTruth()
   }, [loadTruth])
 
   const refresh = useCallback(() => {
     setRefreshing(true)
-    void Promise.all([
-      softSyncPosAfterSale(),
-      softSyncWarehouse(),
-      syncClientsFromApi(),
-      loadTruth(),
-    ]).finally(() => setRefreshing(false))
+    void (async () => {
+      try {
+        const { isOnline } = await import('@/lib/offline')
+        const online = isOnline() && useOfflineSync.getState().online
+        if (online) {
+          await Promise.allSettled([
+            softSyncPosAfterSale(),
+            softSyncWarehouse(),
+            syncClientsFromApi(),
+          ])
+        }
+        await loadTruth()
+      } finally {
+        setRefreshing(false)
+      }
+    })()
   }, [loadTruth])
 
   /** После офлайн-операции сразу пересчитать книгу/KPI из локального стора */
@@ -216,12 +229,16 @@ export default function FinanceModule() {
       financeMoves: s.financeMoves,
       expenses: s.expenses,
       sales: s.sales,
+      fromMs: from,
+      toMs: to,
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
     })
     setTruth(local)
     setTruthLocal(true)
     setTruthError('')
     void cacheFinanceTruth(apiQuery, local)
-  }, [apiQuery])
+  }, [apiQuery, from, to, posFilter, cashierFilter])
 
   async function afterFinanceMutation(_offline: boolean) {
     applyLocalTruthNow()
@@ -460,8 +477,12 @@ export default function FinanceModule() {
       </div>
       {tabMeta && <div className="k-fin-hint">{tabMeta.hint}</div>}
 
-      {(apiError || truthError) && (
-        <div className="k-fin-err">{truthError || apiError}</div>
+      {truthError && (
+        <div className="k-fin-err">{truthError}</div>
+      )}
+      {/* Сетевые ошибки POS не блокируют Финансы — данные локальные */}
+      {apiError && !isTradeLocalFirst() && !truth && (
+        <div className="k-fin-err">{apiError}</div>
       )}
 
       {tab === 'alerts' && (

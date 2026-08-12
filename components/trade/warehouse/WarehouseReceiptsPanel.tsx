@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import {
@@ -629,20 +629,24 @@ export default function WarehouseReceiptsPanel({
   }
 
   function selectProduct(key: string, product: Product | null) {
+    setAddOpen(false)
     if (!product) {
-      updateLine(key, { productId: null, qty: '', purchaseTotal: '', costPrice: '', retailPrice: '', markupPct: '', bulkPricing: [] })
-      setActiveLine(key)
+      startTransition(() => {
+        updateLine(key, { productId: null, qty: '', purchaseTotal: '', costPrice: '', retailPrice: '', markupPct: '', bulkPricing: [] })
+        setActiveLine(key)
+      })
       return
     }
-    setDraft(prev => {
-      const updated = prev.lines.map(l => (l.key === key ? fillLineFromProduct(l, product) : l))
-      return {
-        ...prev,
-        activeLineKey: key,
-        lines: ensureTrailingEmptyLine(updated),
-      }
+    startTransition(() => {
+      setDraft(prev => {
+        const updated = prev.lines.map(l => (l.key === key ? fillLineFromProduct(l, product) : l))
+        return {
+          ...prev,
+          activeLineKey: key,
+          lines: ensureTrailingEmptyLine(updated),
+        }
+      })
     })
-    setAddOpen(false)
     requestAnimationFrame(() => {
       scrollLineIntoBody(key)
     })
@@ -763,6 +767,11 @@ export default function WarehouseReceiptsPanel({
 
   const hasDraft = !editingId && lines.some(l => l.productId || l.qty || l.costPrice)
   const filledLines = useMemo(() => lines.filter(l => l.productId), [lines])
+  const productsById = useMemo(() => {
+    const m = new Map<number, Product>()
+    for (const p of products) m.set(p.id, p)
+    return m
+  }, [products])
 
   const filteredReceipts = useMemo(() => {
     if (!dateFrom && !dateTo) return receipts
@@ -1068,11 +1077,13 @@ export default function WarehouseReceiptsPanel({
         const addProduct = (p: Product) => {
           setAddOpen(false)
           if (!pendingInDraft) {
-            setDraft(prev => ({
-              ...prev,
-              activeLineKey: pendingKey,
-              lines: ensureTrailingEmptyLine([...prev.lines, fillLineFromProduct({ ...pending!, productId: null }, p)]),
-            }))
+            startTransition(() => {
+              setDraft(prev => ({
+                ...prev,
+                activeLineKey: pendingKey,
+                lines: ensureTrailingEmptyLine([...prev.lines, fillLineFromProduct({ ...pending!, productId: null }, p)]),
+              }))
+            })
             requestAnimationFrame(() => {
               scrollLineIntoBody(pendingKey)
             })
@@ -1235,12 +1246,12 @@ export default function WarehouseReceiptsPanel({
                         <span>Продажа</span>
                         <span>Сумма</span>
                         <span>Наценка</span>
+                        <span>Срок</span>
                         <span />
                       </div>
-                      {filledLines.map(line => {
-                        const product = products.find(p => p.id === line.productId) || null
+                      {filledLines.map((line, idx) => {
+                        const product = productsById.get(line.productId!) || null
                         if (!product) return null
-                        const idx = filledLines.findIndex(l => l.key === line.key)
                         return (
                           <ReceiptTableRow
                             key={line.key}
@@ -1332,7 +1343,7 @@ export default function WarehouseReceiptsPanel({
           {(() => {
             const editLine = activeLineKey ? lines.find(l => l.key === activeLineKey) : null
             const editProduct = editLine?.productId
-              ? products.find(p => p.id === editLine.productId) || null
+              ? productsById.get(editLine.productId) || null
               : null
             if (!editLine || !editProduct || showAdd) return null
             return (

@@ -812,19 +812,19 @@ const CSS = `
   .k-label-search-row{display:flex;gap:6px;align-items:stretch;margin-bottom:8px}
   .k-label-search-row .k-inp{flex:1;min-width:0;margin-bottom:0!important}
   .k-receipt-modal-bg{
-    padding:0!important;align-items:stretch!important;justify-content:stretch!important;
-    z-index:180;background:var(--bg)!important;inset:0
+    z-index:180;padding:24px;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.6)
   }
-  .k-trade[data-theme="light"] .k-receipt-modal-bg{background:var(--bg)!important}
+  .k-trade[data-theme="light"] .k-receipt-modal-bg{background:rgba(12,26,16,.45)}
   .k-receipt-modal{
-    border-radius:0!important;width:100%!important;max-width:100%!important;
-    height:100vh!important;max-height:100vh!important;
-    height:100dvh!important;max-height:100dvh!important;
-    margin:0!important;display:flex!important;flex-direction:column;overflow:hidden!important;min-height:0;
-    background:var(--panel);border:none;box-shadow:none
+    width:min(1180px,100%);max-width:1180px;
+    height:min(900px,92vh);max-height:92vh;
+    margin:0;display:flex;flex-direction:column;overflow:hidden;min-height:0;
+    background:var(--panel);border:1px solid var(--border);border-radius:18px;
+    box-shadow:0 24px 64px rgba(0,0,0,.35)
   }
   .k-receipt-scroll{
-    flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden;
+    flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
     -webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0
   }
   .k-receipt-modal .k-field label{font-size:11px;margin-bottom:3px}
@@ -973,16 +973,16 @@ const CSS = `
   }
   .k-rcpt-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card2)}
   .k-rcpt-th{
-    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 96px;
+    display:grid;grid-template-columns:32px minmax(160px,1.8fr) 70px 78px 78px 86px 70px 88px 96px;
     gap:8px;padding:8px 10px;font-size:10px;font-weight:800;color:var(--muted);
     text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border);background:var(--card)
   }
-  .k-rcpt-th > span:nth-child(n+3):nth-child(-n+7){text-align:center}
+  .k-rcpt-th > span:nth-child(n+3):nth-child(-n+8){text-align:center}
   .k-rcpt-tr{border-bottom:1px solid var(--tbl-line);background:var(--card)}
   .k-rcpt-tr:last-child{border-bottom:none}
   .k-rcpt-tr.is-open{background:rgba(31,215,96,.04)}
   .k-rcpt-tr-main{
-    display:grid;grid-template-columns:32px minmax(160px,1.2fr) repeat(5,minmax(72px,1fr)) 96px;
+    display:grid;grid-template-columns:32px minmax(160px,1.8fr) 70px 78px 78px 86px 70px 88px 96px;
     gap:8px;padding:8px 10px;align-items:center
   }
   .k-rcpt-td-metrics{display:contents}
@@ -998,11 +998,12 @@ const CSS = `
   .k-rcpt-td.prod .txt{min-width:0}
   .k-rcpt-td.prod b{display:block;font-size:13px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .k-rcpt-td.prod small{display:block;font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .k-rcpt-td.qty,.k-rcpt-td.cost,.k-rcpt-td.retail,.k-rcpt-td.sum,.k-rcpt-td.markup{
+  .k-rcpt-td.qty,.k-rcpt-td.cost,.k-rcpt-td.retail,.k-rcpt-td.sum,.k-rcpt-td.markup,.k-rcpt-td.exp{
     font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;text-align:center
   }
   .k-rcpt-td.sum{font-weight:900}
   .k-rcpt-td.markup b{font-weight:900}
+  .k-rcpt-td.exp{font-size:11px;color:var(--muted);white-space:nowrap}
   .k-rcpt-stepper{
     width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--card2);
     color:var(--text);font-weight:900;cursor:pointer;flex-shrink:0;line-height:1
@@ -1037,7 +1038,8 @@ const CSS = `
   .k-rcpt-msg{margin:0 18px 10px;padding:10px 14px;border-radius:10px;font-size:13px;background:#2a1420;color:var(--red);border:1px solid #5a2030}
   .k-rcpt-foot-stats{
     flex-shrink:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;
-    padding:12px 18px 16px;border-top:1px solid var(--border);background:var(--card)
+    padding:12px 18px 16px;border-top:1px solid var(--border);background:var(--card);
+    max-width:100%
   }
   .k-rcpt-stat{
     border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--panel);
@@ -1375,7 +1377,19 @@ const CSS = `
     .k-prod-pick-tbl{font-size:12px}
     .k-prod-pick-tbl th:nth-child(3),
     .k-prod-pick-tbl td:nth-child(3){display:none}
-    .k-receipt-modal-bg{padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:var(--bg)!important}
+    .k-receipt-modal-bg{
+      padding:0!important;align-items:stretch!important;justify-content:stretch!important;
+      background:var(--bg)!important
+    }
+    .k-receipt-modal{
+      border-radius:0!important;width:100%!important;max-width:100%!important;
+      height:100vh!important;max-height:100vh!important;
+      height:100dvh!important;max-height:100dvh!important;
+      margin:0!important;border:none;box-shadow:none
+    }
+    .k-receipt-scroll{
+      flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden
+    }
     .k-modal-b{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .k-product-list{position:static;height:auto;max-height:42vh}
     .k-product-list-body{flex:1;min-height:0;max-height:none;overflow:auto}

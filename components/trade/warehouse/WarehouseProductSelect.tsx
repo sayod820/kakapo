@@ -1,10 +1,20 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { Product } from '@/lib/types'
-import { filterProductsBySearch, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import { pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import {
+  buildProductCodeIndex,
+  filterProductsByQuery,
+  lookupProductByCode,
+} from '@/lib/productSearchIndex'
+import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import { fmtMoney, formatQty, productUnitLabel } from './warehouseShared'
+
+/** Не рисуем весь каталог — иначе «Найти товар» вешает UI */
+const PANEL_PAGE = 50
+const DROPDOWN_LIMIT = 30
 
 function productDetailLine(p: Product) {
   const codes = productBarcodes(p)
@@ -42,65 +52,77 @@ export default function WarehouseProductSelect({
   const [open, setOpen] = useState(variant === 'panel')
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
+  const [visibleCount, setVisibleCount] = useState(PANEL_PAGE)
   const inputRef = useRef<HTMLInputElement>(null)
-  const selected = products.find(p => p.id === value) || null
+  const selected = useMemo(() => products.find(p => p.id === value) || null, [products, value])
   const isPanel = variant === 'panel'
+  const deferredQ = useDeferredValue(q)
+  const codeIndex = useMemo(() => buildProductCodeIndex(products), [products])
 
   useEffect(() => {
-    if (!autoFocus) return
+    if (!autoFocus || isTradeMobileUi()) return
     const t = window.setTimeout(() => {
-      inputRef.current?.focus()
+      inputRef.current?.focus({ preventScroll: true })
       setOpen(true)
-    }, 50)
+    }, 0)
     return () => window.clearTimeout(t)
   }, [autoFocus])
 
-  const options = useMemo(
-    () => filterProductsBySearch(
-      products,
-      q || (isPanel ? '' : (selected?.name || '')),
-      isPanel ? Math.max(products.length, 1) : 30,
-    ),
-    [products, q, selected?.name, isPanel],
-  )
-  const canCreate = onCreateNew && q.trim().length >= 2 && !options.some(p => p.name.toLowerCase() === q.trim().toLowerCase())
-  const showList = isPanel || (open && (options.length > 0 || !!canCreate))
-
   useEffect(() => {
-    if (!open || !q.trim() || isPanel) return
-    const exact = pickProductBySearch(products, q)
-    if (exact && productBarcodes(exact).some(c => c === q.trim())) {
-      onChange(exact)
-      setQ('')
-      setOpen(false)
-      setScanMsg('')
-    }
-  }, [q, open, products, onChange, isPanel])
+    setVisibleCount(PANEL_PAGE)
+  }, [deferredQ, isPanel])
 
-  function tryPick() {
-    const best = pickProductBySearch(products, q)
-    if (best) {
-      onChange(best)
-      setQ('')
-      setOpen(false)
-      setScanMsg('')
-      return true
+  const filtered = useMemo(() => {
+    if (isPanel) {
+      const qq = deferredQ.trim()
+      // Пустой запрос — не монтируем тысячи строк (главный лаг «Найти товар»)
+      if (!qq) return [] as Product[]
+      return filterProductsByQuery(products, codeIndex, deferredQ)
     }
-    return false
-  }
+    const query = deferredQ || (selected?.name || '')
+    if (!String(query).trim()) return products.slice(0, DROPDOWN_LIMIT)
+    return filterProductsByQuery(products, codeIndex, query).slice(0, DROPDOWN_LIMIT)
+  }, [products, codeIndex, deferredQ, selected?.name, isPanel])
 
-  function selectProduct(p: Product) {
-    onChange(p)
+  const options = isPanel ? filtered.slice(0, visibleCount) : filtered
+  const hasMore = isPanel && filtered.length > visibleCount
+
+  const canCreate = onCreateNew
+    && q.trim().length >= 2
+    && !filtered.some(p => p.name.toLowerCase() === q.trim().toLowerCase())
+  const showList = isPanel || (open && (options.length > 0 || !!canCreate || !q.trim()))
+
+  const commitPick = useCallback((p: Product) => {
     setQ('')
     setOpen(false)
     setScanMsg('')
+    // Сначала закрываем тяжёлый список, выбор — в transition
+    startTransition(() => onChange(p))
+  }, [onChange])
+
+  useEffect(() => {
+    if (!open || !q.trim() || isPanel) return
+    const exact = lookupProductByCode(codeIndex, q)
+      || pickProductBySearch(products, q)
+    if (exact && productBarcodes(exact).some(c => c === q.trim())) {
+      commitPick(exact)
+    }
+  }, [q, open, products, codeIndex, isPanel, commitPick])
+
+  function tryPick() {
+    const best = lookupProductByCode(codeIndex, q) || pickProductBySearch(products, q)
+    if (best) {
+      commitPick(best)
+      return true
+    }
+    return false
   }
 
   const onScanned = useCallback((code: string) => {
     const trimmed = code.trim()
     if (!trimmed) return
     setScanOpen(false)
-    const exact = pickProductBySearch(products, trimmed)
+    const exact = lookupProductByCode(codeIndex, trimmed) || pickProductBySearch(products, trimmed)
     const codesMatch = exact && productBarcodes(exact).some(c => {
       if (c === trimmed) return true
       const a = c.replace(/\D/g, '')
@@ -108,10 +130,8 @@ export default function WarehouseProductSelect({
       return a.length >= 8 && a === b
     })
     if (exact && codesMatch) {
-      onChange(exact)
-      setQ('')
-      setOpen(false)
       setScanMsg(`Найден: ${exact.name}`)
+      commitPick(exact)
       return
     }
     setQ(trimmed)
@@ -119,7 +139,7 @@ export default function WarehouseProductSelect({
     setScanMsg(onCreateNew
       ? `Код ${trimmed} не найден — нажмите «Создать товар»`
       : `Код ${trimmed} не найден в каталоге`)
-  }, [products, onCreateNew, onChange])
+  }, [products, codeIndex, onCreateNew, commitPick])
 
   return (
     <div className={isPanel ? 'k-prod-pick k-prod-pick-panel' : 'k-prod-pick'} style={{ position: 'relative' }}>
@@ -164,8 +184,17 @@ export default function WarehouseProductSelect({
         <div className={isPanel ? 'k-prod-pick-list-panel' : 'k-prod-pick-list'}>
           {isPanel ? (
             <>
-              {q.trim() && !options.length && !canCreate && (
+              {!q.trim() && (
+                <div className="k-prod-pick-hint">
+                  Начните ввод названия, артикула или штрихкода
+                  {products.length > 0 ? ` · в базе ${products.length}` : ''}
+                </div>
+              )}
+              {q.trim() && !filtered.length && !canCreate && (
                 <div className="k-prod-pick-hint">Ничего не найдено</div>
+              )}
+              {q.trim() && deferredQ !== q && (
+                <div className="k-prod-pick-hint" style={{ opacity: 0.7 }}>Поиск…</div>
               )}
               {!!options.length && (
                 <div className="k-prod-pick-tbl-wrap">
@@ -192,7 +221,7 @@ export default function WarehouseProductSelect({
                             key={p.id}
                             className="k-prodrow"
                             onMouseDown={e => e.preventDefault()}
-                            onClick={() => selectProduct(p)}
+                            onClick={() => commitPick(p)}
                           >
                             <td>
                               <span className="k-prod-pick-art">{p.art || p.id}</span>
@@ -226,10 +255,18 @@ export default function WarehouseProductSelect({
                       })}
                     </tbody>
                   </table>
+                  {hasMore && (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ width: '100%', marginTop: 8, minHeight: 40 }}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => setVisibleCount(c => c + PANEL_PAGE)}
+                    >
+                      Ещё {Math.min(PANEL_PAGE, filtered.length - visibleCount)} из {filtered.length - visibleCount}
+                    </button>
+                  )}
                 </div>
-              )}
-              {!q.trim() && !options.length && (
-                <div className="k-prod-pick-hint">Начните ввод названия, артикула или штрихкода</div>
               )}
             </>
           ) : (
@@ -247,7 +284,7 @@ export default function WarehouseProductSelect({
                     padding: '9px 10px', cursor: 'pointer', textAlign: 'left', fontSize: 13,
                   }}
                   onMouseDown={e => e.preventDefault()}
-                  onClick={() => selectProduct(p)}
+                  onClick={() => commitPick(p)}
                 >
                   <span>{p.e || '📦'}</span>
                   <span style={{ flex: 1, minWidth: 0 }}>

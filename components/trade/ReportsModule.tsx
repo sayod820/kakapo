@@ -176,8 +176,17 @@ export default function ReportsModule() {
   )
 
   const loadTruth = useCallback(async () => {
-    // Сначала локально — отчёты открываются сразу
-    setTruth(buildLocalFinanceTruth({ shifts, financeMoves, expenses, sales }))
+    // Всегда локально — Отчёты работают без сервера
+    setTruth(buildLocalFinanceTruth({
+      shifts,
+      financeMoves,
+      expenses,
+      sales,
+      fromMs: from,
+      toMs: to,
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
+    }))
     setTruthLocal(true)
     if (!USE_API) return
     try {
@@ -185,13 +194,12 @@ export default function ReportsModule() {
       const { isOnline } = await import('@/lib/offline')
       const online = isOnline() && useOfflineSync.getState().online
       if (!online) {
-        const { refreshLocalFinanceTruth } = await import('@/lib/localReports')
-        const local = await refreshLocalFinanceTruth(apiQuery)
-        if (local) {
-          setTruth(local)
-          setTruthLocal(true)
-          return
-        }
+        void cacheFinanceTruth(apiQuery, buildLocalFinanceTruth({
+          shifts, financeMoves, expenses, sales,
+          fromMs: from, toMs: to,
+          posId: posFilter || undefined,
+          cashierId: cashierFilter || undefined,
+        }))
         return
       }
       const data = await api.getFinanceTruth(apiQuery)
@@ -199,13 +207,14 @@ export default function ReportsModule() {
       setTruthLocal(false)
       void cacheFinanceTruth(apiQuery, data)
     } catch {
+      // Без сети — локальный расчёт уже на экране
       const cached = await readCachedFinanceTruth(apiQuery)
       if (cached) {
         setTruth(cached)
         setTruthLocal(true)
       }
     }
-  }, [apiQuery, shifts, financeMoves, expenses, sales])
+  }, [apiQuery, shifts, financeMoves, expenses, sales, from, to, posFilter, cashierFilter])
 
   useEffect(() => {
     void loadTruth()
@@ -213,12 +222,23 @@ export default function ReportsModule() {
 
   const refresh = useCallback(() => {
     setRefreshing(true)
-    void Promise.all([
-      softSyncPosAfterSale(),
-      softSyncWarehouse(),
-      syncClientsFromApi(),
-      loadTruth(),
-    ]).finally(() => setRefreshing(false))
+    void (async () => {
+      try {
+        const { useOfflineSync } = await import('@/lib/offlineSync')
+        const { isOnline } = await import('@/lib/offline')
+        const online = isOnline() && useOfflineSync.getState().online
+        if (online) {
+          await Promise.allSettled([
+            softSyncPosAfterSale(),
+            softSyncWarehouse(),
+            syncClientsFromApi(),
+          ])
+        }
+        await loadTruth()
+      } finally {
+        setRefreshing(false)
+      }
+    })()
   }, [loadTruth])
 
   function resetFilters() {
@@ -395,7 +415,10 @@ export default function ReportsModule() {
         </div>
       )}
 
-      {apiError && <div className="k-rep-err">{apiError}</div>}
+      {/* Сетевые ошибки не блокируют отчёты — данные из локального стора */}
+      {apiError && !truth && (
+        <div className="k-rep-err">{apiError}</div>
+      )}
 
       <div className="k-subtabs k-rep-tabs">
         {REPORT_TABS.map(t => (

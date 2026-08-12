@@ -104,11 +104,17 @@ export async function refreshLocalFinanceTruth(
 ): Promise<FinanceTruthBundle | null> {
   try {
     const pos = usePosStore.getState()
+    const fromMs = q?.from ? Date.parse(q.from) : null
+    const toMs = q?.to ? Date.parse(q.to) : null
     const truth = buildLocalFinanceTruth({
       shifts: pos.shifts,
       financeMoves: pos.financeMoves,
       expenses: pos.expenses,
       sales: pos.sales,
+      fromMs: Number.isFinite(fromMs as number) ? fromMs : null,
+      toMs: Number.isFinite(toMs as number) ? toMs : null,
+      posId: q?.posId || undefined,
+      cashierId: q?.cashierId || undefined,
     })
     await cacheFinanceTruth(q, truth)
     return truth

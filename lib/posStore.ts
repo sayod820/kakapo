@@ -136,7 +136,8 @@ export const usePosStore = create<PosStore>((set) => ({
       set({
         apiReady: alreadyReady || true,
         apiSyncing: false,
-        apiError: e instanceof Error ? e.message : 'Не удалось загрузить POS данные',
+        // Не пугаем Финансы/Отчёты красной ошибкой — локальные данные уже есть
+        apiError: '',
       })
     }
   },
