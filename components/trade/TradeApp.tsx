@@ -549,23 +549,28 @@ const CSS = `
   }
   .k-rev-add-h{font-size:12px;font-weight:900;color:#3B8EF0;margin-bottom:6px}
   .k-rev-item{
-    display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:8px;
-    border:1px solid var(--border);background:var(--card)
+    display:grid;grid-template-columns:22px minmax(0,1fr);grid-template-areas:"emo txt" "nums nums";
+    gap:2px 6px;padding:5px 6px;border-radius:8px;
+    border:1px solid var(--border);background:var(--card);align-items:start
   }
-  .k-rev-item-emo{font-size:16px;line-height:1.2;flex-shrink:0}
-  .k-rev-item-txt{flex:1;min-width:0}
+  .k-rev-item-emo{grid-area:emo;font-size:15px;line-height:1.2;flex-shrink:0}
+  .k-rev-item-txt{grid-area:txt;min-width:0}
   .k-rev-item-txt b{
     display:block;font-size:12px;font-weight:900;line-height:1.2;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap
   }
-  .k-rev-item-txt small{display:block;font-size:10px;color:var(--muted);margin-top:1px;line-height:1.25}
-  .k-rev-item-nums{
-    display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0;text-align:right;
-    font-size:11px;font-weight:700;min-width:72px
+  .k-rev-item-txt small{
+    display:block;font-size:10px;color:var(--muted);margin-top:1px;line-height:1.2;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap
   }
-  .k-rev-item-nums b{font-size:12px;font-weight:900}
-  .k-rev-item-nums span{font-size:10px;color:var(--muted);font-weight:700}
-  .k-rev-card-detail{display:grid;gap:5px}
+  .k-rev-item-nums{
+    grid-area:nums;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;
+    min-width:0;width:100%;padding-top:2px;border-top:1px dashed var(--border);margin-top:2px
+  }
+  .k-rev-item-nums b{font-size:12px;font-weight:900;white-space:nowrap}
+  .k-rev-item-nums span{font-size:10px;font-weight:700;white-space:nowrap;color:var(--muted)}
+  .k-rev-item-nums .k-rev-delta{font-size:12px;font-weight:900;white-space:nowrap}
+  .k-rev-card-detail{display:grid;gap:4px}
   .k-netblock{
     margin-top:5px;width:100%;padding:5px 7px;border-radius:8px;border:1px solid var(--border);
     background:var(--card2);color:inherit;font:inherit;text-align:left;cursor:pointer;
@@ -1605,13 +1610,14 @@ const CSS = `
     .k-rev-card .k-wh-card-actions .k-btn{
       min-height:30px!important;padding:3px 6px!important;font-size:12px
     }
-    .k-rev-item{padding:5px 6px;gap:6px;border-radius:7px}
-    .k-rev-item-emo{font-size:14px}
+    .k-rev-item{padding:4px 6px;gap:1px 5px;border-radius:6px}
+    .k-rev-item-emo{font-size:13px}
     .k-rev-item-txt b{font-size:11px}
     .k-rev-item-txt small{font-size:9px}
-    .k-rev-item-nums{min-width:64px;gap:0}
-    .k-rev-item-nums b{font-size:11px}
+    .k-rev-item-nums{gap:2px 6px;padding-top:2px;margin-top:1px}
+    .k-rev-item-nums b,.k-rev-item-nums .k-rev-delta{font-size:11px}
     .k-rev-item-nums span{font-size:9px}
+    .k-rev-card-detail{gap:3px;padding-top:6px}
     .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab,.k-fin-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));

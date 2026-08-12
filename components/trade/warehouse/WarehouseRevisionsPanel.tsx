@@ -702,16 +702,16 @@ export default function WarehouseRevisionsPanel({
                               </small>
                             </div>
                             <div className="k-rev-item-nums">
-                              <span>{formatQty(it.systemStock)}→<b>{formatQty(it.countedStock)}</b></span>
-                              <b style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</b>
-                              {diffReal && (
-                                <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
-                              )}
-                              {basisPrice > 0 && it.diff !== 0 && (
+                              <span>{formatQty(it.systemStock)}→<b style={{ color: 'var(--text)' }}>{formatQty(it.countedStock)}</b></span>
+                              <span className="k-rev-delta" style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</span>
+                              {diffReal ? (
+                                <span style={diffStyle(diffReal.value)}>({formatDiff(diffReal.value)} {diffReal.label})</span>
+                              ) : null}
+                              {basisPrice > 0 && it.diff !== 0 ? (
                                 <span style={diffStyle(costDiff)}>
                                   {formatMoneyDiff(costDiff)}{costPrice <= 0 ? ' · розн.' : ''}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         )
@@ -813,16 +813,16 @@ export default function WarehouseRevisionsPanel({
                                       </small>
                                     </div>
                                     <div className="k-rev-item-nums">
-                                      <span>{formatQty(it.systemStock)}→<b>{formatQty(it.countedStock)}</b></span>
-                                      <b style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</b>
-                                      {diffReal && (
-                                        <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
-                                      )}
-                                      {basisPrice > 0 && it.diff !== 0 && (
+                                      <span>{formatQty(it.systemStock)}→<b style={{ color: 'var(--text)' }}>{formatQty(it.countedStock)}</b></span>
+                                      <span className="k-rev-delta" style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</span>
+                                      {diffReal ? (
+                                        <span style={diffStyle(diffReal.value)}>({formatDiff(diffReal.value)} {diffReal.label})</span>
+                                      ) : null}
+                                      {basisPrice > 0 && it.diff !== 0 ? (
                                         <span style={diffStyle(costDiff)}>
                                           {formatMoneyDiff(costDiff)}{costPrice <= 0 ? ' · розн.' : ''}
                                         </span>
-                                      )}
+                                      ) : null}
                                     </div>
                                   </div>
                                 )
