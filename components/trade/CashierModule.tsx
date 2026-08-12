@@ -6680,6 +6680,7 @@ export default function CashierModule({
                 </div>
 
                 {!hideHardware && (
+                <>
                 <div className="pos-settings-card">
                   <h3>Принтер чеков · XP-58C</h3>
                   <p className="hint">Лента 58 мм · ESC/POS · шапка: название + телефон</p>
@@ -7032,6 +7033,7 @@ export default function CashierModule({
                     <div className="pos-settings-status warn">Нужен desktop KAKAPO Касса</div>
                   )}
                 </div>
+                </>
                 )}
 
                 <div className="pos-settings-card">

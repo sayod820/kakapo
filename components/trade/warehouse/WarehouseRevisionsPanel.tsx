@@ -603,7 +603,7 @@ export default function WarehouseRevisionsPanel({
 
       <button
         type="button"
-        className={`k-wh-fab${hasDraft && !open ? ' has-draft' : ''}`}
+        className={`k-wh-fab k-rev-fab${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новая ревизия"
@@ -617,135 +617,227 @@ export default function WarehouseRevisionsPanel({
           {revisions.length ? 'За выбранный период ревизий нет' : 'Ревизий пока нет — нажмите «Новая ревизия»'}
         </div>
       ) : (
-        <div className="k-wh-panel-body">
-          <table className="k-tbl" style={{ minWidth: 720 }}>
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th className="num">Поз.</th>
-                <th className="num">Излишек</th>
-                <th className="num">Недостача</th>
-                <th className="num">Δ</th>
-                <th className="num">Σ закуп</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(rev => {
-                const surplus = rev.items.reduce((s, it) => s + (it.diff > 0 ? it.diff : 0), 0)
-                const shortage = rev.items.reduce((s, it) => s + (it.diff < 0 ? Math.abs(it.diff) : 0), 0)
-                const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
-                const costMoneyDiff = rev.items.reduce((s, it) => {
-                  const product = products.find(p => p.id === it.productId)
-                  return s + it.diff * moneyBasisPrice(product)
-                }, 0)
-                const isOpen = expanded === rev.id
-                return (
-                  <Fragment key={rev.id}>
-                    <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : rev.id)}>
-                      <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>
-                        {fmtDateTime(rev.createdAtIso)}
-                        {rev.note && (
-                          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {rev.note}
-                          </div>
-                        )}
-                      </td>
-                      <td className="num">{rev.items.length}</td>
-                      <td className="num" style={{ color: surplus > 0 ? 'var(--green)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {surplus > 0 ? `+${surplus}` : '—'}
-                      </td>
-                      <td className="num" style={{ color: shortage > 0 ? 'var(--red)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {shortage > 0 ? shortage : '—'}
-                      </td>
-                      <td className="num" style={{ fontWeight: 800, whiteSpace: 'nowrap', ...diffStyle(totalDiff) }}>
-                        {formatDiff(totalDiff)}
-                      </td>
-                      <td className="num" style={{ fontWeight: 900, whiteSpace: 'nowrap', ...diffStyle(costMoneyDiff) }}>
-                        {costMoneyDiff !== 0 ? formatMoneyDiff(costMoneyDiff) : '—'}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
-                          <button
-                            type="button"
-                            className="k-btn k-btn-s"
-                            style={{ padding: '3px 8px', fontSize: 12, minHeight: 0, color: 'var(--red)' }}
-                            disabled={!USE_API || deletingId === rev.id}
-                            onClick={e => { e.stopPropagation(); void removeRevision(rev.id) }}
-                            title="Удалить"
-                          >
-                            {deletingId === rev.id ? '…' : '🗑'}
-                          </button>
-                          <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : rev.id) }}>
-                            {isOpen ? '▲' : '▼'}
-                          </button>
+        <>
+          <div className="k-wh-cards">
+            {filtered.map(rev => {
+              const surplus = rev.items.reduce((s, it) => s + (it.diff > 0 ? it.diff : 0), 0)
+              const shortage = rev.items.reduce((s, it) => s + (it.diff < 0 ? Math.abs(it.diff) : 0), 0)
+              const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
+              const costMoneyDiff = rev.items.reduce((s, it) => {
+                const product = products.find(p => p.id === it.productId)
+                return s + it.diff * moneyBasisPrice(product)
+              }, 0)
+              const isOpen = expanded === rev.id
+              return (
+                <div key={rev.id} className="k-wh-card k-rev-card">
+                  <div className="k-wh-card-top" onClick={() => setExpanded(isOpen ? null : rev.id)}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(rev.createdAtIso)}</div>
+                      {rev.note ? (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {rev.note}
                         </div>
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={7} style={{ background: 'var(--card2)', padding: '8px 10px' }}>
-                          <div style={{ display: 'grid', gap: 6 }}>
-                            {rev.items.map((it, i) => {
-                              const product = products.find(p => p.id === it.productId)
-                              const barcode = product?.barcode || product?.barcodes?.[0] || ''
-                              const costPrice = Number(product?.costPrice) || 0
-                              const basisPrice = moneyBasisPrice(product)
-                              const costDiff = it.diff * basisPrice
-                              const packInfo = parsePackUnit(product?.unit)
-                              const inputUnitLabel = packInputUnitLabel(packInfo)
-                              const diffReal = packRealWorld(it.diff, packInfo)
-                              return (
-                                <div
-                                  key={i}
-                                  style={{
-                                    display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                                    padding: '6px 8px', borderRadius: 8,
-                                    border: '1px solid var(--border)', background: 'var(--card)',
-                                  }}
-                                >
-                                  <span style={{ fontSize: 16 }}>{product?.e || '📦'}</span>
-                                  <div style={{ flex: 1, minWidth: 120 }}>
-                                    <div style={{ fontWeight: 800, fontSize: 12 }}>{it.productName}</div>
-                                    <div style={{ fontSize: 10, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                      {product?.art && <span>{product.art}</span>}
-                                      {barcode && <span>· 🏷 {barcode}</span>}
-                                    </div>
-                                  </div>
-                                  <div style={{ textAlign: 'right', fontSize: 11 }}>
-                                    <span style={{ color: 'var(--muted)' }}>было </span>{it.systemStock}
-                                  </div>
-                                  <div style={{ textAlign: 'right', fontSize: 11 }}>
-                                    <span style={{ color: 'var(--muted)' }}>стало </span><b>{it.countedStock}</b>
-                                  </div>
-                                  <div style={{ textAlign: 'right', fontWeight: 900, fontSize: 12, ...diffStyle(it.diff) }}>
-                                    {formatDiff(it.diff)} {inputUnitLabel}
-                                    {diffReal && (
-                                      <div style={{ fontSize: 10, fontWeight: 700, ...diffStyle(diffReal.value) }}>= {formatDiff(diffReal.value)} {diffReal.label}</div>
-                                    )}
-                                  </div>
-                                  {basisPrice > 0 && it.diff !== 0 && (
-                                    <div style={{ textAlign: 'right', fontWeight: 900, fontSize: 12, ...diffStyle(costDiff) }}>
-                                      {formatMoneyDiff(costDiff)}
-                                      <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600 }}>
-                                        {it.diff < 0 ? 'убыток' : 'излишек'}{costPrice > 0 ? '' : ' · розн.'}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
+                      ) : null}
+                    </div>
+                    <b style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{rev.items.length} поз.</b>
+                  </div>
+                  <div className="k-wh-card-meta" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+                    <div>
+                      <div className="l">Излишек</div>
+                      <div className="v" style={{ color: surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                        {surplus > 0 ? `+${formatQty(surplus)}` : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="l">Недостача</div>
+                      <div className="v" style={{ color: shortage > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                        {shortage > 0 ? formatQty(shortage) : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="l">Δ</div>
+                      <div className="v" style={diffStyle(totalDiff)}>{formatDiff(totalDiff)}</div>
+                    </div>
+                    <div>
+                      <div className="l">Σ закуп</div>
+                      <div className="v" style={diffStyle(costMoneyDiff)}>
+                        {costMoneyDiff !== 0 ? formatMoneyDiff(costMoneyDiff) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
+                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(rev)}>✎</button>
+                    <button
+                      type="button"
+                      className="k-btn k-btn-s"
+                      style={{ color: 'var(--red)' }}
+                      disabled={!USE_API || deletingId === rev.id}
+                      onClick={() => void removeRevision(rev.id)}
+                    >
+                      {deletingId === rev.id ? '…' : '🗑'}
+                    </button>
+                    <button type="button" className="k-btn k-btn-s" style={{ minWidth: 44 }} onClick={() => setExpanded(isOpen ? null : rev.id)}>
+                      {isOpen ? '▲' : '▼'}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div className="k-wh-card-detail k-rev-card-detail">
+                      {rev.items.map((it, i) => {
+                        const product = products.find(p => p.id === it.productId)
+                        const barcode = product?.barcode || product?.barcodes?.[0] || ''
+                        const costPrice = Number(product?.costPrice) || 0
+                        const basisPrice = moneyBasisPrice(product)
+                        const costDiff = it.diff * basisPrice
+                        const packInfo = parsePackUnit(product?.unit)
+                        const inputUnitLabel = packInputUnitLabel(packInfo)
+                        const diffReal = packRealWorld(it.diff, packInfo)
+                        return (
+                          <div key={i} className="k-rev-item">
+                            <span className="k-rev-item-emo">{product?.e || '📦'}</span>
+                            <div className="k-rev-item-txt">
+                              <b>{it.productName}</b>
+                              <small>
+                                {product?.art || '—'}
+                                {barcode ? ` · ${barcode}` : ''}
+                              </small>
+                            </div>
+                            <div className="k-rev-item-nums">
+                              <span>{formatQty(it.systemStock)}→<b>{formatQty(it.countedStock)}</b></span>
+                              <b style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</b>
+                              {diffReal && (
+                                <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
+                              )}
+                              {basisPrice > 0 && it.diff !== 0 && (
+                                <span style={diffStyle(costDiff)}>
+                                  {formatMoneyDiff(costDiff)}{costPrice <= 0 ? ' · розн.' : ''}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="k-wh-panel-body k-wh-desk-tbl">
+            <table className="k-tbl" style={{ minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th className="num">Поз.</th>
+                  <th className="num">Излишек</th>
+                  <th className="num">Недостача</th>
+                  <th className="num">Δ</th>
+                  <th className="num">Σ закуп</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(rev => {
+                  const surplus = rev.items.reduce((s, it) => s + (it.diff > 0 ? it.diff : 0), 0)
+                  const shortage = rev.items.reduce((s, it) => s + (it.diff < 0 ? Math.abs(it.diff) : 0), 0)
+                  const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
+                  const costMoneyDiff = rev.items.reduce((s, it) => {
+                    const product = products.find(p => p.id === it.productId)
+                    return s + it.diff * moneyBasisPrice(product)
+                  }, 0)
+                  const isOpen = expanded === rev.id
+                  return (
+                    <Fragment key={rev.id}>
+                      <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(isOpen ? null : rev.id)}>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>
+                          {fmtDateTime(rev.createdAtIso)}
+                          {rev.note && (
+                            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {rev.note}
+                            </div>
+                          )}
+                        </td>
+                        <td className="num">{rev.items.length}</td>
+                        <td className="num" style={{ color: surplus > 0 ? 'var(--green)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {surplus > 0 ? `+${formatQty(surplus)}` : '—'}
+                        </td>
+                        <td className="num" style={{ color: shortage > 0 ? 'var(--red)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {shortage > 0 ? formatQty(shortage) : '—'}
+                        </td>
+                        <td className="num" style={{ fontWeight: 800, whiteSpace: 'nowrap', ...diffStyle(totalDiff) }}>
+                          {formatDiff(totalDiff)}
+                        </td>
+                        <td className="num" style={{ fontWeight: 900, whiteSpace: 'nowrap', ...diffStyle(costMoneyDiff) }}>
+                          {costMoneyDiff !== 0 ? formatMoneyDiff(costMoneyDiff) : '—'}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end' }}>
+                            <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} disabled={!USE_API} onClick={e => { e.stopPropagation(); openEditForm(rev) }} title="Редактировать">✎</button>
+                            <button
+                              type="button"
+                              className="k-btn k-btn-s"
+                              style={{ padding: '3px 8px', fontSize: 12, minHeight: 0, color: 'var(--red)' }}
+                              disabled={!USE_API || deletingId === rev.id}
+                              onClick={e => { e.stopPropagation(); void removeRevision(rev.id) }}
+                              title="Удалить"
+                            >
+                              {deletingId === rev.id ? '…' : '🗑'}
+                            </button>
+                            <button type="button" className="k-btn k-btn-s" style={{ padding: '3px 8px', fontSize: 12, minHeight: 0 }} onClick={e => { e.stopPropagation(); setExpanded(isOpen ? null : rev.id) }}>
+                              {isOpen ? '▲' : '▼'}
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={7} style={{ background: 'var(--card2)', padding: '8px 10px' }}>
+                            <div className="k-rev-card-detail" style={{ display: 'grid', gap: 6 }}>
+                              {rev.items.map((it, i) => {
+                                const product = products.find(p => p.id === it.productId)
+                                const barcode = product?.barcode || product?.barcodes?.[0] || ''
+                                const costPrice = Number(product?.costPrice) || 0
+                                const basisPrice = moneyBasisPrice(product)
+                                const costDiff = it.diff * basisPrice
+                                const packInfo = parsePackUnit(product?.unit)
+                                const inputUnitLabel = packInputUnitLabel(packInfo)
+                                const diffReal = packRealWorld(it.diff, packInfo)
+                                return (
+                                  <div key={i} className="k-rev-item">
+                                    <span className="k-rev-item-emo">{product?.e || '📦'}</span>
+                                    <div className="k-rev-item-txt">
+                                      <b>{it.productName}</b>
+                                      <small>
+                                        {product?.art || '—'}
+                                        {barcode ? ` · ${barcode}` : ''}
+                                      </small>
+                                    </div>
+                                    <div className="k-rev-item-nums">
+                                      <span>{formatQty(it.systemStock)}→<b>{formatQty(it.countedStock)}</b></span>
+                                      <b style={diffStyle(it.diff)}>{formatDiff(it.diff)} {inputUnitLabel}</b>
+                                      {diffReal && (
+                                        <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
+                                      )}
+                                      {basisPrice > 0 && it.diff !== 0 && (
+                                        <span style={diffStyle(costDiff)}>
+                                          {formatMoneyDiff(costDiff)}{costPrice <= 0 ? ' · розн.' : ''}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {open && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
+import { loadLastTradeEmployeeId } from '@/lib/employeeSession'
 import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
 import type { TradePageId } from '@/lib/tradeAccess'
 
@@ -60,7 +61,9 @@ export default function TradeLoginPage({
         if (!cancelled && cached?.length) {
           const rows = directoryFromAuth(cached)
           setDirectory(rows)
-          if (rows.length === 1) setEmployeeId(rows[0].id)
+          const last = loadLastTradeEmployeeId()
+          if (last && rows.some(r => r.id === last)) setEmployeeId(last)
+          else if (rows.length === 1) setEmployeeId(rows[0].id)
           setErr('')
           setLoadingDir(false)
         }
@@ -77,7 +80,9 @@ export default function TradeLoginPage({
           const rows = await api.getEmployeesDirectory()
           if (cancelled) return
           setDirectory(rows)
-          if (rows.length === 1) setEmployeeId(rows[0].id)
+          const last = loadLastTradeEmployeeId()
+          if (last && rows.some(r => r.id === last)) setEmployeeId(last)
+          else if (rows.length === 1) setEmployeeId(rows[0].id)
           setErr('')
           // сохраним список локально (пароли подтянем отдельно или после входа)
           const prev = (await readCachedEmployeesAuth()) || []

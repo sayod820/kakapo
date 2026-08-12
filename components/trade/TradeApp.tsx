@@ -548,6 +548,24 @@ const CSS = `
     background:rgba(59,142,240,.04);margin-top:8px
   }
   .k-rev-add-h{font-size:12px;font-weight:900;color:#3B8EF0;margin-bottom:6px}
+  .k-rev-item{
+    display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:8px;
+    border:1px solid var(--border);background:var(--card)
+  }
+  .k-rev-item-emo{font-size:16px;line-height:1.2;flex-shrink:0}
+  .k-rev-item-txt{flex:1;min-width:0}
+  .k-rev-item-txt b{
+    display:block;font-size:12px;font-weight:900;line-height:1.2;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+  }
+  .k-rev-item-txt small{display:block;font-size:10px;color:var(--muted);margin-top:1px;line-height:1.25}
+  .k-rev-item-nums{
+    display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0;text-align:right;
+    font-size:11px;font-weight:700;min-width:72px
+  }
+  .k-rev-item-nums b{font-size:12px;font-weight:900}
+  .k-rev-item-nums span{font-size:10px;color:var(--muted);font-weight:700}
+  .k-rev-card-detail{display:grid;gap:5px}
   .k-netblock{
     margin-top:5px;width:100%;padding:5px 7px;border-radius:8px;border:1px solid var(--border);
     background:var(--card2);color:inherit;font:inherit;text-align:left;cursor:pointer;
@@ -1575,7 +1593,25 @@ const CSS = `
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:none!important;height:0}
     .k-wh-writeoffs .k-wh-cards,
+    .k-wh-revisions .k-wh-cards{display:flex}
+    .k-wh-writeoffs .k-wh-panel-body,
     .k-wh-revisions .k-wh-panel-body{padding-bottom:64px}
+    .k-wh-revisions .k-wh-filters-row .k-wh-cta{display:none!important}
+    .k-rev-card{padding:7px 8px!important;gap:5px!important}
+    .k-rev-card .k-wh-card-meta{grid-template-columns:1fr 1fr 1fr 1fr!important;gap:3px 6px}
+    .k-rev-card .k-wh-card-meta .l{font-size:8px}
+    .k-rev-card .k-wh-card-meta .v{font-size:11px;margin-top:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .k-rev-card .k-wh-card-actions{gap:4px}
+    .k-rev-card .k-wh-card-actions .k-btn{
+      min-height:30px!important;padding:3px 6px!important;font-size:12px
+    }
+    .k-rev-item{padding:5px 6px;gap:6px;border-radius:7px}
+    .k-rev-item-emo{font-size:14px}
+    .k-rev-item-txt b{font-size:11px}
+    .k-rev-item-txt small{font-size:9px}
+    .k-rev-item-nums{min-width:64px;gap:0}
+    .k-rev-item-nums b{font-size:11px}
+    .k-rev-item-nums span{font-size:9px}
     .k-wh-fab,.k-cli-fab,.k-prod-fab,.k-sup-fab,.k-fin-fab{
       display:flex!important;align-items:center;justify-content:center;
       position:fixed;right:14px;bottom:calc(58px + env(safe-area-inset-bottom,0px));
@@ -1675,11 +1711,17 @@ const CSS = `
     .k-top-net{display:flex!important;align-items:center}
     .k-wh-filters{flex-direction:column;align-items:stretch}
     .k-wh-filters-row{gap:6px}
-    .k-wh-period{width:100%}
-    .k-wh-period .k-inp{
-      flex:1 1 calc(50% - 20px);min-width:0;max-width:none!important;
-      min-height:36px!important;font-size:14px!important;padding:6px 8px!important
+    .k-wh-period{width:100%;gap:4px!important}
+    .k-wh-period > div:first-of-type{display:flex;gap:4px;width:100%}
+    .k-wh-period > div:first-of-type .k-btn{
+      flex:1;padding:5px 6px!important;font-size:11px!important;min-height:30px!important
     }
+    .k-wh-period .k-inp{
+      flex:1 1 calc(50% - 12px);min-width:0;max-width:none!important;
+      min-height:32px!important;font-size:12px!important;padding:4px 6px!important
+    }
+    .k-wh-period > span{font-size:11px}
+    .k-wh-period > .k-btn{padding:5px 8px!important;font-size:11px!important;min-height:32px!important}
     .k-wh-meta{
       gap:6px;font-size:11px;margin:0 0 8px;padding:8px 10px;
       display:grid;grid-template-columns:1fr;border:1px solid var(--border);
@@ -1915,6 +1957,37 @@ const CSS = `
       box-shadow:inset 0 0 0 1px rgba(31,215,96,.3)
     }
     .k-bottom-nav button:active{transform:scale(.97)}
+  }
+
+  /* Android Capacitor: склад/сроки скроллит весь .k-main, без сломанной вложенной высоты */
+  html.kakapo-android .k-main:has(.k-body-warehouse),
+  html.kakapo-android .k-main:has(.k-body-products){
+    overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important
+  }
+  html.kakapo-android .k-body-warehouse,
+  html.kakapo-android .k-body-warehouse > .k-wh-shell,
+  html.kakapo-android .k-wh-shell > .k-wh-body,
+  html.kakapo-android .k-wh-shell > .k-wh-body > .k-wh-stock,
+  html.kakapo-android .k-wh-shell > .k-wh-body > .k-wh-receipts,
+  html.kakapo-android .k-wh-shell > .k-wh-body > .k-wh-writeoffs,
+  html.kakapo-android .k-wh-shell > .k-wh-body > .k-wh-revisions,
+  html.kakapo-android .k-wh-shell > .k-wh-body > .k-wh-expiry{
+    flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+    overflow:visible!important
+  }
+  html.kakapo-android .k-wh-stock-body,
+  html.kakapo-android .k-wh-panel-body,
+  html.kakapo-android .k-wh-receipts-body{
+    overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important
+  }
+  html.kakapo-android .k-body-products,
+  html.kakapo-android .k-body-products > .k-products-mod,
+  html.kakapo-android .k-products-mod-body,
+  html.kakapo-android .k-catalog-shell{
+    flex:none!important;height:auto!important;min-height:0!important;overflow:visible!important
+  }
+  html.kakapo-android .k-catalog-body{
+    overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important
   }
 
   @media (max-width:600px){
@@ -2506,8 +2579,8 @@ function TradeAppInner({
           <header className="k-top">
             <button type="button" className="k-mob-menu-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
             {current !== 'sales' && catalogBack ? (
-              <button type="button" className="k-btn k-btn-s k-top-back" onClick={catalogBack}>
-                ← К каталогу
+              <button type="button" className="k-btn k-btn-s k-top-back" onClick={() => catalogBack()}>
+                ← Назад
               </button>
             ) : null}
             {current === 'products' && !catalogBack ? (

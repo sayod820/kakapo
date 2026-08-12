@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import ProductFormFields from './ProductFormFields'
 import ProductImage from '@/components/shared/ProductImage'
 import ProductArrivalsPanel from './ProductArrivalsPanel'
@@ -243,16 +243,31 @@ export default function ProductTab({
   }
 
   const backToCatalog = useCallback(() => {
-    if (formDirty && !confirm('Есть несохранённые изменения. Вернуться к каталогу без сохранения?')) return
+    if (formDirty) {
+      try {
+        if (!window.confirm('Есть несохранённые изменения. Вернуться без сохранения?')) return
+      } catch {
+        /* confirm недоступен — всё равно выходим */
+      }
+    }
     setView('catalog')
   }, [formDirty])
 
+  const backRef = useRef(backToCatalog)
+  backRef.current = backToCatalog
+
   useEffect(() => {
     if (!onBackToCatalogChange) return
-    if (view === 'edit') onBackToCatalogChange(backToCatalog)
-    else onBackToCatalogChange(null)
-    return () => onBackToCatalogChange(null)
-  }, [view, backToCatalog, onBackToCatalogChange])
+    if (view !== 'edit') {
+      onBackToCatalogChange(null)
+      return
+    }
+    const stable = () => backRef.current()
+    onBackToCatalogChange(stable)
+    return () => {
+      onBackToCatalogChange(null)
+    }
+  }, [view, onBackToCatalogChange])
 
   if (view === 'edit') {
     const qList = search.trim()
