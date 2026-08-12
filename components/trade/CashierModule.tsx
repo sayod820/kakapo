@@ -96,7 +96,7 @@ import {
   productMatchesCategoryFilter,
   useCategories,
 } from '@/lib/useCategories'
-import { fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import { fmtMoney, liveProductStock, sanitizeDecimalInput } from './warehouse/warehouseShared'
 import { POS_MOCK_CSS } from './posMockCss'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 
@@ -511,6 +511,7 @@ type PosTileProps = {
   product: Product
   isFav: boolean
   photo?: string
+  stock: number
   onAdd: (p: Product) => void
   onToggleFav: (id: number) => void
 }
@@ -519,10 +520,10 @@ const PosProductTile = memo(function PosProductTile({
   product: p,
   isFav,
   photo,
+  stock,
   onAdd,
   onToggleFav,
 }: PosTileProps) {
-  const stock = Number(p.stock) || 0
   const weighted = isWeighted(p)
   const sellUnit = displaySellUnit(p)
   const stockUnit = stockUnitLabel(p)
@@ -811,6 +812,9 @@ export default function CashierModule({
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
   const sales = usePosStore(s => s.sales)
+  const receipts = usePosStore(s => s.receipts)
+  const writeoffs = usePosStore(s => s.writeoffs)
+  const revisions = usePosStore(s => s.revisions)
   const suppliers = usePosStore(s => s.suppliers)
   const apiReady = usePosStore(s => s.apiReady)
   const { categories, roots, childrenOf } = useCategories()
@@ -1043,6 +1047,8 @@ export default function CashierModule({
   const lastPieceAddRef = useRef<{ id: number; t: number }>({ id: 0, t: 0 })
   /** Кэш групп цен по партиям — без ожидания API на каждое пробитие */
   const layerGroupsCacheRef = useRef(new Map<number, PriceLayerGroup[]>())
+  const [stockLayersByProduct, setStockLayersByProduct] = useState<Record<number, ProductStockLayer[]>>({})
+  const [stockLayersLoaded, setStockLayersLoaded] = useState(false)
   const [cashOpen, setCashOpen] = useState(false)
   const [splitCardOpen, setSplitCardOpen] = useState(false)
   const [cashBuf, setCashBuf] = useState('')
@@ -2076,6 +2082,46 @@ export default function CashierModule({
 
   const search = q
   const deferredSearch = useDeferredValue(search)
+  const liveStockForProduct = useCallback((p: Product | null | undefined) => {
+    if (!p) return 0
+    return liveProductStock(p, stockLayersByProduct[p.id], stockLayersLoaded)
+  }, [stockLayersByProduct, stockLayersLoaded])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const applyLayers = (layers: ProductStockLayer[]) => {
+      if (cancelled) return
+      const nextByProduct: Record<number, ProductStockLayer[]> = {}
+      const nextGroups = new Map<number, PriceLayerGroup[]>()
+      for (const layer of layers || []) {
+        const pid = Number(layer.productId) || 0
+        if (!pid) continue
+        const arr = nextByProduct[pid] || []
+        arr.push(layer)
+        nextByProduct[pid] = arr
+      }
+      for (const p of products) {
+        const open = (nextByProduct[p.id] || []).filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+        if (open.length) nextGroups.set(p.id, groupStockLayersByRetail(open, Number(p.price) || 0))
+      }
+      layerGroupsCacheRef.current = nextGroups
+      setStockLayersByProduct(nextByProduct)
+      setStockLayersLoaded(true)
+    }
+
+    void import('@/lib/stockLayersLocal')
+      .then(m => m.loadStockLayersCacheFirst(applyLayers))
+      .then(applyLayers)
+      .catch(() => {
+        if (!cancelled) setStockLayersLoaded(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [products, receipts.length, revisions.length, sales.length, writeoffs.length])
+
   /**
    * Сетка фильтрует и по названию, и по хвосту штрихкода (последние цифры).
    * Полный скан USB не пишет в `q` во время burst — мигания нет.
@@ -2084,10 +2130,10 @@ export default function CashierModule({
   const favSet = useMemo(() => new Set(favIds), [favIds])
   const inStockProducts = useMemo(
     () => products
-      .filter(p => (Number(p.stock) || 0) > 0)
+      .filter(p => liveStockForProduct(p) > 0)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
-    [products],
+    [products, liveStockForProduct],
   )
   /** Быстрый индекс штрихкод/артикул/PLU → товар (сканер без полного перебора) */
   const productCodeIndex = useMemo(() => {
@@ -2183,11 +2229,12 @@ export default function CashierModule({
         product={p}
         isFav={favSet.has(p.id)}
         photo={photo}
+        stock={liveStockForProduct(p)}
         onAdd={onAddProductTile}
         onToggleFav={onToggleFavoriteTile}
       />
     )
-  }, [favSet, onAddProductTile, onToggleFavoriteTile])
+  }, [favSet, liveStockForProduct, onAddProductTile, onToggleFavoriteTile])
 
   function toggleFavorite(productId: number) {
     setFavIds(prev => {
@@ -2895,8 +2942,8 @@ export default function CashierModule({
     if (searchInputRef.current) searchInputRef.current.value = ''
     try { searchInputRef.current?.blur() } catch { /* ignore */ }
     const sorted = list.slice().sort((a, b) => {
-      const sa = (Number(a.stock) || 0) > 0 ? 1 : 0
-      const sb = (Number(b.stock) || 0) > 0 ? 1 : 0
+      const sa = liveStockForProduct(a) > 0 ? 1 : 0
+      const sb = liveStockForProduct(b) > 0 ? 1 : 0
       if (sa !== sb) return sb - sa
       return String(a.name || '').localeCompare(String(b.name || ''), 'ru')
     })
@@ -2911,7 +2958,7 @@ export default function CashierModule({
 
   function confirmBarcodePick(p: Product) {
     const code = barcodePick?.code || ''
-    if ((Number(p.stock) || 0) <= 0) {
+    if (liveStockForProduct(p) <= 0) {
       closeBarcodePick()
       openScanBlockAlert(
         'Нет на складе',
@@ -3071,7 +3118,7 @@ export default function CashierModule({
           scanBurstRef.current = false
           return true
         }
-        if ((Number(scaleHit.stock) || 0) <= 0) {
+        if (liveStockForProduct(scaleHit as Product) <= 0) {
           openScanBlockAlert(
             'Нет на складе',
             `${scaleHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
@@ -3131,7 +3178,7 @@ export default function CashierModule({
       scanBurstRef.current = false
       return false
     }
-    if ((Number(productHit.stock) || 0) <= 0) {
+    if (liveStockForProduct(productHit) <= 0) {
       if (fromScanner || digits.length >= 6 || raw.length >= 6) {
         openScanBlockAlert(
           'Нет на складе',
@@ -4457,7 +4504,7 @@ export default function CashierModule({
       setOpenShiftModal(true)
       return
     }
-    const stock = Number(p.stock) || 0
+    const stock = liveStockForProduct(p)
     if (stock <= 0) return
 
     // После выбора/скана — сразу чистим поиск, как на обычной кассе
@@ -4756,7 +4803,7 @@ export default function CashierModule({
       supplierName?: string
     },
   ) {
-    const stockTotal = Number(p.stock) || 0
+    const stockTotal = liveStockForProduct(p)
     if (stockTotal <= 0) return
     const preferRetailPrice = opts?.preferRetailPrice
     const layerStock = opts?.stock != null
@@ -8550,7 +8597,7 @@ export default function CashierModule({
             ) : null}
             <div className="barcode-pick-list">
               {barcodePick.products.map(p => {
-                const stock = Number(p.stock) || 0
+                const stock = liveStockForProduct(p)
                 const out = stock <= 0
                 return (
                   <button
