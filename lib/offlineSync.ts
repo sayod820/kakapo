@@ -48,6 +48,8 @@ interface OfflineSyncState {
   drop: (clientRef: string) => Promise<void>
   /** отправить очередь прямо сейчас (сначала ping) */
   syncNow: () => Promise<void>
+  /** отложенный sync — не дергает сеть на каждую партию/чек подряд */
+  scheduleSyncDebounced: (delayMs?: number) => void
   /**
    * Принудительная синхронизация: вернуть ВСЕ failed в очередь
    * и несколько раз подряд прогнать отправку (для «застрявших»).
@@ -62,6 +64,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectAttempt = 0
 let listenersBound = false
 let syncLock = false
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Слабый интернет: ping дольше; при очереди крутим чаще */
 const PING_TIMEOUT_MS = 4500
@@ -336,6 +339,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     await get().refresh()
   },
 
+  scheduleSyncDebounced: (delayMs = 450) => {
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
+    syncDebounceTimer = setTimeout(() => {
+      syncDebounceTimer = null
+      void get().syncNow()
+    }, delayMs)
+  },
+
   syncNow: async () => {
     if (syncLock || get().syncing) {
       scheduleReconnect(get, set, 2000)
@@ -381,13 +392,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Тяжёлый pull смен — не во время поиска (дёргает UI), очередь ниже всё равно уйдёт
-      if (alive && !searchBusy && !isCashierCritical()) {
+      // Входящие чеки с сервера — даже при фокусе в поиске (иначе браузер→ПК не доходит).
+      // Блокируем только реальное пробитие/оплату.
+      if (alive && !isCashierPaymentCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
           await Promise.race([
             softSyncPosAfterSale(),
-            new Promise(resolve => setTimeout(resolve, 2500)),
+            new Promise(resolve => setTimeout(resolve, 8000)),
           ])
         } catch { /* ignore */ }
       }
@@ -399,6 +411,13 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
       if (get().pending > 0) {
         await get().flush()
+        // После flush снова подтянуть продажи (чеки с других клиентов)
+        if (alive && !isCashierPaymentCritical()) {
+          try {
+            const { softSyncPosAfterSale } = await import('./posStore')
+            void softSyncPosAfterSale()
+          } catch { /* ignore */ }
+        }
       } else if (alive && !searchBusy) {
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
         try {

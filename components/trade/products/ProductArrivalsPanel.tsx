@@ -90,8 +90,11 @@ export default function ProductArrivalsPanel({
       setLayers(cached)
       if (!opts?.silent) setLoading(false)
       if (!USE_API) return
-      // Сеть в фоне — не блокируем окно при слабом интернете
+      const { useOfflineSync } = await import('@/lib/offlineSync')
+      if (useOfflineSync.getState().pending > 0) return
+      // Сеть в фоне — не блокируем окно и не затираем локальные партии
       void api.getProductStockLayers(product.id).then(rows => {
+        if (useOfflineSync.getState().pending > 0) return
         setLayers(rows)
       }).catch((e: unknown) => {
         if (!cached.length && !opts?.silent) {

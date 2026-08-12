@@ -6,9 +6,15 @@ import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 import { entityList, entityPut } from './localEntities'
 
 const KEY_STOCK_LAYERS = 'catalog_stock_layers'
+const PERSIST_DEBOUNCE_MS = 80
 
 let entitySyncTimer: ReturnType<typeof setTimeout> | null = null
 let entitySyncPending: ProductStockLayer[] | null = null
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let persistPending: ProductStockLayer[] | null = null
+/** Горячий кэш в памяти — не читаем SQLite/localStorage на каждую партию */
+let memoryCache: ProductStockLayer[] | null = null
+let memoryLoaded = false
 
 async function kvGet(): Promise<ProductStockLayer[] | null> {
   const desk = getKakapoDesktop()
@@ -41,6 +47,11 @@ export function layerKey(layer: Pick<ProductStockLayer, 'receiptId' | 'productId
   return `${layer.receiptId}:${layer.productId}`
 }
 
+function setMemoryCache(layers: ProductStockLayer[]): void {
+  memoryCache = layers
+  memoryLoaded = true
+}
+
 /** Медленный entityPut всех партий — только в фоне, не на пути «Пробить». */
 function scheduleEntitySync(layers: ProductStockLayer[]): void {
   entitySyncPending = layers
@@ -62,17 +73,66 @@ function scheduleEntitySync(layers: ProductStockLayer[]): void {
   }, 0)
 }
 
-export async function cacheStockLayers(layers: ProductStockLayer[]): Promise<void> {
-  const list = Array.isArray(layers) ? layers : []
+function schedulePersist(layers: ProductStockLayer[]): void {
+  setMemoryCache(layers)
+  persistPending = layers
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    const list = persistPending
+    persistPending = null
+    if (!list) return
+    void (async () => {
+      try {
+        await kvSet(list)
+        scheduleEntitySync(list)
+      } catch { /* ignore */ }
+    })()
+  }, PERSIST_DEBOUNCE_MS)
+}
+
+/** Сразу записать кэш на диск (pull sync, закрытие приложения). */
+export async function flushStockLayersCache(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  const list = persistPending ?? memoryCache
+  persistPending = null
+  if (!list) return
   await kvSet(list)
   scheduleEntitySync(list)
 }
 
+export async function cacheStockLayers(layers: ProductStockLayer[]): Promise<void> {
+  const list = Array.isArray(layers) ? layers : []
+  schedulePersist(list)
+}
+
 export async function readCachedStockLayers(): Promise<ProductStockLayer[]> {
+  if (memoryLoaded && memoryCache) return memoryCache
   const fromKv = await kvGet()
-  if (fromKv?.length) return fromKv
+  if (fromKv?.length) {
+    setMemoryCache(fromKv)
+    return fromKv
+  }
   const rows = await entityList<ProductStockLayer>('stock_layer')
-  return rows.map(r => r.data).filter(Boolean)
+  const list = rows.map(r => r.data).filter(Boolean)
+  setMemoryCache(list)
+  return list
+}
+
+/** После sync: локальный off-rec-* → серверный id в партиях */
+export async function remapReceiptIdInLayers(localId: string, serverId: string): Promise<void> {
+  if (!localId || !serverId || localId === serverId) return
+  const list = await readCachedStockLayers()
+  let changed = false
+  const next = list.map(l => {
+    if (l.receiptId !== localId) return l
+    changed = true
+    return { ...l, receiptId: serverId }
+  })
+  if (changed) await cacheStockLayers(next)
 }
 
 /**

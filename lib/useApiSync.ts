@@ -10,13 +10,15 @@ import { syncPushFromApi } from './pushStore'
 import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
-import { isCashierCritical } from './cashierUiGate'
+import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
 /** Торговля: реже и легче — полный POS-снимок больше не гоняем каждые 30с */
 const POS_INTERVAL_MS = 45000
+/** Чеки с сервера (браузер → ПК) — чаще, даже при фокусе в поиске */
+const POS_SALES_INBOUND_MS = 12000
 /** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
 const PULL_DEBOUNCE_MS = 400
 
@@ -58,7 +60,8 @@ function createDebouncedPullers() {
       void useProducts.getState().fetchProducts()
     }),
     posSoft: () => schedule('posSoft', () => {
-      if (isCashierCritical()) return
+      // Поиск кассы НЕ блокирует: иначе чек с браузера не доходит, пока курсор в поиске
+      if (isCashierPaymentCritical()) return
       void softSyncPosAfterSale()
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
@@ -218,24 +221,30 @@ export function useApiSync(mode: SyncMode = 'all') {
 
     const load = async () => {
       try {
-        // Касса: пока идёт поиск/оплата — не трогаем UI тяжёлым sync
-        if (mode === 'pos' && isCashierCritical()) return
+        // Только оплата/пробитие — полный стоп. Фокус поиска НЕ блокирует входящие чеки.
+        if (mode === 'pos' && isCashierPaymentCritical()) return
 
         if (mode === 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
         }
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
         if (mode === 'pos') {
-          // Торговля как касса: локально уже есть данные; фон — лёгкий sync
+          const searchBusy = isCashierCritical() && !isCashierPaymentCritical()
+          // Всегда тянем продажи/смены — иначе чек с браузера не виден на ПК
+          const tasks: Promise<unknown>[] = [softSyncPosAfterSale()]
+          if (searchBusy) {
+            await Promise.allSettled(tasks)
+            return
+          }
+          // Торговля: локально уже есть данные; фон — лёгкий sync
           posTickRef.current += 1
           const tick = posTickRef.current
-          const tasks: Promise<unknown>[] = [
+          tasks.push(
             syncLoyaltyStatusConfigFromApi(),
-            softSyncPosAfterSale(),
             softSyncWarehouse(),
             syncClientsFromApi(),
             syncCardsFromApi(),
-          ]
+          )
           // Каталог товаров — не каждый тик (тяжело на слабом интернете)
           if (tick === 1 || tick % 3 === 0) {
             tasks.push(useProducts.getState().fetchProducts())
@@ -271,8 +280,17 @@ export function useApiSync(mode: SyncMode = 'all') {
     // Не блокируем UI: старт в фоне
     void load()
     const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
+    // Отдельный частый inbound продаж (браузер → ПК), не ждёт 45с
+    let salesId: ReturnType<typeof setInterval> | null = null
+    if (mode === 'pos') {
+      salesId = setInterval(() => {
+        if (isCashierPaymentCritical()) return
+        void softSyncPosAfterSale()
+      }, POS_SALES_INBOUND_MS)
+    }
     return () => {
       clearInterval(id)
+      if (salesId) clearInterval(salesId)
       pull.flushAll()
     }
   }, [mode, pull])

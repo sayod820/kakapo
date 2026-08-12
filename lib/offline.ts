@@ -480,6 +480,34 @@ async function rememberId(localId: string, serverId: string): Promise<void> {
   await kvSet(KEY_IDMAP, map)
 }
 
+/** После flush: подменить локальные id на серверные в сторах и кэшах */
+async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: string): Promise<void> {
+  if (!localId || !serverId || localId === serverId) return
+  try {
+    if (kind === 'stock_receipt_create' || kind === 'stock_receipt_update') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        receipts: s.receipts.map(r => (r.id === localId ? { ...r, id: serverId } : r)),
+      }))
+      const { remapReceiptIdInLayers } = await import('./stockLayersLocal')
+      await remapReceiptIdInLayers(localId, serverId)
+      void persistPosSnapshot()
+    } else if (kind === 'stock_writeoff_create' || kind === 'stock_writeoff_update') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        writeoffs: s.writeoffs.map(w => (w.id === localId ? { ...w, id: serverId } : w)),
+      }))
+      void persistPosSnapshot()
+    } else if (kind === 'stock_revision_create' || kind === 'stock_revision_update') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        revisions: s.revisions.map(r => (r.id === localId ? { ...r, id: serverId } : r)),
+      }))
+      void persistPosSnapshot()
+    }
+  } catch { /* ignore */ }
+}
+
 /** Подмена локальных (отрицательных) productId на серверные перед flush склада */
 async function remapProductIdsInItems(items: any[]): Promise<any[]> {
   if (!Array.isArray(items) || !items.length) return items || []
@@ -1158,7 +1186,10 @@ export async function flushQueue(
     for (const row of queue) {
       try {
         const serverId = await sendOp(row)
-        if (row.localId && serverId) await rememberId(row.localId, serverId)
+        if (row.localId && serverId) {
+          await rememberId(row.localId, serverId)
+          await applyLocalIdRemap(row.kind, row.localId, serverId)
+        }
         await deletePending(row.clientRef)
         sent++
       } catch (e) {

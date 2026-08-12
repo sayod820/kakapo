@@ -178,7 +178,11 @@ export async function softSyncPosAfterSale() {
       if (serverSaleIds.has(id)) return false
       return isLocalId(id) || !!(s as { _offline?: boolean })._offline
     })
+    // Серверные чеки (в т.ч. с браузера) + ещё не ушедшие локальные
     const mergedSales = localOnlySales.length ? [...localOnlySales, ...sales] : sales
+
+    const prevIds = new Set(localSales.map(s => String(s.id)))
+    const hasNewFromServer = sales.some(s => !prevIds.has(String(s.id)))
 
     if (protectShifts) {
       // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
@@ -187,25 +191,27 @@ export async function softSyncPosAfterSale() {
       usePosStore.setState({ sales: mergedSales, shifts })
     }
 
-    try {
-      const { cacheData } = await import('./offline')
-      const cur = usePosStore.getState()
-      void cacheData('pos_snapshot', {
-        cashiers: cur.cashiers,
-        posPoints: cur.posPoints,
-        shifts: cur.shifts,
-        sales: cur.sales,
-        receipts: cur.receipts,
-        writeoffs: cur.writeoffs,
-        revisions: cur.revisions,
-        suppliers: cur.suppliers,
-        expenses: cur.expenses,
-        financeMoves: cur.financeMoves,
-        expiry: cur.expiry,
-        financeSummary: cur.financeSummary,
-        report: cur.report,
-      })
-    } catch { /* ignore */ }
+    if (hasNewFromServer || localOnlySales.length || mergedSales.length !== localSales.length) {
+      try {
+        const { cacheData } = await import('./offline')
+        const cur = usePosStore.getState()
+        void cacheData('pos_snapshot', {
+          cashiers: cur.cashiers,
+          posPoints: cur.posPoints,
+          shifts: cur.shifts,
+          sales: cur.sales,
+          receipts: cur.receipts,
+          writeoffs: cur.writeoffs,
+          revisions: cur.revisions,
+          suppliers: cur.suppliers,
+          expenses: cur.expenses,
+          financeMoves: cur.financeMoves,
+          expiry: cur.expiry,
+          financeSummary: cur.financeSummary,
+          report: cur.report,
+        })
+      } catch { /* ignore */ }
+    }
   } catch { /* нет связи — локальный чек уже на экране */ }
 }
 

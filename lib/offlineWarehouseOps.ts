@@ -127,10 +127,27 @@ async function enrichReceiptNames(receipt: StockReceipt): Promise<StockReceipt> 
 }
 
 async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
+  const { useProducts } = await import('./store')
+  const ps = useProducts.getState()
+  const bumps = new Map<number, { delta: number; prices?: { costPrice?: number; retailPrice?: number } }>()
   for (const it of receipt.items) {
-    await bumpProductStock(it.productId, sign * (Number(it.qty) || 0), sign > 0
-      ? { costPrice: it.costPrice, retailPrice: it.retailPrice }
-      : undefined)
+    const pid = Number(it.productId)
+    const prev = bumps.get(pid) || { delta: 0 }
+    prev.delta += sign * (Number(it.qty) || 0)
+    if (sign > 0) {
+      prev.prices = { costPrice: it.costPrice, retailPrice: it.retailPrice }
+    }
+    bumps.set(pid, prev)
+  }
+  for (const [productId, { delta, prices }] of bumps) {
+    const p = ps.products.find(x => x.id === productId)
+    if (!p) continue
+    const patch: Record<string, unknown> = {
+      stock: round2(Math.max(0, (Number(p.stock) || 0) + delta)),
+    }
+    if (prices?.costPrice != null && prices.costPrice > 0) patch.costPrice = prices.costPrice
+    if (prices?.retailPrice != null && prices.retailPrice > 0) patch.price = prices.retailPrice
+    ps.updateProduct(productId, patch as any)
   }
   patchSupplierDebt(receipt.supplierId || undefined, sign * (Number(receipt.debtAdded) || 0))
   try {
