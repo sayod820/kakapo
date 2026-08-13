@@ -364,12 +364,13 @@ function saleNumberLabel(s: { orderId?: string; number?: number; id?: string }) 
   return formatSaleOrderNo(s)
 }
 
+/** Единица остатка на плитке: вес → кг; штучный (в т.ч. мешок 10/25 кг) → шт */
 function stockUnitLabel(p: Product): string {
   if (isWeighted(p)) return 'кг'
   const u = displaySellUnit(p).toLowerCase().replace(/\s+/g, '')
+  // Жидкость без фасовки «N л» в unit
   if (u === 'л' || u === 'мл') return displaySellUnit(p)
-  if (u === 'кг' || u.endsWith('кг')) return 'кг'
-  if (u === 'гр' || u === 'г' || /^\d+гр$/.test(u) || /^\d+г$/.test(u)) return 'шт'
+  // «10кг» / «25 кг» — это размер упаковки в цене, на складе считаем мешки/штуки
   return 'шт'
 }
 
@@ -537,6 +538,7 @@ const PosProductTile = memo(function PosProductTile({
   const stockUnit = stockUnitLabel(p)
   const barcode = productBarcodes(p)[0] || ''
   const art = String(p.art || '').trim()
+  const plu = String(p.plu || '').replace(/\D/g, '') || String(p.plu || '').trim()
   const photoRef = useRef<HTMLDivElement | null>(null)
   const [showPhoto, setShowPhoto] = useState(false)
 
@@ -595,12 +597,14 @@ const PosProductTile = memo(function PosProductTile({
           (p.e || '📦')
         )}
         {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
+        {weighted && plu ? <span className="p-plu-tag" title={`PLU ${plu}`}>PLU {plu}</span> : null}
       </div>
       <div className="p-name">{p.name}</div>
       <div className="p-codes">
+        {!weighted && plu ? <span className="p-plu">PLU {plu}</span> : null}
         {art ? <span>арт. {art}</span> : null}
         {barcode ? <span>ш/к {barcode}</span> : null}
-        {!art && !barcode ? <span className="muted">без кода</span> : null}
+        {!plu && !art && !barcode ? <span className="muted">без кода</span> : null}
       </div>
       <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
       <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
