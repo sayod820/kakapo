@@ -15,6 +15,8 @@ import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import RevisionScopePanel from './RevisionScopePanel'
 import RevisionStepBar from './RevisionStepBar'
+import RevisionModePicker from './RevisionModePicker'
+import RevisionWalkPanel from './RevisionWalkPanel'
 import ProductEditModal from '@/components/trade/products/ProductEditModal'
 import {
   clearRevisionDraft,
@@ -212,18 +214,18 @@ export default function WarehouseRevisionsPanel({
   const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
+  const [modalStep, setModalStep] = useState<'pick' | 'scope' | 'count' | 'walk'>('pick')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
-  const [editProductId, setEditProductId] = useState<string | null>(null)
+  const [editProductId, setEditProductId] = useState<number | null>(null)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
   const [layersLoaded, setLayersLoaded] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const countedRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  const { open, note, lines, activeLineKey } = draft
+  const { open, note, lines, activeLineKey, mode } = draft
   const freezeSystem = Boolean(editingId)
 
   const layersByProduct = useMemo(() => {
@@ -271,8 +273,14 @@ export default function WarehouseRevisionsPanel({
       loaded.lines = loaded.lines.map(l => ({ ...l, systemStock: undefined }))
     }
     setDraft(loaded)
-    if (loaded.open && loaded.lines.some(l => l.productId)) {
-      setModalStep('count')
+    if (loaded.open) {
+      if (loaded.mode === 'walk') {
+        setModalStep('walk')
+      } else if (loaded.lines.some(l => l.productId)) {
+        setModalStep('count')
+      } else {
+        setModalStep('pick')
+      }
     }
     setHydrated(true)
   }, [])
@@ -297,7 +305,7 @@ export default function WarehouseRevisionsPanel({
     clearRevisionDraft()
     setDraft(defaultRevisionDraft())
     setEditingId(null)
-    setModalStep('scope')
+    setModalStep('pick')
     setScopeLabel('Все категории')
     setCountSearch('')
     setAddOpen(false)
@@ -307,13 +315,20 @@ export default function WarehouseRevisionsPanel({
 
   function openForm() {
     setEditingId(null)
-    setModalStep('scope')
-    setScopeLabel('Все категории')
     setCountSearch('')
     setAddOpen(false)
     setEditProductId(null)
-    setDraft({ ...defaultRevisionDraft(), open: true })
     setMsg('')
+    const hasLines = lines.some(l => l.productId)
+    if (hasLines) {
+      setModalStep(mode === 'walk' ? 'walk' : 'count')
+      if (mode === 'walk') setScopeLabel('Обход')
+      setDraft(prev => ({ ...prev, open: true }))
+      return
+    }
+    setModalStep('pick')
+    setScopeLabel('Все категории')
+    setDraft({ ...defaultRevisionDraft(), open: true })
   }
 
   function openEditForm(revision: StockRevision) {
@@ -333,10 +348,79 @@ export default function WarehouseRevisionsPanel({
     setDraft(prev => ({ ...prev, open: false }))
     if (editingId) {
       setEditingId(null)
-      setModalStep('scope')
+      setModalStep('pick')
       setScopeLabel('Все категории')
     }
     setMsg('')
+  }
+
+  function pickCategoriesMode() {
+    setDraft(prev => ({
+      ...prev,
+      mode: 'categories',
+      lines: [emptyRevisionLine()],
+      activeLineKey: null,
+    }))
+    setModalStep('scope')
+    setScopeLabel('Все категории')
+    setMsg('')
+  }
+
+  function pickWalkMode() {
+    setDraft(prev => ({
+      ...prev,
+      mode: 'walk',
+      lines: [],
+      activeLineKey: null,
+    }))
+    setModalStep('walk')
+    setScopeLabel('Обход')
+    setMsg('')
+    void loadLayers()
+  }
+
+  function backToModePick() {
+    if (editingId) return
+    const hasLines = lines.some(l => l.productId)
+    if (hasLines && !confirm('Вернуться к выбору режима? Текущий пересчёт будет сброшен.')) return
+    setDraft(prev => ({
+      ...prev,
+      mode: 'categories',
+      lines: [emptyRevisionLine()],
+      activeLineKey: null,
+      note: '',
+    }))
+    setModalStep('pick')
+    setScopeLabel('Все категории')
+    setMsg('')
+  }
+
+  function walkUpsert(product: Product, countedStock: string) {
+    setDraft(prev => {
+      const existing = prev.lines.find(l => l.productId === product.id)
+      if (existing) {
+        return {
+          ...prev,
+          lines: prev.lines.map(l => (l.key === existing.key ? { ...l, countedStock, systemStock: undefined } : l)),
+          activeLineKey: existing.key,
+        }
+      }
+      const line: RevisionDraftLine = {
+        key: `walk-${product.id}-${Math.random()}`,
+        productId: product.id,
+        countedStock,
+        systemStock: undefined,
+      }
+      return { ...prev, lines: [...prev.lines.filter(l => l.productId), line], activeLineKey: line.key }
+    })
+  }
+
+  function walkRemove(productId: number) {
+    setDraft(prev => ({
+      ...prev,
+      lines: prev.lines.filter(l => l.productId !== productId),
+      activeLineKey: null,
+    }))
   }
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
@@ -376,6 +460,7 @@ export default function WarehouseRevisionsPanel({
     setCountSearch('')
     setDraft(prev => ({
       ...prev,
+      mode: 'categories',
       lines: [
         ...toAdd.map(p => ({
           key: `rev-${p.id}-${Math.random()}`,
@@ -394,7 +479,7 @@ export default function WarehouseRevisionsPanel({
     if (editingId) return
     if (filledLines.length && !confirm('Вернуться к выбору категорий? Текущий пересчёт будет сброшен.')) return
     setModalStep('scope')
-    setDraft(prev => ({ ...prev, lines: [emptyRevisionLine()], activeLineKey: null }))
+    setDraft(prev => ({ ...prev, mode: 'categories', lines: [emptyRevisionLine()], activeLineKey: null }))
     setMsg('')
   }
 
@@ -850,17 +935,21 @@ export default function WarehouseRevisionsPanel({
                 <div>
                   <b>{editingId ? 'Редактирование' : 'Новая ревизия'}</b>
                   <div className="sub">
-                    {modalStep === 'scope'
-                      ? 'Категории → пересчёт'
-                      : editingId
-                        ? 'Измените факт · склад обновится'
-                        : 'Факт по каждому товару → провести'}
+                    {editingId
+                      ? 'Измените факт · склад обновится'
+                      : modalStep === 'pick'
+                        ? 'Выберите способ пересчёта'
+                        : modalStep === 'scope'
+                          ? 'Категории → пересчёт'
+                          : modalStep === 'walk'
+                            ? 'Обход · поиск и сканер'
+                            : 'Факт по каждому товару → провести'}
                     {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
                   </div>
                 </div>
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
-              {modalStep === 'count' && (
+              {(modalStep === 'count' || modalStep === 'walk') && (
                 <div className="k-rev-head-actions">
                   {editingId && (
                     <button
@@ -896,15 +985,64 @@ export default function WarehouseRevisionsPanel({
               )}
             </div>
 
-            {!editingId && <RevisionStepBar step={modalStep} />}
+            {!editingId && modalStep !== 'pick' && mode === 'categories' && (modalStep === 'scope' || modalStep === 'count') && (
+              <RevisionStepBar step={modalStep === 'scope' ? 'scope' : 'count'} />
+            )}
+            {!editingId && modalStep === 'walk' && (
+              <div className="k-rev-steps">
+                <div className="k-rev-step-pill">
+                  <div className="k-rev-step-n on">1</div>
+                  <span className="k-rev-step-lbl on">Обход</span>
+                </div>
+              </div>
+            )}
 
-            {modalStep === 'scope' && !editingId ? (
+            {modalStep === 'pick' && !editingId ? (
+              <RevisionModePicker
+                onPickCategories={pickCategoriesMode}
+                onPickWalk={pickWalkMode}
+                onCancel={closeForm}
+              />
+            ) : modalStep === 'scope' && !editingId ? (
               <RevisionScopePanel
                 products={products}
                 categories={categories}
                 onStart={startCountFromScope}
-                onCancel={closeForm}
+                onCancel={backToModePick}
               />
+            ) : modalStep === 'walk' && !editingId ? (
+              <>
+                <div className="k-modal-b k-rev-scroll k-rev-walk-body">
+                  <RevisionWalkPanel
+                    products={products}
+                    categories={categories}
+                    lines={lines}
+                    stockOf={stockOf}
+                    onUpsert={walkUpsert}
+                    onRemove={walkRemove}
+                    onEditProduct={id => setEditProductId(id)}
+                    note={note}
+                    onNoteChange={v => setDraftPatch({ note: v })}
+                    onBack={backToModePick}
+                  />
+                  {msg && <div className="k-msg" style={{ margin: '8px 10px' }}>{msg}</div>}
+                </div>
+                <div className="k-receipt-modal-actions k-hide-mob">
+                  <button
+                    type="button"
+                    className="k-btn k-btn-g k-btn-primary-wide"
+                    style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                    disabled={saving || totals.count === 0}
+                    onClick={() => void submit()}
+                  >
+                    {saving ? 'Сохранение…' : `Провести ревизию · ${totals.count}${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
+                  </button>
+                  <div className="k-btn-row">
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm('Очистить черновик?')) resetForm() }}>Очистить</button>
+                    <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={closeForm}>Закрыть</button>
+                  </div>
+                </div>
+              </>
             ) : (
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>

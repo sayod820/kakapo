@@ -1,5 +1,7 @@
 export const REVISION_DRAFT_KEY = 'kakapo-revision-draft-v1'
 
+export type RevisionMode = 'categories' | 'walk'
+
 export type RevisionDraftLine = {
   key: string
   productId: number | null
@@ -11,6 +13,7 @@ export type RevisionDraftLine = {
 
 export type RevisionDraft = {
   open: boolean
+  mode: RevisionMode
   note: string
   lines: RevisionDraftLine[]
   activeLineKey: string | null
@@ -24,6 +27,7 @@ export function emptyRevisionLine(): RevisionDraftLine {
 export function defaultRevisionDraft(): RevisionDraft {
   return {
     open: false,
+    mode: 'categories',
     note: '',
     lines: [emptyRevisionLine()],
     activeLineKey: null,
@@ -37,9 +41,11 @@ export function loadRevisionDraft(): RevisionDraft {
     const raw = localStorage.getItem(REVISION_DRAFT_KEY)
     if (!raw) return defaultRevisionDraft()
     const parsed = JSON.parse(raw) as Partial<RevisionDraft>
+    const mode: RevisionMode = parsed.mode === 'walk' ? 'walk' : 'categories'
     return {
       ...defaultRevisionDraft(),
       ...parsed,
+      mode,
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
@@ -64,6 +70,7 @@ export function clearRevisionDraft() {
 export function revisionToDraft(revision: import('@/lib/types').StockRevision): RevisionDraft {
   return {
     open: true,
+    mode: 'categories',
     note: revision.note || '',
     lines: [
       ...revision.items.map(it => ({
