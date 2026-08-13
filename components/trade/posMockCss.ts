@@ -1666,22 +1666,34 @@ export const POS_MOCK_CSS = `
       min-height:100dvh;
       overflow:hidden;
     }
-    .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:8px 10px;gap:8px;align-items:center;}
-    .top-loc{order:0;flex:0 0 112px;width:112px;max-width:112px;min-width:112px;}
+    .topbar{grid-column:1;flex-wrap:wrap;height:auto;padding:6px 8px;gap:6px;align-items:center;}
+    .top-loc{order:0;flex:0 1 88px;width:auto;max-width:96px;min-width:64px;}
     .top-loc b{font-size:11px;overflow:hidden;text-overflow:ellipsis;}
     .top-loc .net-status-txt{font-size:8.5px;letter-spacing:-.01em;}
     .top-loc .net-sync-chip{width:18px;height:18px;font-size:10px;}
     .top-clock{order:0;flex:1 1 auto;min-width:72px;padding:0 4px;}
     .top-clock .tm{font-size:13px;}
     .top-clock .dt{font-size:9px;}
-    .top-meta{margin-left:0;width:100%;justify-content:space-between;order:3;}
-    .searchpill{flex:1 1 0;max-width:none;min-width:0;width:auto;order:1;padding:8px 10px;}
+    .top-meta{margin-left:0;width:auto;justify-content:flex-end;order:2;flex:0 0 auto;padding:0;gap:4px;}
+    .searchpill{
+      flex:1 1 0;max-width:none;min-width:0;width:auto;order:1;
+      padding:5px 8px;gap:6px;border-radius:10px;min-height:36px
+    }
     .searchpill input{font-size:16px;}
-    .order-tabs{order:2;flex:1 1 100%;width:100%;}
+    .searchpill .search-clear{width:28px;height:28px;font-size:16px;}
+    .searchpill .scan-tag{width:32px;height:32px;font-size:15px;border-radius:8px;}
+    .order-tabs{order:3;flex:1 1 100%;width:100%;}
     .order-tab-label{max-width:64px;font-size:11px;}
     .pos-root button.order-tab{padding:6px 8px;font-size:11px;min-height:34px;}
-    .theme-toggle,.bell-btn{display:none;}
-    .account-wrap{margin-left:auto;}
+    /* ПК: колокольчик/тема остаются; на мобилке прячем (выше специфичность) */
+    .pos-root .theme-toggle,
+    .pos-root button.theme-mode,
+    .pos-root button.bell-btn{display:none!important;}
+    .account-wrap{order:2;margin-left:0;flex-shrink:0;}
+    .pos-root button.account-btn{padding:2px;gap:0;min-width:0;border-radius:10px;}
+    .pos-root button.account-btn .info{display:none!important;}
+    .account-av{width:34px;height:34px;border-radius:10px;font-size:11px;}
+    .account-menu{right:0;width:min(280px,calc(100vw - 16px));}
 
     .app[data-mob-panel="shop"] .cart{display:none!important;}
     .app[data-mob-panel="cart"] .products{display:none!important;}
