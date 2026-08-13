@@ -90,6 +90,7 @@ export default function RevisionWalkPanel({
   const [scanMsg, setScanMsg] = useState('')
   const [onlyDiff, setOnlyDiff] = useState(false)
   const [sheet, setSheet] = useState<{ product: Product; counted: string; edit: boolean } | null>(null)
+  const [vvBox, setVvBox] = useState<{ top: number; height: number } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const factRef = useRef<HTMLInputElement>(null)
   const deferredQ = useDeferredValue(q)
@@ -152,17 +153,46 @@ export default function RevisionWalkPanel({
     setVisibleCount(PAGE)
   }, [deferredQ, allCats, selectedCats, stockFlt, tab])
 
+  /** Мобильная клавиатура: окно факта держим в видимой зоне visualViewport */
+  useEffect(() => {
+    if (!sheet) {
+      setVvBox(null)
+      return
+    }
+    const vp = window.visualViewport
+    if (!vp) return
+    const sync = () => {
+      setVvBox({ top: vp.offsetTop, height: vp.height })
+    }
+    sync()
+    vp.addEventListener('resize', sync)
+    vp.addEventListener('scroll', sync)
+    window.addEventListener('resize', sync)
+    return () => {
+      vp.removeEventListener('resize', sync)
+      vp.removeEventListener('scroll', sync)
+      window.removeEventListener('resize', sync)
+    }
+  }, [sheet])
+
   useEffect(() => {
     if (!sheet) {
       const t = window.setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 40)
       return () => window.clearTimeout(t)
     }
     const t = window.setTimeout(() => {
-      factRef.current?.focus({ preventScroll: true })
-      factRef.current?.select()
-    }, 40)
+      const el = factRef.current
+      if (!el) return
+      el.focus({ preventScroll: true })
+      el.select()
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, 120)
     return () => window.clearTimeout(t)
-  }, [sheet])
+  }, [sheet, vvBox?.height])
+
+  const kbOpen = Boolean(
+    vvBox && typeof window !== 'undefined' && vvBox.height < window.innerHeight - 120,
+  )
 
   const openSheet = useCallback((product: Product, edit = false) => {
     const existing = doneById.get(product.id)
@@ -499,7 +529,15 @@ export default function RevisionWalkPanel({
         const basisPrice = moneyBasisPrice(p)
         const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
         return (
-          <div className="k-rev-walk-sheet-bg" onClick={() => setSheet(null)}>
+          <div
+            className={`k-rev-walk-sheet-bg${kbOpen ? ' kb-open' : ''}`}
+            style={vvBox ? {
+              top: vvBox.top,
+              height: vvBox.height,
+              bottom: 'auto',
+            } : undefined}
+            onClick={() => setSheet(null)}
+          >
             <div className="k-rev-walk-sheet" onClick={e => e.stopPropagation()}>
               <div className="k-rev-walk-sheet-handle" aria-hidden />
               <div className="k-rev-walk-sheet-h">
@@ -523,8 +561,14 @@ export default function RevisionWalkPanel({
                   className="k-inp"
                   type="text"
                   inputMode={isWeight ? 'decimal' : 'numeric'}
+                  enterKeyHint="done"
                   value={sheet.counted}
                   onChange={e => setSheet({ ...sheet, counted: sanitizeDecimalInput(e.target.value) })}
+                  onFocus={() => {
+                    window.setTimeout(() => {
+                      factRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+                    }, 50)
+                  }}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
                       e.preventDefault()

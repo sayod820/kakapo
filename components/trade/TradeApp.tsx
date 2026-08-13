@@ -560,8 +560,9 @@ const CSS = `
   .k-rev-walk-done-btns{display:flex;flex-direction:column;gap:2px;padding:4px;flex-shrink:0}
   .k-rev-walk-done-btns .k-btn{width:28px;height:28px;padding:0;font-size:12px}
   .k-rev-walk-sheet-bg{
-    position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.45);
-    display:flex;align-items:flex-end;justify-content:center;padding:12px
+    position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.45);
+    display:flex;align-items:flex-end;justify-content:center;padding:12px;
+    box-sizing:border-box
   }
   .k-rev-walk-sheet{
     width:min(420px,100%);background:var(--panel);border:1px solid var(--border);
@@ -1855,13 +1856,22 @@ const CSS = `
     .k-rev-walk-done-btns{padding:3px;gap:2px}
     .k-rev-walk-done-btns .k-btn{width:26px;height:26px;font-size:11px;border-radius:7px}
     .k-rev-walk-sheet-bg{
-      align-items:flex-end;padding:0;background:rgba(0,0,0,.5)
+      align-items:flex-end;justify-content:stretch;padding:0;
+      background:rgba(0,0,0,.5);inset:0;z-index:120
     }
     .k-rev-walk-sheet{
-      width:100%;max-width:none;border-radius:16px 16px 0 0;border-left:0;border-right:0;border-bottom:0;
+      width:100%;max-width:none;max-height:100%;overflow:auto;
+      border-radius:16px 16px 0 0;border-left:0;border-right:0;border-bottom:0;
       padding:8px 12px calc(12px + env(safe-area-inset-bottom,0px));
-      box-shadow:0 -8px 28px rgba(0,0,0,.35)
+      box-shadow:0 -8px 28px rgba(0,0,0,.35);-webkit-overflow-scrolling:touch
     }
+    .k-rev-walk-sheet-bg.kb-open .k-rev-walk-sheet{
+      padding-bottom:8px;border-radius:14px 14px 0 0;max-height:min(100%,420px)
+    }
+    .k-rev-walk-sheet-bg.kb-open .k-rev-walk-sheet-handle{margin:0 auto 6px}
+    .k-rev-walk-sheet-bg.kb-open .k-rev-walk-sheet-h{margin-bottom:6px}
+    .k-rev-walk-sheet-bg.kb-open .k-rev-walk-sheet-diff{margin:4px 0;padding:5px;min-height:32px}
+    .k-rev-walk-sheet-bg.kb-open .k-rev-walk-sheet-actions .k-btn{min-height:38px}
     .k-rev-walk-sheet-handle{
       display:block;width:36px;height:4px;border-radius:99px;background:var(--border);
       margin:2px auto 10px
