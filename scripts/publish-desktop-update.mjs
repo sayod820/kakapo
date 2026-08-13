@@ -10,7 +10,7 @@
  * URL: https://kakappo.shop/updates/kassa/
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -24,15 +24,39 @@ function fail(msg) {
   process.exit(1)
 }
 
+function parseVersion(name) {
+  const m = String(name || '').match(/(\d+)\.(\d+)\.(\d+)/)
+  if (!m) return null
+  return [Number(m[1]), Number(m[2]), Number(m[3])]
+}
+
+function cmpVersion(a, b) {
+  const va = parseVersion(a)
+  const vb = parseVersion(b)
+  if (!va && !vb) return 0
+  if (!va) return -1
+  if (!vb) return 1
+  for (let i = 0; i < 3; i++) {
+    if (va[i] !== vb[i]) return va[i] - vb[i]
+  }
+  return 0
+}
+
 if (!existsSync(distDir)) {
   fail(`Нет папки ${distDir}. Сначала: npm run desktop:dist`)
 }
 
 const files = readdirSync(distDir)
 const latestYml = files.find(f => f === 'latest.yml')
-const setupExe = files
+const pkgVersion = JSON.parse(readFileSync(join(root, 'desktop', 'package.json'), 'utf8')).version
+const ymlText = latestYml ? readFileSync(join(distDir, latestYml), 'utf8') : ''
+const ymlPath = (ymlText.match(/^\s*path:\s*(.+)$/m) || [])[1]?.trim()
+const wanted = ymlPath && files.includes(ymlPath)
+  ? ymlPath
+  : files.find(f => f.toLowerCase() === `kakapo-kassa-setup-${pkgVersion}.exe`.toLowerCase())
+const setupExe = wanted || files
   .filter(f => /^KAKAPO-Kassa-Setup-.*\.exe$/i.test(f) && !f.endsWith('.blockmap'))
-  .sort()
+  .sort(cmpVersion)
   .at(-1)
 
 if (!latestYml) fail('В dist/ нет latest.yml — проверьте publish в desktop/package.json')
