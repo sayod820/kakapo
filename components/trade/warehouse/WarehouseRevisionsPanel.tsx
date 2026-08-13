@@ -81,10 +81,6 @@ function lineSystemStock(
   return liveStock
 }
 
-function isLineChecked(line: RevisionDraftLine): boolean {
-  return line.checked === true
-}
-
 function RevisionLineCard({
   line,
   idx,
@@ -98,7 +94,6 @@ function RevisionLineCard({
   onCounted,
   onMatchSystem,
   onZero,
-  onConfirm,
   onEditProduct,
   cardRef,
   countedRef,
@@ -115,7 +110,6 @@ function RevisionLineCard({
   onCounted: (v: string) => void
   onMatchSystem: () => void
   onZero: () => void
-  onConfirm: () => void
   onEditProduct: () => void
   cardRef: (el: HTMLDivElement | null) => void
   countedRef: (el: HTMLInputElement | null) => void
@@ -125,7 +119,6 @@ function RevisionLineCard({
   const inputUnitLabel = packInputUnitLabel(packInfo)
   const system = lineSystemStock(line, product, liveStock, freezeSystem)
   const counted = line.countedStock !== '' ? Number(line.countedStock) : null
-  const checked = isLineChecked(line)
   const diff = counted != null ? counted - system : null
   const costPrice = Number(product.costPrice) || 0
   const basisPrice = moneyBasisPrice(product)
@@ -135,9 +128,8 @@ function RevisionLineCard({
 
   const tone =
     active ? 'on'
-      : !checked ? 'pending'
-        : diff != null && diff !== 0 ? (diff > 0 ? 'up' : 'down')
-          : ''
+      : diff != null && diff !== 0 ? (diff > 0 ? 'up' : 'down')
+        : ''
 
   return (
     <div
@@ -157,9 +149,6 @@ function RevisionLineCard({
         </div>
         <div className="k-rev-line-btns">
           <button type="button" className="k-btn k-btn-s" title="Редактор товара" onClick={e => { e.stopPropagation(); onEditProduct() }}>✎</button>
-          {!checked && (
-            <button type="button" className="k-btn k-btn-s" title="Подтвердить как есть" onClick={e => { e.stopPropagation(); onConfirm() }}>✓</button>
-          )}
           <button type="button" className="k-btn k-btn-s" title={`Как в системе (${system})`} onClick={e => { e.stopPropagation(); onMatchSystem() }}>⟲</button>
           <button type="button" className="k-btn k-btn-s" title="Факт = 0" onClick={e => { e.stopPropagation(); onZero() }}>0</button>
           {canRemove && (
@@ -176,15 +165,12 @@ function RevisionLineCard({
             type="text"
             inputMode={isWeightUnit ? 'decimal' : 'numeric'}
             value={line.countedStock}
-            placeholder={`система ${system}`}
             onChange={e => onCounted(sanitizeDecimalInput(e.target.value))}
             onClick={e => e.stopPropagation()}
           />
         </div>
-        <div className={`k-rev-line-diff${!checked ? ' pending' : diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : ' ok'}`}>
-          {!checked ? (
-            <b className="k-rev-pending">не посчитано</b>
-          ) : diff != null && diff !== 0 ? (
+        <div className={`k-rev-line-diff${diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : counted != null ? ' ok' : ''}`}>
+          {diff != null && diff !== 0 ? (
             <>
               <b style={diffStyle(diff)}>{formatDiff(diff)} {inputUnitLabel}</b>
               {diffReal && (
@@ -197,9 +183,9 @@ function RevisionLineCard({
                 </span>
               )}
             </>
-          ) : (
+          ) : counted != null ? (
             <b>✓ OK</b>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -229,7 +215,6 @@ export default function WarehouseRevisionsPanel({
   const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
-  const [countFilter, setCountFilter] = useState<'all' | 'pending' | 'done' | 'diff'>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [editProductId, setEditProductId] = useState<string | null>(null)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
@@ -315,7 +300,6 @@ export default function WarehouseRevisionsPanel({
     setModalStep('scope')
     setScopeLabel('Все категории')
     setCountSearch('')
-    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setMsg('')
@@ -326,7 +310,6 @@ export default function WarehouseRevisionsPanel({
     setModalStep('scope')
     setScopeLabel('Все категории')
     setCountSearch('')
-    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setDraft({ ...defaultRevisionDraft(), open: true })
@@ -338,7 +321,6 @@ export default function WarehouseRevisionsPanel({
     setModalStep('count')
     setScopeLabel('Редактирование')
     setCountSearch('')
-    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setDraft(revisionToDraft(revision))
@@ -359,12 +341,10 @@ export default function WarehouseRevisionsPanel({
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
     const stock = stockOf(product)
-    const keepCounted = line.countedStock !== ''
     return {
       ...line,
       productId: product.id,
-      countedStock: keepCounted ? line.countedStock : String(stock),
-      checked: keepCounted ? isLineChecked(line) : false,
+      countedStock: line.countedStock !== '' ? line.countedStock : String(stock),
       // Новая ревизия всегда берёт живой остаток по партиям
       systemStock: undefined,
     }
@@ -394,7 +374,6 @@ export default function WarehouseRevisionsPanel({
     void loadLayers()
     setScopeLabel(label)
     setCountSearch('')
-    setCountFilter('pending')
     setDraft(prev => ({
       ...prev,
       lines: [
@@ -402,7 +381,6 @@ export default function WarehouseRevisionsPanel({
           key: `rev-${p.id}-${Math.random()}`,
           productId: p.id,
           countedStock: String(liveProductStock(p, byProduct.get(p.id), true)),
-          checked: false,
         })),
         emptyRevisionLine(),
       ],
@@ -422,7 +400,7 @@ export default function WarehouseRevisionsPanel({
 
   function selectProduct(key: string, product: Product | null) {
     if (!product) {
-      updateLine(key, { productId: null, countedStock: '', checked: false, systemStock: undefined })
+      updateLine(key, { productId: null, countedStock: '', systemStock: undefined })
       return
     }
     const existing = lines.find(l => l.productId === product.id && l.key !== key)
@@ -525,32 +503,14 @@ export default function WarehouseRevisionsPanel({
   const editingRevision = editingId ? revisions.find(r => r.id === editingId) || null : null
 
   const filledLines = lines.filter(l => l.productId)
-  const pendingCount = useMemo(
-    () => filledLines.filter(l => !isLineChecked(l)).length,
-    [filledLines],
-  )
   const visibleFilledLines = useMemo(() => {
-    let list = filledLines
-    if (countFilter === 'pending') {
-      list = list.filter(l => !isLineChecked(l))
-    } else if (countFilter === 'done') {
-      list = list.filter(l => isLineChecked(l))
-    } else if (countFilter === 'diff') {
-      list = list.filter(l => {
-        if (!isLineChecked(l) || l.countedStock === '' || !l.productId) return false
-        const product = products.find(p => p.id === l.productId)
-        if (!product) return false
-        const system = lineSystemStock(l, product, stockOf(product), freezeSystem)
-        return (Number(l.countedStock) || 0) !== system
-      })
-    }
-    if (!countSearch.trim()) return list
+    if (!countSearch.trim()) return filledLines
     const q = countSearch.trim()
-    return list.filter(l => {
+    return filledLines.filter(l => {
       const product = products.find(p => p.id === l.productId)
       return product && filterProductsBySearch([product], q).length > 0
     })
-  }, [filledLines, countFilter, countSearch, products, stockOf, freezeSystem])
+  }, [filledLines, countSearch, products])
   const hasDraft = !editingId && lines.some(l => l.productId || l.countedStock)
 
   async function submit() {
@@ -560,12 +520,6 @@ export default function WarehouseRevisionsPanel({
     if (!items.length) {
       setMsg('Добавьте товары и укажите фактический остаток')
       return
-    }
-    const unchecked = filledLines.filter(l => !isLineChecked(l)).length
-    if (unchecked > 0) {
-      if (!confirm(
-        `Не подтверждено: ${unchecked} из ${filledLines.length}.\n\nПровести ревизию по всем ${items.length} позициям (факт уже заполнен из системы)? Непроверенные войдут как есть.`,
-      )) return
     }
     setSaving(true)
     setMsg('')
@@ -969,43 +923,14 @@ export default function WarehouseRevisionsPanel({
                   </div>
 
                   <div className="k-rev-summary">
-                    <div><span>Поз.</span><b>{totals.withProduct}</b></div>
-                    <div><span>Факт</span><b>{totals.count}</b></div>
+                    <div><span>Поз.</span><b>{totals.count}</b></div>
                     <div><span>ОК</span><b style={{ color: 'var(--green)' }}>{totals.matched}</b></div>
                     <div><span>Изл.</span><b style={{ color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</b></div>
                     <div><span>Δ</span><b style={diffStyle(totals.netDiff)}>{totals.count ? formatDiff(totals.netDiff) : '—'}</b></div>
                     <div><span>Σ</span><b style={diffStyle(totals.costMoneyDiff)}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</b></div>
                   </div>
 
-                  {filledLines.length > 0 && (
-                    <div className="k-rev-count-bar">
-                      <div className="k-rev-count-flt" role="group" aria-label="Фильтр пересчёта">
-                        {([
-                          { id: 'all' as const, label: 'Все' },
-                          { id: 'pending' as const, label: 'Не посчитано' },
-                          { id: 'done' as const, label: 'Посчитано' },
-                          { id: 'diff' as const, label: 'Расхождение' },
-                        ]).map(f => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            className={`k-subtab${countFilter === f.id ? ' active' : ''}`}
-                            onClick={() => setCountFilter(f.id)}
-                          >
-                            {f.label}
-                            {f.id === 'pending' && pendingCount > 0 ? ` ${pendingCount}` : ''}
-                          </button>
-                        ))}
-                      </div>
-                      <div className={`k-rev-left${pendingCount > 0 ? ' warn' : ''}`}>
-                        {pendingCount > 0
-                          ? <>Осталось <b>{pendingCount}</b> из {filledLines.length}</>
-                          : <>Всё посчитано · <b>{filledLines.length}</b></>}
-                      </div>
-                    </div>
-                  )}
-
-                  {(filledLines.length > 5 || countSearch.trim()) && (
+                  {filledLines.length > 5 && (
                     <div className="k-rev-search">
                       <input
                         className="k-inp"
@@ -1016,16 +941,8 @@ export default function WarehouseRevisionsPanel({
                     </div>
                   )}
 
-                  {visibleFilledLines.length === 0 && (countSearch.trim() || countFilter !== 'all') && filledLines.length > 0 && (
-                    <div className="k-rcpt-empty">
-                      {countSearch.trim()
-                        ? `По запросу «${countSearch}» ничего не найдено`
-                        : countFilter === 'pending'
-                          ? 'Все позиции уже посчитаны'
-                          : countFilter === 'diff'
-                            ? 'Расхождений нет'
-                            : 'Нет посчитанных позиций'}
-                    </div>
+                  {visibleFilledLines.length === 0 && countSearch.trim() && (
+                    <div className="k-rcpt-empty">По запросу «{countSearch}» ничего не найдено</div>
                   )}
                   {filledLines.length === 0 && !countSearch.trim() && (
                     <div className="k-rcpt-empty">Нажмите + чтобы добавить товар</div>
@@ -1051,13 +968,9 @@ export default function WarehouseRevisionsPanel({
                           activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                         }))}
                         onActivate={() => setDraftPatch({ activeLineKey: line.key })}
-                        onCounted={v => updateLine(line.key, { countedStock: v, checked: true })}
-                        onMatchSystem={() => updateLine(line.key, { countedStock: String(stockOf(product)), checked: true })}
-                        onZero={() => updateLine(line.key, { countedStock: '0', checked: true })}
-                        onConfirm={() => updateLine(line.key, {
-                          countedStock: line.countedStock !== '' ? line.countedStock : String(stockOf(product)),
-                          checked: true,
-                        })}
+                        onCounted={v => updateLine(line.key, { countedStock: v })}
+                        onMatchSystem={() => updateLine(line.key, { countedStock: String(stockOf(product)) })}
+                        onZero={() => updateLine(line.key, { countedStock: '0' })}
                         onEditProduct={() => setEditProductId(product.id)}
                         cardRef={el => { lineRefs.current[line.key] = el }}
                         countedRef={el => { countedRefs.current[line.key] = el }}

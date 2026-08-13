@@ -501,22 +501,12 @@ const CSS = `
   }
   .k-rev-scope-chip .k-btn{font-size:11px;padding:4px 8px;min-height:0}
   .k-rev-summary{
-    display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;
+    display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;
     position:sticky;top:0;z-index:2;margin:0 0 8px;padding:6px 8px;
     border:1px solid var(--border);border-radius:10px;background:var(--panel)
   }
   .k-rev-summary span{display:block;font-size:9px;color:var(--muted);font-weight:700}
   .k-rev-summary b{display:block;font-size:12px;font-weight:900;margin-top:1px}
-  .k-rev-count-bar{
-    display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px;
-    padding:6px 8px;border-radius:10px;border:1px solid var(--border);background:var(--card2)
-  }
-  .k-rev-count-flt{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
-  .k-rev-count-flt .k-subtab{padding:5px 10px;font-size:11px;min-height:0}
-  .k-rev-left{font-size:12px;font-weight:700;color:var(--muted);margin-left:auto;white-space:nowrap}
-  .k-rev-left b{color:var(--text);font-weight:900}
-  .k-rev-left.warn{color:var(--gold)}
-  .k-rev-left.warn b{color:var(--gold)}
   .k-rev-search{margin-bottom:8px}
   .k-rev-line{
     padding:8px 10px;border-radius:10px;border:1px solid var(--border);
@@ -525,7 +515,6 @@ const CSS = `
   .k-rev-line.is-on{border-color:#3B8EF0;background:rgba(59,142,240,.06)}
   .k-rev-line.is-up{border-color:rgba(31,215,96,.45)}
   .k-rev-line.is-down{border-color:rgba(255,90,90,.45)}
-  .k-rev-line.is-pending{border-color:rgba(255,184,0,.4);background:rgba(255,184,0,.04)}
   .k-rev-line-top{display:flex;align-items:flex-start;gap:6px}
   .k-rev-line-n{font-size:11px;font-weight:900;color:var(--muted);min-width:14px;padding-top:2px}
   .k-rev-line-emo{font-size:18px;flex-shrink:0;line-height:1.2}
@@ -553,8 +542,6 @@ const CSS = `
   .k-rev-line-diff.ok b{color:var(--green);font-size:13px}
   .k-rev-line-diff.up{background:rgba(31,215,96,.1)}
   .k-rev-line-diff.down{background:rgba(255,90,90,.08)}
-  .k-rev-line-diff.pending{background:rgba(255,184,0,.1)}
-  .k-rev-line-diff .k-rev-pending{color:var(--gold);font-size:11px;font-weight:800}
   .k-rev-line-diff b{font-size:12px;font-weight:900}
   .k-rev-line-diff span{font-size:10px;font-weight:700}
   .k-rev-add{
@@ -1724,9 +1711,6 @@ const CSS = `
     .k-rev-scope-chip > span{padding:3px 7px;font-size:10px}
     .k-rev-summary{gap:3px;padding:5px 6px;margin-bottom:6px;grid-template-columns:repeat(3,minmax(0,1fr))}
     .k-rev-summary b{font-size:11px}
-    .k-rev-count-bar{gap:6px;padding:5px 6px;margin-bottom:6px}
-    .k-rev-count-flt .k-subtab{padding:4px 8px;font-size:10px}
-    .k-rev-left{font-size:11px;width:100%;margin-left:0}
     .k-rev-line{padding:6px 8px;margin-bottom:5px;border-radius:9px}
     .k-rev-line-emo{font-size:15px}
     .k-rev-line-txt b{font-size:12px}
