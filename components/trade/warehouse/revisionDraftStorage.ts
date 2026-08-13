@@ -4,6 +4,8 @@ export type RevisionDraftLine = {
   key: string
   productId: number | null
   countedStock: string
+  /** Кассир подтвердил пересчёт этой строки (ввод / ⟲ / 0 / ✓) */
+  checked?: boolean
   /** Остаток «в системе» на момент создания ревизии (для редактирования — иначе после
    *  сохранения товар уже получил новый остаток, и расхождение всегда показывало бы 0). */
   systemStock?: number
@@ -18,7 +20,7 @@ export type RevisionDraft = {
 }
 
 export function emptyRevisionLine(): RevisionDraftLine {
-  return { key: String(Date.now() + Math.random()), productId: null, countedStock: '' }
+  return { key: String(Date.now() + Math.random()), productId: null, countedStock: '', checked: false }
 }
 
 export function defaultRevisionDraft(): RevisionDraft {
@@ -71,6 +73,7 @@ export function revisionToDraft(revision: import('@/lib/types').StockRevision): 
         productId: it.productId,
         countedStock: String(it.countedStock),
         systemStock: it.systemStock,
+        checked: true,
       })),
       emptyRevisionLine(),
     ],
