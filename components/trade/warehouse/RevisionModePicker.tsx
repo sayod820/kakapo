@@ -16,7 +16,7 @@ export default function RevisionModePicker({
         <span className="k-rev-mode-ic" style={{ background: 'rgba(59,142,240,.15)', color: '#3B8EF0' }}>📂</span>
         <span className="k-rev-mode-txt">
           <b>По категориям</b>
-          <small>Выбрать отделы → большой список пересчёта</small>
+          <small>Отделы → список пересчёта</small>
         </span>
         <span className="k-rev-mode-go">→</span>
       </button>
@@ -24,7 +24,7 @@ export default function RevisionModePicker({
         <span className="k-rev-mode-ic" style={{ background: 'rgba(31,215,96,.12)', color: 'var(--green)' }}>🚶</span>
         <span className="k-rev-mode-txt">
           <b>Обход</b>
-          <small>Товар за товаром · поиск и сканер · «не сделано / сделано»</small>
+          <small>Поиск / сканер · не сделано → сделано</small>
         </span>
         <span className="k-rev-mode-go">→</span>
       </button>

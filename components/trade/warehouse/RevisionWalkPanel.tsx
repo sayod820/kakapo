@@ -12,6 +12,7 @@ import { categorySlug, productMatchesCategoryFilter } from '@/lib/useCategories'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import type { RevisionDraftLine } from './revisionDraftStorage'
 import {
+  fmtMoney,
   formatQty,
   isGramLabel,
   isKgLabel,
@@ -36,6 +37,18 @@ function formatDiff(diff: number) {
   const rounded = Math.round(diff * 1000) / 1000
   if (rounded === 0) return '0'
   return rounded > 0 ? `+${rounded}` : String(rounded)
+}
+
+function formatMoneyDiff(n: number) {
+  if (n === 0) return fmtMoney(0)
+  return `${n > 0 ? '+' : '−'}${fmtMoney(Math.abs(n))}`
+}
+
+function moneyBasisPrice(product: Product | undefined | null): number {
+  if (!product) return 0
+  const cost = Number(product.costPrice) || 0
+  if (cost > 0) return cost
+  return Number(product.price) || 0
 }
 
 function diffStyle(diff: number) {
@@ -219,74 +232,108 @@ export default function RevisionWalkPanel({
   const progressTotal = doneCount + todoCount
   const progressPct = progressTotal > 0 ? Math.round((doneCount / progressTotal) * 100) : 0
 
+  const walkTotals = useMemo(() => {
+    let matched = 0
+    let netDiff = 0
+    let costMoneyDiff = 0
+    for (const l of doneLines) {
+      const p = products.find(x => x.id === l.productId)
+      if (!p) continue
+      const system = stockOf(p)
+      const counted = Number(l.countedStock) || 0
+      const diff = counted - system
+      netDiff += diff
+      costMoneyDiff += diff * moneyBasisPrice(p)
+      if (diff === 0) matched++
+    }
+    return { matched, netDiff, costMoneyDiff }
+  }, [doneLines, products, stockOf])
+
   return (
     <div className="k-rev-walk">
-      <div className="k-rev-note">
-        <div className="k-rev-note-row">
+      <div className="k-rev-walk-sticky">
+        <div className="k-rev-note">
+          <div className="k-rev-note-row">
+            <input
+              className="k-inp"
+              value={note}
+              onChange={e => onNoteChange(e.target.value)}
+              placeholder="Комментарий…"
+            />
+            <button type="button" className="k-btn k-btn-s k-rev-walk-back" onClick={onBack}>
+              <span className="k-rev-walk-back-full">← Режим</span>
+              <span className="k-rev-walk-back-short">←</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="k-rev-walk-prog">
+          <div className="k-rev-walk-prog-bar">
+            <i style={{ width: `${progressPct}%` }} />
+          </div>
+          <span>
+            <b>{progressPct}%</b>
+            <em> · {doneCount}{progressTotal ? `/${progressTotal}` : ''}</em>
+          </span>
+        </div>
+
+        <div className="k-rev-walk-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            className={`k-subtab${tab === 'todo' ? ' active' : ''}`}
+            onClick={() => setTab('todo')}
+          >
+            Не сделано <b>{todoCount}</b>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`k-subtab${tab === 'done' ? ' active' : ''}`}
+            onClick={() => setTab('done')}
+          >
+            Сделано <b>{doneCount}</b>
+          </button>
+        </div>
+
+        <div className="k-rev-walk-search">
           <input
+            ref={searchRef}
             className="k-inp"
-            value={note}
-            onChange={e => onNoteChange(e.target.value)}
-            placeholder="Комментарий…"
+            value={q}
+            onChange={e => { setQ(e.target.value); setScanMsg('') }}
+            placeholder="Штрихкод, название, артикул…"
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (!tryOpenFromQuery(q) && tab === 'todo' && todoShown[0]) openSheet(todoShown[0])
+              }
+            }}
           />
-          <button type="button" className="k-btn k-btn-s" onClick={onBack}>← Режим</button>
+          <button
+            type="button"
+            className="k-btn k-btn-s k-cam-scan-btn"
+            title="Сканер камеры"
+            aria-label="Сканер камеры"
+            onClick={() => { setScanOpen(true); setScanMsg('') }}
+          >
+            📷
+          </button>
         </div>
+        {scanMsg && <div className="k-rev-walk-msg">{scanMsg}</div>}
       </div>
 
-      <div className="k-rev-walk-prog">
-        <div className="k-rev-walk-prog-bar">
-          <i style={{ width: `${progressPct}%` }} />
+      {doneCount > 0 && (
+        <div className="k-rev-walk-sum">
+          <div><span>Поз.</span><b>{doneCount}</b></div>
+          <div><span>ОК</span><b style={{ color: 'var(--green)' }}>{walkTotals.matched}</b></div>
+          <div><span>Δ</span><b style={diffStyle(walkTotals.netDiff)}>{formatDiff(walkTotals.netDiff)}</b></div>
+          <div><span>Σ</span><b style={diffStyle(walkTotals.costMoneyDiff)}>{formatMoneyDiff(walkTotals.costMoneyDiff)}</b></div>
         </div>
-        <span>{progressPct}% · сделано {doneCount}{progressTotal ? ` / ${progressTotal}` : ''}</span>
-      </div>
-
-      <div className="k-rev-walk-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={`k-subtab${tab === 'todo' ? ' active' : ''}`}
-          onClick={() => setTab('todo')}
-        >
-          Не сделано {todoCount}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`k-subtab${tab === 'done' ? ' active' : ''}`}
-          onClick={() => setTab('done')}
-        >
-          Сделано {doneCount}
-        </button>
-      </div>
-
-      <div className="k-rev-walk-search">
-        <input
-          ref={searchRef}
-          className="k-inp"
-          value={q}
-          onChange={e => { setQ(e.target.value); setScanMsg('') }}
-          placeholder="Поиск: штрихкод, название, артикул…"
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              if (!tryOpenFromQuery(q) && tab === 'todo' && todoShown[0]) openSheet(todoShown[0])
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="k-btn k-btn-s k-cam-scan-btn"
-          title="Сканер камеры"
-          aria-label="Сканер камеры"
-          onClick={() => { setScanOpen(true); setScanMsg('') }}
-        >
-          📷
-        </button>
-      </div>
-      {scanMsg && <div className="k-rev-walk-msg">{scanMsg}</div>}
+      )}
 
       {tab === 'todo' && (
-        <>
+        <div className="k-rev-walk-filters">
           <div className="k-rev-scope-lbl">Категории</div>
           <div className="k-cats k-cats-compact k-rev-cats">
             <button
@@ -338,7 +385,7 @@ export default function RevisionWalkPanel({
               </button>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {tab === 'done' && doneCount > 0 && (
@@ -400,9 +447,15 @@ export default function RevisionWalkPanel({
         {tab === 'done' && doneVisible.map((line, idx) => {
           const p = products.find(x => x.id === line.productId)
           if (!p) return null
+          const packInfo = parsePackUnit(p.unit)
+          const unit = packInputUnitLabel(packInfo)
           const system = stockOf(p)
           const counted = Number(line.countedStock) || 0
           const diff = counted - system
+          const costPrice = Number(p.costPrice) || 0
+          const basisPrice = moneyBasisPrice(p)
+          const costDiff = basisPrice > 0 ? diff * basisPrice : null
+          const diffReal = packRealWorld(diff, packInfo)
           return (
             <div key={line.key} className={`k-rev-walk-done${diff !== 0 ? (diff > 0 ? ' up' : ' down') : ''}`}>
               <button type="button" className="k-rev-walk-row" onClick={() => openSheet(p, true)}>
@@ -411,9 +464,15 @@ export default function RevisionWalkPanel({
                 <span className="k-rev-walk-txt">
                   <b>{p.name}</b>
                   <small>
-                    {formatQty(system)}→{formatQty(counted)}
+                    {formatQty(system)}→{formatQty(counted)} {unit}
                     {' · '}
-                    <span style={diffStyle(diff)}>{diff === 0 ? 'OK' : formatDiff(diff)}</span>
+                    <span style={diffStyle(diff)}>{diff === 0 ? 'OK' : `${formatDiff(diff)} ${unit}`}</span>
+                    {diff !== 0 && diffReal && (
+                      <> · <span style={diffStyle(diffReal.value)}>{formatDiff(diffReal.value)} {diffReal.label}</span></>
+                    )}
+                    {diff !== 0 && costDiff != null && (
+                      <> · <span style={diffStyle(costDiff)}>{formatMoneyDiff(costDiff)}{costPrice <= 0 ? ' · розн.' : ''}</span></>
+                    )}
                   </small>
                 </span>
               </button>
@@ -435,9 +494,14 @@ export default function RevisionWalkPanel({
         const counted = sheet.counted !== '' ? Number(sheet.counted) : null
         const diff = counted != null ? counted - system : null
         const systemReal = packRealWorld(system, packInfo)
+        const diffReal = diff != null ? packRealWorld(diff, packInfo) : null
+        const costPrice = Number(p.costPrice) || 0
+        const basisPrice = moneyBasisPrice(p)
+        const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
         return (
           <div className="k-rev-walk-sheet-bg" onClick={() => setSheet(null)}>
             <div className="k-rev-walk-sheet" onClick={e => e.stopPropagation()}>
+              <div className="k-rev-walk-sheet-handle" aria-hidden />
               <div className="k-rev-walk-sheet-h">
                 <span className="k-rev-walk-emo">{p.e || '📦'}</span>
                 <div className="k-rev-walk-txt">
@@ -445,6 +509,9 @@ export default function RevisionWalkPanel({
                   <small>
                     {p.art || '—'} · система <b>{formatQty(system)}</b> {unit}
                     {systemReal && <> ({formatQty(systemReal.value)} {systemReal.label})</>}
+                    {basisPrice > 0 && (
+                      <> · {costPrice > 0 ? 'закуп' : 'розн.'} {fmtMoney(basisPrice)}</>
+                    )}
                   </small>
                 </div>
                 <button type="button" className="k-rcpt-find-x" onClick={() => setSheet(null)} aria-label="Закрыть">✕</button>
@@ -466,8 +533,25 @@ export default function RevisionWalkPanel({
                   }}
                 />
               </div>
-              <div className="k-rev-walk-sheet-diff" style={diff != null ? diffStyle(diff) : undefined}>
-                {diff == null ? '—' : diff === 0 ? '✓ OK' : `${formatDiff(diff)} ${unit}`}
+              <div className={`k-rev-walk-sheet-diff${diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : diff === 0 ? ' ok' : ''}`}>
+                {diff == null ? (
+                  <b>—</b>
+                ) : diff === 0 ? (
+                  <b>✓ OK</b>
+                ) : (
+                  <>
+                    <b style={diffStyle(diff)}>{formatDiff(diff)} {unit}</b>
+                    {diffReal && (
+                      <span style={diffStyle(diffReal.value)}>= {formatDiff(diffReal.value)} {diffReal.label}</span>
+                    )}
+                    {costDiff != null && (
+                      <span style={diffStyle(costDiff)}>
+                        {formatMoneyDiff(costDiff)}
+                        {costPrice <= 0 && ' · розн.'}
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               <div className="k-rev-walk-sheet-actions">
                 <button
