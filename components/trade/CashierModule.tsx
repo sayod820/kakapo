@@ -597,11 +597,10 @@ const PosProductTile = memo(function PosProductTile({
           (p.e || '📦')
         )}
         {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
-        {weighted && plu ? <span className="p-plu-tag" title={`PLU ${plu}`}>PLU {plu}</span> : null}
       </div>
       <div className="p-name">{p.name}</div>
       <div className="p-codes">
-        {!weighted && plu ? <span className="p-plu">PLU {plu}</span> : null}
+        {plu ? <span className="p-plu">PLU {plu}</span> : null}
         {art ? <span>арт. {art}</span> : null}
         {barcode ? <span>ш/к {barcode}</span> : null}
         {!plu && !art && !barcode ? <span className="muted">без кода</span> : null}
