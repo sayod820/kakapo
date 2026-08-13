@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
+import { allocPosOpSeq } from '@/lib/posOpSeq'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import { loadTradeEmployeeSession } from '@/lib/employeeSession'
 import {
@@ -5834,9 +5835,11 @@ export default function CashierModule({
       const bonusBalanceAfter = bonusBalanceBefore != null
         ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
         : undefined
+      const salePosId = activeShift.posId || activePosPoint?.id
       const salePayload = {
         clientRef: newClientRef(),
         createdAtIso: new Date().toISOString(),
+        opSeq: allocPosOpSeq(String(salePosId || '')),
         cashierId: activeShift.cashierId,
         cashierName: resolveCashierName({
           cashierId: activeShift.cashierId,

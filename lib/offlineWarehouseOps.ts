@@ -374,7 +374,7 @@ export async function deleteStockWriteoffSafe(id: string): Promise<OfflineResult
 export type RevisionPayload = {
   note?: string
   createdBy?: string
-  items: { productId: number; countedStock: number }[]
+  items: { productId: number; countedStock: number; systemStock?: number }[]
 }
 
 async function setProductStockExact(productId: number, stock: number) {
@@ -385,15 +385,25 @@ async function setProductStockExact(productId: number, stock: number) {
   ps.updateProduct(productId, { stock: round2(Math.max(0, stock)) } as any)
 }
 
-async function applyRevisionExact(items: { productId: number; countedStock: number }[]) {
+async function applyRevisionDelta(
+  items: { productId: number; countedStock: number; systemStock?: number }[],
+) {
+  const { useProducts } = await import('./store')
+  const ps = useProducts.getState()
   for (const it of items) {
-    await setProductStockExact(it.productId, Number(it.countedStock) || 0)
+    const p = ps.products.find(x => x.id === it.productId)
+    const liveNow = round2(Number(p?.stock) || 0)
+    const frozen = Number.isFinite(Number(it.systemStock)) ? round2(Number(it.systemStock)) : liveNow
+    const counted = round2(Number(it.countedStock) || 0)
+    const target = Math.max(0, round2(liveNow + (counted - frozen)))
+    await setProductStockExact(it.productId, target)
   }
 }
 
-async function reverseRevision(items: { productId: number; systemStock: number }[]) {
+async function reverseRevision(items: { productId: number; systemStock: number; stockBefore?: number }[]) {
   for (const it of items) {
-    await setProductStockExact(it.productId, Number(it.systemStock) || 0)
+    const restore = it.stockBefore != null ? Number(it.stockBefore) : Number(it.systemStock)
+    await setProductStockExact(it.productId, restore || 0)
   }
 }
 
@@ -405,16 +415,37 @@ async function buildLocalRevision(
   const list = useProducts.getState().products
   const items = payload.items.map(it => {
     const p = list.find(x => x.id === it.productId)
-    const systemStock = round2(Number(p?.stock) || 0)
+    const liveNow = round2(Number(p?.stock) || 0)
+    const frozen = Number.isFinite(Number(it.systemStock)) ? round2(Number(it.systemStock)) : liveNow
     const countedStock = round2(Number(it.countedStock) || 0)
     return {
       productId: it.productId,
       productName: p?.name || `#${it.productId}`,
-      systemStock,
+      systemStock: frozen,
       countedStock,
-      diff: round2(countedStock - systemStock),
+      diff: round2(countedStock - frozen),
+      stockBefore: liveNow,
     }
   })
+  // Локальный срез: что уже известно этой копии (серверные чеки + точки). Офлайн-очередь кассы
+  // сюда не входит — именно её поздний синхрон и должен попасть под skip на сервере.
+  let posCuts: { posId: string; lastSeq: number }[] = []
+  try {
+    const { usePosStore } = await import('./posStore')
+    const last: Record<string, number> = {}
+    for (const p of usePosStore.getState().posPoints || []) {
+      const id = String(p.id || '')
+      if (!id) continue
+      last[id] = Math.max(0, Number(p.opSeq) || 0)
+    }
+    for (const s of usePosStore.getState().sales || []) {
+      const id = String(s.posId || '')
+      if (!id) continue
+      const seq = Number(s.opSeq) || 0
+      if (seq > (last[id] || 0)) last[id] = seq
+    }
+    posCuts = Object.keys(last).map(posId => ({ posId, lastSeq: last[posId] }))
+  } catch { /* ignore */ }
   return {
     id: opts.id,
     clientRef: opts.clientRef,
@@ -422,6 +453,7 @@ async function buildLocalRevision(
     createdBy: payload.createdBy,
     note: payload.note,
     items,
+    posCuts,
   }
 }
 
@@ -437,6 +469,7 @@ export async function createStockRevisionSafe(
     items: payload.items.map(it => ({
       productId: it.productId,
       countedStock: round2(it.countedStock),
+      ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: round2(Number(it.systemStock)) } : {}),
     })),
   }
 
@@ -444,7 +477,7 @@ export async function createStockRevisionSafe(
     const localId = newLocalId('rev')
     const revision = await buildLocalRevision(payload, { id: localId, clientRef, createdAtIso })
     await useOfflineSync.getState().queueOp('stock_revision_create', body, { localId })
-    await applyRevisionExact(payload.items)
+    await applyRevisionDelta(payload.items)
     usePosStore.setState(s => ({ revisions: [revision, ...s.revisions] }))
     shadowMirrorPut('stock_receipt', `rev:${revision.id}`, revision)
     return revision
@@ -467,6 +500,7 @@ export async function updateStockRevisionSafe(
     items: payload.items.map(it => ({
       productId: it.productId,
       countedStock: round2(it.countedStock),
+      ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: round2(Number(it.systemStock)) } : {}),
     })),
   }
 
@@ -478,7 +512,7 @@ export async function updateStockRevisionSafe(
       clientRef,
       createdAtIso: old?.createdAtIso,
     })
-    await applyRevisionExact(payload.items)
+    await applyRevisionDelta(payload.items)
     await useOfflineSync.getState().queueOp('stock_revision_update', body)
     usePosStore.setState(s => ({
       revisions: s.revisions.map(r => (r.id === id ? revision : r)),

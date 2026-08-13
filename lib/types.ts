@@ -162,6 +162,8 @@ export interface PosPoint {
   receiptPhone?: string
   active: boolean
   createdAtIso?: string
+  /** Последний выданный номер операции этой кассы */
+  opSeq?: number
 }
 
 export interface PosCashier {
@@ -414,9 +416,12 @@ export interface StockWriteoff {
 export interface StockRevisionItem {
   productId: number
   productName: string
+  /** Остаток «в системе» на момент подсчёта (заморозка в черновике) */
   systemStock: number
   countedStock: number
   diff: number
+  /** Живой остаток непосредственно перед применением ревизии (для отката) */
+  stockBefore?: number
 }
 
 export interface StockRevision {
@@ -426,6 +431,8 @@ export interface StockRevision {
   createdBy?: string
   note?: string
   items: StockRevisionItem[]
+  /** Срез номеров операций по кассам на момент проведения */
+  posCuts?: { posId: string; lastSeq: number }[]
 }
 
 export interface PosSaleItem {
@@ -484,6 +491,11 @@ export interface PosSale {
   /** Оплачено с кошелька (предоплаченные деньги клиента) */
   paidWallet?: number
   debtAdded: number
+  /** Номер операции этой кассы (1, 2, 3… онлайн и офлайн) */
+  opSeq?: number
+  /** Чек в историю, остаток не минусовали — уже внутри факта ревизии */
+  stockSkipped?: boolean
+  stockSkipRevisionId?: string
   /** Точка продаж, с которой проведён чек */
   posId?: string
   /** Сколько наличных дал клиент (до сдачи) */

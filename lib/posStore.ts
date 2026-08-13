@@ -118,6 +118,11 @@ export const usePosStore = create<PosStore>((set) => ({
       }
       set({ ...snapshot, apiReady: true, apiSyncing: false, apiError: '' })
       try {
+        const { notePosOpSeqFromSales, notePosOpSeqFromPoints } = await import('./posOpSeq')
+        notePosOpSeqFromPoints(posPoints)
+        notePosOpSeqFromSales(sales)
+      } catch { /* ignore */ }
+      try {
         const { cacheData } = await import('./offline')
         void cacheData('pos_snapshot', snapshot)
       } catch { /* кэш недоступен */ }

@@ -797,6 +797,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         items: items.map((it: any) => ({
           productId: it.productId,
           countedStock: Number(it.countedStock),
+          ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: Number(it.systemStock) } : {}),
         })),
       } as any)
       return String((rev as any)?.id || '')
@@ -811,6 +812,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         items: items.map((it: any) => ({
           productId: it.productId,
           countedStock: Number(it.countedStock),
+          ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: Number(it.systemStock) } : {}),
         })),
       } as any)
       return String((rev as any)?.id || '')

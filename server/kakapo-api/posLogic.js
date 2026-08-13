@@ -55,8 +55,12 @@ function ensureDefaultPosPoint(db) {
       code: 'Касса №1 · KAKAPO',
       note: '',
       active: true,
+      opSeq: 0,
       createdAtIso: nowIso(),
     })
+  }
+  for (const p of db.posPoints) {
+    if (p.opSeq == null || !Number.isFinite(Number(p.opSeq))) p.opSeq = 0
   }
   const fallbackId = db.posPoints[0]?.id || DEFAULT_POS_ID
   for (const s of db.posShifts) {
@@ -85,6 +89,7 @@ export function createPosPoint(db, data = {}) {
     note: String(data.note || '').trim(),
     receiptPhone: String(data.receiptPhone || '').trim(),
     active: data.active !== false,
+    opSeq: 0,
     createdAtIso: nowIso(),
   }
   db.posPoints.push(row)
@@ -151,6 +156,93 @@ function nextPosSaleNumber(db) {
   const n = (Number(db._seq.posSale) || 0) + 1
   db._seq.posSale = n
   return n
+}
+
+function snapshotPosCuts(db) {
+  const last = {}
+  for (const p of db.posPoints || []) {
+    const id = String(p.id || '')
+    if (!id) continue
+    last[id] = Math.max(0, Number(p.opSeq) || 0)
+  }
+  for (const s of db.posSales || []) {
+    const id = String(s.posId || '')
+    if (!id) continue
+    const seq = Number(s.opSeq) || 0
+    if (seq > (last[id] || 0)) last[id] = seq
+  }
+  return Object.keys(last).map(posId => ({ posId, lastSeq: last[posId] }))
+}
+
+function bumpPosOpSeq(db, posId, seq) {
+  const id = String(posId || '').trim()
+  const n = Math.max(0, Math.floor(Number(seq) || 0))
+  if (!id || n <= 0) return
+  const point = (db.posPoints || []).find(p => String(p.id) === id)
+  if (point) point.opSeq = Math.max(Number(point.opSeq) || 0, n)
+}
+
+function allocSaleOpSeq(db, posId, clientSeq) {
+  const id = String(posId || '').trim()
+  let max = 0
+  const point = (db.posPoints || []).find(p => String(p.id) === id)
+  if (point) max = Math.max(max, Number(point.opSeq) || 0)
+  for (const s of db.posSales || []) {
+    if (String(s.posId || '') !== id) continue
+    const n = Number(s.opSeq) || 0
+    if (n > max) max = n
+  }
+  const fromClient = Math.max(0, Math.floor(Number(clientSeq) || 0))
+  if (fromClient > 0) {
+    const taken = (db.posSales || []).some(
+      s => String(s.posId || '') === id && Number(s.opSeq) === fromClient,
+    )
+    if (!taken) {
+      bumpPosOpSeq(db, id, Math.max(max, fromClient))
+      return fromClient
+    }
+  }
+  const seq = max + 1
+  bumpPosOpSeq(db, id, seq)
+  return seq
+}
+
+function stockRowsWithoutConsume(db, items) {
+  return items.map(raw => {
+    const product = getProduct(db, raw.productId)
+    const qty = round2(raw.qty)
+    if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
+    const unitCost = Number(product.costPrice) || 0
+    return {
+      product,
+      qty,
+      cogs: round2(unitCost * qty),
+      receiptId: String(raw.receiptId || '').trim(),
+      preferRetailPrice: null,
+    }
+  })
+}
+
+/** Офлайн-чек после ревизии: номер выше среза, время чека ≤ ревизии, товар был в ревизии. */
+function shouldSkipSaleStock(db, posId, opSeq, createdAtIso, productIds) {
+  const ids = new Set((productIds || []).map(n => Number(n)).filter(n => n > 0))
+  if (!ids.size || !(Number(opSeq) > 0)) return null
+  const saleAt = Date.parse(String(createdAtIso || ''))
+  for (const rev of db.stockRevisions || []) {
+    const cuts = Array.isArray(rev.posCuts) ? rev.posCuts : []
+    if (!cuts.length) continue
+    const overlap = (rev.items || []).some(it => ids.has(Number(it.productId)))
+    if (!overlap) continue
+    const cut = cuts.find(c => String(c.posId) === String(posId))
+    const lastSeq = Number(cut?.lastSeq) || 0
+    if (!(Number(opSeq) > lastSeq)) continue
+    const revAt = Date.parse(String(rev.createdAtIso || ''))
+    if (!Number.isFinite(saleAt) || !Number.isFinite(revAt)) continue
+    if (saleAt <= revAt + 8000) {
+      return { revisionId: String(rev.id || '') }
+    }
+  }
+  return null
 }
 
 function getProduct(db, productId) {
@@ -1349,7 +1441,8 @@ export function listStockRevisions(db) {
 
 function reverseStockRevision(db, revision) {
   for (const item of revision.items || []) {
-    setProductStockExact(db, item.productId, item.systemStock, { reason: 'Откат ревизии' })
+    const restore = item.stockBefore != null ? item.stockBefore : item.systemStock
+    setProductStockExact(db, item.productId, restore, { reason: 'Откат ревизии' })
   }
 }
 
@@ -1364,14 +1457,20 @@ function buildStockRevision(db, data = {}, meta = {}) {
       throw new Error(`Укажите фактическое количество: ${product.name}`)
     }
     const countedStock = round2(raw.countedStock)
-    const systemStock = sumProductLayers(db, product.id)
-    setProductStockExact(db, product.id, countedStock, { reason: 'Ревизия', createdBy })
+    const liveNow = sumProductLayers(db, product.id)
+    // Заморозка с клиента (момент подсчёта). Если нет — считаем от текущего (старое поведение).
+    const frozen = Number.isFinite(Number(raw.systemStock)) ? round2(raw.systemStock) : liveNow
+    const delta = round2(countedStock - frozen)
+    // Продажи/приходы после подсчёта уже в liveNow → к нему применяем только разницу ревизии
+    const target = Math.max(0, round2(liveNow + delta))
+    setProductStockExact(db, product.id, target, { reason: 'Ревизия', createdBy })
     return {
       productId: product.id,
       productName: product.name,
-      systemStock,
+      systemStock: frozen,
       countedStock,
-      diff: round2(countedStock - systemStock),
+      diff: delta,
+      stockBefore: liveNow,
     }
   })
   const row = {
@@ -1380,6 +1479,8 @@ function buildStockRevision(db, data = {}, meta = {}) {
     createdBy,
     note: String(data.note || '').trim(),
     items,
+    // Срез уже известных серверу номеров касс — поздние офлайн-чеки с большим opSeq не минусуют склад повторно
+    posCuts: Array.isArray(meta.posCuts) ? meta.posCuts : snapshotPosCuts(db),
   }
   db.stockRevisions.unshift(row)
   return row
@@ -1399,6 +1500,8 @@ export function updateStockRevision(db, id, data = {}) {
     id: old.id,
     createdAtIso: old.createdAtIso,
     createdBy: old.createdBy,
+    // Срез касс с первого проведения — иначе поздние офлайн-чеки снова спишут остаток
+    posCuts: Array.isArray(old.posCuts) ? old.posCuts : undefined,
   }
   reverseStockRevision(db, old)
   db.stockRevisions.splice(idx, 1)
@@ -1464,7 +1567,21 @@ export function createPosSale(db, data = {}) {
   }
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
-  const rows = consumeStock(db, rawItems)
+  const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
+  const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
+  if (data.shiftId && !shift) throw new Error('Смена не найдена')
+  const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
+  const opSeq = allocSaleOpSeq(db, posId, data.opSeq)
+  const skipStock = shouldSkipSaleStock(
+    db,
+    posId,
+    opSeq,
+    data.createdAtIso,
+    rawItems.map(it => it.productId),
+  )
+  const rows = skipStock
+    ? stockRowsWithoutConsume(db, rawItems)
+    : consumeStock(db, rawItems)
   const items = rows.map((row, idx) => {
     const raw = rawItems[idx] || {}
     const price = round2(raw.price ?? row.product.price)
@@ -1512,10 +1629,6 @@ export function createPosSale(db, data = {}) {
   const debtAdded = round2(data.debtAdded ?? (paymentMethod === 'credit' ? total : 0))
   const cashReceived = round2(data.cashReceived ?? 0)
   const changeGiven = round2(data.changeGiven ?? 0)
-  const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
-  const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
-  if (data.shiftId && !shift) throw new Error('Смена не найдена')
-  const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
   // Один счётчик с онлайн-заказами: K-4864 …
   const orderId = nextOrderId(db)
   const cashierName = String(
@@ -1541,6 +1654,13 @@ export function createPosSale(db, data = {}) {
     cashierName,
     shiftId: shift?.id || '',
     posId,
+    opSeq,
+    ...(skipStock
+      ? {
+          stockSkipped: true,
+          stockSkipRevisionId: skipStock.revisionId || undefined,
+        }
+      : {}),
     clientId: data.clientId || '',
     clientName: String(data.clientName || '').trim(),
     clientPhone: String(data.clientPhone || '').trim(),
@@ -1833,7 +1953,10 @@ export function returnPosSale(db, saleId, meta = {}) {
       : round2(Number(item.price) || 0)
     const lineReturn = round2(unit * p.qty)
     item.returnedQty = round2((Number(item.returnedQty) || 0) + p.qty)
-    restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
+    // Чек не трогал склад (уже внутри факта ревизии) — возврат тоже не добавляет остаток
+    if (!sale.stockSkipped) {
+      restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
+    }
     returnLines.push({
       productId: item.productId,
       productName: item.productName,

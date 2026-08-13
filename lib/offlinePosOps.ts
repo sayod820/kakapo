@@ -9,6 +9,7 @@ import { localFirstOp, type OfflineResult } from './localFirst'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
+import { allocPosOpSeq } from './posOpSeq'
 import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
 
 export type SaleCartLine = {
@@ -486,6 +487,10 @@ export async function createSaleSafe(
   const earn = Math.max(0, Math.floor(Number(input.bonusEarn) || 0))
   const client = input.client || null
   const salePayload = { ...input.salePayload }
+  if (!(Number(salePayload.opSeq) > 0)) {
+    const posId = String(salePayload.posId || '').trim()
+    salePayload.opSeq = allocPosOpSeq(posId)
+  }
 
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
     useOfflineSync.getState().markOffline()

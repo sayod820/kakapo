@@ -570,6 +570,11 @@ const CSS = `
   }
   .k-rev-walk-sheet-handle{display:none}
   .k-rev-walk-sheet-h{display:flex;align-items:flex-start;gap:8px;margin-bottom:10px}
+  .k-rev-walk-sheet-h-btns{display:flex;align-items:center;gap:4px;flex-shrink:0}
+  .k-rev-walk-sheet-h-btns .k-btn{
+    width:32px;height:32px;min-height:0;padding:0;font-size:14px;
+    display:inline-flex;align-items:center;justify-content:center;border-radius:8px
+  }
   .k-rev-walk-sheet-diff{
     margin:8px 0;padding:8px;border-radius:8px;background:var(--card2);
     font-weight:900;font-size:14px;text-align:center;

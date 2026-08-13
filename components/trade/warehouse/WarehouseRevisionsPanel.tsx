@@ -69,17 +69,17 @@ function moneyBasisPrice(product: Product | undefined | null): number {
 }
 
 /**
- * Остаток «в системе»:
- * - редактирование сохранённой ревизии → зафиксированный systemStock;
- * - новая ревизия → живой остаток по партиям (не устаревший product.stock).
+ * Остаток «в системе» для строки:
+ * - если есть заморозка на момент факта (systemStock) — её;
+ * - иначе живой остаток.
  */
 function lineSystemStock(
   line: RevisionDraftLine,
   product: Product | null | undefined,
   liveStock: number,
-  freezeSystem: boolean,
+  _freezeSystem: boolean,
 ): number {
-  if (freezeSystem && line.systemStock != null) return line.systemStock
+  if (line.systemStock != null && Number.isFinite(line.systemStock)) return line.systemStock
   return liveStock
 }
 
@@ -268,10 +268,6 @@ export default function WarehouseRevisionsPanel({
 
   useEffect(() => {
     const loaded = loadRevisionDraft()
-    // В новой ревизии не держим устаревший systemStock из черновика
-    if (!editingId && loaded.lines?.length) {
-      loaded.lines = loaded.lines.map(l => ({ ...l, systemStock: undefined }))
-    }
     setDraft(loaded)
     if (loaded.open) {
       if (loaded.mode === 'walk') {
@@ -396,12 +392,17 @@ export default function WarehouseRevisionsPanel({
   }
 
   function walkUpsert(product: Product, countedStock: string) {
+    const frozen = stockOf(product)
     setDraft(prev => {
       const existing = prev.lines.find(l => l.productId === product.id)
       if (existing) {
         return {
           ...prev,
-          lines: prev.lines.map(l => (l.key === existing.key ? { ...l, countedStock, systemStock: undefined } : l)),
+          lines: prev.lines.map(l => (
+            l.key === existing.key
+              ? { ...l, countedStock, systemStock: frozen }
+              : l
+          )),
           activeLineKey: existing.key,
         }
       }
@@ -409,7 +410,7 @@ export default function WarehouseRevisionsPanel({
         key: `walk-${product.id}-${Math.random()}`,
         productId: product.id,
         countedStock,
-        systemStock: undefined,
+        systemStock: frozen,
       }
       return { ...prev, lines: [...prev.lines.filter(l => l.productId), line], activeLineKey: line.key }
     })
@@ -425,12 +426,12 @@ export default function WarehouseRevisionsPanel({
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
     const stock = stockOf(product)
+    const keepCounted = line.countedStock !== ''
     return {
       ...line,
       productId: product.id,
-      countedStock: line.countedStock !== '' ? line.countedStock : String(stock),
-      // Новая ревизия всегда берёт живой остаток по партиям
-      systemStock: undefined,
+      countedStock: keepCounted ? line.countedStock : String(stock),
+      systemStock: keepCounted && line.systemStock != null ? line.systemStock : stock,
     }
   }
 
@@ -462,11 +463,15 @@ export default function WarehouseRevisionsPanel({
       ...prev,
       mode: 'categories',
       lines: [
-        ...toAdd.map(p => ({
-          key: `rev-${p.id}-${Math.random()}`,
-          productId: p.id,
-          countedStock: String(liveProductStock(p, byProduct.get(p.id), true)),
-        })),
+        ...toAdd.map(p => {
+          const qty = liveProductStock(p, byProduct.get(p.id), true)
+          return {
+            key: `rev-${p.id}-${Math.random()}`,
+            productId: p.id,
+            countedStock: String(qty),
+            systemStock: qty,
+          }
+        }),
         emptyRevisionLine(),
       ],
       activeLineKey: null,
@@ -601,7 +606,17 @@ export default function WarehouseRevisionsPanel({
   async function submit() {
     const items = lines
       .filter(l => l.productId != null && l.countedStock !== '')
-      .map(l => ({ productId: l.productId!, countedStock: Number(l.countedStock) }))
+      .map(l => {
+        const product = products.find(p => p.id === l.productId)
+        const frozen = l.systemStock != null
+          ? l.systemStock
+          : (product ? stockOf(product) : 0)
+        return {
+          productId: l.productId!,
+          countedStock: Number(l.countedStock),
+          systemStock: frozen,
+        }
+      })
     if (!items.length) {
       setMsg('Добавьте товары и укажите фактический остаток')
       return
@@ -1106,9 +1121,18 @@ export default function WarehouseRevisionsPanel({
                           activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
                         }))}
                         onActivate={() => setDraftPatch({ activeLineKey: line.key })}
-                        onCounted={v => updateLine(line.key, { countedStock: v })}
-                        onMatchSystem={() => updateLine(line.key, { countedStock: String(stockOf(product)) })}
-                        onZero={() => updateLine(line.key, { countedStock: '0' })}
+                        onCounted={v => updateLine(line.key, {
+                          countedStock: v,
+                          systemStock: line.systemStock != null ? line.systemStock : stockOf(product),
+                        })}
+                        onMatchSystem={() => {
+                          const live = stockOf(product)
+                          updateLine(line.key, { countedStock: String(live), systemStock: live })
+                        }}
+                        onZero={() => updateLine(line.key, {
+                          countedStock: '0',
+                          systemStock: line.systemStock != null ? line.systemStock : stockOf(product),
+                        })}
                         onEditProduct={() => setEditProductId(product.id)}
                         cardRef={el => { lineRefs.current[line.key] = el }}
                         countedRef={el => { countedRefs.current[line.key] = el }}

@@ -998,6 +998,7 @@ export const api = {
       cashierId?: string
       shiftId?: string
       posId?: string
+      opSeq?: number
       clientId?: string
       clientName?: string
       clientPhone?: string
@@ -1084,12 +1085,12 @@ export const api = {
   createStockRevision: (data: {
     createdBy?: string
     note?: string
-    items: { productId: number; countedStock: number }[]
+    items: { productId: number; countedStock: number; systemStock?: number }[]
   }) => request<StockRevision>('/stock/revisions', { method: 'POST', body: JSON.stringify(data) }),
   updateStockRevision: (id: string, data: {
     createdBy?: string
     note?: string
-    items: { productId: number; countedStock: number }[]
+    items: { productId: number; countedStock: number; systemStock?: number }[]
   }) => request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteStockRevision: (id: string, data?: { clientRef?: string }) =>
     request<{ id: string }>(`/stock/revisions/${encodeURIComponent(id)}`, {

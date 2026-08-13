@@ -9,6 +9,7 @@ import {
   lookupProductByCode,
 } from '@/lib/productSearchIndex'
 import { categorySlug, productMatchesCategoryFilter } from '@/lib/useCategories'
+import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import type { RevisionDraftLine } from './revisionDraftStorage'
 import {
@@ -89,7 +90,12 @@ export default function RevisionWalkPanel({
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
   const [onlyDiff, setOnlyDiff] = useState(false)
-  const [sheet, setSheet] = useState<{ product: Product; counted: string; edit: boolean } | null>(null)
+  const [sheet, setSheet] = useState<{
+    product: Product
+    counted: string
+    edit: boolean
+    systemFrozen: number
+  } | null>(null)
   const [vvBox, setVvBox] = useState<{ top: number; height: number } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const factRef = useRef<HTMLInputElement>(null)
@@ -137,7 +143,7 @@ export default function RevisionWalkPanel({
       list = list.filter(l => {
         const p = products.find(x => x.id === l.productId)
         if (!p) return false
-        const system = stockOf(p)
+        const system = l.systemStock != null ? l.systemStock : stockOf(p)
         return (Number(l.countedStock) || 0) !== system
       })
     }
@@ -177,6 +183,8 @@ export default function RevisionWalkPanel({
 
   useEffect(() => {
     if (!sheet) {
+      // На мобильном не фокусим поиск — иначе сразу вылезает клавиатура
+      if (isTradeMobileUi()) return
       const t = window.setTimeout(() => searchRef.current?.focus({ preventScroll: true }), 40)
       return () => window.clearTimeout(t)
     }
@@ -194,13 +202,29 @@ export default function RevisionWalkPanel({
     vvBox && typeof window !== 'undefined' && vvBox.height < window.innerHeight - 120,
   )
 
+  useEffect(() => {
+    setSheet(s => {
+      if (!s) return s
+      const fresh = products.find(p => p.id === s.product.id)
+      if (!fresh || fresh === s.product) return s
+      return { ...s, product: fresh }
+    })
+  }, [products])
+
+  const openProductEdit = useCallback((productId: number) => {
+    factRef.current?.blur()
+    onEditProduct(productId)
+  }, [onEditProduct])
+
   const openSheet = useCallback((product: Product, edit = false) => {
     const existing = doneById.get(product.id)
-    const system = stockOf(product)
+    const live = stockOf(product)
+    const system = existing?.systemStock != null ? existing.systemStock : live
     setSheet({
       product,
-      counted: existing?.countedStock ?? String(system),
+      counted: existing?.countedStock ?? String(live),
       edit: edit || Boolean(existing),
+      systemFrozen: system,
     })
     setScanMsg('')
   }, [doneById, stockOf])
@@ -252,7 +276,7 @@ export default function RevisionWalkPanel({
     setTab('done')
     window.setTimeout(() => {
       setTab('todo')
-      searchRef.current?.focus({ preventScroll: true })
+      if (!isTradeMobileUi()) searchRef.current?.focus({ preventScroll: true })
     }, 80)
   }
 
@@ -269,7 +293,7 @@ export default function RevisionWalkPanel({
     for (const l of doneLines) {
       const p = products.find(x => x.id === l.productId)
       if (!p) continue
-      const system = stockOf(p)
+      const system = l.systemStock != null ? l.systemStock : stockOf(p)
       const counted = Number(l.countedStock) || 0
       const diff = counted - system
       netDiff += diff
@@ -443,19 +467,30 @@ export default function RevisionWalkPanel({
         {tab === 'todo' && todoShown.map(p => {
           const system = stockOf(p)
           return (
-            <button
-              key={p.id}
-              type="button"
-              className="k-rev-walk-row"
-              onClick={() => openSheet(p)}
-            >
-              <span className="k-rev-walk-emo">{p.e || '📦'}</span>
-              <span className="k-rev-walk-txt">
-                <b>{p.name}</b>
-                <small>{p.art || '—'} · система {formatQty(system)}</small>
-              </span>
-              <span className="k-rev-walk-go">→</span>
-            </button>
+            <div key={p.id} className="k-rev-walk-done">
+              <button
+                type="button"
+                className="k-rev-walk-row"
+                onClick={() => openSheet(p)}
+              >
+                <span className="k-rev-walk-emo">{p.e || '📦'}</span>
+                <span className="k-rev-walk-txt">
+                  <b>{p.name}</b>
+                  <small>{p.art || '—'} · система {formatQty(system)}</small>
+                </span>
+                <span className="k-rev-walk-go">→</span>
+              </button>
+              <div className="k-rev-walk-done-btns">
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  title="Редактор товара"
+                  onClick={() => openProductEdit(p.id)}
+                >
+                  ✎
+                </button>
+              </div>
+            </div>
           )
         })}
         {tab === 'todo' && todoProducts.length > visibleCount && (
@@ -479,7 +514,7 @@ export default function RevisionWalkPanel({
           if (!p) return null
           const packInfo = parsePackUnit(p.unit)
           const unit = packInputUnitLabel(packInfo)
-          const system = stockOf(p)
+          const system = line.systemStock != null ? line.systemStock : stockOf(p)
           const counted = Number(line.countedStock) || 0
           const diff = counted - system
           const costPrice = Number(p.costPrice) || 0
@@ -507,7 +542,7 @@ export default function RevisionWalkPanel({
                 </span>
               </button>
               <div className="k-rev-walk-done-btns">
-                <button type="button" className="k-btn k-btn-s" title="Редактор товара" onClick={() => onEditProduct(p.id)}>✎</button>
+                <button type="button" className="k-btn k-btn-s" title="Редактор товара" onClick={() => openProductEdit(p.id)}>✎</button>
                 <button type="button" className="k-btn k-btn-s k-rev-x" title="Убрать из сделанных" onClick={() => onRemove(p.id)}>✕</button>
               </div>
             </div>
@@ -520,7 +555,7 @@ export default function RevisionWalkPanel({
         const packInfo = parsePackUnit(p.unit)
         const isWeight = p.sellType === 'weight' || isGramLabel(packInfo.label) || isKgLabel(packInfo.label)
         const unit = packInputUnitLabel(packInfo)
-        const system = stockOf(p)
+        const system = sheet.systemFrozen
         const counted = sheet.counted !== '' ? Number(sheet.counted) : null
         const diff = counted != null ? counted - system : null
         const systemReal = packRealWorld(system, packInfo)
@@ -528,6 +563,7 @@ export default function RevisionWalkPanel({
         const costPrice = Number(p.costPrice) || 0
         const basisPrice = moneyBasisPrice(p)
         const costDiff = diff != null && basisPrice > 0 ? diff * basisPrice : null
+        const liveNow = stockOf(p)
         return (
           <div
             className={`k-rev-walk-sheet-bg${kbOpen ? ' kb-open' : ''}`}
@@ -545,14 +581,27 @@ export default function RevisionWalkPanel({
                 <div className="k-rev-walk-txt">
                   <b>{p.name}</b>
                   <small>
-                    {p.art || '—'} · система <b>{formatQty(system)}</b> {unit}
+                    {p.art || '—'} · на подсчёте <b>{formatQty(system)}</b> {unit}
                     {systemReal && <> ({formatQty(systemReal.value)} {systemReal.label})</>}
+                    {liveNow !== system && (
+                      <> · сейчас {formatQty(liveNow)}</>
+                    )}
                     {basisPrice > 0 && (
                       <> · {costPrice > 0 ? 'закуп' : 'розн.'} {fmtMoney(basisPrice)}</>
                     )}
                   </small>
                 </div>
-                <button type="button" className="k-rcpt-find-x" onClick={() => setSheet(null)} aria-label="Закрыть">✕</button>
+                <div className="k-rev-walk-sheet-h-btns">
+                  <button
+                    type="button"
+                    className="k-btn k-btn-s"
+                    title="Редактор товара"
+                    onClick={() => openProductEdit(p.id)}
+                  >
+                    ✎
+                  </button>
+                  <button type="button" className="k-rcpt-find-x" onClick={() => setSheet(null)} aria-label="Закрыть">✕</button>
+                </div>
               </div>
               <div className="k-field">
                 <label>Факт ({unit})</label>
@@ -601,7 +650,10 @@ export default function RevisionWalkPanel({
                 <button
                   type="button"
                   className="k-btn k-btn-s"
-                  onClick={() => setSheet({ ...sheet, counted: String(system) })}
+                  onClick={() => {
+                    const live = stockOf(p)
+                    setSheet({ ...sheet, counted: String(live), systemFrozen: live })
+                  }}
                 >
                   ⟲ Система
                 </button>
