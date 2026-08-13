@@ -128,8 +128,9 @@ function RevisionLineCard({
 
   const tone =
     active ? 'on'
-      : diff != null && diff !== 0 ? (diff > 0 ? 'up' : 'down')
-        : ''
+      : counted == null ? 'pending'
+        : diff != null && diff !== 0 ? (diff > 0 ? 'up' : 'down')
+          : ''
 
   return (
     <div
@@ -143,7 +144,7 @@ function RevisionLineCard({
         <div className="k-rev-line-txt">
           <b>{product.name}</b>
           <small>
-            {product.art || '—'} · было <b>{system}</b>{packInfo.qty !== 1 && ' уп.'}
+            {product.art || '—'} · система <b>{system}</b>{packInfo.qty !== 1 && ' уп.'}
             {systemReal && <> ({formatQty(systemReal.value)} {systemReal.label})</>}
           </small>
         </div>
@@ -165,12 +166,15 @@ function RevisionLineCard({
             type="text"
             inputMode={isWeightUnit ? 'decimal' : 'numeric'}
             value={line.countedStock}
+            placeholder={`система ${system}`}
             onChange={e => onCounted(sanitizeDecimalInput(e.target.value))}
             onClick={e => e.stopPropagation()}
           />
         </div>
-        <div className={`k-rev-line-diff${diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : ' ok'}`}>
-          {diff != null && diff !== 0 ? (
+        <div className={`k-rev-line-diff${counted == null ? ' pending' : diff != null && diff !== 0 ? (diff > 0 ? ' up' : ' down') : ' ok'}`}>
+          {counted == null ? (
+            <b className="k-rev-pending">не посчитано</b>
+          ) : diff != null && diff !== 0 ? (
             <>
               <b style={diffStyle(diff)}>{formatDiff(diff)} {inputUnitLabel}</b>
               {diffReal && (
@@ -215,6 +219,7 @@ export default function WarehouseRevisionsPanel({
   const [modalStep, setModalStep] = useState<'scope' | 'count'>('scope')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
+  const [countFilter, setCountFilter] = useState<'all' | 'pending' | 'done' | 'diff'>('all')
   const [addOpen, setAddOpen] = useState(false)
   const [editProductId, setEditProductId] = useState<string | null>(null)
   const [layers, setLayers] = useState<ProductStockLayer[]>([])
@@ -299,6 +304,8 @@ export default function WarehouseRevisionsPanel({
     setEditingId(null)
     setModalStep('scope')
     setScopeLabel('Все категории')
+    setCountSearch('')
+    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setMsg('')
@@ -308,6 +315,8 @@ export default function WarehouseRevisionsPanel({
     setEditingId(null)
     setModalStep('scope')
     setScopeLabel('Все категории')
+    setCountSearch('')
+    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setDraft({ ...defaultRevisionDraft(), open: true })
@@ -318,6 +327,8 @@ export default function WarehouseRevisionsPanel({
     setEditingId(revision.id)
     setModalStep('count')
     setScopeLabel('Редактирование')
+    setCountSearch('')
+    setCountFilter('all')
     setAddOpen(false)
     setEditProductId(null)
     setDraft(revisionToDraft(revision))
@@ -337,11 +348,11 @@ export default function WarehouseRevisionsPanel({
   }
 
   function fillLineFromProduct(line: RevisionDraftLine, product: Product): RevisionDraftLine {
-    const live = stockOf(product)
     return {
       ...line,
       productId: product.id,
-      countedStock: line.countedStock !== '' ? line.countedStock : String(live),
+      // Факт не заполняем — кассир вводит или жмёт «⟲» / «0»
+      countedStock: line.countedStock !== '' ? line.countedStock : '',
       // Новая ревизия всегда берёт живой остаток по партиям
       systemStock: undefined,
     }
@@ -363,23 +374,16 @@ export default function WarehouseRevisionsPanel({
       } catch { /* ignore */ }
     }
     void loadLayers()
-    const qtyMap = new Map<number, number>()
-    for (const layer of source) {
-      qtyMap.set(layer.productId, (qtyMap.get(layer.productId) || 0) + (Number(layer.remainingQty) || 0))
-    }
-    const qtyOf = (p: Product) => {
-      if (qtyMap.size) return Math.round((qtyMap.get(p.id) || 0) * 100) / 100
-      return stockOf(p)
-    }
     setScopeLabel(label)
     setCountSearch('')
+    setCountFilter('pending')
     setDraft(prev => ({
       ...prev,
       lines: [
         ...toAdd.map(p => ({
           key: `rev-${p.id}-${Math.random()}`,
           productId: p.id,
-          countedStock: String(qtyOf(p)),
+          countedStock: '',
         })),
         emptyRevisionLine(),
       ],
@@ -502,14 +506,32 @@ export default function WarehouseRevisionsPanel({
   const editingRevision = editingId ? revisions.find(r => r.id === editingId) || null : null
 
   const filledLines = lines.filter(l => l.productId)
+  const pendingCount = useMemo(
+    () => filledLines.filter(l => l.countedStock === '').length,
+    [filledLines],
+  )
   const visibleFilledLines = useMemo(() => {
-    if (!countSearch.trim()) return filledLines
+    let list = filledLines
+    if (countFilter === 'pending') {
+      list = list.filter(l => l.countedStock === '')
+    } else if (countFilter === 'done') {
+      list = list.filter(l => l.countedStock !== '')
+    } else if (countFilter === 'diff') {
+      list = list.filter(l => {
+        if (l.countedStock === '' || !l.productId) return false
+        const product = products.find(p => p.id === l.productId)
+        if (!product) return false
+        const system = lineSystemStock(l, product, stockOf(product), freezeSystem)
+        return (Number(l.countedStock) || 0) !== system
+      })
+    }
+    if (!countSearch.trim()) return list
     const q = countSearch.trim()
-    return filledLines.filter(l => {
+    return list.filter(l => {
       const product = products.find(p => p.id === l.productId)
       return product && filterProductsBySearch([product], q).length > 0
     })
-  }, [filledLines, countSearch, products])
+  }, [filledLines, countFilter, countSearch, products, stockOf, freezeSystem])
   const hasDraft = !editingId && lines.some(l => l.productId || l.countedStock)
 
   async function submit() {
@@ -519,6 +541,12 @@ export default function WarehouseRevisionsPanel({
     if (!items.length) {
       setMsg('Добавьте товары и укажите фактический остаток')
       return
+    }
+    const unchecked = filledLines.filter(l => l.countedStock === '').length
+    if (unchecked > 0) {
+      if (!confirm(
+        `Не посчитано: ${unchecked} из ${filledLines.length}.\n\nПровести ревизию только по ${items.length} заполненным позициям? Остальные не войдут в документ.`,
+      )) return
     }
     setSaving(true)
     setMsg('')
@@ -922,14 +950,43 @@ export default function WarehouseRevisionsPanel({
                   </div>
 
                   <div className="k-rev-summary">
-                    <div><span>Поз.</span><b>{totals.count}</b></div>
+                    <div><span>Поз.</span><b>{totals.withProduct}</b></div>
+                    <div><span>Факт</span><b>{totals.count}</b></div>
                     <div><span>ОК</span><b style={{ color: 'var(--green)' }}>{totals.matched}</b></div>
                     <div><span>Изл.</span><b style={{ color: totals.surplus > 0 ? 'var(--green)' : 'var(--muted)' }}>{totals.surplus > 0 ? `+${totals.surplus}` : '—'}</b></div>
                     <div><span>Δ</span><b style={diffStyle(totals.netDiff)}>{totals.count ? formatDiff(totals.netDiff) : '—'}</b></div>
                     <div><span>Σ</span><b style={diffStyle(totals.costMoneyDiff)}>{totals.count ? formatMoneyDiff(totals.costMoneyDiff) : '—'}</b></div>
                   </div>
 
-                  {filledLines.length > 5 && (
+                  {filledLines.length > 0 && (
+                    <div className="k-rev-count-bar">
+                      <div className="k-rev-count-flt" role="group" aria-label="Фильтр пересчёта">
+                        {([
+                          { id: 'all' as const, label: 'Все' },
+                          { id: 'pending' as const, label: 'Не посчитано' },
+                          { id: 'done' as const, label: 'Посчитано' },
+                          { id: 'diff' as const, label: 'Расхождение' },
+                        ]).map(f => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            className={`k-subtab${countFilter === f.id ? ' active' : ''}`}
+                            onClick={() => setCountFilter(f.id)}
+                          >
+                            {f.label}
+                            {f.id === 'pending' && pendingCount > 0 ? ` ${pendingCount}` : ''}
+                          </button>
+                        ))}
+                      </div>
+                      <div className={`k-rev-left${pendingCount > 0 ? ' warn' : ''}`}>
+                        {pendingCount > 0
+                          ? <>Осталось <b>{pendingCount}</b> из {filledLines.length}</>
+                          : <>Всё посчитано · <b>{filledLines.length}</b></>}
+                      </div>
+                    </div>
+                  )}
+
+                  {(filledLines.length > 5 || countSearch.trim()) && (
                     <div className="k-rev-search">
                       <input
                         className="k-inp"
@@ -940,8 +997,16 @@ export default function WarehouseRevisionsPanel({
                     </div>
                   )}
 
-                  {visibleFilledLines.length === 0 && countSearch.trim() && (
-                    <div className="k-rcpt-empty">По запросу «{countSearch}» ничего не найдено</div>
+                  {visibleFilledLines.length === 0 && (countSearch.trim() || countFilter !== 'all') && filledLines.length > 0 && (
+                    <div className="k-rcpt-empty">
+                      {countSearch.trim()
+                        ? `По запросу «${countSearch}» ничего не найдено`
+                        : countFilter === 'pending'
+                          ? 'Все позиции уже посчитаны'
+                          : countFilter === 'diff'
+                            ? 'Расхождений нет'
+                            : 'Нет посчитанных позиций'}
+                    </div>
                   )}
                   {filledLines.length === 0 && !countSearch.trim() && (
                     <div className="k-rcpt-empty">Нажмите + чтобы добавить товар</div>
