@@ -502,7 +502,7 @@ export default function WarehouseWriteoffsPanel({
 
       <button
         type="button"
-        className={`k-wh-fab${hasDraft && !open ? ' has-draft' : ''}`}
+        className="k-wh-fab"
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новое списание"
