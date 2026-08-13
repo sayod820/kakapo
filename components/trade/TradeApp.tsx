@@ -682,10 +682,7 @@ const CSS = `
   .k-wh-panel-body .k-tbl td{padding:5px 8px;font-size:12px}
   .k-wh-stock-body .k-tbl tfoot td{padding:7px 8px}
   .k-wh-receipts .k-wh-cta,
-  .k-wh-writeoffs .k-wh-cta,
-  .k-wh-revisions .k-wh-cta{
-    display:flex!important;margin-bottom:0;align-items:center;margin-left:auto
-  }
+  .k-wh-writeoffs .k-wh-cta{margin-bottom:0;align-items:center}
   .k-wh-receipts .k-wh-cta .k-btn-g,
   .k-wh-writeoffs .k-wh-cta .k-btn-g,
   .k-wh-revisions .k-wh-cta .k-btn-g{min-height:36px;padding:8px 14px;font-size:13px}

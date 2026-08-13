@@ -603,7 +603,7 @@ export default function WarehouseRevisionsPanel({
 
       <button
         type="button"
-        className={`k-wh-fab k-rev-fab${hasDraft && !open ? ' has-draft' : ''}`}
+        className={`k-wh-fab${hasDraft && !open ? ' has-draft' : ''}`}
         disabled={!USE_API || open}
         onClick={openForm}
         aria-label="Новая ревизия"
