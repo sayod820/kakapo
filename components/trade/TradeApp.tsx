@@ -28,6 +28,7 @@ import {
 } from '@/lib/desktopBridge'
 import { isTradeAndroidNative } from '@/lib/tradeAndroid'
 import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
+import { pushBackHandler } from '@/lib/hardwareBack'
 import { USE_API } from '@/lib/config'
 import {
   clearTradeEmployeeSession,
@@ -2527,7 +2528,7 @@ function TradeAppInner({
     [session.permissions],
   )
   const defaultPage = firstAllowedTradePage(session.permissions)
-  const { page, setPage } = useAppNavigation(defaultPage)
+  const { page, setPage, navigate } = useAppNavigation(defaultPage)
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
@@ -2559,15 +2560,47 @@ function TradeAppInner({
     return () => { document.body.style.overflow = prev }
   }, [menuOpen])
 
+  useEffect(() => {
+    if (!menuOpen) return
+    return pushBackHandler(() => {
+      setMenuOpen(false)
+      return true
+    })
+  }, [menuOpen])
+
+  useEffect(() => {
+    if (!catalogBack) return
+    return pushBackHandler(() => {
+      catalogBack()
+      return true
+    })
+  }, [catalogBack])
+
+  useEffect(() => {
+    if (current !== 'pos' || posSurface !== 'register') return
+    return pushBackHandler(() => {
+      setPosSurface('dashboard')
+      return true
+    })
+  }, [current, posSurface])
+
+  useEffect(() => {
+    if (!searchScanOpen) return
+    return pushBackHandler(() => {
+      setSearchScanOpen(false)
+      return true
+    })
+  }, [searchScanOpen])
+
   const current = (
     allowedNav.some(p => p.id === page) ? page : defaultPage
   ) as TradePage
 
   useEffect(() => {
     if (!canAccessTradePage(session.permissions, page)) {
-      setPage(defaultPage)
+      navigate(defaultPage, {}, { replace: true })
     }
-  }, [session.permissions, page, defaultPage, setPage])
+  }, [session.permissions, page, defaultPage, navigate])
 
   useEffect(() => {
     if (current !== 'products') {
@@ -2983,6 +3016,7 @@ function TradeAppGate() {
   const [deviceReady, setDeviceReady] = useState(() => !USE_API)
 
   useEffect(() => {
+    void import('@/lib/hardwareBack').then(m => m.installHardwareBack()).catch(() => {})
     void import('@/lib/offlineV2').then(m => m.ensureDesktopLocalFirst()).catch(() => {})
     void hydrateOfflineCaches()
     useOfflineSync.getState().start()

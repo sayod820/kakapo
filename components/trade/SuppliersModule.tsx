@@ -7,6 +7,7 @@ import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
+import { pushBackHandler } from '@/lib/hardwareBack'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 
@@ -179,6 +180,21 @@ export default function SuppliersModule() {
   function closeForm() {
     setForm(emptySupplierForm())
   }
+
+  useEffect(() => {
+    if (!form.open && !detailId) return
+    return pushBackHandler(() => {
+      if (form.open) {
+        closeForm()
+        return true
+      }
+      if (detailId) {
+        closeDetail()
+        return true
+      }
+      return false
+    })
+  }, [form.open, detailId])
 
   async function submitForm() {
     if (!USE_API && !isTradeLocalFirst()) return

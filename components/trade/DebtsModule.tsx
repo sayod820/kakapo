@@ -18,6 +18,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { pushBackHandler } from '@/lib/hardwareBack'
 import {
   buildDebtOrderBalances,
   buildSaleDebtStatuses,
@@ -429,6 +430,22 @@ export default function DebtsModule({
       ),
     }
   }, [detailClient, histTick, sales, cards])
+
+  useEffect(() => {
+    if (!saleDetailId && !detailId) return
+    return pushBackHandler(() => {
+      if (saleDetailId) {
+        setSaleDetailId(null)
+        setSaleRepay(null)
+        return true
+      }
+      if (detailId) {
+        setDetailId(null)
+        return true
+      }
+      return false
+    })
+  }, [saleDetailId, detailId])
 
   function selectClient(id: string) {
     setDetailId(id)

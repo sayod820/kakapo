@@ -15,6 +15,7 @@ import {
   loyaltySummaryForClient,
 } from '@/lib/clientCardSync'
 import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
+import { pushBackHandler } from '@/lib/hardwareBack'
 import { saveCardLoyaltySafe } from '@/lib/offlineLoyaltyOps'
 import {
   CLIENT_LEVEL_COLORS,
@@ -368,6 +369,21 @@ export default function ClientsModule() {
   function closeForm() {
     setForm(emptyClientForm())
   }
+
+  useEffect(() => {
+    if (!form.open && !detailId) return
+    return pushBackHandler(() => {
+      if (form.open) {
+        closeForm()
+        return true
+      }
+      if (detailId) {
+        closeDetail()
+        return true
+      }
+      return false
+    })
+  }, [form.open, detailId])
 
   async function submitForm() {
     const name = form.name.trim()

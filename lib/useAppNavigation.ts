@@ -1,11 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 
 const PAGE_KEY = 'p'
 
 export type NavParams = Record<string, string | number | boolean | null | undefined>
+
+function currentPath(): string {
+  if (typeof window === 'undefined') return '/trade/'
+  return window.location.pathname || '/trade/'
+}
 
 function buildQuery(defaultPage: string, page: string, params: NavParams): string {
   const sp = new URLSearchParams()
@@ -29,18 +33,6 @@ function readFromLocation(defaultPage: string): { page: string; params: Record<s
   return { page, params }
 }
 
-function readFromSearchParams(
-  searchParams: URLSearchParams,
-  defaultPage: string,
-): { page: string; params: Record<string, string> } {
-  const page = searchParams.get(PAGE_KEY) || defaultPage
-  const params: Record<string, string> = {}
-  searchParams.forEach((v, k) => {
-    if (k !== PAGE_KEY) params[k] = v
-  })
-  return { page, params }
-}
-
 function paramsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
   const ak = Object.keys(a)
   const bk = Object.keys(b)
@@ -48,12 +40,16 @@ function paramsEqual(a: Record<string, string>, b: Record<string, string>): bool
   return ak.every(k => a[k] === b[k])
 }
 
-/** Синхронизация внутренней страницы с URL (?p=...) — после F5 остаётесь на том же экране */
-export function useAppNavigation(defaultPage: string) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
+function historyDepth(): number {
+  const st = typeof window !== 'undefined' ? window.history.state : null
+  if (st && typeof st === 'object' && Number.isFinite(Number(st.kakapoDepth))) {
+    return Number(st.kakapoDepth)
+  }
+  return 0
+}
 
+/** Синхронизация с URL (?p=...). pushState — системная «назад» возвращает раздел. Без Next router (APK белый экран). */
+export function useAppNavigation(defaultPage: string) {
   const [page, setPageState] = useState(() => {
     if (typeof window !== 'undefined') return readFromLocation(defaultPage).page
     return defaultPage
@@ -64,16 +60,17 @@ export function useAppNavigation(defaultPage: string) {
   })
 
   useEffect(() => {
-    const fromUrl = readFromSearchParams(searchParams, defaultPage)
-    const fromWindow = readFromLocation(defaultPage)
-    const windowQs = typeof window !== 'undefined' ? window.location.search : ''
-    const urlQs = searchParams.toString()
-    const next = windowQs !== urlQs && fromWindow.page !== fromUrl.page ? fromWindow : fromUrl
-    setPageState(prev => (prev === next.page ? prev : next.page))
-    setParamsState(prev => (paramsEqual(prev, next.params) ? prev : next.params))
-  }, [searchParams, defaultPage])
+    const apply = () => {
+      const next = readFromLocation(defaultPage)
+      setPageState(prev => (prev === next.page ? prev : next.page))
+      setParamsState(prev => (paramsEqual(prev, next.params) ? prev : next.params))
+    }
+    apply()
+    window.addEventListener('popstate', apply)
+    return () => window.removeEventListener('popstate', apply)
+  }, [defaultPage])
 
-  const navigate = useCallback((nextPage: string, nextParams: NavParams = {}) => {
+  const navigate = useCallback((nextPage: string, nextParams: NavParams = {}, opts?: { replace?: boolean }) => {
     const nextParamsRecord: Record<string, string> = {}
     for (const [k, v] of Object.entries(nextParams)) {
       if (k !== PAGE_KEY && v != null && v !== '') nextParamsRecord[k] = String(v)
@@ -82,17 +79,18 @@ export function useAppNavigation(defaultPage: string) {
     setPageState(nextPage)
     setParamsState(nextParamsRecord)
 
+    if (typeof window === 'undefined') return
     const qs = buildQuery(defaultPage, nextPage, nextParams)
-    const url = `${pathname}${qs}`
+    const url = `${currentPath()}${qs}`
+    const here = `${window.location.pathname}${window.location.search}`
+    if (here === url) return
 
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(window.history.state, '', url)
-    }
-
-    router.replace(url, { scroll: false })
-
-    if (typeof window !== 'undefined') window.scrollTo(0, 0)
-  }, [router, pathname, defaultPage])
+    const depth = historyDepth()
+    const state = { kakapoDepth: opts?.replace ? depth : depth + 1 }
+    if (opts?.replace) window.history.replaceState(state, '', url)
+    else window.history.pushState(state, '', url)
+    window.scrollTo(0, 0)
+  }, [defaultPage])
 
   const setPage = useCallback((nextPage: string) => {
     navigate(nextPage)

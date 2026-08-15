@@ -4,7 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>КАКАПО Торговля</title>
-  <script>window.kakapoAndroid=true;location.replace('./trade/');</script>
+  <script>
+    window.kakapoAndroid = true;
+    var p = location.pathname || '';
+    if (p === '/' || p === '/index.html' || p === '') {
+      location.replace('/trade/');
+    }
+  </script>
 </head>
-<body></body>
+<body style="margin:0;background:#F3F7F4"></body>
 </html>

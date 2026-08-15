@@ -101,9 +101,10 @@ public class MainActivity extends BridgeActivity {
     WindowInsetsControllerCompat controller =
       WindowCompat.getInsetsController(window, decor);
     if (controller != null) {
-      controller.hide(
-        WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars()
+      controller.show(
+        WindowInsetsCompat.Type.navigationBars()
       );
+      controller.hide(WindowInsetsCompat.Type.statusBars());
       controller.setSystemBarsBehavior(
         WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
       );
@@ -112,10 +113,9 @@ public class MainActivity extends BridgeActivity {
     decor.setSystemUiVisibility(
       View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         | View.SYSTEM_UI_FLAG_FULLSCREEN
-        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
     );
   }
 
@@ -338,8 +338,9 @@ public class MainActivity extends BridgeActivity {
       + "if(!window.__kakapoHwBack){window.__kakapoHwBack=true;"
       + "try{var App=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.App;"
       + "if(App&&App.addListener){App.addListener('backButton',function(){"
-      + "var b=d.querySelector('.k-top-back');if(b){b.click();return;}"
-      + "var o=d.querySelector('.k-side-overlay.open');if(o){o.click();}"
+      + "if(window.__kakapoHandleBack&&window.__kakapoHandleBack())return;"
+      + "if(window.history&&window.history.length>1){window.history.back();return;}"
+      + "if(App.minimizeApp){App.minimizeApp();}"
       + "});}}catch(e){}}"
       + "}"
       + "window.__kakapoSyncTheme=function(){"
