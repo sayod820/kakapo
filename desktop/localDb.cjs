@@ -276,6 +276,31 @@ function sqlEntityPut(kind, id, data, updatedAt, deleted) {
   return true
 }
 
+function sqlEntityPutMany(rows) {
+  if (!Array.isArray(rows) || !rows.length) return { ok: true, count: 0 }
+  const stmt = db.prepare(`
+    INSERT INTO entities(kind, id, payload, updated_at, deleted) VALUES(?, ?, ?, ?, ?)
+    ON CONFLICT(kind, id) DO UPDATE SET
+      payload = excluded.payload,
+      updated_at = excluded.updated_at,
+      deleted = excluded.deleted
+  `)
+  const tx = db.transaction((list) => {
+    let n = 0
+    for (const row of list) {
+      const k = String((row && row.kind) || '').trim()
+      const i = String((row && row.id) || '').trim()
+      if (!k || !i) continue
+      const stamp = String((row && (row.updatedAtIso || row.updatedAt)) || new Date().toISOString())
+      const del = row && row.deleted ? 1 : 0
+      stmt.run(k, i, JSON.stringify(row.data == null ? null : row.data), stamp, del)
+      n += 1
+    }
+    return n
+  })
+  return { ok: true, count: tx(rows) }
+}
+
 function sqlEntityGet(kind, id) {
   const row = db.prepare('SELECT payload, updated_at, deleted FROM entities WHERE kind = ? AND id = ?')
     .get(String(kind || ''), String(id || ''))
@@ -624,6 +649,15 @@ function installLocalDbIpc() {
     } catch (e) {
       console.error('[localDb] mirrorList', e)
       return []
+    }
+  })
+
+  ipcMain.handle('desktop:localDbEntityPutMany', (_e, rows) => {
+    try {
+      return sqlEntityPutMany(rows)
+    } catch (e) {
+      console.error('[localDb] entityPutMany', e)
+      return { ok: false, count: 0 }
     }
   })
 

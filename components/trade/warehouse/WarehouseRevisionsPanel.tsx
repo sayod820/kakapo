@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { useBackClose } from '@/lib/hardwareBack'
 import {
   createStockRevisionSafe,
   deleteStockRevisionSafe,
@@ -349,6 +350,8 @@ export default function WarehouseRevisionsPanel({
     }
     setMsg('')
   }
+
+  useBackClose(!!open, closeForm)
 
   function pickCategoriesMode() {
     setDraft(prev => ({

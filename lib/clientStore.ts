@@ -179,6 +179,29 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       return
     }
     const prev = get().clients
+    const { isOnline } = await import('./offline')
+    if (!isOnline()) {
+      if (prev.length) {
+        set({ hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
+        return
+      }
+      try {
+        const { readCachedData } = await import('./offline')
+        const cached = await readCachedData<AdminClient[]>('clients')
+        if (cached && cached.length) {
+          set({
+            clients: filterVisibleClients(cached.map(c => normalizeClient(c))),
+            hydrated: true,
+            apiReady: true,
+            apiSyncing: false,
+            apiError: '',
+          })
+          return
+        }
+      } catch { /* нет кэша */ }
+      set({ hydrated: true, apiReady: true, apiSyncing: false })
+      return
+    }
     set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
@@ -255,9 +278,25 @@ export function refilterClientsStore() {
 export { markClientLoyaltySaved }
 
 export function hydrateClientStore() {
-  if (USE_API) {
-    void useClientStore.getState().fetchFromApi()
-    return
-  }
-  useClientStore.getState().hydrate()
+  void (async () => {
+    try {
+      const { isTradeLocalFirst } = await import('./offlineV2')
+      if (isTradeLocalFirst() && !useClientStore.getState().clients.length) {
+        const { readCachedData } = await import('./offline')
+        const cached = await readCachedData<AdminClient[]>('clients')
+        if (cached?.length) {
+          useClientStore.setState({
+            clients: filterVisibleClients(cached.map(c => normalizeClient(c))),
+            hydrated: true,
+            apiReady: true,
+          })
+        }
+      }
+    } catch { /* ignore */ }
+    if (USE_API) {
+      void useClientStore.getState().fetchFromApi()
+      return
+    }
+    useClientStore.getState().hydrate()
+  })()
 }

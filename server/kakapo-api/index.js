@@ -838,7 +838,8 @@ app.get('/health', (_req, res) => {
 app.get('/sync/changes', (req, res) => {
   try {
     const since = String(req.query.since || '').trim()
-    res.json(buildSyncChanges(db, { since }))
+    const historyDays = Number(req.query.historyDays)
+    res.json(buildSyncChanges(db, { since, historyDays }))
   } catch (e) {
     res.status(500).json({ detail: e?.message || 'sync/changes failed' })
   }
@@ -2259,8 +2260,13 @@ app.get('/employees/directory', (_req, res) => {
     roleLabel: e.roleLabel,
   })))
 })
-/** Для локальной кассы (офлайн): сотрудники с паролями — кэш на ПК */
-app.get('/employees/local-auth', (_req, res) => {
+/** Для локальной кассы (офлайн): сотрудники с паролями — только привязанное устройство */
+app.get('/employees/local-auth', (req, res) => {
+  const deviceId = String(req.query.deviceId || '').trim()
+  const check = checkPosDevice(db, deviceId)
+  if (!check.ok) {
+    return res.status(403).json({ detail: 'Устройство не привязано' })
+  }
   res.json(listEmployeesLocalAuth(db))
 })
 app.post('/employees', (req, res) => {

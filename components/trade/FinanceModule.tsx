@@ -16,6 +16,7 @@ import {
   readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
+import { useBackClose } from '@/lib/hardwareBack'
 import {
   REPORT_PERIODS,
   filterByCreatedAt,
@@ -90,6 +91,10 @@ export default function FinanceModule() {
   const [depType, setDepType] = useState<'deposit' | 'withdraw'>('deposit')
   const [depAmount, setDepAmount] = useState('')
   const [depNote, setDepNote] = useState('')
+
+  useBackClose(expOpen, () => { if (!busy) setExpOpen(false) })
+  useBackClose(depOpen, () => { if (!busy) setDepOpen(false) })
+  useBackClose(filtersOpen, () => setFiltersOpen(false))
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),

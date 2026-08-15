@@ -8,6 +8,7 @@ import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
 import { getBoundPosIdSync, getBoundDeviceNameSync, getTradeDeviceIdSync } from '@/lib/tradeDevice'
+import { pushBackHandler } from '@/lib/hardwareBack'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import { loadTradeEmployeeSession } from '@/lib/employeeSession'
 import {
@@ -1221,6 +1222,35 @@ export default function CashierModule({
     ...DEFAULT_RECEIPT_STORE,
   }))
   const [qtyEditDraftKey, setQtyEditDraftKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    return pushBackHandler(() => {
+      if (camScanOpen) { setCamScanOpen(false); return true }
+      if (clientScanOpen) { setClientScanOpen(false); return true }
+      if (qtyEditOpen) { setQtyEditOpen(false); return true }
+      if (amountPad) { setAmountPad(false); return true }
+      if (payPickOpen) { setPayPickOpen(false); return true }
+      if (cashOpen) { setCashOpen(false); return true }
+      if (splitCardOpen) { setSplitCardOpen(false); return true }
+      if (discPickOpen) { setDiscPickOpen(false); return true }
+      if (discOpen) { setDiscOpen(false); return true }
+      if (clientOpen) { setClientOpen(false); return true }
+      if (catModalOpen) { setCatModalOpen(false); return true }
+      if (layerPickOpen) { setLayerPickOpen(false); return true }
+      if (topupOpen) { setTopupOpen(false); return true }
+      if (repayOpen) { setRepayOpen(false); return true }
+      if (histOpen) { setHistOpen(false); return true }
+      if (creditNoteOpen) { setCreditNoteOpen(false); return true }
+      if (openShiftModal) { setOpenShiftModal(false); return true }
+      if (createPosModal) { setCreatePosModal(false); return true }
+      if (cashierMenuOpen) { setCashierMenuOpen(false); return true }
+      if (queueOpen) { setQueueOpen(false); return true }
+      if (receiptTemplateOpen) { setReceiptTemplateOpen(false); return true }
+      if (clearCartConfirm) { setClearCartConfirm(false); return true }
+      if (showFav) { setShowFav(false); return true }
+      return false
+    })
+  })
 
   const receiptPreviewHtml = useMemo(() => buildPosReceiptHtml(buildDemoReceiptSale(), {
     ...receiptTemplateDraft,

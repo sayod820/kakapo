@@ -194,6 +194,13 @@ export type KakapoDesktopApi = {
     updatedAtIso?: string
     deleted?: boolean
   }) => Promise<{ ok: boolean }>
+  localDbEntityPutMany?: (rows: Array<{
+    kind: string
+    id: string
+    data: unknown
+    updatedAtIso?: string
+    deleted?: boolean
+  }>) => Promise<{ ok: boolean; count?: number }>
   localDbEntityGet?: (kind: string, id: string) => Promise<{ data: unknown; updatedAtIso: string } | null>
   localDbEntityList?: (kind?: string, opts?: {
     since?: string

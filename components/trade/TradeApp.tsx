@@ -3068,6 +3068,16 @@ function TradeAppGate() {
     )
   }
 
+  // Сначала привязка устройства — иначе чужой телефон не качает пароли
+  if (!deviceReady) {
+    return (
+      <TradeDeviceGate
+        theme={theme}
+        onReady={() => setDeviceReady(true)}
+      />
+    )
+  }
+
   // Пока данные не скачаны (товары + пароли) — только экран загрузки, без логина
   if ((isKakapoDesktop() || isTradeAndroidNative()) && localDbReady === false) {
     return (
@@ -3077,15 +3087,6 @@ function TradeAppGate() {
           void hydrateOfflineCaches()
           setLocalDbReady(true)
         }}
-      />
-    )
-  }
-
-  if (!deviceReady) {
-    return (
-      <TradeDeviceGate
-        theme={theme}
-        onReady={() => setDeviceReady(true)}
       />
     )
   }

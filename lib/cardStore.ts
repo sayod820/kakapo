@@ -345,6 +345,29 @@ export const useCardStore = create<CardStore>((set, get) => ({
       return
     }
     const prev = get().cards
+    const { isOnline } = await import('./offline')
+    if (!isOnline()) {
+      if (prev.length) {
+        set({ hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
+        return
+      }
+      try {
+        const { readCachedData } = await import('./offline')
+        const cached = await readCachedData<AdminCard[]>('cards')
+        if (cached && cached.length) {
+          set({
+            cards: cached.map(c => normalizeCard(c)),
+            hydrated: true,
+            apiReady: true,
+            apiSyncing: false,
+            apiError: '',
+          })
+          return
+        }
+      } catch { /* нет кэша */ }
+      set({ hydrated: true, apiReady: true, apiSyncing: false })
+      return
+    }
     set({ apiSyncing: true, apiError: '' })
     try {
       clearAppDataLocalCache()
@@ -395,9 +418,25 @@ export async function syncCardsFromApi() {
 export { markCardLoyaltySaved }
 
 export function hydrateCardStore() {
-  if (USE_API) {
-    void useCardStore.getState().fetchFromApi()
-    return
-  }
-  useCardStore.getState().hydrate()
+  void (async () => {
+    try {
+      const { isTradeLocalFirst } = await import('./offlineV2')
+      if (isTradeLocalFirst() && !useCardStore.getState().cards.length) {
+        const { readCachedData } = await import('./offline')
+        const cached = await readCachedData<AdminCard[]>('cards')
+        if (cached?.length) {
+          useCardStore.setState({
+            cards: cached.map(c => normalizeCard(c)),
+            hydrated: true,
+            apiReady: true,
+          })
+        }
+      }
+    } catch { /* ignore */ }
+    if (USE_API) {
+      void useCardStore.getState().fetchFromApi()
+      return
+    }
+    useCardStore.getState().hydrate()
+  })()
 }

@@ -2,6 +2,7 @@
 
 import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
+import { useBackClose } from '@/lib/hardwareBack'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import {
   createStockReceiptSafe,
@@ -508,6 +509,12 @@ export default function WarehouseReceiptsPanel({
     if (lines.some(l => l.productId || l.qty || l.costPrice) && !confirm('Закрыть приход? Черновик сохранится в браузере.')) return
     setDraft(prev => ({ ...prev, open: false }))
   }
+
+  const closeFormStable = useCallback(() => { closeForm() }, [saving, editingId, lines])
+  useBackClose(!!open, closeFormStable)
+  useBackClose(newProductOpen, () => setNewProductOpen(false))
+  useBackClose(newSupplierOpen, () => setNewSupplierOpen(false))
+  useBackClose(!!labelReceipt, () => setLabelReceipt(null))
 
   function updateLine(key: string, patch: Partial<ReceiptDraftLine>) {
     setDraft(prev => ({

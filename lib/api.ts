@@ -30,6 +30,7 @@ import type { AdminAssembler } from './assemblerTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
+import { getTradeDeviceIdSync } from './tradeDevice'
 import { noteApiFail, noteApiOk, shouldSkipFetchAsOffline } from './apiReachability'
 
 // ── Сетевые ошибки (нет связи / таймаут) для офлайн-режима ──
@@ -939,8 +940,10 @@ export const api = {
   getEmployeesDirectory: () =>
     request<Array<{ id: string; name: string; role: string; roleLabel?: string }>>('/employees/directory'),
   /** Полный список с паролями — кэш локальной кассы для офлайн-входа */
-  getEmployeesLocalAuth: () =>
-    request<Array<{
+  getEmployeesLocalAuth: () => {
+    const id = getTradeDeviceIdSync()
+    const q = id ? `?deviceId=${encodeURIComponent(id)}` : ''
+    return request<Array<{
       id: string
       name: string
       role: string
@@ -948,7 +951,8 @@ export const api = {
       permissions: string[]
       active: boolean
       password: string
-    }>>('/employees/local-auth'),
+    }>>(`/employees/local-auth${q}`)
+  },
   createEmployee: (data: {
     name: string
     password: string

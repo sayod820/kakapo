@@ -42,6 +42,25 @@ function filterBySince(list, since) {
   return list.filter(row => afterSince(rowStamp(row), since))
 }
 
+/** Первый pull без курсора: каталог целиком, история документов — не «за все годы». */
+const DEFAULT_FULL_HISTORY_DAYS = 400
+
+function filterRecentDays(list, days) {
+  if (!Array.isArray(list)) return []
+  if (!(Number(days) > 0)) return list
+  const cutoff = Date.now() - Number(days) * 86400000
+  return list.filter(row => {
+    const t = Date.parse(rowStamp(row))
+    if (!Number.isFinite(t)) return true
+    return t >= cutoff
+  })
+}
+
+function historyList(list, since, full, historyDays) {
+  if (full) return filterRecentDays(list, historyDays)
+  return filterBySince(list, since)
+}
+
 function maxIso(a, b) {
   const aa = Date.parse(a || '')
   const bb = Date.parse(b || '')
@@ -79,11 +98,15 @@ function cursorFromPayload(payload, since) {
 
 /**
  * @param {object} db
- * @param {{ since?: string }} opts
+ * @param {{ since?: string, historyDays?: number }} opts
  */
 export function buildSyncChanges(db, opts = {}) {
   const since = asIso(opts.since || '')
   const full = !since
+  const rawDays = Number(opts.historyDays)
+  const historyDays = Number.isFinite(rawDays) && rawDays > 0
+    ? rawDays
+    : DEFAULT_FULL_HISTORY_DAYS
 
   const products = full
     ? (db.products || [])
@@ -112,13 +135,13 @@ export function buildSyncChanges(db, opts = {}) {
     stockLayers,
     stockLayersReplace: true,
     pos: {
-      sales: filterBySince(db.posSales || [], since),
-      shifts: filterBySince(db.posShifts || [], since),
-      receipts: filterBySince(db.stockReceipts || [], since),
-      writeoffs: filterBySince(db.writeOffs || [], since),
-      revisions: filterBySince(db.stockRevisions || [], since),
-      financeMoves: filterBySince(db.financeMoves || [], since),
-      expenses: filterBySince(db.expenses || [], since),
+      sales: historyList(db.posSales || [], since, full, historyDays),
+      shifts: historyList(db.posShifts || [], since, full, historyDays),
+      receipts: historyList(db.stockReceipts || [], since, full, historyDays),
+      writeoffs: historyList(db.writeOffs || [], since, full, historyDays),
+      revisions: historyList(db.stockRevisions || [], since, full, historyDays),
+      financeMoves: historyList(db.financeMoves || [], since, full, historyDays),
+      expenses: historyList(db.expenses || [], since, full, historyDays),
       suppliers: full ? (db.suppliers || []) : filterBySince(db.suppliers || [], since),
       posPoints: (full ? (db.posPoints || []) : filterBySince(db.posPoints || [], since))
         .map(p => ({
@@ -126,7 +149,7 @@ export function buildSyncChanges(db, opts = {}) {
           pairCode: undefined,
         })),
       cashiers: full ? (db.cashiers || []) : filterBySince(db.cashiers || [], since),
-      expiry: full ? (db.expiry || []) : filterBySince(db.expiry || [], since),
+      expiry: historyList(db.expiry || [], since, full, historyDays),
     },
   }
   payload.cursor = cursorFromPayload(payload, since)

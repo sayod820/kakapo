@@ -60,6 +60,7 @@ interface OfflineSyncState {
 }
 
 let intervalId: ReturnType<typeof setInterval> | null = null
+let lastIdlePingAt = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let reconnectAttempt = 0
 let listenersBound = false
@@ -69,7 +70,7 @@ let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 /** Слабый интернет: ping дольше; при очереди крутим чаще */
 const PING_TIMEOUT_MS = 4500
 const PING_QUICK_MS = 2800
-const POLL_IDLE_MS = 10000
+const POLL_IDLE_MS = 20000
 const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
@@ -614,14 +615,16 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     intervalId = setInterval(() => {
       if (get().syncing || syncLock) return
       if (isCashierPaymentCritical()) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       void (async () => {
         await get().refresh()
         const failed = get().failed
         const pending = get().pending
         const hasWork = pending > 0 || failed > 0 || !get().online
         if (!hasWork) {
-          // Нет очереди — лёгкий ping; поиск не мешает
           if (isCashierSearchBusy()) return
+          if (Date.now() - lastIdlePingAt < POLL_IDLE_MS) return
+          lastIdlePingAt = Date.now()
           const alive = await pingServer({ quick: true })
           if (!alive) {
             set({ online: false })
@@ -631,7 +634,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           }
           return
         }
-        // Есть очередь — шлём даже если фокус в поиске
         await get().syncNow()
       })()
     }, POLL_BUSY_MS)

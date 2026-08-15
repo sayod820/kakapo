@@ -86,6 +86,19 @@ export async function entityUpsertMany(
   kind: EntityKind | string,
   items: Array<{ id: string | number; data: unknown; updatedAtIso?: string }>,
 ): Promise<void> {
+  if (!items.length) return
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbEntityPutMany) {
+    await desk.localDbEntityPutMany(
+      items.map(it => ({
+        kind,
+        id: String(it.id),
+        data: it.data,
+        updatedAtIso: it.updatedAtIso || new Date().toISOString(),
+      })),
+    )
+    return
+  }
   for (const it of items) {
     await entityPut(kind, String(it.id), it.data, { updatedAtIso: it.updatedAtIso })
   }

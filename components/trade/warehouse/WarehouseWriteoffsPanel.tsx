@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
+import { useBackClose } from '@/lib/hardwareBack'
 import {
   createStockWriteoffSafe,
   deleteStockWriteoffSafe,
@@ -238,6 +239,8 @@ export default function WarehouseWriteoffsPanel({
     setDraft(prev => ({ ...prev, open: false }))
     setMsg('')
   }
+
+  useBackClose(!!open, closeForm)
 
   function fillLineFromProduct(line: WriteoffDraftLine, product: Product): WriteoffDraftLine {
     return {

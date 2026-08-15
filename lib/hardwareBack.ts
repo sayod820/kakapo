@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect } from 'react'
+
 /**
  * Системная кнопка/жест «назад» Android — не отдельная кнопка в интерфейсе.
  * Стек обработчиков: модалка → деталь → история разделов → свернуть приложение.
@@ -90,4 +92,15 @@ export function installHardwareBack(): void {
     if (e.key !== 'Escape') return
     if (handleHardwareBack()) e.preventDefault()
   })
+}
+
+/** Пока экран/модалка открыта — системная «назад» закрывает её. */
+export function useBackClose(active: boolean, close: () => void) {
+  useEffect(() => {
+    if (!active) return
+    return pushBackHandler(() => {
+      close()
+      return true
+    })
+  }, [active, close])
 }
