@@ -3016,6 +3016,9 @@ function TradeAppGate() {
   const [deviceReady, setDeviceReady] = useState(() => !USE_API)
 
   useEffect(() => {
+    try {
+      ;(window as Window & { __kakapoHideBoot?: () => void }).__kakapoHideBoot?.()
+    } catch { /* ignore */ }
     void import('@/lib/hardwareBack').then(m => m.installHardwareBack()).catch(() => {})
     void import('@/lib/offlineV2').then(m => m.ensureDesktopLocalFirst()).catch(() => {})
     void hydrateOfflineCaches()

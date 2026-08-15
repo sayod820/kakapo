@@ -120,7 +120,7 @@ writeFileSync(
     window.kakapoAndroid = true;
     var p = location.pathname || '';
     if (p === '/' || p === '/index.html' || p === '') {
-      location.replace('/trade/');
+      location.replace('/trade/index.html');
     }
   </script>
 </head>

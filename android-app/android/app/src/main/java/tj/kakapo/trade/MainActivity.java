@@ -33,6 +33,7 @@ public class MainActivity extends BridgeActivity {
     hideSystemUi();
     configureWebView();
     applyChromeColor(loadSavedChromeColor());
+    openTradeUi();
     injectAndroidFlag();
   }
 
@@ -119,6 +120,25 @@ public class MainActivity extends BridgeActivity {
     );
   }
 
+  private void openTradeUi() {
+    if (this.bridge == null) return;
+    WebView webView = this.bridge.getWebView();
+    if (webView == null) return;
+    webView.post(() -> {
+      String url = webView.getUrl();
+      if (url == null) {
+        webView.loadUrl("https://localhost/trade/index.html");
+        return;
+      }
+      boolean atRoot = url.matches("https://localhost/?")
+        || url.equals("https://localhost/index.html")
+        || url.endsWith("://localhost/");
+      if (atRoot && !url.contains("/trade")) {
+        webView.loadUrl("https://localhost/trade/index.html");
+      }
+    });
+  }
+
   private void configureWebView() {
     if (this.bridge == null) return;
     WebView webView = this.bridge.getWebView();
@@ -131,7 +151,11 @@ public class MainActivity extends BridgeActivity {
     webView.setHorizontalScrollBarEnabled(false);
     webView.setBackgroundColor(chrome);
     webView.setPadding(0, 0, 0, 0);
+    webView.getSettings().setJavaScriptEnabled(true);
     webView.getSettings().setDomStorageEnabled(true);
+    webView.getSettings().setDatabaseEnabled(true);
+    webView.getSettings().setAllowFileAccess(true);
+    webView.getSettings().setAllowContentAccess(true);
     webView.getSettings().setSupportZoom(false);
     webView.getSettings().setBuiltInZoomControls(false);
     webView.getSettings().setDisplayZoomControls(false);
@@ -245,7 +269,7 @@ public class MainActivity extends BridgeActivity {
       + "var s=d.createElement('style');s.id='kakapo-android-safe';"
       + "s.textContent='"
       + "html.kakapo-android{--kakapo-notch:env(safe-area-inset-top,0px);--kakapo-bg:#F3F7F4;--kakapo-panel:#FFFFFF;"
-      + "background:var(--kakapo-bg)!important;height:100%!important;overflow:hidden!important;}"
+      + "background:var(--kakapo-bg)!important;}"
       + "html.kakapo-android.kakapo-theme-light{--kakapo-bg:#F3F7F4;--kakapo-panel:#FFFFFF;}"
       + "html.kakapo-android.kakapo-theme-dark{--kakapo-bg:#070C09;--kakapo-panel:#0B120E;}"
       + "html.kakapo-android,html.kakapo-android body,html.kakapo-android #__next{"
