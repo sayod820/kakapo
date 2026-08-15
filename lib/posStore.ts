@@ -177,6 +177,9 @@ export async function softSyncPosAfterSale() {
     const pending = await getPending()
     const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
 
+    // Состояние читаем после await — иначе потеряем чеки, пробитые во время запроса
+    const localSales = usePosStore.getState().sales
+
     // Серверные чеки + локальные ещё не ушедшие; имя кассира не затираем пустым «Кассир»
     const localById = new Map(localSales.map(s => [String(s.id), s]))
     const localByRef = new Map(

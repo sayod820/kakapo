@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
-import { allocPosOpSeq } from '@/lib/posOpSeq'
+import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import { loadTradeEmployeeSession } from '@/lib/employeeSession'
 import {
@@ -3200,8 +3200,8 @@ export default function CashierModule({
         qRef.current = scanAccumRef.current
         setQ(scanAccumRef.current)
         scheduleScanCommit(SCAN_IDLE_MS)
-        return false
-      }
+      return false
+    }
       if (fromScanner || looksNumericCode) {
         openScanBlockAlert(
           'Товар не найден',
@@ -3545,7 +3545,7 @@ export default function CashierModule({
         if (printerName) {
         setDeskPrinterName(printerName)
         setDeskPaperMm(XP58C_RECEIPT_MM)
-        }
+      }
         if (deskScaleMode === 'plu-label' && deskScaleLiveWeight && deskScaleHost.trim()) {
           void ensureCasWeightMonitor(true)
         } else {
@@ -4112,8 +4112,8 @@ export default function CashierModule({
       }
 
       const items = s.items || []
-      const seq = saleOrderSeq(s)
-      const label = saleNumberLabel(s)
+        const seq = saleOrderSeq(s)
+        const label = saleNumberLabel(s)
 
       // Товар (штрих / название / арт) — строго только чеки с этим товаром
       if (productIds.size > 0) {
@@ -4124,7 +4124,7 @@ export default function CashierModule({
         continue
       }
 
-      if (looksOrderNum && qDigits) {
+        if (looksOrderNum && qDigits) {
         if (
           String(seq) === qDigits
           || label.toLowerCase() === q
@@ -5836,6 +5836,7 @@ export default function CashierModule({
         ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
         : undefined
       const salePosId = activeShift.posId || activePosPoint?.id
+      await ensurePosOpSeqReady()
       const salePayload = {
         clientRef: newClientRef(),
         createdAtIso: new Date().toISOString(),
@@ -9956,7 +9957,7 @@ export default function CashierModule({
                         <div>
                           <div style={{ fontWeight: 800, color: 'var(--org)' }}>Ручной долг на карте</div>
                           <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>Без строки в истории</div>
-                        </div>
+                </div>
                         <div style={{ fontWeight: 900, color: 'var(--org)' }}>+{fmtMoney(cashierDebtPanel.residualCash)}</div>
                           </div>
                         </div>

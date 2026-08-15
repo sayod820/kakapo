@@ -644,7 +644,7 @@ export default function DebtsModule({
   function renderEditableRow(row: DebtHistoryEntry) {
     const isPay = row.type === 'pay'
     const editing = histEdit?.id === row.id
-    return (
+  return (
       <div
         key={row.id}
         style={{
@@ -657,15 +657,15 @@ export default function DebtsModule({
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>
               {row.desc || (isPay ? 'Погашение долга' : 'Ручное начисление')}
-            </div>
+          </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
               {row.date} · {row.time || '—'}
-            </div>
-          </div>
+        </div>
+        </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontWeight: 900, color: isPay ? 'var(--green)' : 'var(--gold)' }}>
               {isPay ? '−' : '+'}{fmtMoney(Math.abs(row.amount))}
-            </div>
+      </div>
             {!editing && (
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button
@@ -689,10 +689,10 @@ export default function DebtsModule({
                 >
                   Удалить
                 </button>
-              </div>
-            )}
-          </div>
         </div>
+      )}
+        </div>
+          </div>
         {editing && histEdit && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -704,7 +704,7 @@ export default function DebtsModule({
                   disabled={histEdit.saving}
                   onChange={e => setHistEdit(prev => prev ? { ...prev, amount: sanitizeDecimalInput(e.target.value) } : prev)}
                 />
-              </div>
+        </div>
               <div style={{ flex: '2 1 160px' }}>
                 <label style={{ fontSize: 11 }}>Описание</label>
                 <input
@@ -742,8 +742,8 @@ export default function DebtsModule({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 110px' }}>
             <label style={{ fontSize: 11 }}>Сумма</label>
-            <input
-              className="k-inp"
+        <input
+          className="k-inp"
               value={histAdd.amount}
               disabled={histAdd.saving}
               onChange={e => setHistAdd(prev => ({ ...prev, amount: sanitizeDecimalInput(e.target.value) }))}
@@ -822,9 +822,9 @@ export default function DebtsModule({
                 className="k-inp"
                 style={{ flex: 1, minHeight: 34, padding: '6px 8px', fontSize: 13 }}
                 placeholder="Поиск…"
-                value={q}
-                onChange={e => setQ(e.target.value)}
-              />
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
               <select
                 className="k-sel"
                 style={{ width: 110, minHeight: 34, padding: '6px 8px', fontSize: 12 }}
@@ -834,20 +834,20 @@ export default function DebtsModule({
                 <option value="debt">По сумме</option>
                 <option value="name">По имени</option>
               </select>
-            </div>
-          </div>
+        </div>
+      </div>
 
           <div className="k-debts-list-b">
-            {!filtered.length ? (
+      {!filtered.length ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                 Никого не найдено
-              </div>
+        </div>
             ) : filtered.map(c => {
-              const debt = Number(c.debt) || 0
+            const debt = Number(c.debt) || 0
               const active = c.id === detailId
-              return (
+            return (
                 <button
-                  key={c.id}
+                key={c.id}
                   type="button"
                   className={`k-debts-row ${active ? 'active' : ''}`}
                   onClick={() => selectClient(c.id)}
@@ -863,23 +863,23 @@ export default function DebtsModule({
                       <span style={{ color: 'var(--blue)' }}>Т: {fmtMoney(c.goodsDebt)}</span>
                       <span style={{ color: 'var(--gold)' }}>Н: {fmtMoney(c.cashDebt)}</span>
                     </div>
-                  </div>
+                      </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontWeight: 900, fontSize: 13, color: debt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                      {debt > 0 ? fmtMoney(debt) : '—'}
+                        {debt > 0 ? fmtMoney(debt) : '—'}
+                      </div>
                     </div>
-                  </div>
                 </button>
-              )
-            })}
-          </div>
+            )
+          })}
+        </div>
 
           <div className="k-debts-foot">
             <span style={{ color: 'var(--muted)' }}>Всего долг</span>
             <span style={{ color: counts.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
               {counts.totalDebt > 0 ? fmtMoney(counts.totalDebt) : '—'}
             </span>
-          </div>
+                </div>
         </aside>
 
         {/* ── Деталь ── */}
@@ -887,7 +887,7 @@ export default function DebtsModule({
           {!detailClient || !detailData ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
               Выберите клиента слева
-            </div>
+              </div>
           ) : (
             <>
               <div className="k-debts-head">
@@ -926,9 +926,9 @@ export default function DebtsModule({
                           })()}
                         </span>
                       )}
-                    </div>
                   </div>
-                </div>
+                  </div>
+                    </div>
 
                 <div className="k-debts-metrics">
                   <div className="k-debts-metric">
@@ -937,19 +937,19 @@ export default function DebtsModule({
                     {detailData.posOriginal > detailData.posSum + 0.05 && (
                       <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
                         из {fmtMoney(detailData.posOriginal)}
-                      </div>
-                    )}
                   </div>
+                )}
+              </div>
                   <div className="k-debts-metric">
                     <div className="kl">Наличные</div>
                     <div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(detailData.cashOnCard)}</div>
-                  </div>
+                </div>
                   <div className="k-debts-metric">
                     <div className="kl">Итого</div>
                     <div className="kv" style={{ color: cardDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
                       {cardDebt > 0 ? fmtMoney(cardDebt) : '—'}
-                    </div>
                   </div>
+                </div>
                 </div>
               </div>
 
@@ -972,10 +972,10 @@ export default function DebtsModule({
                         if (id !== 'cash' && id !== 'pay') setHistAdd(emptyHistAdd())
                       }}
                     >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                    {label}
+                  </button>
+                ))}
+              </div>
 
                 {histMsg && (
                   <div style={{
@@ -990,7 +990,7 @@ export default function DebtsModule({
               </div>
 
               <div className="k-debts-detail-b">
-                {detailTab === 'history' && (
+              {detailTab === 'history' && (
                   !detailData.historyFeed.length ? (
                     <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                       Пока нет движений
@@ -1011,7 +1011,7 @@ export default function DebtsModule({
                           {detailData.historyFeed.map(row => {
                             const meta = kindMeta(row.kind)
                             const clickable = row.kind === 'pos' && row.saleId
-                            return (
+                        return (
                               <tr
                                 key={row.key}
                                 onClick={() => clickable && openSaleDetail(row.saleId!)}
@@ -1022,7 +1022,7 @@ export default function DebtsModule({
                                 <td>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: meta.color, fontSize: 12 }}>
                                     <span>{meta.icon}</span> {meta.label}
-                                  </span>
+                              </span>
                                 </td>
                                 <td style={{ fontSize: 13 }}>
                                   {row.desc}
@@ -1064,9 +1064,9 @@ export default function DebtsModule({
                             ['open', 'К оплате'],
                             ['all', 'Все'],
                           ] as [PosViewFilter, string][]).map(([id, label]) => (
-                            <button
+                        <button
                               key={id}
-                              type="button"
+                          type="button"
                               className={`k-subtab ${posView === id ? 'active' : ''}`}
                               style={{ padding: '4px 10px', fontSize: 11 }}
                               onClick={() => setPosView(id)}
@@ -1137,7 +1137,7 @@ export default function DebtsModule({
                                         }}>
                                           <span>{st.status === 'paid' ? '✅' : st.status === 'partial' ? '◐' : '🧾'}</span>
                                           {statusLabel}
-                                        </span>
+                                </span>
                                       </td>
                                       <td style={{ fontSize: 13 }}>
                                         <span style={{ fontWeight: 700 }}>{saleLabel(s)}</span>
@@ -1150,7 +1150,7 @@ export default function DebtsModule({
                                             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280,
                                           }}>
                                             {items}
-                                          </div>
+                              </div>
                                         )}
                                       </td>
                                       <td style={{
@@ -1182,11 +1182,11 @@ export default function DebtsModule({
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                         Наличные = долг на карте минус чеки. Старый ручной ввод тоже здесь.
-                      </div>
+                            </div>
                       <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 12px' }} onClick={() => openAdd('add')}>
                         + Выдать
                       </button>
-                    </div>
+                                </div>
                     {renderAddForm()}
                     {detailData.residualCash > 0.005 && (
                       <div style={{
@@ -1200,7 +1200,7 @@ export default function DebtsModule({
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                               Раньше ввели вручную, в истории строки не было — учитываем как наличные
-                            </div>
+                          </div>
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <div style={{ fontWeight: 900, color: 'var(--gold)' }}>
@@ -1214,7 +1214,7 @@ export default function DebtsModule({
                                 onClick={() => void documentResidualCash()}
                               >
                                 Записать в историю
-                              </button>
+                        </button>
                               <button
                                 type="button"
                                 className="k-btn k-btn-s"
@@ -1226,15 +1226,15 @@ export default function DebtsModule({
                             </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                    </div>
+                  )}
                     {!detailData.cash.length && detailData.residualCash < 0.005 && !histAdd.open ? (
                       <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                         Нет выдач наличными
                       </div>
                     ) : detailData.cash.map(renderEditableRow)}
-                  </>
-                )}
+                </>
+              )}
 
                 {detailTab === 'pay' && (
                   <>
@@ -1263,7 +1263,7 @@ export default function DebtsModule({
                                 || debtOrderIdsMatch(s.orderId, row.orderId),
                               )
                               : undefined
-                            return (
+                        return (
                               <div
                                 key={row.id}
                                 style={{
@@ -1276,14 +1276,14 @@ export default function DebtsModule({
                                   <div style={{ minWidth: 0 }}>
                                     <div style={{ fontWeight: 800, fontSize: 14 }}>
                                       {row.desc || (sale ? `Погашение · ${saleLabel(sale)}` : 'Погашение чека')}
-                                    </div>
+                                </div>
                                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                                       {row.date}{row.time ? ` · ${row.time}` : ''}
                                       <span style={{ color: 'var(--green)', fontWeight: 700 }}>
                                         {isGap ? ' · сводка' : ' · по чеку'}
                                       </span>
-                                    </div>
                                   </div>
+                              </div>
                                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                     <div style={{ fontWeight: 900, color: 'var(--green)' }}>
                                       −{fmtMoney(Math.abs(row.amount))}
@@ -1298,16 +1298,16 @@ export default function DebtsModule({
                                         Открыть чек
                                       </button>
                                     )}
-                                  </div>
-                                </div>
                               </div>
-                            )
-                          })}
+                            </div>
+                          </div>
+                        )
+                      })}
                         {detailData.pays.map(renderEditableRow)}
                       </>
-                    )}
-                  </>
-                )}
+                  )}
+                </>
+              )}
               </div>
 
               <div className="k-debts-actions">
@@ -1322,11 +1322,11 @@ export default function DebtsModule({
                 <button type="button" className="k-btn k-btn-s" onClick={() => openAdd('add')}>
                   Выдать наличные
                 </button>
-              </div>
+                              </div>
             </>
           )}
         </section>
-      </div>
+                              </div>
 
       {saleDetailId && detailData && (() => {
         const s = detailData.posSales.find(x => x.id === saleDetailId)
@@ -1341,29 +1341,29 @@ export default function DebtsModule({
               <div className="k-modal-h">
                 <b>{saleLabel(s)}</b>
                 <button type="button" onClick={() => { setSaleDetailId(null); setSaleRepay(null) }}>✕</button>
-              </div>
+                                </div>
               <div className="k-modal-b" style={{ padding: 14 }}>
                 <div style={{ display: 'grid', gap: 6, fontSize: 13, marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ color: 'var(--muted)' }}>Дата</span>
                     <span style={{ fontWeight: 700 }}>{s.dateIso ? fmtDateTime(s.dateIso) : '—'}</span>
-                  </div>
+                            </div>
                   {s.orderId && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ color: 'var(--muted)' }}>Номер заказа</span>
                       <span style={{ fontWeight: 800 }}>{s.orderId}</span>
-                    </div>
+                            </div>
                   )}
                   {s.number != null && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ color: 'var(--muted)' }}>Номер чека</span>
                       <span style={{ fontWeight: 800 }}>№{s.number}</span>
-                    </div>
-                  )}
+                          </div>
+                          )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span style={{ color: 'var(--muted)' }}>Оплата</span>
                     <span style={{ fontWeight: 700 }}>{paymentMethodLabel(s.paymentMethod, s.partial)}</span>
-                  </div>
+                        </div>
                   {s.cashierName && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ color: 'var(--muted)' }}>Кассир</span>
@@ -1380,7 +1380,7 @@ export default function DebtsModule({
 
                 <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>
                   Состав ({s.items.length})
-                </div>
+            </div>
                 {!s.items.length ? (
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Позиции не сохранены</div>
                 ) : (
@@ -1398,19 +1398,19 @@ export default function DebtsModule({
                           <div style={{ fontWeight: 700 }}>{it.name}</div>
                           <div style={{ color: 'var(--muted)', marginTop: 1 }}>
                             {it.qty}{it.unit ? ` ${it.unit}` : ''} × {fmtMoney(it.price)}
-                          </div>
+          </div>
                         </div>
                         <div style={{ fontWeight: 800, flexShrink: 0 }}>{fmtMoney(it.lineTotal)}</div>
                       </div>
                     ))}
-                  </div>
-                )}
+        </div>
+      )}
 
                 <div style={{ display: 'grid', gap: 6, fontSize: 13, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--muted)' }}>Сумма чека</span>
                     <span style={{ fontWeight: 800 }}>{fmtMoney(s.total)}</span>
-                  </div>
+            </div>
                   {(s.paidCash > 0 || s.paidCard > 0) && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--muted)' }}>Оплачено при продаже</span>
@@ -1419,18 +1419,18 @@ export default function DebtsModule({
                         {s.paidCash > 0 && s.paidCard > 0 ? ' + ' : ''}
                         {s.paidCard > 0 ? `карта ${fmtMoney(s.paidCard)}` : ''}
                       </span>
-                    </div>
+                </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--muted)' }}>В долг</span>
                     <span style={{ fontWeight: 900, color: 'var(--blue)' }}>{fmtMoney(s.debtAdded)}</span>
-                  </div>
+                    </div>
                   {st.paid > 0.001 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--muted)' }}>Уже погашено</span>
                       <span style={{ fontWeight: 700, color: 'var(--green)' }}>{fmtMoney(st.paid)}</span>
-                    </div>
-                  )}
+                  </div>
+                )}
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--muted)' }}>Остаток по чеку</span>
                     <span style={{
@@ -1439,7 +1439,7 @@ export default function DebtsModule({
                     }}>
                       {st.status === 'paid' ? 'Погашен' : fmtMoney(st.remain)}
                     </span>
-                  </div>
+              </div>
                 </div>
 
                 {canRepay ? (
@@ -1470,11 +1470,11 @@ export default function DebtsModule({
                         style={{ whiteSpace: 'nowrap' }}
                       >
                         {saleRepay?.saving ? '…' : 'Погасить'}
-                      </button>
-                    </div>
+                </button>
+            </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                       Макс. {fmtMoney(maxPay)} · спишется только с этого чека
-                    </div>
+          </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {[maxPay, Math.round(maxPay / 2 * 100) / 100].filter((v, i, a) => v > 0.001 && a.indexOf(v) === i).map(v => (
                         <button
@@ -1487,7 +1487,7 @@ export default function DebtsModule({
                           {fmtMoney(v)}
                         </button>
                       ))}
-                    </div>
+        </div>
                   </div>
                 ) : st.status === 'paid' ? (
                   <div style={{

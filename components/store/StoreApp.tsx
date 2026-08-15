@@ -1674,7 +1674,7 @@ const CatalogPage = ({ go, cart, user }) => {
       </div>
       <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
       {!catsReady ? (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} style={{ height:120, borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", opacity:0.55 }} />
           ))}
@@ -5286,7 +5286,7 @@ const VIPPage = ({ go, user, setUser }) => {
   }), [user?.level, user?.vip, user?.debtLimit, user?.debtEnabled, loyalty.isVip, loyaltyCfgTick]);
   const debtSectionOn = creditUsed > 0
     || (user?.levelAssignMode === 'manual'
-      ? !!user?.debtEnabled
+    ? !!user?.debtEnabled
       : (qualifiesForDebtSection(user?.level, user?.vip) || !!user?.debtEnabled));
   const creditPct = creditLimit > 0 ? Math.min(100, Math.round((creditUsed / creditLimit) * 100)) : 0;
   const cardLabel = user?.card
@@ -5659,10 +5659,10 @@ const AboutPage = ({ go, user }) => {
 
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Режим работы</div>
             <div className="card" style={{ overflow:"hidden", marginBottom:22, padding:"13px 16px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
                 <span style={{ fontSize:12, fontWeight:600 }}>Ежедневно</span>
-              </div>
+                  </div>
               <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{support.hours}</span>
             </div>
 

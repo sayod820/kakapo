@@ -132,7 +132,7 @@ function writeAndRead(socket, packet, timeoutMs = 5000, minBytes = 2) {
       cleanup()
       if (!settled) {
         settled = true
-        reject(new Error('Нет ответа от весов CAS'))
+      reject(new Error('Нет ответа от весов CAS'))
       }
     }, timeoutMs)
 
