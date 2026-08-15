@@ -6,6 +6,7 @@ import { useOfflineSync } from '@/lib/offlineSync'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
+import ClientErrorBoundary from '@/components/shared/ClientErrorBoundary'
 import { useProducts } from '@/lib/store'
 import ProductsModule, { type ProductsSubPage } from '@/components/trade/ProductsModule'
 import WarehouseModule from '@/components/trade/WarehouseModule'
@@ -2529,6 +2530,9 @@ function TradeAppInner({
   )
   const defaultPage = firstAllowedTradePage(session.permissions)
   const { page, setPage, navigate } = useAppNavigation(defaultPage)
+  const current = (
+    allowedNav.some(p => p.id === page) ? page : defaultPage
+  ) as TradePage
   const products = useProducts(s => s.products)
   const loaded = useProducts(s => s.loaded)
   const [search, setSearch] = useState('')
@@ -2591,10 +2595,6 @@ function TradeAppInner({
       return true
     })
   }, [searchScanOpen])
-
-  const current = (
-    allowedNav.some(p => p.id === page) ? page : defaultPage
-  ) as TradePage
 
   useEffect(() => {
     if (!canAccessTradePage(session.permissions, page)) {
@@ -3107,15 +3107,17 @@ function TradeAppGate() {
   }
 
   return (
-    <TradeAppInner
-      session={session}
-      theme={theme}
-      onThemeChange={applyTheme}
-      onLogout={() => {
-        clearTradeEmployeeSession()
-        setSession(null)
-      }}
-    />
+    <ClientErrorBoundary title="Торговля временно недоступна">
+      <TradeAppInner
+        session={session}
+        theme={theme}
+        onThemeChange={applyTheme}
+        onLogout={() => {
+          clearTradeEmployeeSession()
+          setSession(null)
+        }}
+      />
+    </ClientErrorBoundary>
   )
 }
 
