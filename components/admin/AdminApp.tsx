@@ -112,6 +112,7 @@ import { loyaltyTierOptions, loadLoyaltyStatusConfig } from '@/lib/loyaltyStatus
 import { formatAdminLevelExpiry, formatAdminVipExpiry } from '@/lib/loyaltyAdminLock'
 import CardStatusAdminPanel from '@/components/admin/CardStatusAdminPanel'
 import EmployeesPage from '@/components/admin/EmployeesPage'
+import PosPointsAdminPage from '@/components/admin/PosPointsAdminPage'
 import {
   enrichClientsForPush,
   filterClientsBySegment,
@@ -515,7 +516,7 @@ const NAV_GROUPS = [
   {g:'Общее',     items:[{id:'dashboard',icon:'📊',l:'Dashboard'},{id:'orders',icon:'📦',l:'Все заказы'}]},
   {g:'Магазин',   items:[{id:'products',icon:'🥦',l:'Товары'},{id:'categories',icon:'📁',l:'Категории'},{id:'promos',icon:'💸',l:'Акции'}]},
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
-  {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'employees',icon:'👤',l:'Сотрудники'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
+          {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'employees',icon:'👤',l:'Сотрудники'},{id:'pospoints',icon:'🖥',l:'Точки кассы'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
   {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'cash',icon:'💵',l:'Касса'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
@@ -8694,8 +8695,8 @@ function AdminAppInner({
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',pospoints:'Точки кассы',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',pospoints:'Точки продаж · номер · привязка ПК и телефонов · код на 5 минут',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout} theme={theme} onThemeChange={setTheme}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -8708,6 +8709,7 @@ function AdminAppInner({
       {page==='couriers'   && <CouriersPage/>}
       {page==='assemblers' && <AssemblersPage/>}
       {page==='employees'  && <EmployeesPage/>}
+      {page==='pospoints'  && <PosPointsAdminPage/>}
       {page==='clients'    && <ClientsPage/>}
       {page==='cards'      && <CardsPage setPage={setPage}/>}
       {page==='debts'      && <DebtsPage setPage={setPage}/>}

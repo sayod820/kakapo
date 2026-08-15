@@ -56,6 +56,7 @@ function ensureDefaultPosPoint(db) {
       note: '',
       active: true,
       opSeq: 0,
+      devices: [],
       createdAtIso: nowIso(),
     })
   }
@@ -73,7 +74,38 @@ function ensureDefaultPosPoint(db) {
 
 export function listPosPoints(db) {
   ensurePosCollections(db)
-  return [...db.posPoints].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  return [...db.posPoints]
+    .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+    .map(publicPosPoint)
+}
+
+export function publicPosPoint(row) {
+  if (!row) return row
+  const devices = Array.isArray(row.devices)
+    ? row.devices.map(d => ({
+      id: String(d.id || ''),
+      name: String(d.name || 'Устройство'),
+      boundAtIso: String(d.boundAtIso || ''),
+      lastSeenAtIso: d.lastSeenAtIso ? String(d.lastSeenAtIso) : undefined,
+    })).filter(d => d.id)
+    : []
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    note: row.note,
+    receiptPhone: row.receiptPhone,
+    active: row.active !== false,
+    opSeq: Number(row.opSeq) || 0,
+    createdAtIso: row.createdAtIso,
+    updatedAtIso: row.updatedAtIso,
+    devices,
+  }
+}
+
+function ensurePointDevices(row) {
+  if (!Array.isArray(row.devices)) row.devices = []
+  return row.devices
 }
 
 export function createPosPoint(db, data = {}) {
@@ -90,10 +122,12 @@ export function createPosPoint(db, data = {}) {
     receiptPhone: String(data.receiptPhone || '').trim(),
     active: data.active !== false,
     opSeq: 0,
+    devices: [],
     createdAtIso: nowIso(),
+    updatedAtIso: nowIso(),
   }
   db.posPoints.push(row)
-  return row
+  return publicPosPoint(row)
 }
 
 export function updatePosPoint(db, id, data = {}) {
@@ -109,7 +143,127 @@ export function updatePosPoint(db, id, data = {}) {
   if (data.note != null) row.note = String(data.note).trim()
   if (data.receiptPhone != null) row.receiptPhone = String(data.receiptPhone).trim()
   if (data.active != null) row.active = !!data.active
-  return row
+  row.updatedAtIso = nowIso()
+  return publicPosPoint(row)
+}
+
+const PAIR_TTL_MS = 5 * 60 * 1000
+
+function randomPairCode(db) {
+  for (let i = 0; i < 40; i++) {
+    const code = String(1000 + Math.floor(Math.random() * 9000))
+    const taken = (db.posPoints || []).some(p => {
+      const pc = p.pairCode
+      if (!pc || String(pc.code) !== code) return false
+      return Date.parse(pc.expiresAtIso || '') > Date.now()
+    })
+    if (!taken) return code
+  }
+  return String(1000 + Math.floor(Math.random() * 9000))
+}
+
+export function createPosPairCode(db, posId) {
+  ensurePosCollections(db)
+  const row = db.posPoints.find(p => p.id === posId)
+  if (!row) throw new Error('Точка продаж не найдена')
+  if (row.active === false) throw new Error('Точка отключена')
+  const expiresAtIso = new Date(Date.now() + PAIR_TTL_MS).toISOString()
+  const code = randomPairCode(db)
+  row.pairCode = { code, expiresAtIso }
+  row.updatedAtIso = nowIso()
+  return { posId: row.id, name: row.name, code, expiresAtIso }
+}
+
+export function bindPosDevice(db, data = {}) {
+  ensurePosCollections(db)
+  const code = String(data.code || '').replace(/\D/g, '').slice(0, 4)
+  const deviceId = String(data.deviceId || '').trim()
+  const deviceName = String(data.deviceName || 'Устройство').trim() || 'Устройство'
+  if (code.length !== 4) throw new Error('Введите 4-значный код из админки')
+  if (!deviceId) throw new Error('Нет кода устройства')
+
+  const now = Date.now()
+  const row = (db.posPoints || []).find(p => {
+    const pc = p.pairCode
+    return pc && String(pc.code) === code && Date.parse(pc.expiresAtIso || '') > now
+  })
+  if (!row) throw new Error('Код неверный или уже истек. Возьмите новый в админке.')
+  if (row.active === false) throw new Error('Точка отключена')
+
+  for (const p of db.posPoints || []) {
+    const list = ensurePointDevices(p)
+    const idx = list.findIndex(d => String(d.id) === deviceId)
+    if (idx >= 0 && p.id !== row.id) list.splice(idx, 1)
+  }
+
+  const devices = ensurePointDevices(row)
+  const nameTaken = devices.some(d =>
+    String(d.id) !== deviceId
+    && String(d.name || '').trim().toLowerCase() === deviceName.toLowerCase(),
+  )
+  if (nameTaken) throw new Error('На этой точке уже есть устройство с таким именем. Назовите иначе.')
+  const existing = devices.find(d => String(d.id) === deviceId)
+  const stamp = nowIso()
+  if (existing) {
+    existing.name = deviceName
+    existing.lastSeenAtIso = stamp
+  } else {
+    devices.push({
+      id: deviceId,
+      name: deviceName,
+      boundAtIso: stamp,
+      lastSeenAtIso: stamp,
+    })
+  }
+  row.pairCode = null
+  row.updatedAtIso = stamp
+  const device = devices.find(d => String(d.id) === deviceId)
+  return {
+    point: publicPosPoint(row),
+    device,
+  }
+}
+
+export function renamePosDevice(db, posId, deviceId, name) {
+  ensurePosCollections(db)
+  const row = db.posPoints.find(p => p.id === posId)
+  if (!row) throw new Error('Точка продаж не найдена')
+  const id = String(deviceId || '').trim()
+  const nextName = String(name || '').trim()
+  if (!nextName) throw new Error('Укажите имя устройства')
+  const taken = ensurePointDevices(row).some(d =>
+    String(d.id) !== id && String(d.name || '').trim().toLowerCase() === nextName.toLowerCase(),
+  )
+  if (taken) throw new Error('На этой точке уже есть устройство с таким именем')
+  const device = ensurePointDevices(row).find(d => String(d.id) === id)
+  if (!device) throw new Error('Устройство не найдено')
+  device.name = nextName
+  row.updatedAtIso = nowIso()
+  return publicPosPoint(row)
+}
+
+export function unbindPosDevice(db, posId, deviceId) {
+  ensurePosCollections(db)
+  const row = db.posPoints.find(p => p.id === posId)
+  if (!row) throw new Error('Точка продаж не найдена')
+  const id = String(deviceId || '').trim()
+  row.devices = ensurePointDevices(row).filter(d => String(d.id) !== id)
+  row.updatedAtIso = nowIso()
+  return publicPosPoint(row)
+}
+
+export function checkPosDevice(db, deviceId) {
+  ensurePosCollections(db)
+  const id = String(deviceId || '').trim()
+  if (!id) return { ok: false }
+  for (const p of db.posPoints || []) {
+    if (p.active === false) continue
+    const device = ensurePointDevices(p).find(d => String(d.id) === id)
+    if (!device) continue
+    device.lastSeenAtIso = nowIso()
+    return { ok: true, point: publicPosPoint(p), device }
+  }
+  return { ok: false }
 }
 
 export function deletePosPoint(db, id) {
@@ -160,18 +314,28 @@ function nextPosSaleNumber(db) {
 
 function snapshotPosCuts(db) {
   const last = {}
+  const cutKey = (posId, deviceId) => `${posId}\t${deviceId || ''}`
   for (const p of db.posPoints || []) {
     const id = String(p.id || '')
     if (!id) continue
-    last[id] = Math.max(0, Number(p.opSeq) || 0)
+    last[cutKey(id, '')] = { posId: id, deviceId: '', lastSeq: Math.max(0, Number(p.opSeq) || 0) }
+    for (const d of p.devices || []) {
+      const did = String(d.id || '')
+      if (!did) continue
+      last[cutKey(id, did)] = { posId: id, deviceId: did, lastSeq: 0 }
+    }
   }
   for (const s of db.posSales || []) {
     const id = String(s.posId || '')
     if (!id) continue
+    const did = String(s.deviceId || '')
     const seq = Number(s.opSeq) || 0
-    if (seq > (last[id] || 0)) last[id] = seq
+    const key = cutKey(id, did)
+    const cur = last[key] || { posId: id, deviceId: did, lastSeq: 0 }
+    if (seq > (cur.lastSeq || 0)) cur.lastSeq = seq
+    last[key] = cur
   }
-  return Object.keys(last).map(posId => ({ posId, lastSeq: last[posId] }))
+  return Object.values(last)
 }
 
 function bumpPosOpSeq(db, posId, seq) {
@@ -182,20 +346,26 @@ function bumpPosOpSeq(db, posId, seq) {
   if (point) point.opSeq = Math.max(Number(point.opSeq) || 0, n)
 }
 
-function allocSaleOpSeq(db, posId, clientSeq) {
+function allocSaleOpSeq(db, posId, clientSeq, deviceId) {
   const id = String(posId || '').trim()
+  const dev = String(deviceId || '').trim()
   let max = 0
-  const point = (db.posPoints || []).find(p => String(p.id) === id)
-  if (point) max = Math.max(max, Number(point.opSeq) || 0)
+  if (!dev) {
+    const point = (db.posPoints || []).find(p => String(p.id) === id)
+    if (point) max = Math.max(max, Number(point.opSeq) || 0)
+  }
   for (const s of db.posSales || []) {
     if (String(s.posId || '') !== id) continue
+    if (String(s.deviceId || '') !== dev) continue
     const n = Number(s.opSeq) || 0
     if (n > max) max = n
   }
   const fromClient = Math.max(0, Math.floor(Number(clientSeq) || 0))
   if (fromClient > 0) {
     const taken = (db.posSales || []).some(
-      s => String(s.posId || '') === id && Number(s.opSeq) === fromClient,
+      s => String(s.posId || '') === id
+        && String(s.deviceId || '') === dev
+        && Number(s.opSeq) === fromClient,
     )
     if (!taken) {
       bumpPosOpSeq(db, id, Math.max(max, fromClient))
@@ -224,16 +394,20 @@ function stockRowsWithoutConsume(db, items) {
 }
 
 /** Офлайн-чек после ревизии: номер выше среза, время чека ≤ ревизии, товар был в ревизии. */
-function shouldSkipSaleStock(db, posId, opSeq, createdAtIso, productIds) {
+function shouldSkipSaleStock(db, posId, opSeq, createdAtIso, productIds, deviceId) {
   const ids = new Set((productIds || []).map(n => Number(n)).filter(n => n > 0))
   if (!ids.size || !(Number(opSeq) > 0)) return null
   const saleAt = Date.parse(String(createdAtIso || ''))
+  const dev = String(deviceId || '')
   for (const rev of db.stockRevisions || []) {
     const cuts = Array.isArray(rev.posCuts) ? rev.posCuts : []
     if (!cuts.length) continue
     const overlap = (rev.items || []).some(it => ids.has(Number(it.productId)))
     if (!overlap) continue
-    const cut = cuts.find(c => String(c.posId) === String(posId))
+    const cut = cuts.find(c =>
+      String(c.posId) === String(posId)
+      && String(c.deviceId || '') === dev,
+    ) || (!dev ? cuts.find(c => String(c.posId) === String(posId)) : null)
     const lastSeq = Number(cut?.lastSeq) || 0
     if (!(Number(opSeq) > lastSeq)) continue
     const revAt = Date.parse(String(rev.createdAtIso || ''))
@@ -1571,13 +1745,16 @@ export function createPosSale(db, data = {}) {
   const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) throw new Error('Смена не найдена')
   const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
-  const opSeq = allocSaleOpSeq(db, posId, data.opSeq)
+  const deviceId = String(data.deviceId || '').trim()
+  const deviceName = String(data.deviceName || '').trim()
+  const opSeq = allocSaleOpSeq(db, posId, data.opSeq, deviceId)
   const skipStock = shouldSkipSaleStock(
     db,
     posId,
     opSeq,
     data.createdAtIso,
     rawItems.map(it => it.productId),
+    deviceId,
   )
   const rows = skipStock
     ? stockRowsWithoutConsume(db, rawItems)
@@ -1654,6 +1831,8 @@ export function createPosSale(db, data = {}) {
     cashierName,
     shiftId: shift?.id || '',
     posId,
+    deviceId: deviceId || undefined,
+    deviceName: deviceName || undefined,
     opSeq,
     ...(skipStock
       ? {

@@ -151,6 +151,13 @@ export interface Category {
   active?: boolean
 }
 
+export interface PosBoundDevice {
+  id: string
+  name: string
+  boundAtIso: string
+  lastSeenAtIso?: string
+}
+
 export interface PosPoint {
   id: string
   /** Название точки, напр. «Магазин · Ленина 42» */
@@ -162,8 +169,11 @@ export interface PosPoint {
   receiptPhone?: string
   active: boolean
   createdAtIso?: string
+  updatedAtIso?: string
   /** Последний выданный номер операции этой кассы */
   opSeq?: number
+  /** Привязанные ПК и телефоны. Несколько штук на одну точку — можно. */
+  devices?: PosBoundDevice[]
 }
 
 export interface PosCashier {
@@ -498,6 +508,9 @@ export interface PosSale {
   stockSkipRevisionId?: string
   /** Точка продаж, с которой проведён чек */
   posId?: string
+  /** Аппарат (ПК/телефон), чтобы две кассы на одной точке не путали номера */
+  deviceId?: string
+  deviceName?: string
   /** Сколько наличных дал клиент (до сдачи) */
   cashReceived?: number
   /** Сдача клиенту */

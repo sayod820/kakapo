@@ -17,6 +17,7 @@ import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
 import TradeLoginPage from '@/components/trade/TradeLoginPage'
+import TradeDeviceGate from '@/components/trade/TradeDeviceGate'
 import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
@@ -26,6 +27,7 @@ import {
   type DesktopUpdateStatus,
 } from '@/lib/desktopBridge'
 import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
+import { USE_API } from '@/lib/config'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -2977,6 +2979,7 @@ function TradeAppGate() {
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
   /** null = ещё проверяем диск; true = установка ок; false = нужен первый скач */
   const [localDbReady, setLocalDbReady] = useState<boolean | null>(() => (isKakapoDesktop() ? null : true))
+  const [deviceReady, setDeviceReady] = useState(() => !USE_API)
 
   useEffect(() => {
     void import('@/lib/offlineV2').then(m => m.ensureDesktopLocalFirst()).catch(() => {})
@@ -3036,6 +3039,15 @@ function TradeAppGate() {
           void hydrateOfflineCaches()
           setLocalDbReady(true)
         }}
+      />
+    )
+  }
+
+  if (!deviceReady) {
+    return (
+      <TradeDeviceGate
+        theme={theme}
+        onReady={() => setDeviceReady(true)}
       />
     )
   }

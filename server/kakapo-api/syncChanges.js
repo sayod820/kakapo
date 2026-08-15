@@ -80,7 +80,11 @@ export function buildSyncChanges(db, opts = {}) {
       financeMoves: filterBySince(db.financeMoves || [], since),
       expenses: filterBySince(db.expenses || [], since),
       suppliers: full ? (db.suppliers || []) : filterBySince(db.suppliers || [], since),
-      posPoints: full ? (db.posPoints || []) : filterBySince(db.posPoints || [], since),
+      posPoints: (full ? (db.posPoints || []) : filterBySince(db.posPoints || [], since))
+        .map(p => ({
+          ...p,
+          pairCode: undefined,
+        })),
       cashiers: full ? (db.cashiers || []) : filterBySince(db.cashiers || [], since),
       expiry: full ? (db.expiry || []) : filterBySince(db.expiry || [], since),
     },

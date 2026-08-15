@@ -985,6 +985,30 @@ export const api = {
     request<PosPoint>(`/pos/points/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePosPoint: (id: string) =>
     request<{ id: string }>(`/pos/points/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  createPosPairCode: (posId: string) =>
+    request<{ posId: string; name: string; code: string; expiresAtIso: string }>(
+      `/pos/points/${encodeURIComponent(posId)}/pair-code`,
+      { method: 'POST', body: '{}' },
+    ),
+  unbindPosDevice: (posId: string, deviceId: string) =>
+    request<PosPoint>(
+      `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
+      { method: 'DELETE' },
+    ),
+  renamePosDevice: (posId: string, deviceId: string, name: string) =>
+    request<PosPoint>(
+      `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
+      { method: 'PATCH', body: JSON.stringify({ name }) },
+    ),
+  bindPosDevice: (data: { code: string; deviceId: string; deviceName?: string }) =>
+    request<{
+      point: PosPoint
+      device: { id: string; name: string; boundAtIso: string }
+    }>('/pos/devices/bind', { method: 'POST', body: JSON.stringify(data) }),
+  checkPosDevice: (deviceId: string) =>
+    request<{ ok: boolean; point?: PosPoint; device?: { id: string; name: string } }>(
+      `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,
+    ),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
   openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
@@ -998,6 +1022,8 @@ export const api = {
       cashierId?: string
       shiftId?: string
       posId?: string
+      deviceId?: string
+      deviceName?: string
       opSeq?: number
       clientId?: string
       clientName?: string

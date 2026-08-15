@@ -95,6 +95,11 @@ import {
   createPosPoint,
   updatePosPoint,
   deletePosPoint,
+  createPosPairCode,
+  bindPosDevice,
+  unbindPosDevice,
+  renamePosDevice,
+  checkPosDevice,
   listPosShifts,
   openPosShift,
   closePosShift,
@@ -2352,6 +2357,57 @@ app.delete('/pos/points/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить точку продаж' })
+  }
+})
+
+app.post('/pos/points/:id/pair-code', (req, res) => {
+  try {
+    const row = createPosPairCode(db, req.params.id)
+    persist()
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось выдать код' })
+  }
+})
+
+app.delete('/pos/points/:id/devices/:deviceId', (req, res) => {
+  try {
+    const row = unbindPosDevice(db, req.params.id, req.params.deviceId)
+    persist()
+    broadcastPosUpdate({ kind: 'pos', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось отвязать устройство' })
+  }
+})
+
+app.patch('/pos/points/:id/devices/:deviceId', (req, res) => {
+  try {
+    const row = renamePosDevice(db, req.params.id, req.params.deviceId, req.body?.name)
+    persist()
+    broadcastPosUpdate({ kind: 'pos', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось переименовать устройство' })
+  }
+})
+
+app.post('/pos/devices/bind', (req, res) => {
+  try {
+    const row = bindPosDevice(db, req.body || {})
+    persist()
+    if (row?.point?.id) broadcastPosUpdate({ kind: 'pos', id: row.point.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось привязать устройство' })
+  }
+})
+
+app.get('/pos/devices/check', (req, res) => {
+  try {
+    res.json(checkPosDevice(db, String(req.query.deviceId || '')))
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Проверка устройства не удалась' })
   }
 })
 

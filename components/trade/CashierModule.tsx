@@ -7,6 +7,7 @@ import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
+import { getBoundPosIdSync, getBoundDeviceNameSync, getTradeDeviceIdSync } from '@/lib/tradeDevice'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import { loadTradeEmployeeSession } from '@/lib/employeeSession'
 import {
@@ -1455,15 +1456,19 @@ export default function CashierModule({
   )
 
   const activePosPoint = useMemo(() => {
-    const id = activeShift?.posId
+    const bound = getBoundPosIdSync()
+    const id = activeShift?.posId || bound
     if (!id) return posPoints[0] || null
     return posPoints.find(p => p.id === id) || posPoints[0] || null
   }, [activeShift?.posId, posPoints])
 
-  const visiblePosPoints = useMemo(
-    () => (posPoints.length ? posPoints : []).filter(p => p.active !== false),
-    [posPoints],
-  )
+  const visiblePosPoints = useMemo(() => {
+    const list = (posPoints.length ? posPoints : []).filter(p => p.active !== false)
+    const bound = getBoundPosIdSync()
+    if (!bound) return list
+    const only = list.filter(p => p.id === bound)
+    return only.length ? only : list
+  }, [posPoints])
 
   function shiftForPos(posId: string) {
     return shifts.find(s => s.status === 'open' && (s.posId || '') === posId) || null
@@ -5837,10 +5842,13 @@ export default function CashierModule({
         : undefined
       const salePosId = activeShift.posId || activePosPoint?.id
       await ensurePosOpSeqReady()
+      const deviceId = getTradeDeviceIdSync()
       const salePayload = {
         clientRef: newClientRef(),
         createdAtIso: new Date().toISOString(),
-        opSeq: allocPosOpSeq(String(salePosId || '')),
+        deviceId: deviceId || undefined,
+        deviceName: getBoundDeviceNameSync() || undefined,
+        opSeq: allocPosOpSeq(String(salePosId || ''), deviceId),
         cashierId: activeShift.cashierId,
         cashierName: resolveCashierName({
           cashierId: activeShift.cashierId,

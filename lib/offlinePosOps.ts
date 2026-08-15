@@ -10,6 +10,7 @@ import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
+import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
 
 export type SaleCartLine = {
@@ -490,7 +491,10 @@ export async function createSaleSafe(
   if (!(Number(salePayload.opSeq) > 0)) {
     await ensurePosOpSeqReady()
     const posId = String(salePayload.posId || '').trim()
-    salePayload.opSeq = allocPosOpSeq(posId)
+    const deviceId = String(salePayload.deviceId || getTradeDeviceIdSync() || '').trim()
+    salePayload.deviceId = deviceId || undefined
+    salePayload.deviceName = salePayload.deviceName || getBoundDeviceNameSync() || undefined
+    salePayload.opSeq = allocPosOpSeq(posId, deviceId)
   }
 
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {

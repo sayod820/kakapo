@@ -16,8 +16,10 @@ type SeqMap = Record<string, number>
 let memory: SeqMap = {}
 let readyPromise: Promise<void> | null = null
 
-function posKey(posId: string) {
-  return String(posId || '').trim() || 'POS-DEFAULT'
+function posKey(posId: string, deviceId?: string) {
+  const pos = String(posId || '').trim() || 'POS-DEFAULT'
+  const dev = String(deviceId || '').trim()
+  return dev ? `${pos}::${dev}` : pos
 }
 
 function readLocal(): SeqMap {
@@ -78,8 +80,8 @@ function persist(map: SeqMap) {
   writeDb(map)
 }
 
-function bump(map: SeqMap, posId: string, seq: number): boolean {
-  const id = posKey(posId)
+function bump(map: SeqMap, posId: string, seq: number, deviceId?: string): boolean {
+  const id = posKey(posId, deviceId)
   const n = Math.floor(Number(seq) || 0)
   if (n <= 0 || n <= (Number(map[id]) || 0)) return false
   map[id] = n
@@ -103,17 +105,17 @@ export function ensurePosOpSeqReady(): Promise<void> {
 }
 
 /** Подтянуть локальный счётчик, если с сервера пришли чеки / точки с большим номером. */
-export function notePosOpSeq(posId: string, seq: number) {
+export function notePosOpSeq(posId: string, seq: number, deviceId?: string) {
   const map = current()
-  if (bump(map, posId, seq)) persist(map)
+  if (bump(map, posId, seq, deviceId)) persist(map)
 }
 
-export function notePosOpSeqFromSales(sales: { posId?: string; opSeq?: number }[] | undefined | null) {
+export function notePosOpSeqFromSales(sales: { posId?: string; opSeq?: number; deviceId?: string }[] | undefined | null) {
   if (!sales?.length) return
   const map = current()
   let changed = false
   for (const s of sales) {
-    if (bump(map, String(s.posId || ''), Number(s.opSeq) || 0)) changed = true
+    if (bump(map, String(s.posId || ''), Number(s.opSeq) || 0, s.deviceId)) changed = true
   }
   if (changed) persist(map)
 }
@@ -128,9 +130,9 @@ export function notePosOpSeqFromPoints(points: { id?: string; opSeq?: number }[]
   if (changed) persist(map)
 }
 
-/** Следующий номер операции этой кассы. Не сбрасывается при обновлении страницы. */
-export function allocPosOpSeq(posId: string): number {
-  const id = posKey(posId)
+/** Следующий номер операции этого аппарата на этой точке. */
+export function allocPosOpSeq(posId: string, deviceId?: string): number {
+  const id = posKey(posId, deviceId)
   const map = current()
   const next = (Number(map[id]) || 0) + 1
   map[id] = next
