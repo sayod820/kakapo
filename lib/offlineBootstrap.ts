@@ -3,6 +3,11 @@
 // Дальше работа из локалки; при интернете — тихий синк.
 // ════════════════════════════════════════════════
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { isTradeAndroidNative } from './tradeAndroid'
+
+function needsLocalInstall(): boolean {
+  return isKakapoDesktop() || isTradeAndroidNative()
+}
 import { cacheEmployeesAuth, isOnline, readCachedEmployeesAuth, readCachedProducts } from './offline'
 import { getApiUrl } from './config'
 import { api } from './api'
@@ -120,7 +125,7 @@ export async function hasOfflineEmployeeAuth(): Promise<boolean> {
 
 /** Готово только если на диске есть товары И сотрудники с паролями */
 export async function isLocalBootstrapComplete(): Promise<boolean> {
-  if (!isKakapoDesktop()) return true
+  if (!needsLocalInstall()) return true
   try {
     const products = await readCachedProducts()
     if (!products || products.length === 0) return false
@@ -194,7 +199,7 @@ export async function runLocalBootstrap(
     onProgress?.({ step, label, done: i, total, error })
   }
 
-  if (!isKakapoDesktop()) return { ok: true }
+  if (!needsLocalInstall()) return { ok: true }
 
   const alive = await pingApiForBootstrap(25000)
   if (!alive) {
@@ -261,7 +266,7 @@ export async function runLocalBootstrap(
       report(5, 'pos', 'Пароли сотрудников')
       return {
         ok: false,
-        error: 'Данные загружены. Введите пароли сотрудников — сохраним на ПК, затем откроется вход.',
+        error: 'Данные загружены. Введите пароли сотрудников — сохраним на устройство, затем откроется вход.',
         needEmployeePasswords: employees.length ? employees : undefined,
       }
     }

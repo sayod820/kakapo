@@ -2,7 +2,7 @@
   "name": "kakapo-trade-android",
   "version": "1.0.0",
   "private": true,
-  "description": "KAKAPO Trade — Android (Capacitor WebView → kakappo.shop/trade)",
+  "description": "KAKAPO Trade — Android (локальный UI в APK, API kakappo.shop)",
   "scripts": {
     "sync": "npx cap sync android",
     "open": "npx cap open android",

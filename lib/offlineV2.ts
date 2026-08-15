@@ -14,6 +14,7 @@
  *   localStorage.setItem('kakapo-offline-v2', 'shadow' | 'on' | 'off')
  */
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { isTradeAndroidNative } from './tradeAndroid'
 
 export type OfflineV2Mode = 'off' | 'shadow' | 'on'
 
@@ -33,6 +34,7 @@ export function getOfflineV2Mode(): OfflineV2Mode {
   if (typeof window === 'undefined') return 'off'
   // ПК-приложение: всегда полный local-first, нельзя выключить через LS
   if (isKakapoDesktop()) return 'on'
+  if (isTradeAndroidNative()) return 'on'
   try {
     const raw = String(localStorage.getItem(LS_KEY) || '').trim().toLowerCase()
     if (raw === 'shadow' || raw === 'on' || raw === 'off') return raw
@@ -43,7 +45,7 @@ export function getOfflineV2Mode(): OfflineV2Mode {
 export function setOfflineV2Mode(mode: OfflineV2Mode) {
   if (typeof window === 'undefined') return
   // На ПК режим всегда on — не даём записать off/shadow
-  if (isKakapoDesktop()) {
+  if (isKakapoDesktop() || isTradeAndroidNative()) {
     try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
     return
   }
@@ -66,12 +68,12 @@ export function isOfflineV2Full(): boolean {
  * На ПК-приложении всегда true.
  */
 export function isTradeLocalFirst(): boolean {
-  return isKakapoDesktop() || isOfflineV2Full()
+  return isKakapoDesktop() || isTradeAndroidNative() || isOfflineV2Full()
 }
 
-/** Вызвать при старте Trade: зафиксировать on на ПК */
+/** Вызвать при старте Trade: зафиксировать on на ПК и в Android-приложении */
 export function ensureDesktopLocalFirst(): void {
-  if (!isKakapoDesktop()) return
+  if (!isKakapoDesktop() && !isTradeAndroidNative()) return
   try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
 }
 

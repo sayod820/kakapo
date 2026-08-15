@@ -14,6 +14,7 @@ import {
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
 import { buildSyncChanges } from './syncChanges.js'
+import { recordSyncDelete } from './syncDeletes.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import {
@@ -391,9 +392,14 @@ ensureReviews()
 
 const app = express()
 app.use(cors({
-  origin: CORS_ORIGINS.length === 1 && CORS_ORIGINS[0] === '*'
-    ? true
-    : CORS_ORIGINS,
+  origin(origin, cb) {
+    if (!origin) return cb(null, true)
+    if (CORS_ORIGINS.length === 1 && CORS_ORIGINS[0] === '*') return cb(null, true)
+    if (/^https?:\/\/localhost(:\d+)?$/i.test(origin)) return cb(null, true)
+    if (/^capacitor:\/\//i.test(origin)) return cb(null, true)
+    if (CORS_ORIGINS.includes(origin)) return cb(null, true)
+    cb(null, false)
+  },
 }))
 app.use(express.json({ limit: '2mb' }))
 
@@ -1174,6 +1180,7 @@ app.delete('/products/:id', (req, res) => {
     })
   }
   db.products = db.products.filter(x => x.id !== id)
+  recordSyncDelete(db, 'product', id)
   const result = { ok: true, id }
   if (clientRef) rememberKnownOp('product_delete', clientRef, result)
   persist()
@@ -1206,6 +1213,7 @@ app.post('/products/bulk-delete', (req, res) => {
   if (!removed.length) return res.status(404).json({ detail: 'Товары не найдены' })
   const remSet = new Set(removed)
   db.products = db.products.filter(x => !remSet.has(Number(x.id)))
+  for (const rid of removed) recordSyncDelete(db, 'product', rid)
   persist()
   broadcastProduct({ deleted: true, ids: removed })
   res.json({ ok: true, removed: removed.length, ids: removed })
@@ -1427,6 +1435,7 @@ function removeCategoryTree(dbRef, rootId) {
   }
 
   dbRef.categories = dbRef.categories.filter(c => !ids.has(Number(c.id)))
+  for (const cid of ids) recordSyncDelete(dbRef, 'category', cid)
   return {
     ok: true,
     deleted: [...ids],
@@ -3460,6 +3469,7 @@ function removeClientAndUnlinkCards(client) {
     rememberDeleted: true,
     rememberDeletedPhone,
   })
+  recordSyncDelete(db, 'client', client.id)
   persist()
 }
 

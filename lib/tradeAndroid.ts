@@ -3,9 +3,28 @@
 const ANDROID_UA = /Android/i
 const KAKAPO_ANDROID_UA = /KakapoTradeAndroid/i
 
+/** Нативное приложение Торговля (APK), не браузер Chrome на телефоне. */
+export function isTradeAndroidNative(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const w = window as Window & {
+      Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string }
+      kakapoAndroid?: boolean
+    }
+    if (w.kakapoAndroid === true) return true
+    if (w.Capacitor?.isNativePlatform?.()) {
+      const platform = String(w.Capacitor.getPlatform?.() || '').toLowerCase()
+      if (platform === 'android' || platform === 'ios') return true
+    }
+    if (KAKAPO_ANDROID_UA.test(navigator.userAgent || '')) return true
+  } catch { /* ignore */ }
+  return false
+}
+
 export function isTradeAndroid(): boolean {
   if (typeof window === 'undefined') return false
   try {
+    if (isTradeAndroidNative()) return true
     const w = window as Window & {
       Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string }
       kakapoAndroid?: boolean

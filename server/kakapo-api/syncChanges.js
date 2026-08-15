@@ -1,9 +1,11 @@
 /**
- * Двусторонний pull: дельты каталога и POS с курсором since (ISO).
- * Без since — полный снимок для первого синка.
+ * Двусторонний pull: дельты каталога и POS.
+ * Курсор — максимальная метка в выдаче, не «сейчас» на сервере:
+ * иначе чек с датой чека (офлайн) не попадёт в следующую дельту.
  */
 
 import { listAllOpenStockLayers } from './posLogic.js'
+import { listSyncDeletesSince } from './syncDeletes.js'
 
 function asIso(v) {
   const s = String(v || '').trim()
@@ -23,11 +25,13 @@ function afterSince(iso, since) {
 
 function rowStamp(row) {
   return asIso(
-    row?.updatedAtIso
+    row?.serverAtIso
+    || row?.updatedAtIso
     || row?.updatedAt
     || row?.createdAtIso
     || row?.createdAt
     || row?.closedAtIso
+    || row?.atIso
     || '',
   )
 }
@@ -38,13 +42,47 @@ function filterBySince(list, since) {
   return list.filter(row => afterSince(rowStamp(row), since))
 }
 
+function maxIso(a, b) {
+  const aa = Date.parse(a || '')
+  const bb = Date.parse(b || '')
+  if (!Number.isFinite(aa)) return Number.isFinite(bb) ? asIso(b) : ''
+  if (!Number.isFinite(bb)) return asIso(a)
+  return bb > aa ? asIso(b) : asIso(a)
+}
+
+function cursorFromPayload(payload, since) {
+  let cur = since || ''
+  const bump = (rows) => {
+    for (const row of rows || []) {
+      cur = maxIso(cur, rowStamp(row))
+    }
+  }
+  bump(payload.products)
+  bump(payload.categories)
+  bump(payload.clients)
+  bump(payload.cards)
+  bump(payload.deletes)
+  const pos = payload.pos || {}
+  bump(pos.sales)
+  bump(pos.shifts)
+  bump(pos.receipts)
+  bump(pos.writeoffs)
+  bump(pos.revisions)
+  bump(pos.financeMoves)
+  bump(pos.expenses)
+  bump(pos.suppliers)
+  bump(pos.posPoints)
+  bump(pos.cashiers)
+  bump(pos.expiry)
+  return cur || since || ''
+}
+
 /**
  * @param {object} db
  * @param {{ since?: string }} opts
  */
 export function buildSyncChanges(db, opts = {}) {
   const since = asIso(opts.since || '')
-  const cursor = new Date().toISOString()
   const full = !since
 
   const products = full
@@ -61,16 +99,18 @@ export function buildSyncChanges(db, opts = {}) {
     : filterBySince(db.cards || [], since)
 
   const stockLayers = listAllOpenStockLayers(db)
+  const deletes = listSyncDeletesSince(db, since)
 
-  return {
-    cursor,
+  const payload = {
     since: since || null,
     full,
     products,
     categories,
     clients,
     cards,
-    stockLayers: full ? stockLayers : stockLayers.filter(l => afterSince(rowStamp(l), since)),
+    deletes,
+    stockLayers,
+    stockLayersReplace: true,
     pos: {
       sales: filterBySince(db.posSales || [], since),
       shifts: filterBySince(db.posShifts || [], since),
@@ -89,4 +129,6 @@ export function buildSyncChanges(db, opts = {}) {
       expiry: full ? (db.expiry || []) : filterBySince(db.expiry || [], since),
     },
   }
+  payload.cursor = cursorFromPayload(payload, since)
+  return payload
 }

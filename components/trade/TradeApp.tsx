@@ -26,6 +26,7 @@ import {
   isKakapoDesktop,
   type DesktopUpdateStatus,
 } from '@/lib/desktopBridge'
+import { isTradeAndroidNative } from '@/lib/tradeAndroid'
 import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
 import { USE_API } from '@/lib/config'
 import {
@@ -2978,7 +2979,7 @@ function TradeAppGate() {
   const [ready, setReady] = useState(false)
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
   /** null = ещё проверяем диск; true = установка ок; false = нужен первый скач */
-  const [localDbReady, setLocalDbReady] = useState<boolean | null>(() => (isKakapoDesktop() ? null : true))
+  const [localDbReady, setLocalDbReady] = useState<boolean | null>(null)
   const [deviceReady, setDeviceReady] = useState(() => !USE_API)
 
   useEffect(() => {
@@ -2990,7 +2991,7 @@ function TradeAppGate() {
   }, [])
 
   useEffect(() => {
-    if (isKakapoDesktop()) {
+    if (isKakapoDesktop() || isTradeAndroidNative()) {
       void isLocalBootstrapComplete().then(done => {
         setLocalDbReady(done)
         if (done) {
@@ -3031,7 +3032,7 @@ function TradeAppGate() {
   }
 
   // Пока данные не скачаны (товары + пароли) — только экран загрузки, без логина
-  if (isKakapoDesktop() && localDbReady === false) {
+  if ((isKakapoDesktop() || isTradeAndroidNative()) && localDbReady === false) {
     return (
       <LocalDbBootstrap
         theme={theme}

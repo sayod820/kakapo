@@ -19,29 +19,34 @@ const backendUrl = resolveBackendUrl()
  * режим не включаем — там обычный `next start`.
  */
 const standalone = process.env.KAKAPO_STANDALONE === 'true'
+const androidExport = process.env.KAKAPO_ANDROID_EXPORT === 'true'
 
 const nextConfig = {
   reactStrictMode: true,
   images: { unoptimized: true },
   ...(standalone ? { output: 'standalone' } : {}),
-  async redirects() {
-    return [
-      { source: '/store', destination: '/', permanent: false },
-    ]
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/kakapo/:path*',
-        destination: `${backendUrl}/:path*`,
-      },
-      // Автообновление desktop-кассы: https://kakappo.shop/updates/kassa/...
-      {
-        source: '/updates/:path*',
-        destination: `${backendUrl}/updates/:path*`,
-      },
-    ]
-  },
+  ...(androidExport ? { output: 'export', trailingSlash: true } : {}),
+  ...(androidExport
+    ? {}
+    : {
+        async redirects() {
+          return [
+            { source: '/store', destination: '/', permanent: false },
+          ]
+        },
+        async rewrites() {
+          return [
+            {
+              source: '/api/kakapo/:path*',
+              destination: `${backendUrl}/:path*`,
+            },
+            {
+              source: '/updates/:path*',
+              destination: `${backendUrl}/updates/:path*`,
+            },
+          ]
+        },
+      }),
   // Пропускаем проверки типов при сборке (код конвертирован из JSX)
   typescript: {
     ignoreBuildErrors: true,

@@ -36,8 +36,13 @@ export function getApiUrl(): string {
     return explicit || 'http://localhost:8000'
   }
   if (typeof window !== 'undefined') {
-    // Десктоп-сборка: явный URL API (без локального прокси)
+    // Десктоп / Android APK: явный URL API (без локального прокси)
     if (explicit && /^https?:\/\//i.test(explicit)) return explicit
+    const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
+      || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
+    if (nativeApk) {
+      return normalizeApiBase('https://kakappo.shop/api/kakapo')
+    }
     // На локальном origin без явного URL — тоже не ходим в /api/kakapo
     // (иначе снова попадём в медленный rewrite Next)
     if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(window.location.origin)) {
@@ -57,6 +62,9 @@ export function getWsUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_WS_URL
   if (typeof window !== 'undefined') {
     if (explicit) return explicit.replace(/\/$/, '')
+    const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
+      || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
+    if (nativeApk) return 'wss://kakappo.shop'
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}`
   }

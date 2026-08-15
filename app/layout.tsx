@@ -7,10 +7,15 @@ export const metadata: Metadata = {
   description: 'Супермаркет КАКАПО · Быстрая доставка · г. Яван, Таджикистан',
 }
 
+const tradeAndroidBundle = process.env.NEXT_PUBLIC_TRADE_ANDROID === 'true'
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
       <body>
+        {tradeAndroidBundle ? (
+          <script dangerouslySetInnerHTML={{ __html: 'window.kakapoAndroid=true' }} />
+        ) : null}
         <ApiSyncProvider>{children}</ApiSyncProvider>
       </body>
     </html>

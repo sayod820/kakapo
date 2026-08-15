@@ -37,7 +37,7 @@ export default function LocalDbBootstrap({
     const alive = await pingApiForBootstrap(25000)
     setOnline(alive)
     if (!alive) {
-      setError('Для первого запуска нужен интернет. Подключите сеть и нажмите «Скачать на ПК».')
+      setError('Для первого запуска нужен интернет. Подключите сеть и нажмите «Скачать».')
       setBusy(false)
       return
     }
@@ -106,7 +106,7 @@ export default function LocalDbBootstrap({
         <div className="ldb-card">
           <div className="ldb-badge">Первый запуск</div>
           <div className="ldb-title">Подготовка кассы…</div>
-          <div className="ldb-sub">Проверяем локальную базу на этом ПК</div>
+          <div className="ldb-sub">Проверяем локальную базу на этом устройстве</div>
         </div>
       </div>
     )
@@ -122,9 +122,9 @@ export default function LocalDbBootstrap({
         <style>{CSS}</style>
         <div className="ldb-card">
           <div className="ldb-badge">Почти готово</div>
-          <h1 className="ldb-title">Сохранить пароли на ПК</h1>
+          <h1 className="ldb-title">Сохранить пароли на устройство</h1>
           <p className="ldb-sub">
-            Товары уже скачаны. Введите пароли сотрудников — они останутся на этом компьютере.
+            Товары уже скачаны. Введите пароли сотрудников — они останутся на этом устройстве.
             Экран входа откроется только после этого.
           </p>
           {error ? <div className="ldb-err">{error}</div> : null}
@@ -174,7 +174,7 @@ export default function LocalDbBootstrap({
       <style>{CSS}</style>
       <div className="ldb-card">
         <div className="ldb-badge">Первый запуск · один раз</div>
-        <h1 className="ldb-title">Скачать данные на ПК</h1>
+        <h1 className="ldb-title">Скачать данные на устройство</h1>
         <p className="ldb-sub">
           Сейчас один раз загрузим товары, цены, остатки, клиентов и сотрудников.
           Окно входа откроется <b>только после</b> полной загрузки. Потом касса работает без интернета.
@@ -206,12 +206,12 @@ export default function LocalDbBootstrap({
             className="ldb-btn"
             onClick={() => void startDownload()}
           >
-            {error ? 'Повторить загрузку' : 'Скачать на ПК'}
+            {error ? 'Повторить загрузку' : 'Скачать'}
           </button>
         )}
 
         <p className="ldb-hint">
-          После загрузки при каждом запуске интернет не нужен — данные уже на компьютере.
+          После загрузки при каждом запуске интернет не нужен — данные уже на устройстве.
         </p>
       </div>
     </div>

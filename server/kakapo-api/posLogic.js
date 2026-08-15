@@ -393,11 +393,12 @@ function stockRowsWithoutConsume(db, items) {
   })
 }
 
-/** Офлайн-чек после ревизии: номер выше среза, время чека ≤ ревизии, товар был в ревизии. */
-function shouldSkipSaleStock(db, posId, opSeq, createdAtIso, productIds, deviceId) {
+/** Офлайн-чек после ревизии: номер выше среза. Судья — opSeq, не часы кассы.
+ *  queuedOffline: чек лежал в очереди без сети; ревизия уже поправила остаток. */
+function shouldSkipSaleStock(db, posId, opSeq, productIds, deviceId, queuedOffline) {
+  if (!queuedOffline) return null
   const ids = new Set((productIds || []).map(n => Number(n)).filter(n => n > 0))
   if (!ids.size || !(Number(opSeq) > 0)) return null
-  const saleAt = Date.parse(String(createdAtIso || ''))
   const dev = String(deviceId || '')
   for (const rev of db.stockRevisions || []) {
     const cuts = Array.isArray(rev.posCuts) ? rev.posCuts : []
@@ -410,11 +411,7 @@ function shouldSkipSaleStock(db, posId, opSeq, createdAtIso, productIds, deviceI
     ) || (!dev ? cuts.find(c => String(c.posId) === String(posId)) : null)
     const lastSeq = Number(cut?.lastSeq) || 0
     if (!(Number(opSeq) > lastSeq)) continue
-    const revAt = Date.parse(String(rev.createdAtIso || ''))
-    if (!Number.isFinite(saleAt) || !Number.isFinite(revAt)) continue
-    if (saleAt <= revAt + 8000) {
-      return { revisionId: String(rev.id || '') }
-    }
+    return { revisionId: String(rev.id || '') }
   }
   return null
 }
@@ -609,6 +606,7 @@ function createStockAdjustmentLayer(db, product, qty, meta = {}) {
     supplierId: null,
     supplierName: String(meta.reason || 'Корректировка остатка'),
     createdAtIso: meta.createdAtIso || nowIso(),
+    serverAtIso: nowIso(),
     createdBy: String(meta.createdBy || '').trim(),
     stockAdjustment: true,
     totalCost: round2(add * costPrice),
@@ -1140,6 +1138,8 @@ export function deleteSupplier(db, id) {
   }
   db.suppliers.splice(idx, 1)
   db.supplierPayments = (db.supplierPayments || []).filter(p => p.supplierId !== id)
+  if (!Array.isArray(db.syncDeletes)) db.syncDeletes = []
+  db.syncDeletes.push({ kind: 'supplier', id: String(id), atIso: nowIso() })
   return { id }
 }
 
@@ -1485,6 +1485,7 @@ function buildStockReceipt(db, data = {}, meta = {}) {
     supplierId: supplier?.id || null,
     supplierName: supplier?.name || '',
     createdAtIso: meta.createdAtIso || nowIso(),
+    serverAtIso: nowIso(),
     createdBy: String(meta.createdBy || data.createdBy || '').trim(),
     totalCost,
     paidNow,
@@ -1552,6 +1553,7 @@ function buildStockWriteoff(db, data = {}, meta = {}) {
   const writeoff = {
     id: meta.id || nextId('WOF'),
     createdAtIso: meta.createdAtIso || nowIso(),
+    serverAtIso: nowIso(),
     createdBy: String(meta.createdBy || data.createdBy || '').trim(),
     reason: String(data.reason || '').trim() || 'Списание',
     note: String(data.note || '').trim(),
@@ -1650,6 +1652,7 @@ function buildStockRevision(db, data = {}, meta = {}) {
   const row = {
     id: meta.id || nextId('REV'),
     createdAtIso: meta.createdAtIso || nowIso(),
+    serverAtIso: nowIso(),
     createdBy,
     note: String(data.note || '').trim(),
     items,
@@ -1752,9 +1755,9 @@ export function createPosSale(db, data = {}) {
     db,
     posId,
     opSeq,
-    data.createdAtIso,
     rawItems.map(it => it.productId),
     deviceId,
+    !!(data.queuedOffline || data.skipStockAfterRevision),
   )
   const rows = skipStock
     ? stockRowsWithoutConsume(db, rawItems)
@@ -1827,6 +1830,7 @@ export function createPosSale(db, data = {}) {
     orderId,
     clientRef: clientRef || undefined,
     createdAtIso: offlineIso,
+    serverAtIso: nowIso(),
     cashierId: cashier?.id || data.cashierId || '',
     cashierName,
     shiftId: shift?.id || '',

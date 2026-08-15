@@ -39,31 +39,44 @@ export async function pullSyncChanges(opts?: {
     const since = opts?.forceFull ? '' : await getSyncCursor()
     const delta = await api.getSyncChanges(since || undefined)
 
+    const del = Array.isArray(delta.deletes) ? delta.deletes : []
+    const delOf = (kind: string) => del.filter(d => d.kind === kind).map(d => String(d.id))
+    const dropById = <T extends { id?: string | number }>(list: T[], ids: string[]): T[] => {
+      if (!ids.length) return list
+      const s = new Set(ids)
+      return (list || []).filter(row => !s.has(String(row?.id ?? '')))
+    }
+
     // Products
-    if (Array.isArray(delta.products) && delta.products.length) {
+    {
       const { useProducts } = await import('./store')
-      const local = useProducts.getState().products || []
-      const merged = opts?.forceFull || delta.full
-        ? (delta.products as Product[])
-        : mergeByIdLww(local, delta.products as Product[], (a, b) => {
-          void appendConflictLog({
-            kind: 'product',
-            id: String(a.id),
-            localAt: String((a as any).updatedAtIso || ''),
-            remoteAt: String((b as any).updatedAtIso || ''),
-            note: 'LWW: взята серверная карточка товара',
+      let merged = useProducts.getState().products || []
+      if (Array.isArray(delta.products) && delta.products.length) {
+        merged = opts?.forceFull || delta.full
+          ? (delta.products as Product[])
+          : mergeByIdLww(merged, delta.products as Product[], (a, b) => {
+            void appendConflictLog({
+              kind: 'product',
+              id: String(a.id),
+              localAt: String((a as any).updatedAtIso || ''),
+              remoteAt: String((b as any).updatedAtIso || ''),
+              note: 'LWW: взята серверная карточка товара',
+            })
           })
-        })
-      useProducts.setState({ products: merged })
-      await cacheProducts(merged)
-      await entityUpsertMany(
-        'product',
-        merged.map(p => ({
-          id: p.id,
-          data: p,
-          updatedAtIso: String((p as any).updatedAtIso || (p as any).updatedAt || delta.cursor),
-        })),
-      )
+      }
+      merged = dropById(merged, delOf('product'))
+      if ((delta.products && delta.products.length) || delOf('product').length) {
+        useProducts.setState({ products: merged })
+        await cacheProducts(merged)
+        await entityUpsertMany(
+          'product',
+          merged.map(p => ({
+            id: p.id,
+            data: p,
+            updatedAtIso: String((p as any).updatedAtIso || (p as any).updatedAt || delta.cursor),
+          })),
+        )
+      }
     }
 
     // Categories
@@ -72,11 +85,17 @@ export async function pullSyncChanges(opts?: {
         const { applyCategoriesLocal, peekCategories } = await import('./useCategories')
         const { cacheCategories } = await import('./offline')
         if (delta.full || opts?.forceFull) {
-          applyCategoriesLocal(delta.categories)
-          await cacheCategories(delta.categories)
+          const list = dropById(delta.categories as any, delOf('category'))
+          applyCategoriesLocal(list)
+          await cacheCategories(list)
         } else if (delta.categories.length) {
           const local = peekCategories() || []
-          const merged = mergeByIdLww(local as any, delta.categories as any)
+          const merged = dropById(mergeByIdLww(local as any, delta.categories as any), delOf('category'))
+          applyCategoriesLocal(merged)
+          await cacheCategories(merged)
+        } else if (delOf('category').length) {
+          const local = peekCategories() || []
+          const merged = dropById(local as any, delOf('category'))
           applyCategoriesLocal(merged)
           await cacheCategories(merged)
         }
@@ -84,46 +103,55 @@ export async function pullSyncChanges(opts?: {
     }
 
     // Clients
-    if (Array.isArray(delta.clients) && delta.clients.length) {
+    {
       const { useClientStore } = await import('./clientStore')
-      const local = useClientStore.getState().clients || []
-      const merged = delta.full || opts?.forceFull
-        ? (delta.clients as AdminClient[])
-        : mergeByIdLww(local, delta.clients as AdminClient[])
-      useClientStore.setState({ clients: merged })
-      await cacheClients(merged)
+      let merged = useClientStore.getState().clients || []
+      if (Array.isArray(delta.clients) && delta.clients.length) {
+        merged = delta.full || opts?.forceFull
+          ? (delta.clients as AdminClient[])
+          : mergeByIdLww(merged, delta.clients as AdminClient[])
+      }
+      merged = dropById(merged, delOf('client'))
+      if ((delta.clients && delta.clients.length) || delOf('client').length) {
+        useClientStore.setState({ clients: merged })
+        await cacheClients(merged)
+      }
     }
 
     // Cards
-    if (Array.isArray(delta.cards) && delta.cards.length) {
+    if ((Array.isArray(delta.cards) && delta.cards.length) || delOf('card').length) {
       try {
         const { useCardStore } = await import('./cardStore')
-        const local = useCardStore.getState().cards || []
-        const merged = delta.full || opts?.forceFull
-          ? (delta.cards as AdminCard[])
-          : mergeByIdLww(local as any, delta.cards as any) as AdminCard[]
+        const { cacheData } = await import('./offline')
+        let merged = useCardStore.getState().cards || []
+        if (Array.isArray(delta.cards) && delta.cards.length) {
+          merged = delta.full || opts?.forceFull
+            ? (delta.cards as AdminCard[])
+            : mergeByIdLww(merged as any, delta.cards as any) as AdminCard[]
+        }
+        merged = dropById(merged, delOf('card'))
         useCardStore.setState({ cards: merged })
+        await cacheData('cards', merged)
       } catch { /* ignore */ }
     }
 
-    // Stock layers
-    if (Array.isArray(delta.stockLayers)) {
-      if (delta.full || opts?.forceFull || delta.stockLayers.length) {
-        let next: ProductStockLayer[]
-        if (delta.full || opts?.forceFull) {
-          next = delta.stockLayers as ProductStockLayer[]
-        } else {
-          const { readCachedStockLayers } = await import('./stockLayersLocal')
-          const local = await readCachedStockLayers()
-          const map = new Map(local.map(l => [`${l.receiptId}:${l.productId}`, l]))
-          for (const remote of delta.stockLayers as ProductStockLayer[]) {
-            const key = `${remote.receiptId}:${remote.productId}`
-            const cur = map.get(key)
-            if (!cur || shouldTakeRemoteLww(cur, remote)) map.set(key, remote)
-          }
-          next = [...map.values()]
-        }
+    // Stock layers — полный список открытых партий (исчерпанные не приходят)
+    if (Array.isArray(delta.stockLayers) && (delta.stockLayersReplace || delta.full || opts?.forceFull || delta.stockLayers.length)) {
+      const next = (delta.full || opts?.forceFull || delta.stockLayersReplace)
+        ? (delta.stockLayers as ProductStockLayer[])
+        : null
+      if (next) {
         await cacheStockLayers(next)
+      } else {
+        const { readCachedStockLayers } = await import('./stockLayersLocal')
+        const local = await readCachedStockLayers()
+        const map = new Map(local.map(l => [`${l.receiptId}:${l.productId}`, l]))
+        for (const remote of delta.stockLayers as ProductStockLayer[]) {
+          const key = `${remote.receiptId}:${remote.productId}`
+          const cur = map.get(key)
+          if (!cur || shouldTakeRemoteLww(cur, remote)) map.set(key, remote)
+        }
+        await cacheStockLayers([...map.values()])
       }
     }
 
@@ -169,10 +197,10 @@ export async function pullSyncChanges(opts?: {
           ? pos.expenses
           : mergeAppendById(cur.expenses, pos.expenses)
       }
-      if (Array.isArray(pos.suppliers) && (delta.full || pos.suppliers.length)) {
-        patch.suppliers = delta.full
-          ? pos.suppliers
-          : mergeByIdLww(cur.suppliers, pos.suppliers)
+      if (delta.full || delOf('supplier').length || (Array.isArray(pos.suppliers) && pos.suppliers.length)) {
+        const incoming = Array.isArray(pos.suppliers) ? pos.suppliers : []
+        const base = delta.full ? incoming : mergeByIdLww(cur.suppliers, incoming)
+        patch.suppliers = dropById(base as any, delOf('supplier'))
       }
       if (Array.isArray(pos.posPoints) && (delta.full || pos.posPoints.length)) {
         patch.posPoints = delta.full ? pos.posPoints : mergeByIdLww(cur.posPoints, pos.posPoints)

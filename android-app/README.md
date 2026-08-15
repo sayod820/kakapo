@@ -1,37 +1,38 @@
 # KAKAPO Trade — Android
 
-Capacitor WebView → `https://kakappo.shop/trade`
+Интерфейс кассы **внутри APK**. Без сети касса работает из локального кэша (IndexedDB + очередь).  
+Первый запуск — нужен интернет, чтобы скачать товары и пароли. Синк на сервер — когда сеть есть.
 
 **Есть:** касса, товары, клиенты, долги, склад, поставщики, финансы, отчёты  
-**Нет на телефоне:** настройки принтера / весов / шаблона чека; печать чека пропускается
+**Нет на телефоне:** настройки принтера / весов / шаблона чека
+
+Браузер на телефоне (Chrome) по-прежнему только онлайн — это не APK.
 
 ## Сборка APK
 
-1. Установите [Android Studio](https://developer.android.com/studio) (ставит JDK + Android SDK).
-2. В Android Studio один раз откройте папку `android-app/android` и дождитесь Gradle Sync.
-3. В PowerShell:
+1. Установите [Android Studio](https://developer.android.com/studio) (JDK + Android SDK).
+2. Один раз откройте `android-app/android` в Android Studio (Gradle Sync).
+3. Из корня репозитория `kakapo`:
 
 ```powershell
-cd kakapo\android-app
+npm run android:apk
+```
+
+Или по шагам:
+
+```powershell
+npm run android:build-ui
+cd android-app
 .\build-apk.ps1
 ```
 
+`android:build-ui` кладёт статическую сборку Next в `android-app/www` (открывается `/trade/`).  
 Готовый файл: `android-app/dist/KAKAPO-Trade-debug.apk`
-
-Или вручную:
-
-```powershell
-cd kakapo\android-app
-npm install
-npx cap sync android
-npx cap open android
-# Build → Build APK(s)
-```
 
 ## Важно
 
-APK грузит **живой** сайт `kakappo.shop/trade`.  
-Изменения UI (скрытие оборудования, имя кассира и т.д.) появятся на телефоне после деплоя Next на сервер.
+После смены UI нужна новая сборка APK (`android:build-ui` + sync).  
+Сайт `kakappo.shop/trade` в браузере от этого не зависит.
 
 ## Права
 

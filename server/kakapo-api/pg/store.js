@@ -2,6 +2,7 @@
 
 /**
  * Persist in-memory DB snapshot to PostgreSQL (docs + kv_meta).
+ * UPSERT — не DELETE всей базы на каждый persist (очередь за 2 дня).
  */
 
 import { withTransaction } from './client.js'
@@ -50,20 +51,89 @@ export async function loadSnapshotFromPg(client) {
   return out
 }
 
+async function upsertMeta(client, metaEntries) {
+  if (!metaEntries.length) {
+    await client.query('DELETE FROM kv_meta')
+    return
+  }
+  for (let offset = 0; offset < metaEntries.length; offset += INSERT_BATCH) {
+    const chunk = metaEntries.slice(offset, INSERT_BATCH + offset)
+    const values = []
+    const params = []
+    let p = 1
+    for (const m of chunk) {
+      values.push(`($${p++}, $${p++}::jsonb, NOW())`)
+      params.push(m.key, JSON.stringify(m.value === undefined ? null : m.value))
+    }
+    await client.query(
+      `INSERT INTO kv_meta (key, value, updated_at) VALUES ${values.join(',')}
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      params,
+    )
+  }
+  const keys = metaEntries.map(m => m.key)
+  await client.query('DELETE FROM kv_meta WHERE NOT (key = ANY($1::text[]))', [keys])
+}
+
+async function upsertDocs(client, docRows, collections) {
+  for (let offset = 0; offset < docRows.length; offset += INSERT_BATCH) {
+    const chunk = docRows.slice(offset, INSERT_BATCH + offset)
+    const values = []
+    const params = []
+    let p = 1
+    for (const r of chunk) {
+      values.push(`($${p++}, $${p++}, $${p++}::jsonb, $${p++}, NOW())`)
+      params.push(r.key, r.id, JSON.stringify(r.data ?? null), r.sortIdx)
+    }
+    await client.query(
+      `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
+       VALUES ${values.join(',')}
+       ON CONFLICT (collection, id) DO UPDATE SET
+         data = EXCLUDED.data,
+         sort_idx = EXCLUDED.sort_idx,
+         updated_at = NOW()`,
+      params,
+    )
+  }
+
+  const byCol = new Map()
+  for (const r of docRows) {
+    if (!byCol.has(r.key)) byCol.set(r.key, [])
+    byCol.get(r.key).push(r.id)
+  }
+  for (const col of collections) {
+    const ids = byCol.get(col) || []
+    if (!ids.length) {
+      await client.query('DELETE FROM docs WHERE collection = $1', [col])
+      continue
+    }
+    await client.query(
+      'DELETE FROM docs WHERE collection = $1 AND NOT (id = ANY($2::text[]))',
+      [col, ids],
+    )
+  }
+  if (collections.length) {
+    await client.query(
+      'DELETE FROM docs WHERE NOT (collection = ANY($1::text[]))',
+      [collections],
+    )
+  } else {
+    await client.query('DELETE FROM docs')
+  }
+}
+
 /**
- * Full replace of all collections / meta from an in-memory snapshot.
  * @param {import('pg').PoolClient} client
  * @param {Record<string, any>} snapshot
  */
 export async function saveSnapshotToPg(client, snapshot) {
-  await client.query('DELETE FROM docs')
-  await client.query('DELETE FROM kv_meta')
-
   const metaEntries = []
   const docRows = []
+  const collections = []
 
   for (const [key, value] of Object.entries(snapshot || {})) {
     if (Array.isArray(value)) {
+      collections.push(key)
       const used = new Set()
       for (let i = 0; i < value.length; i++) {
         let id = rowIdForItem(value[i], i)
@@ -76,34 +146,8 @@ export async function saveSnapshotToPg(client, snapshot) {
     }
   }
 
-  if (metaEntries.length) {
-    const values = []
-    const params = []
-    let p = 1
-    for (const m of metaEntries) {
-      values.push(`($${p++}, $${p++}::jsonb)`)
-      params.push(m.key, JSON.stringify(m.value === undefined ? null : m.value))
-    }
-    await client.query(
-      `INSERT INTO kv_meta (key, value) VALUES ${values.join(',')}`,
-      params,
-    )
-  }
-
-  for (let offset = 0; offset < docRows.length; offset += INSERT_BATCH) {
-    const chunk = docRows.slice(offset, offset + INSERT_BATCH)
-    const values = []
-    const params = []
-    let p = 1
-    for (const r of chunk) {
-      values.push(`($${p++}, $${p++}, $${p++}::jsonb, $${p++})`)
-      params.push(r.key, r.id, JSON.stringify(r.data ?? null), r.sortIdx)
-    }
-    await client.query(
-      `INSERT INTO docs (collection, id, data, sort_idx) VALUES ${values.join(',')}`,
-      params,
-    )
-  }
+  await upsertMeta(client, metaEntries)
+  await upsertDocs(client, docRows, collections)
 }
 
 /** Convenience: full save in a transaction */

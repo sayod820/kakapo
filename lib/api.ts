@@ -453,6 +453,8 @@ export const api = {
       clients: unknown[]
       cards: unknown[]
       stockLayers: ProductStockLayer[]
+      deletes?: { kind: string; id: string; atIso?: string }[]
+      stockLayersReplace?: boolean
       pos: {
         sales: unknown[]
         shifts: unknown[]
@@ -1025,6 +1027,7 @@ export const api = {
       deviceId?: string
       deviceName?: string
       opSeq?: number
+      queuedOffline?: boolean
       clientId?: string
       clientName?: string
       clientPhone?: string

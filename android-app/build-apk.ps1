@@ -94,6 +94,9 @@ Write-Host "ANDROID_HOME=$sdk"
 Write-Host "sdk.dir=$sdkEscaped"
 Write-Host 'npm install + cap sync...'
 npm install --silent
+if (-not (Test-Path (Join-Path $Root 'www\trade\index.html'))) {
+  Write-Host 'www/trade нет — сначала из корня kakapo: npm run android:build-ui' -ForegroundColor Yellow
+}
 npx cap sync android
 
 Write-Host 'Gradle assembleDebug...'

@@ -4,9 +4,10 @@ const config: CapacitorConfig = {
   appId: 'tj.kakapo.trade',
   appName: 'КАКАПО ТОРГОВЛЯ',
   webDir: 'www',
-  // Trade UI с сервера — без дублирования Next-сборки в APK
+  // UI лежит в APK. API — kakappo.shop (очередь при отсутствии сети).
   server: {
-    url: 'https://kakappo.shop/trade',
+    androidScheme: 'https',
+    hostname: 'localhost',
     cleartext: false,
     allowNavigation: [
       'https://kakappo.shop/*',

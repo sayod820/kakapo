@@ -447,10 +447,17 @@ export async function enqueueOp<P>(
 ): Promise<PendingOp<P>> {
   const clientRef = opts.clientRef || (payload as any)?.clientRef || newClientRef()
   const createdAtIso = opts.createdAtIso || (payload as any)?.createdAtIso || new Date().toISOString()
+  const queuedOffline = browserSaysOffline()
+    || (typeof navigator !== 'undefined' && navigator.onLine === false)
   const row: PendingOp<P> = {
     clientRef,
     kind,
-    payload: { ...(payload as any), clientRef, createdAtIso },
+    payload: {
+      ...(payload as any),
+      clientRef,
+      createdAtIso,
+      ...(kind === 'sale' && queuedOffline ? { queuedOffline: true } : {}),
+    },
     createdAtIso,
     seq: await nextSeq(),
     attempts: 0,

@@ -17,8 +17,9 @@
     "desktop:dist": "npm run desktop:build-ui && npm run dist --prefix desktop",
     "desktop:publish-out": "node scripts/publish-desktop-update.mjs",
     "android:install": "npm install --prefix android-app",
+    "android:build-ui": "node scripts/build-android-ui.mjs",
     "android:sync": "npm run sync --prefix android-app",
-    "android:apk": "npm run apk --prefix android-app"
+    "android:apk": "npm run android:build-ui && npm run apk --prefix android-app"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
