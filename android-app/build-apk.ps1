@@ -95,7 +95,7 @@ Write-Host "sdk.dir=$sdkEscaped"
 Write-Host 'npm install + cap sync...'
 npm install --silent
 if (-not (Test-Path (Join-Path $Root 'www\trade\index.html'))) {
-  Write-Host 'www/trade нет — сначала из корня kakapo: npm run android:build-ui' -ForegroundColor Yellow
+  Write-Host 'www/trade missing: run npm run android:build-ui from kakapo root' -ForegroundColor Yellow
 }
 npx cap sync android
 
@@ -130,4 +130,4 @@ if (Test-Path $releaseApk) {
 }
 
 Write-Host "OK: $outApk" -ForegroundColor Green
-Write-Host "Размер: $((Get-Item $outApk).Length) байт"
+Write-Host "bytes: $((Get-Item $outApk).Length)"

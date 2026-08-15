@@ -1,27 +1,39 @@
 /**
  * Статическая сборка Trade UI в android-app/www.
- * Телефон открывает кассу без сайта; API — kakappo.shop.
+ * Сборка в temp-копии без app/api (Windows часто не даёт переименовать api).
  *
  * Запуск: npm run android:build-ui
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
 const wwwDir = path.join(root, 'android-app', 'www')
-const outDir = path.join(root, 'out')
-const apiDir = path.join(root, 'app', 'api')
-const apiPark = path.join(root, 'app', '_api_android_skip')
 
 const backendUrl = (process.env.KAKAPO_ANDROID_BACKEND || 'https://kakappo.shop/api/kakapo').replace(/\/$/, '')
 const wsUrl = (process.env.KAKAPO_ANDROID_WS || 'wss://kakappo.shop').replace(/\/$/, '')
 
-function run(cmd, args, env) {
+const SKIP_ROOT = new Set([
+  'node_modules', '.next', 'out', 'android-app', 'desktop', '.git',
+  'server', 'data', 'tmp', '.claude',
+])
+
+function run(cwd, cmd, args, env) {
   const res = spawnSync(cmd, args, {
-    cwd: root,
+    cwd,
     stdio: 'inherit',
     shell: process.platform === 'win32',
     env: { ...process.env, ...env },
@@ -32,32 +44,60 @@ function run(cmd, args, env) {
   }
 }
 
-let parkedApi = false
-try {
-  if (existsSync(apiDir) && !existsSync(apiPark)) {
-    renameSync(apiDir, apiPark)
-    parkedApi = true
-    console.log('[android-ui] app/api временно убран (static export)')
-  }
-
-  console.log('[android-ui] Сборка Next (export)…')
-  console.log(`[android-ui] API: ${backendUrl}`)
-  run('npx', ['next', 'build'], {
-    KAKAPO_ANDROID_EXPORT: 'true',
-    NODE_ENV: 'production',
-    NEXT_PUBLIC_USE_API: 'true',
-    NEXT_PUBLIC_TRADE_ANDROID: 'true',
-    NEXT_PUBLIC_API_URL: backendUrl,
-    KAKAPO_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_WS_URL: wsUrl,
-  })
-} finally {
-  if (parkedApi && existsSync(apiPark) && !existsSync(apiDir)) {
-    renameSync(apiPark, apiDir)
-    console.log('[android-ui] app/api возвращён')
+function copyTree(src, dest, { skipAppApi = false } = {}) {
+  mkdirSync(dest, { recursive: true })
+  for (const name of readdirSync(src)) {
+    if (SKIP_ROOT.has(name) && src === root) continue
+    if (skipAppApi && name === 'api') continue
+    const from = path.join(src, name)
+    const to = path.join(dest, name)
+    const st = statSync(from)
+    if (st.isDirectory()) copyTree(from, to, { skipAppApi: false })
+    else cpSync(from, to)
   }
 }
 
+const tmp = path.join(os.tmpdir(), 'kakapo-android-ui')
+console.log('[android-ui] Копия проекта без app/api →', tmp)
+rmSync(tmp, { recursive: true, force: true })
+mkdirSync(tmp, { recursive: true })
+
+for (const name of readdirSync(root)) {
+  if (SKIP_ROOT.has(name)) continue
+  const from = path.join(root, name)
+  const to = path.join(tmp, name)
+  const st = statSync(from)
+  if (st.isDirectory()) {
+    copyTree(from, to, { skipAppApi: name === 'app' })
+  } else {
+    cpSync(from, to)
+  }
+}
+
+const nmSrc = path.join(root, 'node_modules')
+const nmDst = path.join(tmp, 'node_modules')
+if (existsSync(nmSrc) && !existsSync(nmDst)) {
+  try {
+    symlinkSync(nmSrc, nmDst, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch {
+    console.log('[android-ui] junction не вышел — копирую node_modules (долго)')
+    cpSync(nmSrc, nmDst, { recursive: true })
+  }
+}
+
+console.log('[android-ui] Сборка Next (export)…')
+console.log(`[android-ui] API: ${backendUrl}`)
+run(tmp, 'npx', ['next', 'build'], {
+  KAKAPO_ANDROID_EXPORT: 'true',
+  NODE_ENV: 'production',
+  NEXT_PUBLIC_USE_API: 'true',
+  NEXT_PUBLIC_TRADE_ANDROID: 'true',
+  NEXT_PUBLIC_API_URL: backendUrl,
+  KAKAPO_BACKEND_URL: backendUrl,
+  NEXT_PUBLIC_WS_URL: wsUrl,
+})
+
+const outDir = path.join(tmp, 'out')
 if (!existsSync(outDir)) {
   console.error('[android-ui] папка out не создана')
   process.exit(1)
