@@ -233,6 +233,8 @@ public class MainActivity extends BridgeActivity {
   }
 
   public class KakapoBridge {
+    private final KakapoSqliteStore db = new KakapoSqliteStore(MainActivity.this);
+
     @JavascriptInterface
     public void setTheme(String theme) {
       boolean light = theme != null && theme.toLowerCase().contains("light");
@@ -248,6 +250,57 @@ public class MainActivity extends BridgeActivity {
       } catch (Exception ignored) {
       }
     }
+
+    @JavascriptInterface
+    public String queueAll() { return db.queueAll(); }
+
+    @JavascriptInterface
+    public boolean queuePut(String json) { return db.queuePut(json); }
+
+    @JavascriptInterface
+    public boolean queueDelete(String clientRef) { return db.queueDelete(clientRef); }
+
+    @JavascriptInterface
+    public String kvGet(String key) { return db.kvGet(key); }
+
+    @JavascriptInterface
+    public boolean kvSet(String key, String json) { return db.kvSet(key, json); }
+
+    @JavascriptInterface
+    public boolean kvDelete(String key) { return db.kvDelete(key); }
+
+    @JavascriptInterface
+    public String metaGet() { return db.metaGet(); }
+
+    @JavascriptInterface
+    public boolean metaPatch(String json) { return db.metaPatch(json); }
+
+    @JavascriptInterface
+    public boolean markInstalled() { return db.markInstalled(); }
+
+    @JavascriptInterface
+    public boolean mirrorPut(String json) { return db.mirrorPut(json); }
+
+    @JavascriptInterface
+    public String mirrorGet(String kind, String id) { return db.mirrorGet(kind, id); }
+
+    @JavascriptInterface
+    public String mirrorList(String kind, int limit) { return db.mirrorList(kind, limit); }
+
+    @JavascriptInterface
+    public boolean entityPut(String json) { return db.entityPut(json); }
+
+    @JavascriptInterface
+    public boolean entityPutMany(String json) { return db.entityPutMany(json); }
+
+    @JavascriptInterface
+    public String entityGet(String kind, String id) { return db.entityGet(kind, id); }
+
+    @JavascriptInterface
+    public String entityList(String kind, String optsJson) { return db.entityList(kind, optsJson); }
+
+    @JavascriptInterface
+    public boolean entityDelete(String kind, String id) { return db.entityDelete(kind, id); }
   }
 
   private void injectAndroidFlag() {

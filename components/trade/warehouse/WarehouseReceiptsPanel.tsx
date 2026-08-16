@@ -131,17 +131,28 @@ function ReceiptLineEditModal({
   const markupStr = line.markupPct !== ''
     ? line.markupPct
     : (costNum > 0 && retailNum > 0 ? String(markupFromRetail(costNum, retailNum)) : '')
+  const [canCloseBackdrop, setCanCloseBackdrop] = useState(false)
 
   useEffect(() => {
+    setCanCloseBackdrop(false)
+    const lock = window.setTimeout(() => setCanCloseBackdrop(true), 450)
     const t = window.setTimeout(() => {
       qtyRef.current?.focus()
       qtyRef.current?.select()
     }, 40)
-    return () => window.clearTimeout(t)
+    return () => {
+      window.clearTimeout(lock)
+      window.clearTimeout(t)
+    }
   }, [line.key])
 
   return (
-    <div className="k-rcpt-line-bg" onClick={onClose}>
+    <div
+      className="k-rcpt-line-bg"
+      onClick={() => {
+        if (canCloseBackdrop) onClose()
+      }}
+    >
       <div className="k-rcpt-line-modal" onClick={e => e.stopPropagation()}>
         <div className="k-rcpt-line-h">
           <div className="k-rcpt-line-title">
@@ -677,10 +688,13 @@ export default function WarehouseReceiptsPanel({
   }
 
   function onProductCreated(product: Product) {
-    if (newProductLineKey) selectProduct(newProductLineKey, product)
+    const key = newProductLineKey
     setNewProductOpen(false)
     setNewProductLineKey(null)
     setDuplicateFrom(null)
+    if (!key) return
+    // Не открывать количество на том же касании, что «Создать» — иначе фон сразу закрывает окно
+    window.setTimeout(() => selectProduct(key, product), 320)
   }
 
   function onSupplierCreated(supplier: PosSupplier) {

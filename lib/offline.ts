@@ -3,6 +3,7 @@
 // Локальный кэш каталога + очередь чеков + синхронизация
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
+import { getLocalDb } from './localDbClient'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
@@ -108,7 +109,7 @@ export interface PendingOp<P = any> {
 /** Старое название — чек в очереди */
 export type PendingSale = PendingOp<PosSalePayload>
 
-// ── Хранилище (Desktop local DB → IndexedDB → localStorage) ──
+// ── Хранилище (Desktop SQLite → Android файл → IndexedDB → localStorage) ──
 const DB_NAME = 'kakapo_offline'
 const DB_VERSION = 1
 const STORE_KV = 'kv'
@@ -123,10 +124,7 @@ function hasIndexedDB(): boolean {
 }
 
 function deskDb() {
-  if (typeof window === 'undefined') return null
-  const d = window.kakapoDesktop
-  if (!d?.isDesktop || !d.localDbKvGet || !d.localDbKvSet) return null
-  return d
+  return getLocalDb()
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -343,8 +341,6 @@ export async function getPending(): Promise<PendingOp[]> {
 
   if (byRef.size === 0) return lsQueueRead().sort(byOrder)
 
-  // Старая касса писала очередь в IndexedDB — один раз переносим в SQLite,
-  // чтобы после обновления Electron ничего не потерялось.
   if (idbOnly > 0 && desk?.localDbQueuePut) {
     for (const row of byRef.values()) {
       try { await desk.localDbQueuePut(row) } catch { /* ignore */ }

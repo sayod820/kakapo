@@ -2,8 +2,9 @@
 // KAKAPO — первая установка локальной базы (один раз)
 // Дальше работа из локалки; при интернете — тихий синк.
 // ════════════════════════════════════════════════
-import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { isKakapoDesktop } from './desktopBridge'
 import { isTradeAndroidNative } from './tradeAndroid'
+import { getLocalDb } from './localDbClient'
 
 function needsLocalInstall(): boolean {
   return isKakapoDesktop() || isTradeAndroidNative()
@@ -135,7 +136,7 @@ export async function isLocalBootstrapComplete(): Promise<boolean> {
 }
 
 export async function markLocalBootstrapComplete(): Promise<void> {
-  const desk = getKakapoDesktop()
+  const desk = getLocalDb()
   try {
     if (desk?.localDbMarkInstalled) {
       await desk.localDbMarkInstalled()
@@ -150,7 +151,7 @@ export async function markLocalBootstrapComplete(): Promise<void> {
 }
 
 export async function markLocalSyncAt(): Promise<void> {
-  const desk = getKakapoDesktop()
+  const desk = getLocalDb()
   await desk?.localDbMetaPatch?.({
     lastSyncAt: new Date().toISOString(),
   })
@@ -334,7 +335,7 @@ export async function silentSyncFromServer(): Promise<void> {
 }
 
 export async function savePosSessionState(state: unknown): Promise<void> {
-  const desk = getKakapoDesktop()
+  const desk = getLocalDb()
   if (desk?.localDbKvSet) {
     await desk.localDbKvSet('pos_session_state', state)
     return
@@ -345,7 +346,7 @@ export async function savePosSessionState(state: unknown): Promise<void> {
 }
 
 export async function loadPosSessionState<T>(): Promise<T | null> {
-  const desk = getKakapoDesktop()
+  const desk = getLocalDb()
   if (desk?.localDbKvGet) {
     try {
       const v = await desk.localDbKvGet('pos_session_state')

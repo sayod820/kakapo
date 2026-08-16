@@ -6,7 +6,7 @@
  * Поэтому счётчик живёт в локальной базе ПК, а localStorage — только запасной
  * слой для браузера. Читаем всегда больший номер из двух: назад лента не едет.
  */
-import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { getLocalDb } from './localDbClient'
 
 const KEY = 'kakapo-pos-opseq-v1'
 const DB_KEY = 'pos_opseq_v1'
@@ -42,8 +42,8 @@ function writeLocal(map: SeqMap) {
 }
 
 async function readDb(): Promise<SeqMap> {
-  const desk = getKakapoDesktop()
-  if (!isKakapoDesktop() || !desk?.localDbKvGet) return {}
+  const desk = getLocalDb()
+  if (!desk?.localDbKvGet) return {}
   try {
     const value = await desk.localDbKvGet(DB_KEY)
     return value && typeof value === 'object' ? (value as SeqMap) : {}
@@ -53,8 +53,8 @@ async function readDb(): Promise<SeqMap> {
 }
 
 function writeDb(map: SeqMap) {
-  const desk = getKakapoDesktop()
-  if (!isKakapoDesktop() || !desk?.localDbKvSet) return
+  const desk = getLocalDb()
+  if (!desk?.localDbKvSet) return
   void Promise.resolve(desk.localDbKvSet(DB_KEY, map)).catch(() => { /* ignore */ })
 }
 

@@ -2,7 +2,7 @@
  * Локальные партии склада (stock layers) — кэш KV + entities.
  */
 import type { ProductStockLayer } from './types'
-import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { getLocalDb } from './localDbClient'
 import { entityList, entityPut } from './localEntities'
 
 const KEY_STOCK_LAYERS = 'catalog_stock_layers'
@@ -17,8 +17,8 @@ let memoryCache: ProductStockLayer[] | null = null
 let memoryLoaded = false
 
 async function kvGet(): Promise<ProductStockLayer[] | null> {
-  const desk = getKakapoDesktop()
-  if (isKakapoDesktop() && desk?.localDbKvGet) {
+  const desk = getLocalDb()
+  if (desk?.localDbKvGet) {
     try {
       const v = await desk.localDbKvGet(KEY_STOCK_LAYERS)
       return Array.isArray(v) ? (v as ProductStockLayer[]) : null
@@ -33,8 +33,8 @@ async function kvGet(): Promise<ProductStockLayer[] | null> {
 }
 
 async function kvSet(layers: ProductStockLayer[]): Promise<void> {
-  const desk = getKakapoDesktop()
-  if (isKakapoDesktop() && desk?.localDbKvSet) {
+  const desk = getLocalDb()
+  if (desk?.localDbKvSet) {
     await desk.localDbKvSet(KEY_STOCK_LAYERS, layers)
     return
   }

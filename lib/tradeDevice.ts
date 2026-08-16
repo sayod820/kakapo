@@ -2,7 +2,8 @@
  * Постоянный код этого аппарата + привязка к точке продаж.
  * Не MAC и не IP: один раз записали на диск и не меняем.
  */
-import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { isKakapoDesktop } from './desktopBridge'
+import { getLocalDb } from './localDbClient'
 
 const LS_DEVICE = 'kakapo_trade_device_id'
 const LS_BIND = 'kakapo_trade_device_bind'
@@ -50,21 +51,21 @@ function writeLs(key: string, value: string) {
 export function ensureTradeDeviceReady(): Promise<void> {
   if (ready) return ready
   ready = (async () => {
-    const desk = getKakapoDesktop()
+    const desk = getLocalDb()
     let id = ''
-    if (isKakapoDesktop() && desk?.localDbKvGet) {
+    if (desk?.localDbKvGet) {
       try { id = String((await desk.localDbKvGet(KV_DEVICE)) || '') } catch { /* ignore */ }
     }
     if (!id) id = readLs(LS_DEVICE)
     if (!id) id = newId()
     deviceIdMem = id
     writeLs(LS_DEVICE, id)
-    if (isKakapoDesktop() && desk?.localDbKvSet) {
+    if (desk?.localDbKvSet) {
       try { await desk.localDbKvSet(KV_DEVICE, id) } catch { /* ignore */ }
     }
 
     let bind: TradeDeviceBind | null = null
-    if (isKakapoDesktop() && desk?.localDbKvGet) {
+    if (desk?.localDbKvGet) {
       try {
         const raw = await desk.localDbKvGet(KV_BIND)
         if (raw && typeof raw === 'object') bind = raw as TradeDeviceBind
@@ -107,8 +108,8 @@ export function getBoundDeviceNameSync(): string {
 export async function saveTradeDeviceBind(bind: TradeDeviceBind): Promise<void> {
   bindMem = bind
   writeLs(LS_BIND, JSON.stringify(bind))
-  const desk = getKakapoDesktop()
-  if (isKakapoDesktop() && desk?.localDbKvSet) {
+  const desk = getLocalDb()
+  if (desk?.localDbKvSet) {
     try { await desk.localDbKvSet(KV_BIND, bind) } catch { /* ignore */ }
   }
 }
@@ -118,8 +119,8 @@ export async function clearTradeDeviceBind(): Promise<void> {
   if (typeof window !== 'undefined') {
     try { localStorage.removeItem(LS_BIND) } catch { /* ignore */ }
   }
-  const desk = getKakapoDesktop()
-  if (isKakapoDesktop() && desk?.localDbKvDelete) {
+  const desk = getLocalDb()
+  if (desk?.localDbKvDelete) {
     try { await desk.localDbKvDelete(KV_BIND) } catch { /* ignore */ }
   }
 }
