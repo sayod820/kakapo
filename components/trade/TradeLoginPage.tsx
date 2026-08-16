@@ -6,7 +6,7 @@ import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
 import { loadLastTradeEmployeeId } from '@/lib/employeeSession'
 import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
-import { employeePasswordMatches, hashEmployeePassword } from '@/lib/employeePassword'
+import { employeePasswordMatches, hashEmployeePassword, authRowFromServer } from '@/lib/employeePassword'
 import type { TradePageId } from '@/lib/tradeAccess'
 
 type DirectoryRow = { id: string; name: string; role: string; roleLabel?: string }
@@ -102,16 +102,9 @@ export default function TradeLoginPage({
           })
           await cacheEmployeesAuth(merged)
           void api.getEmployeesLocalAuth()
-            .then(full => cacheEmployeesAuth((full || []).map(r => ({
-              id: String(r.id),
-              name: String(r.name || ''),
-              role: String(r.role || 'custom'),
-              roleLabel: r.roleLabel,
-              permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
-              active: r.active !== false,
-              password: '',
-              passwordHash: String(r.passwordHash || ''),
-            }))))
+            .then(async full => {
+              await cacheEmployeesAuth(await Promise.all((full || []).map(r => authRowFromServer(r))))
+            })
             .catch(() => {})
         } catch (e) {
           if (cancelled) return
@@ -184,16 +177,9 @@ export default function TradeLoginPage({
         })
         await cacheEmployeesAuth(next)
         void api.getEmployeesLocalAuth()
-          .then(full => cacheEmployeesAuth((full || []).map(r => ({
-            id: String(r.id),
-            name: String(r.name || ''),
-            role: String(r.role || 'custom'),
-            roleLabel: r.roleLabel,
-            permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
-            active: r.active !== false,
-            password: '',
-            passwordHash: String(r.passwordHash || ''),
-          }))))
+          .then(async full => {
+            await cacheEmployeesAuth(await Promise.all((full || []).map(r => authRowFromServer(r))))
+          })
           .catch(() => {})
       } catch (error) {
         if (isNetworkError(error)) {

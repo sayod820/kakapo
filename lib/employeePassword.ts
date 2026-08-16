@@ -14,6 +14,42 @@ export async function hashEmployeePassword(password: string): Promise<string> {
   throw new Error('Нет WebCrypto')
 }
 
+export async function authRowFromServer(r: {
+  id: string
+  name?: string
+  role?: string
+  roleLabel?: string
+  permissions?: string[]
+  active?: boolean
+  password?: string
+  passwordHash?: string
+}): Promise<{
+  id: string
+  name: string
+  role: string
+  roleLabel?: string
+  permissions: string[]
+  active: boolean
+  password: string
+  passwordHash: string
+}> {
+  const hashIn = String(r.passwordHash || '').trim()
+  const plain = String(r.password || '').trim()
+  const passwordHash = hashIn.length >= 32
+    ? hashIn
+    : (plain.length >= 4 ? await hashEmployeePassword(plain) : '')
+  return {
+    id: String(r.id),
+    name: String(r.name || ''),
+    role: String(r.role || 'custom'),
+    roleLabel: r.roleLabel,
+    permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
+    active: r.active !== false,
+    password: '',
+    passwordHash,
+  }
+}
+
 export async function employeePasswordMatches(
   typed: string,
   stored: { password?: string; passwordHash?: string },

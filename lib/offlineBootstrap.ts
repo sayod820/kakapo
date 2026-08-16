@@ -9,7 +9,7 @@ function needsLocalInstall(): boolean {
   return isKakapoDesktop() || isTradeAndroidNative()
 }
 import { cacheEmployeesAuth, isOnline, readCachedEmployeesAuth, readCachedProducts } from './offline'
-import { hashEmployeePassword } from './employeePassword'
+import { authRowFromServer, hashEmployeePassword } from './employeePassword'
 import { getApiUrl } from './config'
 import { api } from './api'
 
@@ -23,16 +23,7 @@ const STEPS: { id: BootstrapStepId; label: string }[] = [
 
 async function cacheEmployeesForOfflineLogin(): Promise<void> {
   const rows = await api.getEmployeesLocalAuth()
-  const mapped = (rows || []).map(r => ({
-    id: String(r.id),
-    name: String(r.name || ''),
-    role: String(r.role || 'custom'),
-    roleLabel: r.roleLabel,
-    permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
-    active: r.active !== false,
-    password: '',
-    passwordHash: String(r.passwordHash || ''),
-  }))
+  const mapped = await Promise.all((rows || []).map(r => authRowFromServer(r)))
   const withPass = mapped.filter(r => r.active !== false && r.passwordHash.length >= 32)
   if (!withPass.length) {
     throw new Error('Сервер не отдал данные для офлайн-входа')
@@ -258,22 +249,12 @@ export async function runLocalBootstrap(
     // Сотрудники с паролями — обязательно до экрана логина
     try {
       await withRetries('employees', () => cacheEmployeesForOfflineLogin(), 3)
-    } catch {
-      let employees: EmployeePasswordRow[] = []
-      try {
-        const dir = await api.getEmployeesDirectory()
-        employees = (dir || []).map(d => ({
-          id: d.id,
-          name: d.name,
-          role: d.role,
-          roleLabel: d.roleLabel,
-        }))
-      } catch { /* ignore */ }
-      report(5, 'pos', 'Пароли сотрудников')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Не удалось скачать сотрудников'
+      report(5, 'pos', 'Сотрудники')
       return {
         ok: false,
-        error: 'Данные загружены. Введите пароли сотрудников — сохраним на устройство, затем откроется вход.',
-        needEmployeePasswords: employees.length ? employees : undefined,
+        error: `${msg}. Проверьте привязку устройства и интернет, затем «Повторить».`,
       }
     }
 
