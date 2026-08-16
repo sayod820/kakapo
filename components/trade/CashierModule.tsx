@@ -757,7 +757,7 @@ const CashierNetChip = memo(function CashierNetChip({
             ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
             : `Онлайн · ${netPending} в очереди`)
         : (onlineCode || 'Онлайн'))
-    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · разбор: ${netFailed}` : ''}`
+    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
   const label = netOnline
     ? (netPending > 0
         ? (netSyncing

@@ -82,7 +82,6 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   const syncing = useOfflineSync(s => s.syncing)
   const online = useOfflineSync(s => s.online)
   const lastError = useOfflineSync(s => s.lastError)
-  const drop = useOfflineSync(s => s.drop)
   const forceSync = useOfflineSync(s => s.forceSync)
   const refresh = useOfflineSync(s => s.refresh)
   const [busyRef, setBusyRef] = useState<string | null>(null)
@@ -142,7 +141,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
         </div>
         <div className="m">
           {when(row.createdAtIso)}
-          {row.failed ? ' · отклонено сервером' : ' · ещё не на сервере'}
+          {row.failed ? ' · повтор при следующей отправке' : ' · ещё не на сервере'}
           {row.attempts > 0 ? ` · попыток: ${row.attempts}` : ''}
         </div>
         {!!detail && <div className="d">{detail}</div>}
@@ -154,19 +153,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
             disabled={isBusy}
             onClick={() => void sendOne(row)}
           >
-            {busyRef === row.clientRef ? 'Отправка…' : 'Принудительно отправить'}
-          </button>
-          <button
-            type="button"
-            className="k-btn k-btn-s"
-            disabled={isBusy}
-            onClick={() => {
-              if (window.confirm('Убрать операцию из очереди? Она не попадёт на сервер.')) {
-                void drop(row.clientRef)
-              }
-            }}
-          >
-            Удалить
+            {busyRef === row.clientRef ? 'Отправка…' : 'Отправить сейчас'}
           </button>
         </div>
       </div>
@@ -192,7 +179,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
             <div className="t">Очередь синхронизации</div>
             <div className="s">
               {waiting.length > 0 ? `Ждут отправки: ${waiting.length}` : 'Нет ожидающих'}
-              {failed.length > 0 ? ` · требуют разбора: ${failed.length}` : ''}
+              {failed.length > 0 ? ` · повторим сами: ${failed.length}` : ''}
               {online ? ' · связь есть' : ' · нет связи с сервером'}
               {lastError ? ` · ${lastError}` : ''}
             </div>
@@ -209,7 +196,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
 
           {failed.length > 0 && (
             <>
-              <div className="k-queue-sec">Требуют разбора</div>
+              <div className="k-queue-sec">Ошибка — отправим снова</div>
               {failed.map(renderRow)}
             </>
           )}

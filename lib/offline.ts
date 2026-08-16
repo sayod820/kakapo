@@ -96,7 +96,7 @@ export interface PendingOp<P = any> {
   seq: number
   attempts: number
   lastError?: string
-  /** true — сервер отклонил операцию (не сетевая ошибка), нужен разбор кассиром */
+  /** true — сервер отклонил; касса повторит отправку, удалять нельзя */
   failed?: boolean
   /**
    * Временный id, под которым операция уже показана в интерфейсе.
@@ -390,7 +390,7 @@ async function deletePending(clientRef: string): Promise<void> {
   lsQueueWrite(lsQueueRead().filter(r => r.clientRef !== clientRef))
 }
 
-/** Убирает операцию из очереди (кассир разобрал отклонённую запись) */
+/** Внутреннее: не вызывать из UI кассы — очередь нельзя стирать вручную */
 export async function dropPending(clientRef: string): Promise<void> {
   await deletePending(clientRef)
 }

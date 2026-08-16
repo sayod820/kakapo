@@ -12,7 +12,6 @@ import {
   isOnline,
   enqueueSale,
   enqueueOp,
-  dropPending,
   retryPending,
   type PendingOp,
   type PosSalePayload,
@@ -24,7 +23,7 @@ interface OfflineSyncState {
   online: boolean
   pending: number
   failed: number
-  /** содержимое очереди — для списка «требует разбора» */
+  /** содержимое очереди — только просмотр и повторная отправка */
   items: PendingOp[]
   syncing: boolean
   /** прогресс отправки очереди: сколько операций уже ушло из скольких */
@@ -44,7 +43,7 @@ interface OfflineSyncState {
   markOffline: () => void
   /** повторить отклонённую операцию */
   retry: (clientRef: string) => Promise<void>
-  /** убрать отклонённую операцию из очереди */
+  /** Кассир не может удалять очередь — операция должна уйти на сервер */
   drop: (clientRef: string) => Promise<void>
   /** отправить очередь прямо сейчас (сначала ping) */
   syncNow: () => Promise<void>
@@ -335,8 +334,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     await get().forceSync({ clientRef })
   },
 
-  drop: async (clientRef) => {
-    await dropPending(clientRef)
+  drop: async () => {
     await get().refresh()
   },
 
@@ -545,7 +543,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       if (get().pending > 0 || get().failed > 0) {
         set({
           lastError: get().failed > 0
-            ? 'Часть операций всё ещё не ушла — откройте очередь'
+            ? 'Часть операций ещё не ушла — отправим снова сами'
             : 'Очередь ещё ждёт связь — пробуем сами',
         })
         scheduleReconnect(get, set, 2000)

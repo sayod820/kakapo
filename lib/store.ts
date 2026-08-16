@@ -797,8 +797,35 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     }
     try {
       const raw = ensureArray<Product>(await api.getProducts(), 'products')
-      const { sanitizeProductForLocalCache, cacheProducts } = await import('./offline')
-      const products = raw.map(sanitizeProductForLocalCache)
+      const { sanitizeProductForLocalCache, cacheProducts, getPending } = await import('./offline')
+      let products = raw.map(sanitizeProductForLocalCache)
+      try {
+        const pending = await getPending()
+        const STOCK_KINDS = new Set([
+          'sale',
+          'sale_return',
+          'stock_receipt_create',
+          'stock_receipt_update',
+          'stock_receipt_delete',
+          'stock_writeoff_create',
+          'stock_writeoff_update',
+          'stock_writeoff_delete',
+          'stock_revision_create',
+          'stock_revision_update',
+          'stock_revision_delete',
+          'stock_layer_update',
+          'stock_layer_delete',
+        ])
+        const protectStock = pending.some(r => !r.failed && STOCK_KINDS.has(r.kind))
+        if (protectStock) {
+          const localById = new Map(get().products.map(p => [p.id, p]))
+          products = products.map(p => {
+            const loc = localById.get(p.id)
+            if (!loc) return p
+            return { ...p, stock: loc.stock }
+          })
+        }
+      } catch { /* очередь недоступна — берём сервер как есть */ }
       set({ products, loaded: true })
       try {
         void cacheProducts(products)

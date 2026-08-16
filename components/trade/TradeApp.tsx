@@ -2360,11 +2360,11 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
         <div className="k-online" data-state={state}><span className="d" />{label}</div>
         <div className="k-netnote">
           {pending > 0 && failed > 0
-            ? `Ждут: ${pending} · разбор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
+            ? `Ждут: ${pending} · повтор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
             : pending > 0
               ? `Ждут: ${pending}${lastSync ? ` · синхр. ${lastSync}` : ''}`
               : failed > 0
-                ? `Разбор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
+                ? `Повтор: ${failed}${lastSync ? ` · ${lastSync}` : ''}`
                 : lastSync
                   ? `Синхр. ${lastSync}`
                   : 'Очередь пуста'}
