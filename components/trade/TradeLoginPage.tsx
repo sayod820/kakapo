@@ -6,6 +6,7 @@ import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
 import { loadLastTradeEmployeeId } from '@/lib/employeeSession'
 import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
+import { employeePasswordMatches, hashEmployeePassword } from '@/lib/employeePassword'
 import type { TradePageId } from '@/lib/tradeAccess'
 
 type DirectoryRow = { id: string; name: string; role: string; roleLabel?: string }
@@ -95,12 +96,22 @@ export default function TradeLoginPage({
               roleLabel: d.roleLabel,
               permissions: old?.permissions || [],
               active: true,
-              password: old?.password || '',
+              password: '',
+              passwordHash: old?.passwordHash || '',
             }
           })
           await cacheEmployeesAuth(merged)
           void api.getEmployeesLocalAuth()
-            .then(full => cacheEmployeesAuth(full || []))
+            .then(full => cacheEmployeesAuth((full || []).map(r => ({
+              id: String(r.id),
+              name: String(r.name || ''),
+              role: String(r.role || 'custom'),
+              roleLabel: r.roleLabel,
+              permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
+              active: r.active !== false,
+              password: '',
+              passwordHash: String(r.passwordHash || ''),
+            }))))
             .catch(() => {})
         } catch (e) {
           if (cancelled) return
@@ -137,10 +148,9 @@ export default function TradeLoginPage({
       const tryLocal = async (): Promise<boolean> => {
         const cached = await readCachedEmployeesAuth()
         const row = cached?.find(r => r.id === employeeId && r.active !== false)
-        if (!row || !row.password) return false
-        if (String(row.password) !== password.trim()) {
-          throw new Error('Неверный пароль')
-        }
+        if (!row) return false
+        const ok = await employeePasswordMatches(password.trim(), row)
+        if (!ok) throw new Error('Неверный пароль')
         onSuccess(sessionFromAuth(row))
         return true
       }
@@ -169,11 +179,21 @@ export default function TradeLoginPage({
           roleLabel: row.roleLabel,
           permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
           active: true,
-          password: password.trim(),
+          password: '',
+          passwordHash: await hashEmployeePassword(password.trim()),
         })
         await cacheEmployeesAuth(next)
         void api.getEmployeesLocalAuth()
-          .then(full => cacheEmployeesAuth(full || []))
+          .then(full => cacheEmployeesAuth((full || []).map(r => ({
+            id: String(r.id),
+            name: String(r.name || ''),
+            role: String(r.role || 'custom'),
+            roleLabel: r.roleLabel,
+            permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
+            active: r.active !== false,
+            password: '',
+            passwordHash: String(r.passwordHash || ''),
+          }))))
           .catch(() => {})
       } catch (error) {
         if (isNetworkError(error)) {

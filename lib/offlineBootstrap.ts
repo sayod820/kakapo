@@ -9,6 +9,7 @@ function needsLocalInstall(): boolean {
   return isKakapoDesktop() || isTradeAndroidNative()
 }
 import { cacheEmployeesAuth, isOnline, readCachedEmployeesAuth, readCachedProducts } from './offline'
+import { hashEmployeePassword } from './employeePassword'
 import { getApiUrl } from './config'
 import { api } from './api'
 
@@ -29,11 +30,12 @@ async function cacheEmployeesForOfflineLogin(): Promise<void> {
     roleLabel: r.roleLabel,
     permissions: Array.isArray(r.permissions) ? r.permissions.map(String) : [],
     active: r.active !== false,
-    password: String(r.password || ''),
+    password: '',
+    passwordHash: String(r.passwordHash || ''),
   }))
-  const withPass = mapped.filter(r => r.active !== false && r.password.length >= 4)
+  const withPass = mapped.filter(r => r.active !== false && r.passwordHash.length >= 32)
   if (!withPass.length) {
-    throw new Error('Сервер не отдал пароли сотрудников')
+    throw new Error('Сервер не отдал данные для офлайн-входа')
   }
   await cacheEmployeesAuth(mapped)
 }
@@ -68,6 +70,7 @@ export async function sealEmployeePasswordsForOffline(
     permissions: string[]
     active: boolean
     password: string
+    passwordHash?: string
   }> = []
   const errors: string[] = []
   for (const e of filled) {
@@ -80,7 +83,8 @@ export async function sealEmployeePasswordsForOffline(
         roleLabel: row.roleLabel,
         permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
         active: true,
-        password: e.password.trim(),
+        password: '',
+        passwordHash: await hashEmployeePassword(e.password.trim()),
       })
     } catch (err) {
       const name = e.id
@@ -117,7 +121,9 @@ export type BootstrapProgress = {
 export async function hasOfflineEmployeeAuth(): Promise<boolean> {
   try {
     const rows = await readCachedEmployeesAuth()
-    return !!(rows && rows.some(r => r.active !== false && String(r.password || '').length >= 4))
+    return !!(rows && rows.some(r => r.active !== false && (
+      String(r.passwordHash || '').length >= 32 || String(r.password || '').length >= 4
+    )))
   } catch {
     return false
   }

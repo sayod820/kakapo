@@ -950,7 +950,8 @@ export const api = {
       roleLabel?: string
       permissions: string[]
       active: boolean
-      password: string
+      password?: string
+      passwordHash?: string
     }>>(`/employees/local-auth${q}`)
   },
   createEmployee: (data: {

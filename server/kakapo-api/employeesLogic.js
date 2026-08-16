@@ -2,6 +2,8 @@
  * Сотрудники приложения «Торговля» — доступ к разделам по паролю.
  */
 
+import { createHash } from 'crypto'
+
 export const TRADE_PAGE_IDS = [
   'sales',
   'products',
@@ -78,7 +80,11 @@ export function listEmployees(db) {
     .map(publicEmployee)
 }
 
-/** Для офлайн-кассы: сотрудники с паролями (кэш на ПК) */
+function hashEmployeePassword(password) {
+  return createHash('sha256').update('kakapo-emp-v1:' + String(password || '')).digest('hex')
+}
+
+/** Для офлайн-кассы: сотрудники с отпечатком пароля (не сам пароль) */
 export function listEmployeesLocalAuth(db) {
   ensureEmployees(db)
   return [...db.employees]
@@ -91,7 +97,7 @@ export function listEmployeesLocalAuth(db) {
       roleLabel: EMPLOYEE_ROLE_PRESETS[e.role]?.label || 'Свой набор',
       permissions: Array.isArray(e.permissions) ? [...e.permissions] : [],
       active: e.active !== false,
-      password: String(e.password || ''),
+      passwordHash: hashEmployeePassword(e.password),
     }))
 }
 

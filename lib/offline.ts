@@ -233,7 +233,8 @@ export type CachedEmployeeAuth = {
   roleLabel?: string
   permissions: string[]
   active: boolean
-  password: string
+  password?: string
+  passwordHash?: string
 }
 
 const KEY_EMPLOYEES_AUTH = 'catalog_employees_auth'
