@@ -34,7 +34,26 @@ export function orderGoodsTotal(
   return fromItems
 }
 
-/** База для кэшбэка и месячных трат: только товары, без курьерской доставки. */
+export function cashEligibleTotal(
+  order: Pick<Order, 'items' | 'total' | 'deliveryFee' | 'bonusSpent' | 'goodsTotal' | 'pay' | 'payment_method' | 'creditAmount'> & {
+    channel?: string
+    posSaleId?: string
+    paidCash?: number
+  },
+): number {
+  const pay = String(order.pay || order.payment_method || '').toLowerCase()
+  if (pay === 'credit') return 0
+  const posCash = Number(order.paidCash)
+  if (order.channel === 'pos' || order.posSaleId) {
+    if (Number.isFinite(posCash)) return Math.max(0, Math.round(posCash * 100) / 100)
+    if (pay && pay !== 'cash' && pay !== 'mixed') return 0
+  }
+  if (pay === 'card' || pay === 'wallet') return 0
+  const credit = Number(order.creditAmount) || 0
+  const base = orderGoodsTotal(order)
+  return Math.max(0, Math.round((base - credit) * 100) / 100)
+}
+
 export function bonusEligibleTotal(
   order: Pick<Order, 'items' | 'total' | 'deliveryFee' | 'bonusSpent' | 'goodsTotal'>,
 ): number {
@@ -42,9 +61,13 @@ export function bonusEligibleTotal(
 }
 
 export function orderSpentContribution(
-  order: Pick<Order, 'items' | 'total' | 'deliveryFee' | 'bonusSpent' | 'goodsTotal'>,
+  order: Pick<Order, 'items' | 'total' | 'deliveryFee' | 'bonusSpent' | 'goodsTotal' | 'pay' | 'payment_method' | 'creditAmount'> & {
+    channel?: string
+    posSaleId?: string
+    paidCash?: number
+  },
 ): number {
-  return orderGoodsTotal(order)
+  return cashEligibleTotal(order)
 }
 
 /** Сумма к оплате клиентом: товары + доставка − бонусы. */

@@ -3,12 +3,17 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
+import { findDuplicateDebtRepay, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
 import { cardNumsMatch } from './cardCrm'
+import { phonesMatch } from './clientCrm'
+import { recordStoreDebtRepayment } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
+import { markMoneyPending } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
+import { useClientStore } from './clientStore'
+import { useCardStore } from './cardStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
 import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
@@ -270,7 +275,15 @@ export async function cardTopupSafe(
   const payload = { ...input, clientRef, cash: round2(input.cash), credit: round2(input.credit), num }
 
   const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('card_topup', payload)
+    const { useCardStore } = await import('./cardStore')
+    const card = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
+    const nextBonus = round2((Number(card?.bonus) || 0) + payload.credit)
+    const nextPos = round2((Number(card?.posCashBonus) || 0) + payload.credit)
+    await useOfflineSync.getState().queueOp('card_topup', {
+      ...payload,
+      bonusAfter: nextBonus,
+      posCashBonusAfter: nextPos,
+    })
     const shift = input.shiftId ? shiftById(input.shiftId) : undefined
     if (shift) {
       patchShift(shift.id, { cashInTotal: round2((shift.cashInTotal || 0) + payload.cash) })
@@ -284,19 +297,17 @@ export async function cardTopupSafe(
           createdAtIso: new Date().toISOString(),
           shiftId: shift.id,
           posId: input.posId,
-        }, ...s.financeMoves],
+          clientRef,
+        } as FinanceMove, ...s.financeMoves],
       }))
     }
-    const { useCardStore } = await import('./cardStore')
-    const card = useCardStore.getState().cards.find(c => c.num === num)
     useCardStore.getState().updateCardLoyalty(
       num,
-      {
-        bonus: round2((Number(card?.bonus) || 0) + payload.credit),
-        posCashBonus: round2((Number(card?.posCashBonus) || 0) + payload.credit),
-      },
+      { bonus: nextBonus, posCashBonus: nextPos },
       { skipApi: true },
     )
+    const { markMoneyPending } = await import('./loyaltySaveGuard')
+    markMoneyPending({ cardNum: num, clientId: card?.clientId })
     return null
   }
 
@@ -347,11 +358,16 @@ export async function debtRepaySafe(
     cashierName: input.cashierName,
     shiftId: input.shiftId,
     posId: input.posId,
+    clientId: input.clientId,
   }
 
   const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('debt_repay', payload)
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
+    const dup = await findDuplicateDebtRepay({ num, amount, shiftId: input.shiftId })
+    if (dup) {
+      return { nextDebt, bonusEarned: 0 }
+    }
+    await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
     if (input.shiftId) {
       const shift = shiftById(input.shiftId)
       if (shift) {
@@ -368,6 +384,8 @@ export async function debtRepaySafe(
       const { useClientStore } = await import('./clientStore')
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
+    const { markMoneyPending } = await import('./loyaltySaveGuard')
+    markMoneyPending({ clientId: input.clientId, cardNum: num })
     return { nextDebt, bonusEarned: 0 }
   }
 
@@ -385,42 +403,116 @@ export async function returnSaleSafe(
   },
 ): Promise<OfflineResult<PosSale>> {
   const clientRef = newClientRef()
-  const payload = {
-    clientRef,
-    saleId: sale.id,
-    note: input.note,
-    cashierId: input.cashierId,
-    items: input.items,
+
+  const applyAndQueue = async () => {
+    const returned = applyLocalReturn(sale, input.items)
+    let clientDebtAfter: number | undefined
+    const clientId = String(returned.clientId || sale.clientId || '')
+    const phone = String(returned.clientPhone || sale.clientPhone || '')
+    const cl = clientId
+      ? useClientStore.getState().clients.find(c => c.id === clientId)
+      : useClientStore.getState().clients.find(c => phone && phonesMatch(c.phone, phone))
+    if (cl) clientDebtAfter = round2(Number(cl.debt) || 0)
+    await useOfflineSync.getState().queueOp('sale_return', {
+      clientRef,
+      saleId: sale.id,
+      note: input.note,
+      cashierId: input.cashierId,
+      items: input.items,
+      clientId: returned.clientId || sale.clientId,
+      cardNum: returned.cardNum || sale.cardNum,
+      clientDebtAfter,
+      cutDebt: Math.max(0, round2((Number(sale.debtAdded) || 0) - (Number(returned.debtAdded) || 0))),
+    })
+    return returned
   }
 
-  // Локальный id чека — только очередь (на сервере ещё нет)
   if (isLocalId(sale.id)) {
-    await useOfflineSync.getState().queueOp('sale_return', payload)
-    const returned = applyLocalReturn(sale, input.items)
+    const returned = await applyAndQueue()
     shadowMirrorSale(returned)
     void useOfflineSync.getState().syncNow()
     return { offline: true, data: returned }
   }
 
-  const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('sale_return', payload)
-    return applyLocalReturn(sale, input.items)
-  }
-
   const res = await raceCashierOp(
-    () => api.returnPosSale(sale.id, {
-      clientRef,
-      note: input.note,
-      cashierId: input.cashierId,
-      ...(input.items ? { items: input.items } : {}),
-    }),
-    applyLocal,
+    () => api.returnPosSale(sale.id, { clientRef }),
+    applyAndQueue,
   )
   if (res.data) shadowMirrorSale(res.data)
   return res
 }
 
-/** Локальный возврат: товары на склад, чек помечен возвращённым */
+/** Локальный возврат: товары на склад, долг/бонусы/кошелёк как на сервере */
+function computeReturnCuts(sale: PosSale, returnTotal: number) {
+  const bonusBefore = round2(Number(sale.bonusSpent) || 0)
+  const origGoods = round2(
+    Number((sale as any).orderGoodsTotal)
+    || (Number((sale as any).originalTotal) || Number(sale.total) || 0) + bonusBefore
+    || returnTotal,
+  )
+  let cutBonus = 0
+  if (bonusBefore > 0 && origGoods > 0) {
+    cutBonus = round2(Math.min(bonusBefore, bonusBefore * (returnTotal / origGoods)))
+  }
+  let remainCashCut = round2(Math.max(0, returnTotal - cutBonus))
+  let cutDebt = 0
+  let cutCash = 0
+  let cutCard = 0
+  let cutWallet = 0
+  const debtBefore = round2(
+    Number(sale.debtAdded) > 0
+      ? Number(sale.debtAdded)
+      : (sale.paymentMethod === 'credit' ? (Number(sale.total) || 0) : 0),
+  )
+  if (debtBefore > 0 && remainCashCut > 0) {
+    cutDebt = Math.min(debtBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutDebt)
+  }
+  const walletBefore = round2(Number(sale.paidWallet) || 0)
+  if (walletBefore > 0 && remainCashCut > 0) {
+    cutWallet = Math.min(walletBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutWallet)
+  }
+  const cashBefore = round2(Number(sale.paidCash) || 0)
+  if (cashBefore > 0 && remainCashCut > 0) {
+    cutCash = Math.min(cashBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutCash)
+  }
+  const cardBefore = round2(Number(sale.paidCard) || 0)
+  if (cardBefore > 0 && remainCashCut > 0) {
+    cutCard = Math.min(cardBefore, remainCashCut)
+    remainCashCut = round2(remainCashCut - cutCard)
+  }
+  if (remainCashCut > 0) {
+    if (cashBefore - cutCash > 0) {
+      const extra = Math.min(cashBefore - cutCash, remainCashCut)
+      cutCash = round2(cutCash + extra)
+      remainCashCut = round2(remainCashCut - extra)
+    }
+    if (remainCashCut > 0 && cardBefore - cutCard > 0) {
+      const extra = Math.min(cardBefore - cutCard, remainCashCut)
+      cutCard = round2(cutCard + extra)
+      remainCashCut = round2(remainCashCut - extra)
+    }
+    if (remainCashCut > 0 && bonusBefore - cutBonus > 0) {
+      const extra = Math.min(bonusBefore - cutBonus, remainCashCut)
+      cutBonus = round2(cutBonus + extra)
+    }
+  }
+  return {
+    cutBonus,
+    cutDebt,
+    cutCash,
+    cutCard,
+    cutWallet,
+    debtBefore,
+    walletBefore,
+    cashBefore,
+    cardBefore,
+    bonusBefore,
+  }
+}
+
 function applyLocalReturn(
   sale: PosSale,
   items?: { index?: number; productId?: number; qty: number }[],
@@ -445,17 +537,47 @@ function applyLocalReturn(
   const lastReturnTotal = nextItems.reduce((sum, l, idx) => {
     const before = Number(lines[idx]?.returnedQty) || 0
     const after = Number(l.returnedQty) || 0
-    return sum + Math.max(0, after - before) * (Number(l.price) || 0)
+    const back = Math.max(0, after - before)
+    if (back <= 0) return sum
+    const qty = Number(l.qty) || 0
+    const unit = qty > 0
+      ? round2((Number(l.lineTotal) || 0) / qty)
+      : round2(Number(l.price) || 0)
+    return sum + back * unit
   }, 0)
+  const cuts = computeReturnCuts(sale, round2(lastReturnTotal))
 
   const updated: PosSale = {
     ...sale,
     items: nextItems,
     status: fullyReturned ? 'returned' : 'partial',
     lastReturnTotal: round2(lastReturnTotal),
+    debtAdded: Math.max(0, round2(cuts.debtBefore - cuts.cutDebt)),
+    paidCash: Math.max(0, round2(cuts.cashBefore - cuts.cutCash)),
+    paidCard: Math.max(0, round2(cuts.cardBefore - cuts.cutCard)),
+    paidWallet: Math.max(0, round2(cuts.walletBefore - cuts.cutWallet)),
+    bonusSpent: Math.max(0, round2(cuts.bonusBefore - cuts.cutBonus)),
+    total: Math.max(0, round2((Number(sale.total) || 0) - (round2(lastReturnTotal) - cuts.cutBonus))),
   } as PosSale
 
   usePosStore.setState(s => ({ sales: s.sales.map(x => (x.id === sale.id ? updated : x)) }))
+
+  if (sale.shiftId) {
+    const shift = shiftById(sale.shiftId)
+    if (shift && shift.status === 'open') {
+      patchShift(sale.shiftId, {
+        ...(fullyReturned ? { salesCount: Math.max(0, (Number(shift.salesCount) || 0) - 1) } : {}),
+        salesCash: Math.max(0, round2((Number(shift.salesCash) || 0) - cuts.cutCash)),
+        salesCard: Math.max(0, round2((Number(shift.salesCard) || 0) - cuts.cutCard)),
+        salesCredit: Math.max(0, round2((Number(shift.salesCredit) || 0) - cuts.cutDebt)),
+        ...(cuts.cutWallet > 0
+          ? { salesWallet: Math.max(0, round2((Number((shift as any).salesWallet) || 0) - cuts.cutWallet)) }
+          : {}),
+      })
+    }
+  }
+
+  applyReturnClientMoneySync(sale, cuts)
 
   void (async () => {
     const { useProducts } = await import('./store')
@@ -468,6 +590,47 @@ function applyLocalReturn(
   })()
 
   return updated
+}
+
+function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof computeReturnCuts>) {
+  if (!(cuts.cutDebt > 0 || cuts.cutWallet > 0 || cuts.cutBonus > 0)) return
+  const clientId = String(sale.clientId || '')
+  const cardNum = String(sale.cardNum || '')
+  const phone = String(sale.clientPhone || '')
+  markMoneyPending({ clientId, cardNum })
+
+  let cl = clientId
+    ? useClientStore.getState().clients.find(c => c.id === clientId)
+    : undefined
+  if (!cl && phone) {
+    cl = useClientStore.getState().clients.find(c => phonesMatch(c.phone, phone))
+  }
+  if (cl) {
+    useClientStore.getState().updateClient(cl.id, {
+      debt: Math.max(0, round2((Number(cl.debt) || 0) - cuts.cutDebt)),
+      wallet: round2((Number(cl.wallet) || 0) + cuts.cutWallet),
+      bonus: round2((Number(cl.bonus) || 0) + cuts.cutBonus),
+    }, { skipApi: true })
+  }
+  const num = cardNum || cl?.card || ''
+  if (num) {
+    const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+    if (card) {
+      useCardStore.getState().updateCardLoyalty(num, {
+        debt: Math.max(0, round2((Number(card.debt) || 0) - cuts.cutDebt)),
+        wallet: round2((Number(card.wallet) || 0) + cuts.cutWallet),
+        bonus: round2((Number(card.bonus) || 0) + cuts.cutBonus),
+        posCashBonus: round2((Number(card.posCashBonus) || 0) + cuts.cutBonus),
+      } as any, { skipApi: true })
+    }
+  }
+  if (cuts.cutDebt > 0 && (phone || cl?.phone)) {
+    recordStoreDebtRepayment(phone || cl?.phone || '', cuts.cutDebt, {
+      desc: `Возврат чека · долг −${cuts.cutDebt}`,
+      orderId: sale.orderId || sale.id,
+      source: 'cashier',
+    })
+  }
 }
 
 // ── Продажа (касса) ──
@@ -500,6 +663,19 @@ export async function createSaleSafe(
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
     useOfflineSync.getState().markOffline()
     const offlineSaleId = newLocalId('sale')
+    if (client) {
+      const nextDebt = debtAdded > 0.001 ? round2((Number(client.debt) || 0) + debtAdded) : round2(Number(client.debt) || 0)
+      const nextWallet = walletPaid > 0.001
+        ? round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
+        : round2(Number(client.wallet) || 0)
+      salePayload.appliedLocal = true
+      salePayload.skipBalances = true
+      salePayload.clientDebtAfter = nextDebt
+      salePayload.walletAfter = nextWallet
+      if (salePayload.bonusBalanceAfter != null) {
+        salePayload.bonusAfter = salePayload.bonusBalanceAfter
+      }
+    }
     await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
 
     try {
@@ -575,6 +751,10 @@ export async function createSaleSafe(
           { skipApi: true },
         )
         useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
+      }
+      if (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0) {
+        const { markMoneyPending } = await import('./loyaltySaveGuard')
+        markMoneyPending({ clientId: client.id, cardNum: client.card })
       }
     }
 

@@ -40,7 +40,7 @@ export interface Order {
   payment_method?: string
   pay?: string
   /** Сумма товаров, списанная в VIP-долг */
-  creditAmount?: number
+  paidCash?: number
   comment?: string
   /** Заметка сборщика при изменении заказа */
   assemblerNote?: string
@@ -237,6 +237,7 @@ export interface FinanceMove {
   posId?: string
   supplierId?: string
   supplierName?: string
+  clientRef?: string
 }
 
 /** Запись audit / денежного журнала (источник правды) */

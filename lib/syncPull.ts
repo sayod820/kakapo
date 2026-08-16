@@ -102,14 +102,20 @@ export async function pullSyncChanges(opts?: {
       } catch { /* ignore */ }
     }
 
-    // Clients
+    // Clients — не затираем долг/бонусы, пока касса ещё не отправила очередь
     {
       const { useClientStore } = await import('./clientStore')
-      let merged = useClientStore.getState().clients || []
+      const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+      const local = useClientStore.getState().clients || []
+      let merged = local
       if (Array.isArray(delta.clients) && delta.clients.length) {
-        merged = delta.full || opts?.forceFull
+        const incoming = delta.full || opts?.forceFull
           ? (delta.clients as AdminClient[])
-          : mergeByIdLww(merged, delta.clients as AdminClient[])
+          : mergeByIdLww(local, delta.clients as AdminClient[])
+        merged = incoming.map(row => {
+          const prev = local.find(x => String(x.id) === String(row.id))
+          return mergeClientLoyaltyIfRecent(row, prev)
+        })
       }
       merged = dropById(merged, delOf('client'))
       if ((delta.clients && delta.clients.length) || delOf('client').length) {
@@ -123,11 +129,14 @@ export async function pullSyncChanges(opts?: {
       try {
         const { useCardStore } = await import('./cardStore')
         const { cacheData } = await import('./offline')
-        let merged = useCardStore.getState().cards || []
+        const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
+        const local = useCardStore.getState().cards || []
+        let merged = local
         if (Array.isArray(delta.cards) && delta.cards.length) {
-          merged = delta.full || opts?.forceFull
+          const incoming = delta.full || opts?.forceFull
             ? (delta.cards as AdminCard[])
-            : mergeByIdLww(merged as any, delta.cards as any) as AdminCard[]
+            : mergeByIdLww(local as any, delta.cards as any) as AdminCard[]
+          merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
         }
         merged = dropById(merged, delOf('card'))
         useCardStore.setState({ cards: merged })

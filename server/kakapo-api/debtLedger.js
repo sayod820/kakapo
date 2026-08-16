@@ -194,7 +194,15 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
 
   const open = client.debtLedger
     .filter(e => round2(e.remaining) > 0)
-    .sort((a, b) => (parseIso(a.createdAtIso) || 0) - (parseIso(b.createdAtIso) || 0))
+    .sort((a, b) => {
+      const prefer = String(meta.saleId || meta.orderId || '')
+      if (prefer) {
+        const am = String(a.saleId || a.orderId || '') === prefer ? 0 : 1
+        const bm = String(b.saleId || b.orderId || '') === prefer ? 0 : 1
+        if (am !== bm) return am - bm
+      }
+      return (parseIso(a.createdAtIso) || 0) - (parseIso(b.createdAtIso) || 0)
+    })
 
   const repayments = []
   for (const entry of open) {

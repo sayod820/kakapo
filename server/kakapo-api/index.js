@@ -172,6 +172,7 @@ import {
   buildDebtLedgerResponse,
   canTakeNewDebt,
   handleClientDebtDelta,
+  applyDebtRepayment,
   runDebtMaintenance,
   syncDebtLedgerFromCard,
   syncDebtLedgerToCard,
@@ -2491,8 +2492,9 @@ app.post('/pos/sales', (req, res) => {
       const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
       if (dup) return res.json(dup)
     }
+    const skipBalances = !!(body.appliedLocal || body.skipBalances)
     const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
-    if (bonusSpendReq > 0) {
+    if (bonusSpendReq > 0 && !skipBalances) {
       const phone = String(body.clientPhone || '').trim()
       if (!phone) return res.status(400).json({ detail: 'Для списания бонусов нужен клиент' })
       const client = findClientByPhone(db, phone)
@@ -2510,7 +2512,7 @@ app.post('/pos/sales', (req, res) => {
     if (row.clientPhone) {
       order = createClientOrderFromPosSale(db, row, body)
       if (order) {
-        if (bonusSpendReq > 0) {
+        if (bonusSpendReq > 0 && !skipBalances) {
           const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, loyaltyHooks())
           if (!spendResult.ok) {
             db.orders = (db.orders || []).filter(o => o.id !== order.id)
@@ -2518,7 +2520,9 @@ app.post('/pos/sales', (req, res) => {
             return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
           }
         }
-        applyClientLoyaltyAfterDelivery(db, order, loyaltyHooks())
+        if (!skipBalances) {
+          applyClientLoyaltyAfterDelivery(db, order, loyaltyHooks())
+        }
         const phone = order.client?.phone || ''
         if (phone) {
           const client = findClientByPhone(db, phone)
@@ -4461,6 +4465,7 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const dup = findOpRef('card_topup', clientRef)
     if (dup) return res.json({ ...dup, card })
     // cash — внесённые деньги (идут в Кошелёк). credit оставлен для обратной совместимости.
+    const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
     if (!(cash > 0)) {
       return res.status(400).json({ detail: 'Укажите сумму пополнения' })
@@ -4478,13 +4483,19 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       cashierName: req.body?.cashierName,
       shiftId: req.body?.shiftId,
       posId: req.body?.posId,
+      clientRef,
     })
 
-    // Единый баланс «Бонусы»: и внесённые деньги, и бонус за пополнение идут в bonus.
-    // posCashBonus защищает эту сумму при пересчёте лояльности (bonus = welcome + earned − spent + posCashBonus).
     const addToBonus = Math.round((cash + bonusEarned) * 100) / 100
-    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
-    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
+    if (appliedLocal && req.body?.bonusAfter != null) {
+      card.bonus = Math.round((Number(req.body.bonusAfter) || 0) * 100) / 100
+      if (req.body?.posCashBonusAfter != null) {
+        card.posCashBonus = Math.round((Number(req.body.posCashBonusAfter) || 0) * 100) / 100
+      }
+    } else {
+      card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
+      card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
+    }
     card.wallet = 0
     syncClientFromCardRow(card)
     auditFromReq(db, req, {
@@ -4517,6 +4528,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     const dup = findOpRef('debt_repay', clientRef)
     if (dup) return res.json({ ...dup, card })
 
+    const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
     const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
     if (!(amount > 0)) return res.status(400).json({ detail: 'Укажите сумму погашения' })
 
@@ -4532,20 +4544,30 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       Number(card.debt) || 0,
       Number(linkedClient?.debt) || 0,
     )
-    if (amount > prevDebt + 0.001) {
+    if (!appliedLocal && amount > prevDebt + 0.001) {
       return res.status(400).json({ detail: `Долг клиента ${prevDebt.toFixed(2)} ЅМ` })
     }
-    const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
+    const nextDebt = appliedLocal && req.body?.nextDebt != null
+      ? Math.round(Math.max(0, Number(req.body.nextDebt)) * 100) / 100
+      : Math.round(Math.max(0, prevDebt - amount) * 100) / 100
 
     if (linkedClient) {
-      try {
-        handleClientDebtDelta(db, linkedClient, card, prevDebt, nextDebt, {
-          enforceLimit: false,
-          source: 'pos',
-          desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
-        })
-      } catch (e) {
-        return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось погасить долг' })
+      if (!appliedLocal) {
+        try {
+          handleClientDebtDelta(db, linkedClient, card, prevDebt, nextDebt, {
+            enforceLimit: false,
+            source: 'pos',
+            desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
+          })
+        } catch (e) {
+          return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось погасить долг' })
+        }
+      } else {
+        try {
+          applyDebtRepayment(linkedClient, card, amount, {
+            desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
+          })
+        } catch { /* журнал чеков; баланс уже на кассе */ }
       }
       linkedClient.debt = nextDebt
       card.debt = nextDebt

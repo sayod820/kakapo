@@ -7,7 +7,7 @@ import {
   loyaltyStatsFromOrders,
   resolveEffectiveClientLevel,
 } from './clientCrm'
-import { bonusEligibleTotal } from './orderLoyaltyAmount'
+import { bonusEligibleTotal, cashEligibleTotal } from './orderLoyaltyAmount'
 import { USE_API } from './config'
 import { api } from './api'
 import {
@@ -94,8 +94,9 @@ export function resolveOrderBonusLevel(
   _vip?: boolean,
 ): ClientLevel {
   const priorOnly = priorDeliveredOrders(phone, allDelivered, order)
-  const spent = Math.round(priorOnly.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10
-  return resolveEffectiveClientLevel(spent, priorOnly.length, 'basic') as ClientLevel
+  const spent = Math.round(priorOnly.reduce((s, o) => s + cashEligibleTotal(o), 0) * 10) / 10
+  const count = priorOnly.filter(o => cashEligibleTotal(o) > 0.001).length
+  return resolveEffectiveClientLevel(spent, count, 'basic') as ClientLevel
 }
 
 type MarginalBand = { from: number; to: number; percent: number }
@@ -218,7 +219,7 @@ export function priorBonusEligibleSpent(
 ): number {
   return priorDeliveredOrders(phone, allDelivered, order)
     .filter(o => !merged || isOrderMarginalBonusEligible(o, merged, card))
-    .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
+    .reduce((sum, o) => sum + cashEligibleTotal(o), 0)
 }
 
 export function calcOrderMarginalBonusEarned(
@@ -231,9 +232,11 @@ export function calcOrderMarginalBonusEarned(
   card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
 ): number {
   if (merged && !isOrderMarginalBonusEligible(order, merged, card)) return 0
+  const eligible = cashEligibleTotal(order)
+  if (!(eligible > 0.001)) return 0
   const prior = priorBonusEligibleSpent(phone, allDelivered, order, merged, card)
   const useVip = !!(vip && isOrderVipBonusEligible(order, merged, card))
-  return calcMarginalBonusEarned(prior, bonusEligibleTotal(order), useVip, cfg)
+  return calcMarginalBonusEarned(prior, eligible, useVip, cfg)
 }
 
 /** Статус после доставки заказа — с учётом этого заказа (для отображения уровня). */
@@ -252,8 +255,9 @@ export function resolveOrderStatusLevel(
     if (k === orderKey) return String(o.id) <= String(order.id)
     return true
   })
-  const spent = Math.round(including.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10
-  return resolveEffectiveClientLevel(spent, including.length, storedLevel) as ClientLevel
+  const spent = Math.round(including.reduce((s, o) => s + cashEligibleTotal(o), 0) * 10) / 10
+  const count = including.filter(o => cashEligibleTotal(o) > 0.001).length
+  return resolveEffectiveClientLevel(spent, count, storedLevel) as ClientLevel
 }
 
 /** Ожидаемый баланс: welcome + кэшбэк за доставленные − списания + кассовые бонусы. */
@@ -425,7 +429,7 @@ export function expectedOrderBonus(
 ): number {
   if (order.bonusEarned != null && order.status === 'delivered') return order.bonusEarned
   const cfg = loadLoyaltyStatusConfig()
-  const eligible = bonusEligibleTotal(order)
+  const eligible = cashEligibleTotal(order)
   const phone = order.client?.phone || ''
   const merged = { vip, ...bonusMeta }
 
@@ -441,7 +445,7 @@ export function expectedOrderBonus(
     const priorEligible = delivered
       .filter(o => orderSortKey(o) >= windowStart)
       .filter(o => isOrderMarginalBonusEligible(o, merged))
-      .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
+      .reduce((sum, o) => sum + cashEligibleTotal(o), 0)
     const useVip = !!(vip && isOrderVipBonusEligible(order, merged))
     return calcMarginalBonusEarned(priorEligible, eligible, useVip, cfg)
   }

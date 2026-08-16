@@ -9,6 +9,10 @@ const MANUAL_STORE_KEY = 'kakapo-manual-loyalty-v1'
 
 const cardSavedAt = new Map<string, number>()
 const clientSavedAt = new Map<string, number>()
+/** Долг / бонусы / кошелёк уже изменены локально, очередь ещё не ушла */
+const moneyPendingClient = new Map<string, number>()
+const moneyPendingCard = new Map<string, number>()
+const MONEY_TTL_MS = 15 * 60_000
 
 export type ManualLoyaltySnapshot = {
   cardNum: string
@@ -126,17 +130,66 @@ export function markClientLoyaltySaved(clientId: string) {
   clientSavedAt.set(clientId, Date.now())
 }
 
+export function markMoneyPending(opts: { clientId?: string; cardNum?: string }) {
+  const now = Date.now()
+  if (opts.clientId) moneyPendingClient.set(opts.clientId, now)
+  if (opts.cardNum && String(opts.cardNum).trim()) moneyPendingCard.set(cardKey(opts.cardNum), now)
+}
+
+export function clearMoneyPending(opts: { clientId?: string; cardNum?: string }) {
+  if (opts.clientId) moneyPendingClient.delete(opts.clientId)
+  if (opts.cardNum) moneyPendingCard.delete(cardKey(opts.cardNum))
+}
+
+export function clearMoneyPendingFromOp(kind: string, payload: Record<string, unknown> | undefined) {
+  const p = payload || {}
+  if (kind === 'sale' || kind === 'client_upsert') {
+    clearMoneyPending({
+      clientId: String(p.clientId || ''),
+      cardNum: String(p.cardNum || ''),
+    })
+  }
+  if (kind === 'debt_repay' || kind === 'card_topup') {
+    clearMoneyPending({
+      clientId: String(p.clientId || ''),
+      cardNum: String(p.num || p.cardNum || ''),
+    })
+  }
+  if (kind === 'sale_return') {
+    clearMoneyPending({
+      clientId: String(p.clientId || ''),
+      cardNum: String(p.cardNum || ''),
+    })
+  }
+}
+
+function isMoneyPendingClient(id: string) {
+  return isRecentTtl(moneyPendingClient, id, MONEY_TTL_MS)
+}
+
+function isMoneyPendingCard(num: string) {
+  return isRecentTtl(moneyPendingCard, cardKey(num), MONEY_TTL_MS)
+}
+
 function isRecent(map: Map<string, number>, key: string) {
+  return isRecentTtl(map, key, TTL_MS)
+}
+
+function isRecentTtl(map: Map<string, number>, key: string, ttl: number) {
   const t = map.get(key)
   if (!t) return false
-  if (Date.now() - t > TTL_MS) {
+  if (Date.now() - t > ttl) {
     map.delete(key)
     return false
   }
   return true
 }
 
-function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T): T {
+function mergeLoyaltyFields<T extends AdminCard | AdminClient>(
+  api: T,
+  local: T,
+  keepMoney: boolean,
+): T {
   const manual = local.levelAssignMode === 'manual'
   const localLevel = resolvedLocalLoyaltyLevel(local)
   return {
@@ -149,9 +202,12 @@ function mergeLoyaltyFields<T extends AdminCard | AdminClient>(api: T, local: T)
     levelAssignMode: local.levelAssignMode ?? api.levelAssignMode,
     levelValidUntil: 'levelValidUntil' in local ? (local.levelValidUntil ?? undefined) : api.levelValidUntil,
     vipUntil: 'vipUntil' in local ? (local.vipUntil ?? undefined) : api.vipUntil,
-    bonus: local.bonus ?? api.bonus,
-    debt: local.debt ?? api.debt,
+    bonus: keepMoney ? (local.bonus ?? api.bonus) : api.bonus,
+    debt: keepMoney ? (local.debt ?? api.debt) : api.debt,
     debtLimit: local.debtLimit ?? api.debtLimit,
+    ...('wallet' in api || 'wallet' in local
+      ? { wallet: keepMoney ? ((local as AdminClient).wallet ?? (api as AdminClient).wallet) : (api as AdminClient).wallet }
+      : {}),
   } as T
 }
 
@@ -175,9 +231,9 @@ export function applyManualLoyaltyToCard(apiCard: AdminCard): AdminCard {
     vip: manual.vip ?? apiCard.vip,
     debtEnabled: manual.debtEnabled ?? apiCard.debtEnabled,
     debtLimit: manual.debtLimit ?? apiCard.debtLimit,
-    bonus: manual.bonus ?? apiCard.bonus,
-    debt: manual.debt ?? apiCard.debt,
-  })
+    bonus: apiCard.bonus,
+    debt: apiCard.debt,
+  }, false)
 }
 
 export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient {
@@ -200,15 +256,24 @@ export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient 
     vip: manual.vip ?? apiClient.vip,
     debtEnabled: manual.debtEnabled ?? apiClient.debtEnabled,
     debtLimit: manual.debtLimit ?? apiClient.debtLimit,
-    bonus: manual.bonus ?? apiClient.bonus,
-    debt: manual.debt ?? apiClient.debt,
-  })
+    bonus: apiClient.bonus,
+    debt: apiClient.debt,
+  }, false)
 }
 
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
   let merged = apiCard
   if (localCard && isRecent(cardSavedAt, cardKey(apiCard.num))) {
-    merged = mergeLoyaltyFields(apiCard, localCard)
+    merged = mergeLoyaltyFields(apiCard, localCard, false)
+  }
+  if (localCard && isMoneyPendingCard(apiCard.num)) {
+    merged = {
+      ...merged,
+      bonus: localCard.bonus ?? merged.bonus,
+      debt: localCard.debt ?? merged.debt,
+      wallet: localCard.wallet ?? merged.wallet,
+      posCashBonus: localCard.posCashBonus ?? merged.posCashBonus,
+    }
   }
   return applyManualLoyaltyToCard(merged)
 }
@@ -216,7 +281,15 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
   let merged = apiClient
   if (localClient && isRecent(clientSavedAt, localClient.id)) {
-    merged = mergeLoyaltyFields(apiClient, localClient)
+    merged = mergeLoyaltyFields(apiClient, localClient, false)
+  }
+  if (localClient && isMoneyPendingClient(localClient.id)) {
+    merged = {
+      ...merged,
+      bonus: localClient.bonus ?? merged.bonus,
+      debt: localClient.debt ?? merged.debt,
+      wallet: localClient.wallet ?? merged.wallet,
+    }
   }
   merged = applyManualLoyaltyToClient(merged)
   if (localClient && isRecent(clientSavedAt, localClient.id)) {

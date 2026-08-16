@@ -676,14 +676,10 @@ function createWindow(localUrl = '') {
     const v = String(validatedURL || '')
     if (v.startsWith('data:') || v.includes('splash.html')) return
     if (v.includes('127.0.0.1')) {
-      // локальный упал — пробуем сайт если есть сеть
-      const online = await probeRemoteReachable(1200)
-      if (online) {
-        openUrl(buildRemoteTarget(remoteUrl))
-        startUiVersionPoller(remoteUrl)
-        stopRemoteRecoveryPoller()
-        scheduleOfflineUiSync()
-      } else showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
+      setSplashMsg('Локальная касса перезапуск…')
+      const local = await ensureOfflineUi(20000)
+      if (local) openUrl(local)
+      else showLoadErrorPage(mainWindow, remoteUrl, errorCode, errorDescription)
       return
     }
     // сайт не открылся — локально

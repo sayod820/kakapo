@@ -7,7 +7,7 @@ import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsF
 import { orderInLoyaltyWindow, LOYALTY_WINDOW_DAYS } from './loyaltyPeriod'
 import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
-import { bonusEligibleTotal } from './orderLoyaltyAmount'
+import { cashEligibleTotal, orderSpentContribution } from './orderLoyaltyAmount'
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -293,7 +293,8 @@ export function loyaltyOrdersForClient(
     o => phonesMatch(o.client?.phone || '', phone)
       && o.status === 'delivered'
       && orderInLoyaltyWindow(o, LOYALTY_WINDOW_DAYS, now)
-      && (!account || orderBelongsToClientAccount(o, account)),
+      && (!account || orderBelongsToClientAccount(o, account))
+      && cashEligibleTotal(o) > 0.001,
   )
 }
 
@@ -306,7 +307,7 @@ export function loyaltyStatsFromOrders(
   const delivered = loyaltyOrdersForClient(orders, phone, account, now)
   return {
     orderCount: delivered.length,
-    spent: Math.round(delivered.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10,
+    spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
   }
 }
 
@@ -385,7 +386,7 @@ export function statsFromOrders(
   const active = related.filter(o => o.status !== 'cancelled')
   return {
     orders: delivered.length,
-    spent: Math.round(delivered.reduce((s, o) => s + bonusEligibleTotal(o), 0) * 10) / 10,
+    spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
     marketOrders: active.filter(o => o.type === 'market').length,
     restaurantOrders: active.filter(o => o.type === 'restaurant').length,
     mixedOrders: active.filter(o => o.type === 'mixed').length,

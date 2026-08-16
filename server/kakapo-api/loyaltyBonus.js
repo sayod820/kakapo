@@ -192,8 +192,22 @@ function orderItemsSubtotal(order) {
   ) / 100
 }
 
+export function cashEligibleTotal(order) {
+  const pay = String(order?.pay || order?.payment_method || '').toLowerCase()
+  if (pay === 'credit') return 0
+  const posCash = Number(order?.paidCash)
+  if (order?.channel === 'pos' || order?.posSaleId) {
+    if (Number.isFinite(posCash)) return Math.max(0, Math.round(posCash * 100) / 100)
+    if (pay && pay !== 'cash' && pay !== 'mixed') return 0
+  }
+  if (pay === 'card' || pay === 'wallet') return 0
+  const credit = Number(order?.creditAmount) || 0
+  const base = bonusEligibleTotal(order)
+  return Math.max(0, Math.round((base - credit) * 100) / 100)
+}
+
 export function orderSpentContribution(order) {
-  return bonusEligibleTotal(order)
+  return cashEligibleTotal(order)
 }
 
 /**
@@ -227,6 +241,7 @@ export function rollingWindowDeliveredStats(db, phone, now = Date.now(), exclude
     if (normalizePhoneDigits(o.client?.phone) !== key) return false
     if (resolved && !orderBelongsToClientAccount(o, resolved)) return false
     if (excludeOrderId && String(o.id) === String(excludeOrderId)) return false
+    if (!(cashEligibleTotal(o) > 0.001)) return false
     return orderInLoyaltyWindow(o, LOYALTY_WINDOW_DAYS, now)
   })
   return {
@@ -243,7 +258,7 @@ export function lifetimeDeliveredStats(db, phone, client = null) {
     if (normalizePhoneDigits(o.client?.phone) !== key) return false
     if (resolved) return orderBelongsToClientAccount(o, resolved)
     return true
-  })
+  }).filter(o => cashEligibleTotal(o) > 0.001)
   return {
     orderCount: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
@@ -349,7 +364,7 @@ function priorBonusEligibleSpent(db, phone, order, client = null, card = null) {
       if (k > orderKey) return false
       return String(o.id) < orderId
     })
-    .reduce((sum, o) => sum + bonusEligibleTotal(o), 0)
+    .reduce((sum, o) => sum + cashEligibleTotal(o), 0)
 }
 
 function findClientForOrder(db, order, hooks) {
@@ -501,7 +516,8 @@ function shouldUseVipBonus(client, card, order) {
 
 function earnBonusForOrder(db, phone, order, client, card, loyalty) {
   if (!isOrderMarginalBonusEligible(order, client, card)) return 0
-  const eligible = bonusEligibleTotal(order)
+  const eligible = cashEligibleTotal(order)
+  if (!(eligible > 0.001)) return 0
   const prior = priorBonusEligibleSpent(db, phone, order, client, card)
   const vip = shouldUseVipBonus(client, card, order)
   return calcMarginalBonusEarned(prior, eligible, loyalty, vip)

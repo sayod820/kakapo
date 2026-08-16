@@ -436,6 +436,25 @@ async function nextSeq(): Promise<number> {
   return seqCounter
 }
 
+export async function findDuplicateDebtRepay(payload: {
+  num?: string
+  amount?: number
+  shiftId?: string
+}): Promise<PendingOp | null> {
+  const num = String(payload.num || '').trim()
+  const amount = Math.round((Number(payload.amount) || 0) * 100) / 100
+  const shiftId = String(payload.shiftId || '')
+  const now = Date.now()
+  const pending = (await getPending()).filter(r => !r.failed && r.kind === 'debt_repay')
+  return pending.find(r => {
+    const p = r.payload as any
+    return String(p?.num || '').trim() === num
+      && Math.round((Number(p?.amount) || 0) * 100) / 100 === amount
+      && String(p?.shiftId || '') === shiftId
+      && Math.abs(now - Date.parse(r.createdAtIso)) < 120_000
+  }) || null
+}
+
 /** Кладёт операцию в локальную очередь на отправку */
 export async function enqueueOp<P>(
   kind: QueueKind,
@@ -446,6 +465,12 @@ export async function enqueueOp<P>(
   const createdAtIso = opts.createdAtIso || (payload as any)?.createdAtIso || new Date().toISOString()
   const queuedOffline = browserSaysOffline()
     || (typeof navigator !== 'undefined' && navigator.onLine === false)
+
+  if (kind === 'debt_repay') {
+    const dup = await findDuplicateDebtRepay(payload as any)
+    if (dup) return dup as PendingOp<P>
+  }
+
   const row: PendingOp<P> = {
     clientRef,
     kind,
@@ -454,6 +479,9 @@ export async function enqueueOp<P>(
       clientRef,
       createdAtIso,
       ...(kind === 'sale' && queuedOffline ? { queuedOffline: true } : {}),
+      ...((kind === 'sale' || kind === 'sale_return' || kind === 'debt_repay' || kind === 'card_topup')
+        ? { appliedLocal: true, skipBalances: true } : {}),
+      ...((kind === 'sale_return') ? { skipStock: true } : {}),
     },
     createdAtIso,
     seq: await nextSeq(),
@@ -666,6 +694,12 @@ async function sendOp(row: PendingOp): Promise<string> {
         note: p.note,
         cashierId: p.cashierId,
         items: p.items,
+        appliedLocal: true,
+        skipStock: true,
+        skipBalances: true,
+        queuedOffline: !!p.queuedOffline,
+        clientDebtAfter: p.clientDebtAfter,
+        cutDebt: p.cutDebt,
       } as any)
       return String((sale as any)?.id || '')
     }
@@ -680,6 +714,10 @@ async function sendOp(row: PendingOp): Promise<string> {
         cashierName: p.cashierName,
         shiftId: p.shiftId,
         posId: p.posId,
+        appliedLocal: true,
+        skipBalances: true,
+        bonusAfter: p.bonusAfter,
+        posCashBonusAfter: p.posCashBonusAfter,
       } as any)
       return ''
     }
@@ -694,6 +732,9 @@ async function sendOp(row: PendingOp): Promise<string> {
         cashierName: p.cashierName,
         shiftId: p.shiftId,
         posId: p.posId,
+        appliedLocal: true,
+        skipBalances: true,
+        nextDebt: p.nextDebt,
       } as any)
       return ''
     }
@@ -1207,6 +1248,26 @@ export async function flushQueue(
           await applyLocalIdRemap(row.kind, row.localId, serverId)
         }
         await deletePending(row.clientRef)
+        if (
+          row.kind === 'sale'
+          || row.kind === 'sale_return'
+          || row.kind === 'debt_repay'
+          || row.kind === 'card_topup'
+        ) {
+          const p = (row.payload || {}) as Record<string, unknown>
+          if (row.kind === 'sale_return' && !p.clientId) {
+            try {
+              const { usePosStore } = await import('./posStore')
+              const sale = usePosStore.getState().sales.find(s => s.id === p.saleId)
+              if (sale) {
+                p.clientId = (sale as any).clientId
+                p.cardNum = (sale as any).cardNum
+              }
+            } catch { /* ignore */ }
+          }
+          const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
+          clearMoneyPendingFromOp(row.kind, p)
+        }
         sent++
       } catch (e) {
         if (isNetworkError(e)) {

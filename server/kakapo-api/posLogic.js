@@ -1252,6 +1252,7 @@ export function createFinanceMove(db, data = {}) {
     posId: shift?.posId || data.posId || '',
     supplierId: supplier?.id,
     supplierName: supplier?.name,
+    clientRef: data.clientRef || undefined,
   }
   db.financeMoves.unshift(row)
 
@@ -1867,6 +1868,8 @@ export function createPosSale(db, data = {}) {
     bonusBalanceAfter,
     items,
   }
+  const skipBalances = !!(data.appliedLocal || data.skipBalances)
+
   if (cashier) {
     cashier.salesCount = Number(cashier.salesCount || 0) + 1
     cashier.salesTotal = round2((Number(cashier.salesTotal) || 0) + total)
@@ -1880,7 +1883,7 @@ export function createPosSale(db, data = {}) {
   }
   // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.
   // На наличку кассы НЕ влияет: деньги уже были внесены при пополнении.
-  if (paidWallet > 0) {
+  if (paidWallet > 0 && !skipBalances) {
     const walletClient = getClientById(db, data.clientId) || null
     const walletCard = getCardByNum(db, data.cardNum)
     const balance = Math.max(
@@ -1897,7 +1900,7 @@ export function createPosSale(db, data = {}) {
       walletClient.wallet = round2(Math.max(0, (Number(walletClient.wallet) || 0) - paidWallet))
     }
   }
-  if (debtAdded > 0) {
+  if (debtAdded > 0 && !skipBalances) {
     const client = getClientById(db, data.clientId) || null
     const card = getCardByNum(db, data.cardNum)
     // Касса (торговая точка) оформляет долг без лимита. Лимит действует только
@@ -1915,6 +1918,44 @@ export function createPosSale(db, data = {}) {
       card.debtEnabled = true
     }
     if (client) {
+      const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
+      const { notifications } = addDebtCharge(client, card, {
+        amount: debtAdded,
+        source: 'pos',
+        orderId: sale.orderId,
+        saleId: sale.id,
+        desc: String(data.note || '').trim() || `Касса · ${sale.orderId || sale.number}`,
+        createdAtIso: sale.createdAtIso,
+      })
+      sale._debtNotifications = notifications
+      if (itemsSummary) sale._debtItemsSummary = itemsSummary
+    }
+  }
+  if (skipBalances) {
+    const client = getClientById(db, data.clientId) || null
+    const card = getCardByNum(db, data.cardNum)
+    if (data.clientDebtAfter != null) {
+      const d = round2(data.clientDebtAfter)
+      if (client) {
+        client.debt = d
+        if (d > 0) client.debtEnabled = true
+      }
+      if (card) {
+        card.debt = round2(data.cardDebtAfter != null ? data.cardDebtAfter : d)
+        if (card.debt > 0) card.debtEnabled = true
+      }
+    }
+    if (data.walletAfter != null) {
+      const w = round2(data.walletAfter)
+      if (client) client.wallet = w
+      if (card) card.wallet = w
+    }
+    if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
+      const b = Math.max(0, Math.floor(Number(data.bonusAfter ?? data.bonusBalanceAfter)))
+      if (card) card.bonus = b
+      if (client) client.bonus = b
+    }
+    if (debtAdded > 0 && client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
       const { notifications } = addDebtCharge(client, card, {
         amount: debtAdded,
@@ -2055,6 +2096,7 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
     payment_method: pay,
     pay,
     creditAmount: debtAdded > 0 ? debtAdded : undefined,
+    paidCash: round2(Number(sale.paidCash) || 0),
     vip: client?.vip === true,
     priority: 'normal',
     client: {
@@ -2136,8 +2178,14 @@ export function returnPosSale(db, saleId, meta = {}) {
       : round2(Number(item.price) || 0)
     const lineReturn = round2(unit * p.qty)
     item.returnedQty = round2((Number(item.returnedQty) || 0) + p.qty)
-    // Чек не трогал склад (уже внутри факта ревизии) — возврат тоже не добавляет остаток
-    if (!sale.stockSkipped) {
+    // Чек не трогал склад, или касса уже вернула остаток локально (очередь)
+    const skipStockRestore = !!(
+      sale.stockSkipped
+      || meta.appliedLocal
+      || meta.queuedOffline
+      || meta.skipStock
+    )
+    if (!skipStockRestore) {
       restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
     }
     returnLines.push({
@@ -2171,7 +2219,11 @@ export function returnPosSale(db, saleId, meta = {}) {
   let cutCash = 0
   let cutCard = 0
   let cutWallet = 0
-  const debtBefore = round2(Number(sale.debtAdded) || 0)
+  const debtBefore = round2(
+    Number(sale.debtAdded) > 0
+      ? Number(sale.debtAdded)
+      : (sale.paymentMethod === 'credit' ? (Number(sale.total) || 0) : 0),
+  )
   if (debtBefore > 0 && remainCashCut > 0) {
     cutDebt = Math.min(debtBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutDebt)
@@ -2217,18 +2269,37 @@ export function returnPosSale(db, saleId, meta = {}) {
   sale.bonusSpent = Math.max(0, round2(bonusBefore - cutBonus))
   sale.total = Math.max(0, round2((Number(sale.total) || 0) - (returnTotal - cutBonus)))
 
+  const skipBalanceRestore = !!(meta.appliedLocal || meta.queuedOffline || meta.skipBalances)
+
   if (cutDebt > 0) {
-    const client = getClientById(db, sale.clientId) || null
+    const client = getClientById(db, sale.clientId)
+      || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
     const card = getCardByNum(db, sale.cardNum)
-    if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
-    if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+      || (client?.card ? getCardByNum(db, client.card) : null)
+    if (skipBalanceRestore) {
+      if (meta.clientDebtAfter != null) {
+        const d = round2(meta.clientDebtAfter)
+        if (client) client.debt = Math.max(0, d)
+        if (card) card.debt = Math.max(0, d)
+      } else if (client) {
+        client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
+        if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+      }
+    } else {
+      if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
+      if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+    }
     if (client) {
-      applyDebtRepayment(client, card, cutDebt, { desc: `Возврат · ${sale.orderId || sale.number}` })
+      applyDebtRepayment(client, card, cutDebt, {
+        desc: `Возврат · ${sale.orderId || sale.number}`,
+        saleId: sale.id,
+        orderId: sale.orderId,
+      })
     }
   }
 
   // Возврат денег на кошелёк клиента (если платили с кошелька)
-  if (cutWallet > 0) {
+  if (cutWallet > 0 && !skipBalanceRestore) {
     const client = getClientById(db, sale.clientId) || null
     const card = getCardByNum(db, sale.cardNum)
     if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
@@ -2236,7 +2307,7 @@ export function returnPosSale(db, saleId, meta = {}) {
   }
 
   // Возврат бонусов клиенту
-  if (cutBonus > 0) {
+  if (cutBonus > 0 && !skipBalanceRestore) {
     const client =
       getClientById(db, sale.clientId)
       || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
@@ -2269,7 +2340,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
   }
   const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
-  if (shift && shift.status === 'open') {
+  if (shift && shift.status === 'open' && !skipBalanceRestore) {
     if (fullyReturned) shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
     shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))

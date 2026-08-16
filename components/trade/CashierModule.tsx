@@ -4531,12 +4531,6 @@ export default function CashierModule({
       })
       const updated = res.data
       const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
-      if (sale.clientPhone && debtCut > 0) {
-        recordStoreDebtRepayment(sale.clientPhone, debtCut, {
-          desc: `Возврат чека ${saleNumberLabel(sale)}`,
-          method: 'cash',
-        })
-      }
       if (!res.offline) {
         // Не блокируем кассира полной перезагрузкой — обновим в фоне
         void Promise.allSettled([refresh(), fetchProducts()])
@@ -4547,7 +4541,9 @@ export default function CashierModule({
       const retTotal = Number(updated.lastReturnTotal) || confirmTotal
       showToast(
         updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
-        `${fmtMoney(retTotal)} · товары на складе${res.offline ? ' · отправится в фоне' : ''}`,
+        `${fmtMoney(retTotal)} · товары на складе`
+          + (debtCut > 0.001 ? ` · долг −${fmtMoney(debtCut)}` : '')
+          + (res.offline ? ' · отправится в фоне' : ''),
       )
       setReceiptSaleId(sale.id)
     } catch (e) {
@@ -5250,6 +5246,12 @@ export default function CashierModule({
       showToast('Чек пробивается', 'Дождитесь завершения продажи')
       return
     }
+    const cur = tickets.find(x => x.id === id)
+    if (cur && cur.cart.length > 0) {
+      showToast('Нельзя закрыть', 'В чеке есть товары — уберите их или пробейте чек')
+      setCloseTicketConfirmId(null)
+      return
+    }
     if (saleConfirm?.ticketId === id) {
       setSaleConfirm(null)
       printChoiceLockedRef.current = false
@@ -5283,7 +5285,11 @@ export default function CashierModule({
   function requestCloseTicket(id: string) {
     const t = tickets.find(x => x.id === id)
     if (!t) return
-    const hasItems = t.cart.length > 0 || !!t.client || (Number(t.discountPct) || 0) > 0 || (Number(t.bonusUsed) || 0) > 0
+    if (t.cart.length > 0) {
+      showToast('Нельзя закрыть', 'В чеке есть товары — уберите их или пробейте чек')
+      return
+    }
+    const hasItems = !!t.client || (Number(t.discountPct) || 0) > 0 || (Number(t.bonusUsed) || 0) > 0
     if (hasItems) {
       setCloseTicketConfirmId(id)
       return
@@ -5336,9 +5342,13 @@ export default function CashierModule({
   }
 
   function currentPayDebtAmt() {
-    if (!payDebtOn || clientDebt <= 0) return 0
-    const raw = Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100
-    return Math.min(clientDebt, raw)
+    if (clientDebt <= 0) return 0
+    const fromBuf = payDebtOn
+      ? Math.min(clientDebt, Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100)
+      : 0
+    const given = Math.round(Math.max(0, Number(payGivenBuf || cashBuf) || 0) * 100) / 100
+    const auto = given > 0.001 ? debtAmtFromGiven(given) : 0
+    return Math.max(fromBuf, auto)
   }
 
   /** Из суммы «дал клиент»: сначала чек, остаток — в погашение долга (не больше долга). */
@@ -5721,6 +5731,7 @@ export default function CashierModule({
     const ticketId = opts?.ticketId || activeTicketIdRef.current
     const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
     if (!activeShift || !ticketSnap?.cart.length) return false
+    if (sellingTicketIdRef.current === ticketId) return false
 
     // Снимок чека — даже если кассир уже перешёл на другую вкладку
     const cart = ticketSnap.cart
@@ -5958,16 +5969,12 @@ export default function CashierModule({
       }
       if (client?.phone) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
-        const purchaseAmt = Math.round((afterDisc - debtAdded) * 100) / 100
+        const purchaseAmt = Math.round((Number(cashPaid) || 0) * 100) / 100
         if (purchaseAmt > 0.001) {
-          const methods: string[] = []
-          if (cashPaid > 0.001) methods.push('нал')
-          if (cardPaid > 0.001) methods.push('карта')
-          if (spend > 0) methods.push('бонусы')
           recordStorePurchase(
             client.phone,
             purchaseAmt,
-            `Покупка в магазине · ${methods.join('+') || 'касса'}`,
+            'Покупка в магазине · нал',
             { orderId: created?.orderId || created?.id || undefined, itemsSummary },
           )
         }
@@ -6011,11 +6018,8 @@ export default function CashierModule({
         // Сразу локально — карта тоже в очередь, без ожидания сети
         const prevDebt = Number(loyalty?.debt) || clientDebt
         const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
-        const nextDebt = Math.max(0, Math.round((prevDebt - payAmt) * 100) / 100)
         debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
         try {
-          useCardStore.getState().updateCardLoyalty(client.card, { debt: nextDebt }, { skipApi: true })
-          useClientStore.getState().updateClient(client.id, { debt: nextDebt }, { skipApi: true })
           if (client.phone) {
             // Списываем со старых чеков (FIFO), чтобы остатки в «Чеки» сразу уменьшились
             const history = loadDebtHistory(client.phone)
@@ -7607,7 +7611,7 @@ export default function CashierModule({
                 >
                   <span className="order-tab-label">{label}</span>
                   {n > 0 && <span className="order-tab-count">{n > 99 ? '99+' : n}</span>}
-                  {(tickets.length > 1 || n > 0 || !!t.client) && (
+                  {n === 0 && (tickets.length > 1 || !!t.client) && (
                     <span
                       className="order-tab-x"
                       role="button"
@@ -8582,7 +8586,6 @@ export default function CashierModule({
       {closeTicketConfirmId && (() => {
         const t = tickets.find(x => x.id === closeTicketConfirmId)
         const idx = tickets.findIndex(x => x.id === closeTicketConfirmId)
-        const n = t ? ticketLineCount(t) : 0
         const label = t?.client?.name?.split(/\s+/)[0] || (idx >= 0 ? `Чек ${idx + 1}` : 'Чек')
         const onlyOne = tickets.length <= 1
         return (
@@ -8590,11 +8593,8 @@ export default function CashierModule({
             <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
               <h3>{onlyOne ? 'Очистить чек?' : 'Закрыть чек?'}</h3>
               <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
-                В «{label}» есть товары{n > 0 ? ` (${n})` : ''}
-                {t?.client ? ` и клиент ${t.client.name}` : ''}.
-                {onlyOne
-                  ? ' Чек будет очищен. Это нельзя отменить.'
-                  : ' Чек закроется, товары пропадут. Это нельзя отменить.'}
+                {t?.client ? `В «${label}» выбран клиент ${t.client.name}.` : `Закрыть «${label}»?`}
+                {onlyOne ? ' Чек будет очищен.' : ' Чек закроется.'}
               </div>
               <div className="modal-card-actions" style={{ gap: 8 }}>
                 <button type="button" className="btn-cancel" onClick={() => setCloseTicketConfirmId(null)}>

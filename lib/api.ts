@@ -794,6 +794,10 @@ export const api = {
     cashierName?: string
     shiftId: string
     posId?: string
+    appliedLocal?: boolean
+    skipBalances?: boolean
+    bonusAfter?: number
+    posCashBonusAfter?: number
   }) => request<{ card: AdminCard; financeMove: FinanceMove }>(
     `/cards/${encodeURIComponent(num.trim())}/cash-topup`,
     { method: 'POST', body: JSON.stringify(data) },
@@ -807,6 +811,9 @@ export const api = {
     cashierName?: string
     shiftId?: string
     posId?: string
+    appliedLocal?: boolean
+    skipBalances?: boolean
+    nextDebt?: number
   }) => request<{
     card: AdminCard
     amount: number
@@ -1032,7 +1039,11 @@ export const api = {
       deviceId?: string
       deviceName?: string
       opSeq?: number
-      queuedOffline?: boolean
+      appliedLocal?: boolean
+      skipBalances?: boolean
+      clientDebtAfter?: number
+      walletAfter?: number
+      bonusAfter?: number
       clientId?: string
       clientName?: string
       clientPhone?: string
@@ -1069,6 +1080,10 @@ export const api = {
     note?: string
     cashierId?: string
     items?: { index?: number; productId?: number; qty: number }[]
+    appliedLocal?: boolean
+    skipStock?: boolean
+    skipBalances?: boolean
+    queuedOffline?: boolean
   }) =>
     request<PosSale>(`/pos/sales/${encodeURIComponent(id)}/return`, {
       method: 'POST',
