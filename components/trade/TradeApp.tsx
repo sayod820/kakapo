@@ -2177,6 +2177,36 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
+  /* Android: нижнее меню чуть выше края (~3 мм), не на системной полоске */
+  html.kakapo-android{
+    --k-android-nav-lift:12px
+  }
+  html.kakapo-android .k-bottom-nav{
+    padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+  html.kakapo-android .k-main,
+  html.kakapo-android .k-trade:has(.k-body-pos) .k-main,
+  html.kakapo-android .k-trade:has(.k-body-debts) .k-main{
+    padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+  html.kakapo-android .k-trade.pos-fs .k-main{
+    padding-bottom:0
+  }
+  html.kakapo-android .k-wh-fab,
+  html.kakapo-android .k-cli-fab,
+  html.kakapo-android .k-prod-fab,
+  html.kakapo-android .k-sup-fab,
+  html.kakapo-android .k-fin-fab,
+  html.kakapo-android .k-fin-fab-stack{
+    bottom:calc(58px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+  html.kakapo-android .k-reports-mod{
+    padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+  html.kakapo-android .k-finance-mod{
+    padding-bottom:calc(120px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+
   /* Android Capacitor: склад/сроки скроллит весь .k-main, без сломанной вложенной высоты */
   html.kakapo-android .k-main:has(.k-body-warehouse),
   html.kakapo-android .k-main:has(.k-body-products){
@@ -3017,6 +3047,7 @@ function TradeAppGate() {
 
   useEffect(() => {
     try {
+      if (isTradeAndroidNative()) document.documentElement.classList.add('kakapo-android')
       ;(window as Window & { __kakapoHideBoot?: () => void }).__kakapoHideBoot?.()
     } catch { /* ignore */ }
     void import('@/lib/hardwareBack').then(m => m.installHardwareBack()).catch(() => {})

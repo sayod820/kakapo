@@ -1,10 +1,16 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ApiSyncProvider from '@/components/shared/ApiSyncProvider'
 
 export const metadata: Metadata = {
   title: 'КАКАПО — Доставка продуктов · г. Яван',
   description: 'Супермаркет КАКАПО · Быстрая доставка · г. Яван, Таджикистан',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 const tradeAndroidBundle = process.env.NEXT_PUBLIC_TRADE_ANDROID === 'true'
@@ -15,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {tradeAndroidBundle ? (
           <>
-            <script dangerouslySetInnerHTML={{ __html: 'window.kakapoAndroid=true' }} />
+            <script dangerouslySetInnerHTML={{ __html: 'window.kakapoAndroid=true;document.documentElement.classList.add("kakapo-android")' }} />
             <div
               id="kakapo-boot-screen"
               style={{
