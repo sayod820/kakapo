@@ -161,10 +161,6 @@ async function kvSet(key: string, value: unknown): Promise<void> {
   if (desk?.localDbKvSet) {
     try {
       await desk.localDbKvSet(key, value)
-      // зеркало в IDB — на случай открытия в браузере
-      if (hasIndexedDB()) {
-        try { await idbRun(STORE_KV, 'readwrite', s => s.put(value as unknown as Record<string, unknown>, key)) } catch { /* ignore */ }
-      }
       return
     } catch { /* fallback */ }
   }
@@ -436,7 +432,7 @@ async function nextSeq(): Promise<number> {
     }
   }
   seqCounter += 1
-  void kvSet(KEY_SEQ, seqCounter)
+  await kvSet(KEY_SEQ, seqCounter)
   return seqCounter
 }
 

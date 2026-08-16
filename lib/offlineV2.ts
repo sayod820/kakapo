@@ -81,30 +81,8 @@ export function ensureDesktopLocalFirst(): void {
  * Теневая запись. Никогда не бросает наружу и не блокирует кассу.
  * Вызывать через void shadowMirrorPut(...)
  */
-export function shadowMirrorPut(kind: MirrorKind, id: string, data: unknown): void {
-  if (!isOfflineV2Shadow()) return
-  const rowId = String(id || '').trim()
-  if (!rowId) return
-  void (async () => {
-    try {
-      const desk = getKakapoDesktop()
-      if (isKakapoDesktop() && desk?.localDbMirrorPut) {
-        await desk.localDbMirrorPut({ kind, id: rowId, data })
-        return
-      }
-      // Браузер: лёгкий fallback в localStorage (только для отладки)
-      if (typeof window === 'undefined') return
-      const key = `kakapo-mirror:${kind}:${rowId}`
-      localStorage.setItem(key, JSON.stringify({
-        kind,
-        id: rowId,
-        data,
-        updatedAtIso: new Date().toISOString(),
-      }))
-    } catch (e) {
-      try { console.warn('[offlineV2] shadow mirror failed', kind, rowId, e) } catch { /* ignore */ }
-    }
-  })()
+export function shadowMirrorPut(_kind: MirrorKind, _id: string, _data: unknown): void {
+  return
 }
 
 /** Удобные обёртки */

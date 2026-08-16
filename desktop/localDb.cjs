@@ -486,22 +486,16 @@ function writeInstallOk() {
 
 function catalogReady() {
   const products = sqlKvGet('catalog_products')
-  return Array.isArray(products) && products.length > 0
+  if (Array.isArray(products) && products.length > 0) return true
+  return sqlEntityCount('product') > 0
 }
 
 function isSetupComplete() {
-  if (catalogReady()) {
-    if (!hasInstallOkFile()) writeInstallOk()
-    return true
-  }
-  try {
-    if (hasInstallOkFile()) fs.unlinkSync(dbPath(FILE_INSTALL_OK))
-  } catch { /* ignore */ }
+  if (hasInstallOkFile()) return true
   const meta = sqlMetaGetAll()
-  if (meta.bootstrapComplete || meta.installComplete) {
-    try {
-      sqlMetaPatch({ bootstrapComplete: false, installComplete: false })
-    } catch { /* ignore */ }
+  if (meta.bootstrapComplete || meta.installComplete || catalogReady()) {
+    try { writeInstallOk() } catch { /* ignore */ }
+    return true
   }
   return false
 }
