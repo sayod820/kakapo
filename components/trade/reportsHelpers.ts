@@ -675,6 +675,10 @@ export function sumWriteoffCost(rows: StockWriteoff[]) {
   return round2(rows.reduce((s, r) => s + (Number(r.totalCost) || 0), 0))
 }
 
+export function sumExpenses(rows: PosExpense[]) {
+  return round2(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0))
+}
+
 export function sumFinanceMoves(
   moves: { type?: string; amount?: number }[],
   type: 'deposit' | 'withdraw',
