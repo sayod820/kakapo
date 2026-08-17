@@ -50,7 +50,7 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и закупки' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
-  { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ, непродаваемые, категории' },
+  { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ за период · залежались за 30 дней · заказ по 7 дням' },
 ]
 
 /** Query-параметры периода для API /finance/* */
@@ -149,6 +149,16 @@ export function periodRange(
   return {
     from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime(),
     to: end,
+  }
+}
+
+/** Последние N календарных дней, включая сегодня. Не зависит от фильтра периода. */
+export function lookbackRange(days: number): { from: number; to: number } {
+  const now = new Date()
+  const n = Math.max(1, Math.floor(Number(days) || 1))
+  return {
+    from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1)).getTime(),
+    to: now.getTime(),
   }
 }
 
@@ -789,27 +799,25 @@ export type OrderSuggestRow = ProductInsightRow & { daysCover: number; suggestQt
 
 export function orderSuggestions(
   rows: ProductInsightRow[],
-  from: number | null,
-  to: number | null,
+  days = 7,
 ): OrderSuggestRow[] {
-  const spanMs = from != null && to != null ? Math.max(1, to - from) : 7 * 864e5
-  const days = Math.max(1, spanMs / 864e5)
+  const span = Math.max(1, days)
   const out: OrderSuggestRow[] = []
   for (const r of rows) {
     if (!(r.qty > 0)) continue
-    const daily = r.qty / days
+    const daily = r.qty / span
     const weekNeed = daily * 7
     const daysCover = daily > 0.001 ? r.stock / daily : 999
     let reason = ''
     let suggestQty = 0
     if (r.stock <= 0) {
-      reason = 'Нет на складе, продавался'
+      reason = 'Нет на складе, продавался за 7 дн.'
       suggestQty = Math.max(1, Math.ceil(weekNeed))
     } else if (daysCover < 3) {
       reason = `Хватит ~${Math.max(0, Math.round(daysCover))} дн.`
       suggestQty = Math.max(1, Math.ceil(weekNeed - r.stock))
     } else if (r.stock < weekNeed * 0.4) {
-      reason = 'Мало к скорости продаж'
+      reason = 'Мало к продажам за 7 дн.'
       suggestQty = Math.max(1, Math.ceil(weekNeed - r.stock))
     }
     if (suggestQty > 0) out.push({ ...r, daysCover: round2(daysCover), suggestQty, reason })

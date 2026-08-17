@@ -35,6 +35,7 @@ import {
   inPeriod,
   isSaleFullyReturned,
   isSalePartiallyReturned,
+  lookbackRange,
   lossProducts,
   orderSuggestions,
   paymentLabel,
@@ -137,6 +138,32 @@ export default function ReportsModule() {
     () => buildProductInsights(products, periodSalesAll, periodReceipts),
     [products, periodSalesAll, periodReceipts],
   )
+  const sales30d = useMemo(
+    () => {
+      const { from: f, to: t } = lookbackRange(30)
+      return filterSales(sales, {
+        from: f, to: t, posId: filterPosId, defPos, cashierId: filterCashier,
+      })
+    },
+    [sales, filterPosId, defPos, filterCashier],
+  )
+  const sales7d = useMemo(
+    () => {
+      const { from: f, to: t } = lookbackRange(7)
+      return filterSales(sales, {
+        from: f, to: t, posId: filterPosId, defPos, cashierId: filterCashier,
+      })
+    },
+    [sales, filterPosId, defPos, filterCashier],
+  )
+  const stockInsights = useMemo(
+    () => buildProductInsights(products, sales30d, receipts),
+    [products, sales30d, receipts],
+  )
+  const orderInsights = useMemo(
+    () => buildProductInsights(products, sales7d, receipts),
+    [products, sales7d, receipts],
+  )
   const cogs = useMemo(() => sumCogs(productRows), [productRows])
   const purchaseCost = useMemo(() => sumReceiptCost(periodReceipts), [periodReceipts])
   const purchasePaid = useMemo(() => sumReceiptPaid(periodReceipts), [periodReceipts])
@@ -149,7 +176,7 @@ export default function ReportsModule() {
   const byHour = useMemo(() => hourlyBreakdown(periodSalesAll), [periodSalesAll])
   const abcRows = useMemo(() => abcClassify(productInsights.all), [productInsights.all])
   const lossRows = useMemo(() => lossProducts(productInsights.all), [productInsights.all])
-  const orderRows = useMemo(() => orderSuggestions(productInsights.all, from, to), [productInsights.all, from, to])
+  const orderRows = useMemo(() => orderSuggestions(orderInsights.all, 7), [orderInsights.all])
 
   const prevRange = useMemo(
     () => previousPeriodRange(period, customFrom, customTo),
@@ -362,8 +389,8 @@ export default function ReportsModule() {
     const rows = productView === 'top'
       ? productInsights.top
       : productView === 'dead'
-        ? productInsights.deadStock
-        : productInsights.unsold
+        ? stockInsights.deadStock
+        : stockInsights.unsold
     downloadCsv(
       `kakapo-products-${productView}-${periodLabel}.csv`,
       ['Товар', 'Категория', 'Поставщик', 'Остаток', 'Цена', 'Кол-во', 'Выручка', 'Себест', 'Прибыль'],
@@ -449,7 +476,7 @@ export default function ReportsModule() {
           <div>1) Период сверху · фильтры через ⚙ · ± сравнение с прошлым таким же отрезком</div>
           <div>2) Вкладки — разные отчёты. Долг: выдали / вернули / осталось у клиентов</div>
           <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
-          <div>4) Товары: ABC, минус, заказать · CSV — выгрузка в Excel</div>
+          <div>4) Товары: топ за период · не продавались / залежались за 30 дней · заказ по 7 дням</div>
         </div>
       )}
 
@@ -1235,8 +1262,8 @@ export default function ReportsModule() {
           <div className="k-kpis" style={{ marginBottom: 16 }}>
             <div className="k-kpi k-statcard"><div className="kl">Всего товаров</div><div className="kv">{productInsights.all.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Продавались</div><div className="kv" style={{ color: 'var(--green)' }}>{productInsights.top.length}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Не продавались</div><div className="kv" style={{ color: 'var(--gold)' }}>{productInsights.unsold.length}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Лежат на складе без продаж</div><div className="kv" style={{ color: 'var(--red)' }}>{productInsights.deadStock.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Не продавались 30 дн.</div><div className="kv" style={{ color: 'var(--gold)' }}>{stockInsights.unsold.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Залежались 30 дн.</div><div className="kv" style={{ color: 'var(--red)' }}>{stockInsights.deadStock.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Закуп товара</div><div className="kv">{fmtMoney(cogs)}</div></div>
             <div className="k-kpi k-statcard">
@@ -1356,7 +1383,7 @@ export default function ReportsModule() {
           {productView === 'order' && (
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
-                <b>Нужно заказать · остаток vs скорость продаж · {orderRows.length}</b>
+                <b>Нужно заказать · продажи за 7 дней · {orderRows.length}</b>
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
               {!orderRows.length ? <div className="k-empty">Пока хватает остатка</div> : (
@@ -1428,10 +1455,10 @@ export default function ReportsModule() {
           {productView === 'unsold' && (
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
-                <b>Не продавались · {productInsights.unsold.length}</b>
+                <b>Не продавались 30 дней · {stockInsights.unsold.length}</b>
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
-              {!productInsights.unsold.length ? <div className="k-empty">Все товары продавались</div> : (
+              {!stockInsights.unsold.length ? <div className="k-empty">За 30 дней все товары продавались</div> : (
                 <div className="k-tbl-scroll">
                   <table className="k-tbl">
                     <thead>
@@ -1446,7 +1473,7 @@ export default function ReportsModule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {productInsights.unsold.slice(0, 150).map((r, i) => (
+                      {stockInsights.unsold.slice(0, 150).map((r, i) => (
                         <tr key={r.productId}>
                           <td>{i + 1}</td>
                           <td style={{ fontWeight: 800 }}>{r.productName}</td>
@@ -1467,10 +1494,10 @@ export default function ReportsModule() {
           {productView === 'dead' && (
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
-                <b>Залежались (есть остаток, продаж нет) · {productInsights.deadStock.length}</b>
+                <b>Залежались · остаток есть, за 30 дней продаж нет · {stockInsights.deadStock.length}</b>
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
-              {!productInsights.deadStock.length ? <div className="k-empty">Нет залежавшихся товаров</div> : (
+              {!stockInsights.deadStock.length ? <div className="k-empty">Нет залежавшихся за 30 дней</div> : (
                 <div className="k-tbl-scroll">
                   <table className="k-tbl">
                     <thead>
@@ -1485,7 +1512,7 @@ export default function ReportsModule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {productInsights.deadStock.map((r, i) => (
+                      {stockInsights.deadStock.map((r, i) => (
                         <tr key={r.productId}>
                           <td>{i + 1}</td>
                           <td style={{ fontWeight: 800 }}>{r.productName}</td>
