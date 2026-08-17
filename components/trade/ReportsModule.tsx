@@ -38,6 +38,7 @@ import {
   isSaleFullyReturned,
   isSalePartiallyReturned,
   lookbackRange,
+  listShownLabel,
   lossProducts,
   matchesPos,
   orderSuggestions,
@@ -147,8 +148,8 @@ export default function ReportsModule() {
   const productsById = useMemo(() => new Map(products.map(p => [Number(p.id), p])), [products])
   const productRows = useMemo(() => topProducts(periodSalesAll, productsById, 10_000), [periodSalesAll, productsById])
   const productInsights = useMemo(
-    () => buildProductInsights(products, periodSalesAll, periodReceipts),
-    [products, periodSalesAll, periodReceipts],
+    () => buildProductInsights(products, periodSalesAll, periodReceipts, receipts),
+    [products, periodSalesAll, periodReceipts, receipts],
   )
   const sales30d = useMemo(
     () => {
@@ -447,6 +448,22 @@ export default function ReportsModule() {
     (tab === 'sales' || tab === 'returns') && q.trim() ? q : '',
   ].filter(Boolean).length
   const saleFiltersOn = tab === 'sales' || tab === 'returns'
+  const SHOW = {
+    sales: 300,
+    overviewTop: 12,
+    days: 60,
+    hourPeaks: 8,
+    profit: 100,
+    receipts: 100,
+    writeoffs: 100,
+    revisions: 80,
+    expiry: 80,
+    debtors: 50,
+    credit: 120,
+    top: 50,
+    unsold: 150,
+    dead: 80,
+  } as const
 
   return (
     <div className="k-reports-mod">
@@ -660,7 +677,7 @@ export default function ReportsModule() {
                 <div className="k-empty">Нет продаж</div>
               ) : (
                 <div className="k-rep-list">
-                  {byDay.slice(0, 60).map(d => (
+                  {byDay.slice(0, SHOW.days).map(d => (
                     <div key={d.day} className="k-rep-row">
                       <div className="k-rep-row-txt">
                         <b>{d.day}</b>
@@ -681,7 +698,7 @@ export default function ReportsModule() {
                 <div className="k-empty">Нет продаж</div>
               ) : (
                 <div className="k-rep-list">
-                  {productRows.slice(0, 12).map((r, i) => (
+                  {productRows.slice(0, SHOW.overviewTop).map((r, i) => (
                     <div key={r.productId} className="k-rep-row">
                       <div className="k-rep-row-txt">
                         <b>{i + 1}. {r.productName}</b>
@@ -690,6 +707,9 @@ export default function ReportsModule() {
                       <b className="k-rep-amt" style={{ color: 'var(--green)' }}>{fmtMoney(r.revenue)}</b>
                     </div>
                   ))}
+                  {!!listShownLabel(SHOW.overviewTop, productRows.length) && (
+                    <div className="k-rep-note" style={{ margin: '6px 0 0' }}>{listShownLabel(SHOW.overviewTop, productRows.length)}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -747,6 +767,9 @@ export default function ReportsModule() {
           <div className="k-card" style={{ overflow: 'hidden' }}>
             <div className="k-card-h">
               <b>Чеки</b>
+              {listShownLabel(SHOW.sales, periodSales.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.sales, periodSales.length)} · CSV — все</span>
+              )}
               <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportSales}>CSV</button>
             </div>
             {!periodSales.length ? (
@@ -767,7 +790,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {periodSales.slice(0, 300).map(s => {
+                    {periodSales.slice(0, SHOW.sales).map(s => {
                       const full = isSaleFullyReturned(s)
                       const partial = isSalePartiallyReturned(s)
                       return (
@@ -1018,7 +1041,11 @@ export default function ReportsModule() {
           </div>
           <div className="k-rep-note">Доход без расходов = продажи минус закуп товара. После расходов = ещё минус расходы кассы за период.</div>
           <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h"><b>Доход по товарам</b></div>
+            <div className="k-card-h"><b>Доход по товарам</b>
+              {listShownLabel(SHOW.profit, productRows.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.profit, productRows.length)}</span>
+              )}
+            </div>
             {!productRows.length ? (
               <div className="k-empty">Нет продаж за период</div>
             ) : (
@@ -1034,7 +1061,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {productRows.slice(0, 100).map(p => {
+                    {productRows.slice(0, SHOW.profit).map(p => {
                       const rowProfit = round2(p.revenue - p.cogs)
                       return (
                         <tr key={p.productId}>
@@ -1069,7 +1096,11 @@ export default function ReportsModule() {
           </div>
 
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-            <div className="k-card-h"><b>Приходы</b></div>
+            <div className="k-card-h"><b>Приходы</b>
+              {listShownLabel(SHOW.receipts, periodReceipts.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.receipts, periodReceipts.length)}</span>
+              )}
+            </div>
             {!periodReceipts.length ? <div className="k-empty">Нет приходов</div> : (
               <div className="k-tbl-scroll">
                 <table className="k-tbl">
@@ -1084,7 +1115,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {periodReceipts.slice(0, 100).map(r => (
+                    {periodReceipts.slice(0, SHOW.receipts).map(r => (
                       <tr key={r.id}>
                         <td>{fmtDateTime(r.createdAtIso)}</td>
                         <td>{r.supplierName || '—'}</td>
@@ -1101,7 +1132,11 @@ export default function ReportsModule() {
           </div>
 
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-            <div className="k-card-h"><b>Списания</b></div>
+            <div className="k-card-h"><b>Списания</b>
+              {listShownLabel(SHOW.writeoffs, periodWriteoffs.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.writeoffs, periodWriteoffs.length)}</span>
+              )}
+            </div>
             {!periodWriteoffs.length ? <div className="k-empty">Нет списаний</div> : (
               <div className="k-tbl-scroll">
                 <table className="k-tbl">
@@ -1115,7 +1150,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {periodWriteoffs.slice(0, 100).map(w => (
+                    {periodWriteoffs.slice(0, SHOW.writeoffs).map(w => (
                       <tr key={w.id}>
                         <td>{fmtDateTime(w.createdAtIso)}</td>
                         <td>{w.reason || '—'}</td>
@@ -1144,7 +1179,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {periodRevisions.slice(0, 80).map(r => (
+                    {periodRevisions.slice(0, SHOW.revisions).map(r => (
                       <tr key={r.id}>
                         <td>{fmtDateTime(r.createdAtIso)}</td>
                         <td>{r.items?.length || 0}</td>
@@ -1172,7 +1207,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {expiry.slice(0, 80).map((e, i) => (
+                    {expiry.slice(0, SHOW.expiry).map((e, i) => (
                       <tr key={`${e.receiptId}-${e.productId}-${i}`}>
                         <td>{e.productName}</td>
                         <td>{e.qty}</td>
@@ -1281,7 +1316,11 @@ export default function ReportsModule() {
             {repaidAllPoints ? ' Вернули без фильтра точки: в погашении нет точки.' : ''}
           </div>
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
-            <div className="k-card-h"><b>Топ должников</b></div>
+            <div className="k-card-h"><b>Топ должников</b>
+              {listShownLabel(SHOW.debtors, clientDebtors.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.debtors, clientDebtors.length)}</span>
+              )}
+            </div>
             {!clientDebtors.length ? <div className="k-empty">Нет должников</div> : (
               <div className="k-tbl-scroll">
                 <table className="k-tbl">
@@ -1294,7 +1333,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {clientDebtors.slice(0, 50).map((c, i) => (
+                    {clientDebtors.slice(0, SHOW.debtors).map((c, i) => (
                       <tr key={c.id}>
                         <td>{i + 1}</td>
                         <td style={{ fontWeight: 800 }}>{c.name}</td>
@@ -1308,7 +1347,11 @@ export default function ReportsModule() {
             )}
           </div>
           <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h"><b>Продажи в долг</b></div>
+            <div className="k-card-h"><b>Продажи в долг</b>
+              {listShownLabel(SHOW.credit, creditSales.length) && (
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.credit, creditSales.length)}</span>
+              )}
+            </div>
             {!creditSales.length ? <div className="k-empty">Нет выдач в долг</div> : (
               <div className="k-tbl-scroll">
                 <table className="k-tbl">
@@ -1323,7 +1366,7 @@ export default function ReportsModule() {
                     </tr>
                   </thead>
                   <tbody>
-                    {creditSales.slice(0, 120).map(s => (
+                    {creditSales.slice(0, SHOW.credit).map(s => (
                       <tr key={s.id}>
                         <td style={{ fontWeight: 800 }}>{saleNumberLabel(s)}</td>
                         <td>{fmtDateTime(s.createdAtIso)}</td>
@@ -1386,6 +1429,9 @@ export default function ReportsModule() {
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
                 <b>Топ продаж · {productInsights.top.length}</b>
+                {listShownLabel(SHOW.top, productInsights.top.length) && (
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.top, productInsights.top.length)} · CSV — все</span>
+                )}
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
               {!productInsights.top.length ? <div className="k-empty">Нет продаж за период</div> : (
@@ -1405,7 +1451,7 @@ export default function ReportsModule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {productInsights.top.map((r, i) => (
+                      {productInsights.top.slice(0, SHOW.top).map((r, i) => (
                         <tr key={r.productId}>
                           <td>{i + 1}</td>
                           <td style={{ fontWeight: 800 }}>{r.productName}</td>
@@ -1540,6 +1586,9 @@ export default function ReportsModule() {
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
                 <b>Не продавались 30 дней · {stockInsights.unsold.length}</b>
+                {listShownLabel(SHOW.unsold, stockInsights.unsold.length) && (
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.unsold, stockInsights.unsold.length)} · CSV — все</span>
+                )}
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
               {!stockInsights.unsold.length ? <div className="k-empty">За 30 дней все товары продавались</div> : (
@@ -1557,7 +1606,7 @@ export default function ReportsModule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {stockInsights.unsold.slice(0, 150).map((r, i) => (
+                      {stockInsights.unsold.slice(0, SHOW.unsold).map((r, i) => (
                         <tr key={r.productId}>
                           <td>{i + 1}</td>
                           <td style={{ fontWeight: 800 }}>{r.productName}</td>
@@ -1579,6 +1628,9 @@ export default function ReportsModule() {
             <div className="k-card" style={{ overflow: 'hidden' }}>
               <div className="k-card-h">
                 <b>Залежались · остаток есть, за 30 дней продаж нет · {stockInsights.deadStock.length}</b>
+                {listShownLabel(SHOW.dead, stockInsights.deadStock.length) && (
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.dead, stockInsights.deadStock.length)} · CSV — все</span>
+                )}
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
               {!stockInsights.deadStock.length ? <div className="k-empty">Нет залежавшихся за 30 дней</div> : (
@@ -1596,7 +1648,7 @@ export default function ReportsModule() {
                       </tr>
                     </thead>
                     <tbody>
-                      {stockInsights.deadStock.map((r, i) => (
+                      {stockInsights.deadStock.slice(0, SHOW.dead).map((r, i) => (
                         <tr key={r.productId}>
                           <td>{i + 1}</td>
                           <td style={{ fontWeight: 800 }}>{r.productName}</td>
@@ -1663,7 +1715,9 @@ export default function ReportsModule() {
                 <b>Поставщики: плюс / минус · {productInsights.suppliers.length}</b>
                 <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
               </div>
-              {!productInsights.suppliers.length ? <div className="k-empty">Нет приходов поставщиков за период</div> : (
+              {!productInsights.suppliers.length ? (
+                <div className="k-empty">Нет продаж и приходов по поставщикам за период</div>
+              ) : (
                 <div className="k-tbl-scroll">
                   <table className="k-tbl">
                     <thead>
