@@ -3525,7 +3525,9 @@ export default function CashierModule({
       setGateCash(String(cash.toFixed(2)))
       showToast(
         'Смена закрыта',
-        closed.offline ? `В кассе ${fmtMoney(cash)} · отправится в фоне` : `В кассе ${fmtMoney(cash)}`,
+        closed.offline
+          ? `${fmtMoney(cash)} сдано в основной · отправится в фоне`
+          : `${fmtMoney(cash)} сдано в основной ящик`,
       )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')

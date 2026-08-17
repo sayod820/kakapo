@@ -53,7 +53,7 @@ const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string 
   { id: 'expenses', label: 'Расходы', icon: '🧾', hint: 'Траты бизнеса за период' },
   { id: 'deposits', label: 'Вклады', icon: '🏦', hint: 'Свои деньги в кассу и снятия' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты должны нам · мы — поставщикам' },
-  { id: 'box', label: 'Ящик', icon: '🗃️', hint: 'Сначала всё вместе, потом нал и карта отдельно' },
+  { id: 'box', label: 'Ящик', icon: '🗃️', hint: 'Продажа идёт в смену. В основной — только после закрытия.' },
 ]
 
 export default function FinanceModule() {
@@ -405,6 +405,12 @@ export default function FinanceModule() {
   const cashBook = truth?.cashBook
   const profit = truth?.profit
   const cashBox = truth?.cashBox
+  const mainCash = cashBox?.main.cash ?? 0
+  const mainCard = cashBox?.main.card ?? 0
+  const mainTotal = round2(mainCash + mainCard)
+  const liveCash = round2((cashBox?.points || []).reduce((a, p) => a + (Number(p.cashNow) || 0), 0))
+  const liveCard = round2((cashBox?.points || []).reduce((a, p) => a + (Number(p.cardNow) || 0), 0))
+  const shopTotal = round2(mainTotal + liveCash + liveCard)
   const journal: MoneyLedgerEntry[] = truth?.journal || []
   const tabMeta = FINANCE_TABS.find(t => t.id === tab)
   const filterCount = (tab === 'box' ? [posFilter] : [posFilter, cashierFilter, typeFilter]).filter(Boolean).length
@@ -415,10 +421,9 @@ export default function FinanceModule() {
       downloadCsv(`kakapo-finance-box-${stamp}.csv`,
         ['Где', 'Нал', 'Карта', 'Статус'],
         [
-          ['Всего', round2((cashBox?.totalCash ?? 0) + (cashBox?.totalCard ?? 0)), '', ''],
-          ['Нал', cashBox?.totalCash ?? 0, '', ''],
-          ['Карта', cashBox?.totalCard ?? 0, '', ''],
-          ['Основной нал', cashBox?.main.cash ?? 0, cashBox?.main.card ?? 0, 'сдано'],
+          ['Основной', mainCash, mainCard, 'после закрытия смен'],
+          ['На точках сейчас', liveCash, liveCard, 'открытые смены'],
+          ['В магазине всего', round2((cashBox?.totalCash ?? 0) + (cashBox?.totalCard ?? 0)), '', ''],
           ...(cashBox?.points || []).map(p => [
             p.posName,
             p.cashNow,
@@ -532,9 +537,9 @@ export default function FinanceModule() {
     <div className="k-finance-mod">
       <div className="k-kpis k-fin-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
-          <div className="kl">В кассе</div>
+          <div className="kl">Смены сейчас</div>
           <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashInTills)}</div>
-          <div className="k-fin-kpi-sub">{openTillCount ? `${openTillCount} смен` : 'Нет смен'}</div>
+          <div className="k-fin-kpi-sub">{openTillCount ? `${openTillCount} открытых · не основной` : 'Нет смен'}</div>
         </div>
         <div className="k-kpi k-statcard">
           <div className="kl">Книга</div>
@@ -555,7 +560,7 @@ export default function FinanceModule() {
       </div>
 
       <div className="k-fin-meta k-hide-desk">
-        <div><span>Касса</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashInTills)}</b></div>
+        <div><span>Смены</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashInTills)}</b></div>
         <div><span>Книга</span><b>{fmtMoney(cashBook?.balance ?? 0)}</b></div>
         <div>
           <span>Прибыль</span>
@@ -677,18 +682,18 @@ export default function FinanceModule() {
       {tab === 'box' && (
         <>
           <div className="k-fin-box-hero">
-            <div className="kl">Всего в ящике</div>
-            <div className="kv">{fmtMoney(round2((cashBox?.totalCash ?? 0) + (cashBox?.totalCard ?? 0)))}</div>
-            <div className="k-fin-kpi-sub">нал + карта · основной и открытые точки</div>
+            <div className="kl">Основной ящик</div>
+            <div className="kv">{fmtMoney(mainTotal)}</div>
+            <div className="k-fin-kpi-sub">сюда падает только после закрытия смены</div>
           </div>
           <div className="k-fin-box-totals">
             <div className="k-fin-box-card k-fin-box-card-cash">
-              <div className="kl">Нал</div>
-              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashBox?.totalCash ?? 0)}</div>
+              <div className="kl">Нал в основном</div>
+              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(mainCash)}</div>
             </div>
             <div className="k-fin-box-card k-fin-box-card-card">
-              <div className="kl">Карта</div>
-              <div className="kv">{fmtMoney(cashBox?.totalCard ?? 0)}</div>
+              <div className="kl">Карта в основном</div>
+              <div className="kv">{fmtMoney(mainCard)}</div>
             </div>
           </div>
           <div className="k-fin-box-move-row">
@@ -700,7 +705,7 @@ export default function FinanceModule() {
               onClick={() => {
                 setMsg('')
                 setConvDir('card_to_cash')
-                setConvAmount(String(cashBox?.totalCard ?? ''))
+                setConvAmount(String(mainCard || cashBox?.totalCard || ''))
                 setConvOpen(true)
               }}
             >
@@ -714,7 +719,7 @@ export default function FinanceModule() {
               onClick={() => {
                 setMsg('')
                 setConvDir('cash_to_card')
-                setConvAmount(String(cashBox?.totalCash ?? ''))
+                setConvAmount(String(mainCash || cashBox?.totalCash || ''))
                 setConvOpen(true)
               }}
             >
@@ -723,18 +728,14 @@ export default function FinanceModule() {
           </div>
 
           <div className="k-fin-panel k-fin-box-main">
-            <div className="k-fin-panel-h">Основной</div>
+            <div className="k-fin-panel-h">Сейчас на точках</div>
             <div className="k-fin-submeta k-fin-submeta-2">
-              <div><span>Нал сдано</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashBox?.main.cash ?? 0)}</b></div>
-              <div><span>Карта сдано</span><b>{fmtMoney(cashBox?.main.card ?? 0)}</b></div>
+              <div><span>Нал в сменах</span><b style={{ color: 'var(--green)' }}>{fmtMoney(liveCash)}</b></div>
+              <div><span>Карта в сменах</span><b>{fmtMoney(liveCard)}</b></div>
             </div>
-            <div className="k-fin-hint" style={{ marginBottom: 0 }}>
-              После закрытия смены нал (факт) и карта уходят сюда
+            <div className="k-fin-hint" style={{ marginBottom: 8 }}>
+              Продал на кассе — пишется сюда. Закрыл смену — уходит в основной.
             </div>
-          </div>
-
-          <div className="k-fin-panel">
-            <div className="k-fin-panel-h">Точки сейчас</div>
             {!cashBox?.points?.length ? (
               <div className="k-empty">Нет точек кассы</div>
             ) : (
@@ -755,6 +756,14 @@ export default function FinanceModule() {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="k-fin-panel">
+            <div className="k-fin-panel-h">В магазине всего</div>
+            <div className="k-fin-submeta k-fin-submeta-2">
+              <div><span>Основной + точки</span><b>{fmtMoney(shopTotal)}</b></div>
+              <div><span>Нал / карта</span><b>{fmtMoney(cashBox?.totalCash ?? 0)} · {fmtMoney(cashBox?.totalCard ?? 0)}</b></div>
+            </div>
           </div>
 
           <div className="k-fin-panel">
