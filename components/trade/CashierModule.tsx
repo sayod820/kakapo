@@ -7621,7 +7621,7 @@ export default function CashierModule({
                   ⭐ {fmtBonus(loyalty.bonus)} бон.
                   {clientDebt > 0 ? <> · <span className="debt">долг {fmtMoney(clientDebt)}</span></> : null}
                   {clientDebtBlocked ? <> · <span className="debt">новый долг закрыт</span></> : null}
-                  {debtLimit > 0 ? <> · лимит {fmtMoney(availableDebt)}</> : null}
+                  {debtLimit > 0 ? <> · доступно {fmtMoney(availableDebt)}</> : null}
                   {usedBonus > 0 ? <> · <span className="used">−{usedBonus.toFixed(0)} бон.</span></> : null}
                 </div>
               )}
