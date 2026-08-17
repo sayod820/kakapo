@@ -41,6 +41,7 @@ import {
   paymentLabel,
   periodRange,
   periodToApiQuery,
+  pickDebtRepaid,
   pointStats,
   posName,
   previousPeriodRange,
@@ -49,7 +50,6 @@ import {
   saleNumberLabel,
   sumCogs,
   sumExpenses,
-  sumLedgerDebtRepaid,
   sumReceiptCost,
   sumReceiptPaid,
   sumWriteoffCost,
@@ -190,23 +190,27 @@ export default function ReportsModule() {
   )
   const prevAgg = useMemo(() => aggregateSales(prevSales), [prevSales])
 
-  const ledgerRepaid = useMemo(() => {
-    const journal = truth?.journal || []
-    if (journal.length) return sumLedgerDebtRepaid(journal)
-    return sumLedgerDebtRepaid(truth?.cashBook?.entries)
-  }, [truth])
   const historyRepaid = useMemo(() => {
     let n = 0
     for (const c of clients) {
       if (!c.phone) continue
       for (const row of loadDebtHistory(c.phone)) {
         if (row.type !== 'pay') continue
-        if (!inPeriod(new Date(row.ts).toISOString(), from, to)) continue
+        const iso = row.ts ? new Date(row.ts).toISOString() : ''
+        if (!inPeriod(iso, from, to)) continue
         n = round2(n + (Number(row.amount) || 0))
       }
     }
     return n
   }, [clients, from, to])
+  const repaidPick = useMemo(
+    () => pickDebtRepaid({
+      journal: truth?.journal,
+      cashBook: truth?.cashBook?.entries,
+      historyTotal: historyRepaid,
+    }),
+    [truth, historyRepaid],
+  )
   const supplierDebt = useMemo(
     () => round2(suppliers.reduce((s, x) => s + (Number(x.payableAmount) || 0), 0)),
     [suppliers],
@@ -219,8 +223,9 @@ export default function ReportsModule() {
     () => round2(clientDebtors.reduce((s, c) => s + (Number(c.debt) || 0), 0)),
     [clientDebtors],
   )
-  const debtRepaid = ledgerRepaid > 0.001 ? ledgerRepaid : historyRepaid
+  const debtRepaid = repaidPick.amount
   const debtLeft = round2(Math.max(0, clientDebtTotal))
+  const repaidAllPoints = repaidPick.source === 'history' && !!(posFilter || cashierFilter)
   const creditSales = useMemo(
     () => periodSalesAll.filter(s => !isSaleFullyReturned(s) && (Number(s.debtAdded) || 0) > 0.001),
     [periodSalesAll],
@@ -474,7 +479,7 @@ export default function ReportsModule() {
         <div className="k-rep-help">
           <b>Как смотреть</b>
           <div>1) Период сверху · фильтры через ⚙ · ± сравнение с прошлым таким же отрезком</div>
-          <div>2) Вкладки — разные отчёты. Долг: выдали / вернули / осталось у клиентов</div>
+          <div>2) Долг: выдали и вернули — за выбранные дни. Осталось — сколько должны сейчас</div>
           <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
           <div>4) Товары: топ за период · не продавались / залежались за 30 дней · заказ по 7 дням</div>
         </div>
@@ -559,9 +564,12 @@ export default function ReportsModule() {
           <div className="k-rep-stats">
             <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>
             <div><span>Карта</span><b>{fmtMoney(salesAgg.card)}</b></div>
-            <div><span>Долг выдали</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
-            <div><span>Долг вернули</span><b style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</b></div>
-            <div><span>Долг осталось</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</b></div>
+            <div title="За выбранные дни"><span>Выдали за дни</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
+            <div title={repaidAllPoints ? 'Погашения без точки — все клиенты' : 'За выбранные дни'}>
+              <span>Вернули за дни</span>
+              <b style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</b>
+            </div>
+            <div title="Сколько клиенты должны сейчас, не за период"><span>Сейчас должны</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</b></div>
             <div><span>Чеков</span><b>{salesAgg.salesCount}</b></div>
             <div><span>Ср. чек</span><b>{fmtMoney(salesAgg.avgCheck)}</b></div>
             <div><span>Возвраты</span><b style={{ color: 'var(--red)' }}>{salesAgg.returnedCount}</b></div>
@@ -570,11 +578,13 @@ export default function ReportsModule() {
             <div><span>Закупки</span><b>{fmtMoney(purchaseCost)}</b></div>
             <div><span>Расходы</span><b>{fmtMoney(expenseTotal)}</b></div>
             <div><span>Поставщ.</span><b>{fmtMoney(supplierDebt)}</b></div>
-            <div><span>Клиенты</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</b></div>
+            <div><span>Должников</span><b>{clientDebtors.length}</b></div>
           </div>
 
           <div className="k-rep-note">
-            Смен: {openShiftsNow.length} откр. / {periodShifts.length} в периоде
+            Выдали / вернули — за {periodLabel}. Сейчас должны — сколько на клиентах сейчас
+            {repaidAllPoints ? ' · вернули: все точки (в погашении нет точки)' : ''}
+            {' · '}смен: {openShiftsNow.length} откр. / {periodShifts.length} в периоде
             {' · '}списания {periodWriteoffs.length} ({fmtMoney(writeoffCost)})
             {' · '}ревизии {revStats.count}
             {(dbTill?.summary.withAlert ?? 0) > 0
@@ -1190,11 +1200,21 @@ export default function ReportsModule() {
       {tab === 'debts' && (
         <>
           <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Долг осталось</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Должников</div><div className="kv">{clientDebtors.length}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Выдали за период</div><div className="kv">{fmtMoney(salesAgg.credit)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Вернули за период</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</div></div>
+            <div className="k-kpi k-statcard">
+              <div className="kl">Сейчас должны</div>
+              <div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</div>
+            </div>
+            <div className="k-kpi k-statcard"><div className="kl">Должников сейчас</div><div className="kv">{clientDebtors.length}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Выдали за дни</div><div className="kv">{fmtMoney(salesAgg.credit)}</div></div>
+            <div className="k-kpi k-statcard">
+              <div className="kl">Вернули за дни</div>
+              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</div>
+            </div>
             <div className="k-kpi k-statcard"><div className="kl">Чеков в долг</div><div className="kv">{creditSales.length}</div></div>
+          </div>
+          <div className="k-rep-note">
+            Выдали и вернули — за {periodLabel}. Сейчас должны — не за период, а сколько осталось на клиентах.
+            {repaidAllPoints ? ' Вернули без фильтра точки: в погашении нет точки.' : ''}
           </div>
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
             <div className="k-card-h"><b>Топ должников</b></div>

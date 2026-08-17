@@ -49,7 +49,7 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Доход без расходов и после расходов кассы' },
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и закупки' },
-  { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
+  { id: 'debts', label: 'Долги', icon: '💳', hint: 'Выдали и вернули за выбранные дни · осталось — сколько должны сейчас' },
   { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ за период · залежались за 30 дней · заказ по 7 дням' },
 ]
 
@@ -725,6 +725,25 @@ export function sumLedgerDebtRepaid(entries?: { type?: string; amount?: number; 
     n = round2(n + Math.abs(Number(e.amount) || Number(e.signedAmount) || 0))
   }
   return n
+}
+
+export type DebtRepaidPick = {
+  amount: number
+  /** journal = касса (есть точка/кассир). history = погашения клиентов, без точки */
+  source: 'journal' | 'history'
+}
+
+/** Одна сумма «вернули»: журнал кассы, если там есть погашения. Иначе история клиентов. Не складывать оба. */
+export function pickDebtRepaid(input: {
+  journal?: { type?: string; amount?: number; signedAmount?: number }[]
+  cashBook?: { type?: string; amount?: number; signedAmount?: number }[]
+  historyTotal: number
+}): DebtRepaidPick {
+  const fromJournal = sumLedgerDebtRepaid(input.journal)
+  if (fromJournal > 0.001) return { amount: fromJournal, source: 'journal' }
+  const fromCash = sumLedgerDebtRepaid(input.cashBook)
+  if (fromCash > 0.001) return { amount: fromCash, source: 'journal' }
+  return { amount: round2(input.historyTotal), source: 'history' }
 }
 
 export type PointRow = {
