@@ -6,7 +6,7 @@ import { api, isNetworkError } from './api'
 import { findDuplicateDebtRepay, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch } from './clientCrm'
-import { recordStoreDebtRepayment } from './clientVipCredit'
+import { debtAccountKey, recordStoreDebtRepayment } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { markMoneyPending } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
@@ -587,8 +587,22 @@ export type DebtRepayResult = {
 
 const debtRepayInflight = new Map<string, Promise<OfflineResult<DebtRepayResult>>>()
 
-function debtRepayDupKey(num: string, amount: number, shiftId?: string) {
-  return `${String(num).trim()}|${round2(amount)}|${String(shiftId || '')}`
+function debtRepayDupKey(input: {
+  num: string
+  amount: number
+  shiftId?: string
+  clientId?: string
+  method?: string
+  note?: string
+}) {
+  return [
+    String(input.num).trim(),
+    round2(input.amount),
+    String(input.shiftId || ''),
+    String(input.clientId || ''),
+    input.method === 'card' ? 'card' : 'cash',
+    String(input.note || '').trim(),
+  ].join('|')
 }
 
 function liveDebtNow(num: string, clientId: string | undefined, fallback: number) {
@@ -613,7 +627,16 @@ export async function debtRepaySafe(
     prevDebt: number
   },
 ): Promise<OfflineResult<DebtRepayResult>> {
-  const key = debtRepayDupKey(num, input.amount, input.shiftId)
+  const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
+  const amount = round2(input.amount)
+  const key = debtRepayDupKey({
+    num,
+    amount,
+    shiftId: input.shiftId,
+    clientId: input.clientId,
+    method,
+    note: input.note,
+  })
   const pending = debtRepayInflight.get(key)
   if (pending) {
     const first = await pending
@@ -621,8 +644,6 @@ export async function debtRepaySafe(
   }
 
   const clientRef = newClientRef()
-  const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
-  const amount = round2(input.amount)
   const payload = {
     clientRef,
     num,
@@ -637,7 +658,15 @@ export async function debtRepaySafe(
   }
 
   const applyLocal = async (): Promise<DebtRepayResult> => {
-    const dup = await findDuplicateDebtRepay({ num, amount, shiftId: input.shiftId })
+    const dup = await findDuplicateDebtRepay({
+      num,
+      amount,
+      shiftId: input.shiftId,
+      clientRef,
+      clientId: input.clientId,
+      method,
+      note: input.note,
+    })
     if (dup) {
       return {
         nextDebt: liveDebtNow(num, input.clientId, round2(Math.max(0, input.prevDebt - amount))),
@@ -921,12 +950,15 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
       }
     }
   }
-  if (cuts.cutDebt > 0 && (phone || cl?.phone)) {
-    recordStoreDebtRepayment(phone || cl?.phone || '', cuts.cutDebt, {
-      desc: `Возврат чека · долг −${cuts.cutDebt}`,
-      orderId: sale.orderId || sale.id,
-      source: 'cashier',
-    })
+  if (cuts.cutDebt > 0) {
+    const histKey = debtAccountKey(cl) || String(phone || '').trim()
+    if (histKey) {
+      recordStoreDebtRepayment(histKey, cuts.cutDebt, {
+        desc: `Возврат чека · долг −${cuts.cutDebt}`,
+        orderId: sale.orderId || sale.id,
+        source: 'cashier',
+      })
+    }
   }
 }
 

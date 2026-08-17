@@ -34,6 +34,8 @@ import {
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   loadDebtHistory,
+  loadDebtHistoryForClient,
+  debtAccountKey,
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
   recordStoreDebtRepaymentFifo,
@@ -303,7 +305,7 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: Pos
   const card = cardForClient(client, cards)
   const debt = effectiveDebt(client, card)
   const debtLimit = resolveEffectiveDebtLimit(client)
-  const history = client.phone ? loadDebtHistory(client.phone) : []
+  const history = loadDebtHistoryForClient(client)
   const manual = history.filter(isManualDebtHistoryEntry)
   const totals = debtHistoryTotals(manual)
   const posSales = posDebtSalesFor(client, sales)
@@ -506,9 +508,7 @@ export default function DebtsModule({
   const detailData = useMemo(() => {
     if (!detailClient) return null
     void histTick
-    const history = detailClient.phone
-      ? loadDebtHistory(detailClient.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
-      : []
+    const history = loadDebtHistoryForClient(detailClient).sort((a, b) => (b.ts || 0) - (a.ts || 0))
     const posSalesForCash = posDebtSalesFor(detailClient, sales)
     const manual = history.filter(isManualDebtHistoryEntry)
     const cash = history.filter(r => isLedgerCashHistoryDebt(r, posSalesForCash))
@@ -527,26 +527,10 @@ export default function DebtsModule({
     ) / 100
     const residualCash = Math.max(0, Math.round((cashOnCard - cashChargeSum) * 100) / 100)
 
-    // Недостающие погашения: сумма чеков − оплаты в истории − долг на карте
     const allPaySum = Math.round(
       history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
     ) / 100
-    const chargeSum = Math.round((posOriginal + cashChargeSum + residualCash) * 100) / 100
-    const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
-    const gapPays: DebtHistoryEntry[] = missingPay > 0.05
-      ? [{
-          id: 'gap-pay',
-          date: 'сводка',
-          time: '',
-          ts: 2,
-          desc: 'Погашения (раньше / без записи по чекам)',
-          amount: missingPay,
-          type: 'pay',
-          source: 'cashier',
-        }]
-      : []
-
-    const payRows = [...checkPays, ...gapPays]
+    const payRows = [...checkPays]
     const feed = buildFeed([...cash, ...pays], posSales, residualCash, payRows, saleStatus)
     return {
       history,
@@ -564,7 +548,7 @@ export default function DebtsModule({
       historyFeed: withRunningBalance(feed),
       saleStatus,
       openChecks: posSales.filter(s => (saleStatus[s.id]?.remain || 0) > 0.001).length,
-      repaidTotal: Math.round((allPaySum + missingPay) * 100) / 100,
+      repaidTotal: allPaySum,
       bonus: Math.max(
         0,
         Number(detailClient.bonus) || 0,
@@ -608,7 +592,9 @@ export default function DebtsModule({
   }
 
   async function submitSaleRepay() {
-    if (!detailClient?.phone || !saleDetailId || !saleRepay || !detailData) return
+    if (!detailClient || !saleDetailId || !saleRepay || !detailData) return
+    const histKey = debtAccountKey(detailClient)
+    if (!histKey) return
     const s = detailData.posSales.find(x => x.id === saleDetailId)
     if (!s) return
     const st = detailData.saleStatus[s.id]
@@ -635,7 +621,7 @@ export default function DebtsModule({
       )
     const linkOrderId = linked?.orderId || s.orderId || s.id
     if (linked && !linked.orderId) {
-      ensureDebtHistoryOrderId(detailClient.phone, linked.id, linkOrderId)
+      ensureDebtHistoryOrderId(histKey, linked.id, linkOrderId)
     }
 
     setSaleRepay(prev => prev ? { ...prev, saving: true } : prev)
@@ -651,7 +637,7 @@ export default function DebtsModule({
         setSaleRepay(prev => prev ? { ...prev, saving: false } : prev)
         return
       }
-      recordStoreDebtRepayment(detailClient.phone, amount, {
+      recordStoreDebtRepayment(histKey, amount, {
         desc: `Погашение · ${saleLabel(s)}`,
         orderId: linkOrderId,
         method,
@@ -710,7 +696,8 @@ export default function DebtsModule({
           setHistMsg('Это погашение уже записано')
           return
         }
-        if (detailClient.phone) {
+        const histKey = debtAccountKey(detailClient)
+        if (histKey) {
           const openChecks = (detailData?.posSales || [])
             .map(s => ({
               orderId: s.orderId || s.id,
@@ -721,13 +708,13 @@ export default function DebtsModule({
             .filter(t => t.remain > 0.001)
             .sort((a, b) => a.ts - b.ts)
           if (openChecks.length) {
-            recordStoreDebtRepaymentFifo(detailClient.phone, amount, openChecks, {
+            recordStoreDebtRepaymentFifo(histKey, amount, openChecks, {
               method,
               source: 'cashier',
               desc: histAdd.desc.trim() || undefined,
             })
           } else {
-            recordStoreDebtRepayment(detailClient.phone, amount, {
+            recordStoreDebtRepayment(histKey, amount, {
               method,
               desc: histAdd.desc.trim() || undefined,
             })
@@ -742,9 +729,10 @@ export default function DebtsModule({
         note: histAdd.desc.trim() || `Выдача наличных · ${detailClient.name}`,
       })
       const desc = histAdd.desc.trim()
-      if (desc && detailClient.phone) {
-        const latest = loadDebtHistory(detailClient.phone).find(isManualDebtHistoryEntry)
-        if (latest) updateDebtHistoryEntry(detailClient.phone, latest.id, { desc })
+      const histKey = debtAccountKey(detailClient)
+      if (desc && histKey) {
+        const latest = loadDebtHistory(histKey).find(isManualDebtHistoryEntry)
+        if (latest) updateDebtHistoryEntry(histKey, latest.id, { desc })
       }
       setHistAdd(emptyHistAdd(histAdd.action))
       setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
@@ -768,12 +756,13 @@ export default function DebtsModule({
   }
 
   async function documentResidualCash() {
-    if (!detailClient?.phone || !detailData || detailData.residualCash < 0.005) return
+    const histKey = debtAccountKey(detailClient)
+    if (!histKey || !detailData || detailData.residualCash < 0.005) return
     const amt = detailData.residualCash
     if (!window.confirm(
       `Записать ${fmtMoney(amt)} в «Наличные»?\n\nДолг на карте не изменится — появится строка в истории.`,
     )) return
-    recordStoreDebtCharge(detailClient.phone, amt, 'Ручное начисление (раньше на карте)', { source: 'manual' })
+    recordStoreDebtCharge(histKey, amt, 'Ручное начисление (раньше на карте)', { source: 'manual' })
     setHistMsg(`Записано в наличные: ${fmtMoney(amt)}`)
     setHistTick(t => t + 1)
   }
@@ -800,11 +789,12 @@ export default function DebtsModule({
   }
 
   async function deleteManualHistory(row: DebtHistoryEntry) {
-    if (!detailClient?.phone || !isManualDebtHistoryEntry(row)) return
+    const histKey = debtAccountKey(detailClient)
+    if (!histKey || !isManualDebtHistoryEntry(row)) return
     const abs = Math.abs(Number(row.amount) || 0)
     const label = row.type === 'pay' ? 'оплату' : 'начисление'
     if (!window.confirm(`Удалить ${label} ${fmtMoney(abs)}? Чеки не затрагиваются.`)) return
-    const removed = removeDebtHistoryEntry(detailClient.phone, row.id)
+    const removed = removeDebtHistoryEntry(histKey, row.id)
     if (!removed) {
       setHistMsg('Эту запись нельзя удалить')
       return
@@ -820,8 +810,9 @@ export default function DebtsModule({
   }
 
   async function saveManualHistoryEdit() {
-    if (!detailClient?.phone || !histEdit) return
-    const before = loadDebtHistory(detailClient.phone).find(r => r.id === histEdit.id)
+    const histKey = debtAccountKey(detailClient)
+    if (!histKey || !histEdit) return
+    const before = loadDebtHistory(histKey).find(r => r.id === histEdit.id)
     if (!before || !isManualDebtHistoryEntry(before)) {
       setHistEdit(null)
       return
@@ -833,7 +824,7 @@ export default function DebtsModule({
     }
     setHistEdit(prev => prev ? { ...prev, saving: true } : prev)
     try {
-      const after = updateDebtHistoryEntry(detailClient.phone, histEdit.id, {
+      const after = updateDebtHistoryEntry(histKey, histEdit.id, {
         amountAbs,
         desc: histEdit.desc,
       })

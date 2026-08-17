@@ -7,7 +7,7 @@ import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clientProfileSync'
 import { USE_API } from './config'
 import { api } from './api'
-import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
+import { ACCOUNT_NS, accountStorageKey, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import { phoneDigits, type StoreUser } from './clientSession'
 import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
 
@@ -460,14 +460,67 @@ function setDebtOnCard(phone: string, newDebt: number, newBonus?: number) {
   emitCrmSync()
 }
 
+function isCidHistoryKey(key: string): boolean {
+  return String(key || '').startsWith('cid:')
+}
+
+function debtHistLsKey(key: string): string {
+  const k = String(key || '').trim()
+  if (!k) return ''
+  if (isCidHistoryKey(k)) return `kakapo_acct_${k}_${DEBT_HIST}`
+  return accountStorageKey(DEBT_HIST, k)
+}
+
+function mergeDebtHistoryRows(a: DebtHistoryEntry[], b: DebtHistoryEntry[]): DebtHistoryEntry[] {
+  const seen = new Set<string>()
+  const out: DebtHistoryEntry[] = []
+  for (const row of [...a, ...b]) {
+    const id = String(row.id || '')
+    if (id && seen.has(id)) continue
+    if (id) seen.add(id)
+    out.push(row)
+  }
+  return out.sort((x, y) => (y.ts || 0) - (x.ts || 0))
+}
+
+/** Телефон, если есть; иначе id клиента — чтобы чек в долг без номера тоже писал историю. */
+export function debtAccountKey(client: { phone?: string; id?: string } | null | undefined): string {
+  const digits = phoneDigits(String(client?.phone || ''))
+  if (digits) return digits
+  const id = String(client?.id || '').trim()
+  return id ? `cid:${id}` : ''
+}
+
 export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
-  const list = loadAccountJson<DebtHistoryEntry[]>(DEBT_HIST, [], phone)
-  if (!Array.isArray(list)) return []
-  return list.map((row, i) => ({
-    ...row,
-    time: row.time || '',
-    ts: row.ts || Date.now() - i,
-  }))
+  if (typeof window === 'undefined') return []
+  const lsKey = debtHistLsKey(phone)
+  if (!lsKey) return []
+  try {
+    const raw = localStorage.getItem(lsKey)
+    if (!raw) return []
+    const list = JSON.parse(raw) as DebtHistoryEntry[]
+    if (!Array.isArray(list)) return []
+    return list.map((row, i) => ({
+      ...row,
+      time: row.time || '',
+      ts: row.ts || Date.now() - i,
+    }))
+  } catch {
+    return []
+  }
+}
+
+export function loadDebtHistoryForClient(
+  client: { phone?: string; id?: string } | null | undefined,
+): DebtHistoryEntry[] {
+  if (!client) return []
+  const phone = phoneDigits(String(client.phone || ''))
+  const cid = String(client.id || '').trim() ? `cid:${String(client.id).trim()}` : ''
+  const fromPhone = phone ? loadDebtHistory(phone) : []
+  const fromCid = cid ? loadDebtHistory(cid) : []
+  if (!fromCid.length) return fromPhone
+  if (!fromPhone.length) return fromCid
+  return mergeDebtHistoryRows(fromPhone, fromCid)
 }
 
 export function isImportedLedgerHistoryId(id?: string): boolean {
@@ -478,22 +531,35 @@ export function isImportedLedgerHistoryId(id?: string): boolean {
 /** Ручная запись (начисление/погашение в разделе Долги) — можно править/удалить. Чеки и заказы — нет. */
 export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
   if (row.type === 'purchase') return false
+  if (row.type !== 'debt' && row.type !== 'pay') return false
   // Серверный журнал — только для показа, не правим локально
   if (isImportedLedgerHistoryId(row.id)) return false
   // Привязка к чеку/заказу — не ручная правка
   if (row.orderId) return false
   if (row.source === 'manual') return true
   if (row.source === 'pos' || row.source === 'order' || row.source === 'cashier') return false
-  const desc = String(row.desc || '')
+  // Старые строки без source: правим только явный ручной текст из «Долгов»
+  const desc = String(row.desc || '').trim()
+  if (!desc) return false
   if (/чек/i.test(desc)) return false
-  if (/^заказ\b/i.test(desc.trim())) return false
-  // Погашение на кассе: «Погашение долга · наличные/карта»
-  if (/погашение долга\s*·/i.test(desc)) return false
-  return row.type === 'debt' || row.type === 'pay'
+  if (/^заказ\b/i.test(desc)) return false
+  if (/погашение/i.test(desc)) return false
+  if (/в долг/i.test(desc)) return false
+  if (/с сервера/i.test(desc)) return false
+  if (/касса/i.test(desc)) return false
+  return /ручн/i.test(desc)
+    || /выдано наличн/i.test(desc)
+    || /выдача наличн/i.test(desc)
+    || /начисление/i.test(desc)
 }
 
 function saveDebtHistoryList(phone: string, list: DebtHistoryEntry[]) {
-  saveAccountJson(DEBT_HIST, list.slice(0, DEBT_HISTORY_CAP), phone)
+  if (typeof window === 'undefined') return
+  const lsKey = debtHistLsKey(phone)
+  if (!lsKey) return
+  try {
+    localStorage.setItem(lsKey, JSON.stringify(list.slice(0, DEBT_HISTORY_CAP)))
+  } catch { /* quota */ }
   emitDebtHistoryChange()
 }
 
@@ -565,10 +631,14 @@ export function isLedgerCashHistoryDebt(
   posSales: { id: string; orderId?: string }[],
 ): boolean {
   if (row.type !== 'debt') return false
-  if (isManualDebtHistoryEntry(row)) return true
-  if (!isImportedLedgerHistoryId(row.id)) return false
   if (posSales.some(s => historyDebtMatchesSale(row, s))) return false
-  return true
+  if (isManualDebtHistoryEntry(row)) return true
+  if (isImportedLedgerHistoryId(row.id)) return true
+  if (row.source === 'pos' || row.source === 'order') return false
+  if (row.orderId) return false
+  // Старая выдача наличных без source — показать в «Нал.», но не давать править
+  if (!row.source) return true
+  return row.source === 'cashier' || row.source === 'manual'
 }
 
 function applyLedgerFlagsToCrm(phone: string, ledger: DebtLedgerResponse) {

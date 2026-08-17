@@ -483,22 +483,49 @@ async function nextSeq(): Promise<number> {
   return seqCounter
 }
 
+const DEBT_REPAY_DOUBLE_TAP_MS = 2500
+
+function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
+  num: string
+  amount: number
+  shiftId: string
+  clientId: string
+  method: string
+  note: string
+}): boolean {
+  return String(a?.num || '').trim() === b.num
+    && Math.round((Number(a?.amount) || 0) * 100) / 100 === b.amount
+    && String(a?.shiftId || '') === b.shiftId
+    && String(a?.clientId || '') === b.clientId
+    && String(a?.method || 'cash') === b.method
+    && String(a?.note || '').trim() === b.note
+}
+
 export async function findDuplicateDebtRepay(payload: {
   num?: string
   amount?: number
   shiftId?: string
+  clientRef?: string
+  clientId?: string
+  method?: string
+  note?: string
 }): Promise<PendingOp | null> {
+  const clientRef = String(payload.clientRef || '').trim()
   const num = String(payload.num || '').trim()
   const amount = Math.round((Number(payload.amount) || 0) * 100) / 100
   const shiftId = String(payload.shiftId || '')
+  const clientId = String(payload.clientId || '')
+  const method = payload.method === 'card' ? 'card' : 'cash'
+  const note = String(payload.note || '').trim()
   const now = Date.now()
   const pending = (await getPending()).filter(r => !r.failed && r.kind === 'debt_repay')
   return pending.find(r => {
-    const p = r.payload as any
-    return String(p?.num || '').trim() === num
-      && Math.round((Number(p?.amount) || 0) * 100) / 100 === amount
-      && String(p?.shiftId || '') === shiftId
-      && Math.abs(now - Date.parse(r.createdAtIso)) < 120_000
+    const p = (r.payload || {}) as Record<string, unknown>
+    if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
+    if (!num || !(amount > 0)) return false
+    if (!sameDebtRepayFingerprint(p, { num, amount, shiftId, clientId, method, note })) return false
+    const ts = Date.parse(r.createdAtIso) || 0
+    return ts > 0 && Math.abs(now - ts) < DEBT_REPAY_DOUBLE_TAP_MS
   }) || null
 }
 

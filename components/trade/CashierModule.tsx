@@ -41,12 +41,12 @@ import {
   buildDebtOrderBalances,
   buildSaleDebtStatuses,
   debtOrderIdsMatch,
-  debtStatusForSale,
   ensureDebtHistoryOrderId,
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   loadBalanceTopups,
-  loadDebtHistory,
+  loadDebtHistoryForClient,
+  debtAccountKey,
   recordBalanceTopup,
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
@@ -2428,369 +2428,6 @@ export default function CashierModule({
     showToast('Долг закрыт', 'Повторная просрочка — новый долг недоступен. Клиент должен погасить текущий долг.')
   }
 
-  const clientHistory = useMemo(() => {
-    void histTick
-    if (!client) return [] as ClientHistRow[]
-    const rows: ClientHistRow[] = []
-    const debtList = client.phone ? loadDebtHistory(client.phone) : []
-    const { unpaid, paid } = buildDebtOrderBalances(debtList)
-    const unpaidById = new Map(unpaid.map(d => [d.id, d]))
-    const paidById = new Map(paid.map(d => [d.id, d]))
-
-    const debtStatusFor = (saleId: string, total: number, ts: number) => {
-      const byOrder = unpaid.find(d => d.orderId && (d.orderId === saleId || d.orderId === `sale-${saleId}`))
-        || paid.find(d => d.orderId && (d.orderId === saleId || d.orderId === `sale-${saleId}`))
-      if (byOrder) {
-        if (paidById.has(byOrder.id)) {
-          return { debtStatus: 'paid' as const, debtPaid: Math.abs(Number(byOrder.amount) || total), debtRemain: 0, debtId: byOrder.id }
-        }
-        const u = unpaidById.get(byOrder.id)
-        if (u?.partial) {
-          return { debtStatus: 'partial' as const, debtPaid: u.paidAmount, debtRemain: u.remainingAmount, debtId: byOrder.id }
-        }
-        if (u) {
-          return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: u.remainingAmount, debtId: byOrder.id }
-        }
-      }
-      // Только точное совпадение по сумме+времени с НЕПОГАШЕННЫМ — без «угадывания погашен»
-      const nearUnpaid = unpaid.find(d =>
-        Math.abs(Math.abs(Number(d.amount) || 0) - total) < 0.02
-        && Math.abs((d.ts || 0) - ts) < 10 * 60 * 1000,
-      )
-      if (nearUnpaid) {
-        if (nearUnpaid.partial) {
-          return { debtStatus: 'partial' as const, debtPaid: nearUnpaid.paidAmount, debtRemain: nearUnpaid.remainingAmount, debtId: nearUnpaid.id }
-        }
-        return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: nearUnpaid.remainingAmount, debtId: nearUnpaid.id }
-      }
-      // Нет записи в истории — считаем ОТКРЫТЫМ (раньше ошибочно ставили «погашен»)
-      return { debtStatus: 'open' as const, debtPaid: 0, debtRemain: total, debtId: '' }
-    }
-
-    const linkedDebtIds = new Set<string>()
-
-    for (const s of sales) {
-      const matchId = client.id && s.clientId === client.id
-      const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-      if (!matchId && !matchPhone) continue
-      const isReturned = s.status === 'returned'
-      const openCredit = saleOpenCreditAmount(s)
-      const isCredit = openCredit > 0.001
-      const methodLabel = isReturned
-        ? 'Возврат'
-        : isCredit
-        ? 'В долг'
-        : s.paymentMethod === 'cash'
-          ? 'Наличные'
-          : s.paymentMethod === 'card'
-            ? 'Карта'
-            : s.paymentMethod === 'mixed'
-              ? 'Смешанная'
-              : String(s.paymentMethod)
-      const when = new Date(s.createdAtIso)
-      const ts = when.getTime() || 0
-      const total = Number(s.total) || 0
-      const mappedLines = mapSaleLines(s.items, products)
-      const debtMeta = isCredit ? debtStatusFor(s.id, openCredit, ts) : null
-      if (debtMeta?.debtId) linkedDebtIds.add(debtMeta.debtId)
-
-      let title = isReturned ? 'Чек · возврат' : isCredit ? 'Чек в долг' : 'Чек'
-      let sub = methodLabel
-      if (isCredit && debtMeta) {
-        if (debtMeta.debtStatus === 'paid') {
-          title = 'Чек · долг погашен'
-          sub = `${methodLabel} · оплачен полностью`
-        } else if (debtMeta.debtStatus === 'partial') {
-          title = 'Чек · долг частично'
-          sub = `${methodLabel} · оплачено ${fmtMoney(debtMeta.debtPaid || 0)} · остаток ${fmtMoney(debtMeta.debtRemain || 0)}`
-        } else {
-          title = 'Чек · к оплате'
-          sub = `${methodLabel} · ещё не погашен`
-        }
-      }
-      const saleNote = String(s.note || '').trim()
-      if (saleNote) sub = `${sub} · ${saleNote}`
-
-      rows.push({
-        id: `sale-${s.id}`,
-        ts,
-        when: Number.isNaN(when.getTime())
-          ? s.createdAtIso
-          : `${when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
-        title,
-        sub,
-        items: linesLabel(mappedLines) || undefined,
-        lines: mappedLines.length ? mappedLines : undefined,
-        amount: total,
-        tone: isCredit ? 'credit' : 'sale',
-        debtStatus: debtMeta?.debtStatus,
-        debtPaid: debtMeta?.debtPaid,
-        debtRemain: debtMeta?.debtRemain,
-      })
-    }
-
-    if (client.phone) {
-      for (const h of debtList) {
-        if (h.type === 'pay') {
-          rows.push({
-            id: `repay-${h.id}`,
-            ts: h.ts || 0,
-            when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
-            title: 'Погашение долга',
-            sub: h.desc || 'Погашение',
-            amount: Number(h.amount) || 0,
-            tone: 'repay',
-          })
-          continue
-        }
-        if (linkedDebtIds.has(h.id)) continue
-        const u = unpaidById.get(h.id)
-        const isPaid = paidById.has(h.id)
-        const amt = Math.abs(Number(h.amount) || 0)
-        let title = 'Долг по заказу'
-        let sub = h.desc || h.itemsSummary || 'Долг'
-        let debtStatus: ClientHistRow['debtStatus'] = 'open'
-        let debtPaid = 0
-        let debtRemain = amt
-        if (isPaid) {
-          title = 'Долг · погашен'
-          sub = `${sub} · оплачен полностью`
-          debtStatus = 'paid'
-          debtPaid = amt
-          debtRemain = 0
-        } else if (u?.partial) {
-          title = 'Долг · частично'
-          sub = `${sub} · оплачено ${fmtMoney(u.paidAmount)} · остаток ${fmtMoney(u.remainingAmount)}`
-          debtStatus = 'partial'
-          debtPaid = u.paidAmount
-          debtRemain = u.remainingAmount
-        } else {
-          title = 'Долг · открыт'
-          sub = `${sub} · не оплачен`
-        }
-        rows.push({
-          id: `debt-${h.id}`,
-          ts: h.ts || 0,
-          when: `${h.date}${h.time ? ` · ${h.time}` : ''}`,
-          title,
-          sub,
-          items: h.itemsSummary || undefined,
-          lines: parseItemsSummary(h.itemsSummary),
-          amount: amt,
-          tone: 'debt',
-          debtStatus,
-          debtPaid,
-          debtRemain,
-        })
-      }
-      for (const t of loadBalanceTopups(client.phone)) {
-        const credited = topupBalanceCredit(t)
-        const isTopup = !t.desc || String(t.desc).includes('Пополнение')
-        const cash = Math.round((Number(t.cash) || 0) * 100) / 100
-        const storedBonus = Math.round((Number(t.bonus) || 0) * 100) / 100
-        const percentPart = Math.round((
-          isTopup && cash > 0 && storedBonus < cash ? storedBonus : Math.max(0, storedBonus - cash)
-        ) * 100) / 100
-        rows.push({
-          id: `topup-${t.id}`,
-          ts: t.ts || 0,
-          when: `${t.date}${t.time ? ` · ${t.time}` : ''}`,
-          title: isTopup ? 'Пополнение бонусов' : (t.desc || 'Начисление наличными'),
-          sub: isTopup
-            ? (percentPart > 0
-              ? `⭐ +${fmtBonus(cash + percentPart)} бонусов (деньги ${fmtMoney(cash)} + бонус ${fmtBonus(percentPart)})`
-              : `⭐ +${fmtBonus(cash)} бонусов (деньги ${fmtMoney(cash)})`)
-            : (credited > 0 ? `+${fmtBonus(credited)} ⭐ бонус` : 'Без зачисления'),
-          amount: Number(t.cash) || 0,
-          tone: 'topup',
-        })
-      }
-    }
-    return rows.sort((a, b) => b.ts - a.ts).slice(0, 120)
-  }, [client, sales, histTick, products])
-
-  const histChecks = useMemo(
-    () => clientHistory.filter(r => r.tone === 'sale'),
-    [clientHistory],
-  )
-  const histDebtOrders = useMemo(
-    () => clientHistory.filter(r => r.tone === 'credit' || r.tone === 'debt'),
-    [clientHistory],
-  )
-  const histRepays = useMemo(
-    () => clientHistory.filter(r => r.tone === 'repay'),
-    [clientHistory],
-  )
-  const histTopups = useMemo(
-    () => clientHistory.filter(r => r.tone === 'topup'),
-    [clientHistory],
-  )
-  const histDebtsCount = histDebtOrders.length + histRepays.length
-
-  /** Активные долги по чекам — та же логика, что в разделе «Долги» (статус по истории + долг на карте) */
-  const histActiveDebts = useMemo(() => {
-    void histTick
-    if (!client) return [] as ClientHistRow[]
-
-    const fmtWhen = (ts: number, fallback = '') => {
-      if (!ts) return fallback
-      const d = new Date(ts)
-      if (Number.isNaN(d.getTime())) return fallback
-      return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-    }
-
-    const history = client.phone ? loadDebtHistory(client.phone) : []
-    const creditSales = sales
-      .filter(s => {
-        const matchId = client.id && s.clientId === client.id
-        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-        if (!matchId && !matchPhone) return false
-        return saleOpenCreditAmount(s) > 0.001
-      })
-      .map(s => ({
-        sale: s,
-        ts: new Date(s.createdAtIso).getTime() || 0,
-        amt: saleOpenCreditAmount(s),
-      }))
-      .filter(x => x.amt > 0.001)
-      .sort((a, b) => a.ts - b.ts)
-
-    type St = { status: 'paid' | 'partial' | 'open'; paid: number; remain: number }
-    const locked: { saleId: string; orderId?: string; ts: number; amt: number; sale: typeof creditSales[0]['sale']; st: St }[] = []
-    const flexible: typeof locked = []
-
-    for (const x of creditSales) {
-      const st = debtStatusForSale(history, {
-        id: x.sale.id,
-        orderId: x.sale.orderId,
-        debtAdded: x.amt,
-        dateIso: x.sale.createdAtIso,
-      })
-      const keys = [x.sale.id, x.sale.orderId, `sale-${x.sale.id}`, x.sale.orderId ? `sale-${x.sale.orderId}` : '']
-        .map(k => String(k || '').trim())
-        .filter(Boolean)
-      const linked = history.some(h =>
-        (h.type === 'debt' || h.type === 'pay')
-        && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
-      )
-      const row = {
-        saleId: x.sale.id,
-        orderId: x.sale.orderId || x.sale.id,
-        ts: x.ts,
-        amt: x.amt,
-        sale: x.sale,
-        st,
-      }
-      if (linked) locked.push(row)
-      else flexible.push(row)
-    }
-
-    const debt = Math.max(0, Math.round(clientDebt * 100) / 100)
-    const statusBySale = new Map<string, St>()
-    let lockedRemain = 0
-    for (const r of locked) {
-      statusBySale.set(r.saleId, r.st)
-      lockedRemain += r.st.remain
-    }
-    lockedRemain = Math.round(lockedRemain * 100) / 100
-
-    if (lockedRemain > debt + 0.005) {
-      const scale = debt > 0.001 ? debt / lockedRemain : 0
-      for (const r of locked) {
-        const remain = Math.round(r.st.remain * scale * 100) / 100
-        const paid = Math.round((r.amt - remain) * 100) / 100
-        statusBySale.set(r.saleId, {
-          remain,
-          paid,
-          status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-        })
-      }
-      for (const r of flexible) {
-        statusBySale.set(r.saleId, { status: 'paid', paid: r.amt, remain: 0 })
-      }
-    } else {
-      let budget = Math.round((debt - lockedRemain) * 100) / 100
-      for (const r of flexible) {
-        const remain = Math.min(r.amt, Math.max(0, budget))
-        budget = Math.round((budget - remain) * 100) / 100
-        const paid = Math.round((r.amt - remain) * 100) / 100
-        statusBySale.set(r.saleId, {
-          remain,
-          paid,
-          status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-        })
-      }
-    }
-
-    const { unpaid } = buildDebtOrderBalances(history)
-    const findDebtEntryId = (saleId: string, orderId?: string) => {
-      const keys = [saleId, orderId, saleId ? `sale-${saleId}` : ''].filter(Boolean) as string[]
-      return unpaid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))?.id
-    }
-
-    const active: ClientHistRow[] = []
-    for (const x of creditSales) {
-      const st = statusBySale.get(x.sale.id)
-      if (!st || st.remain <= 0.001) continue
-      const lines = mapSaleLines(x.sale.items, products)
-      const partial = st.status === 'partial'
-      const checkLabel = x.sale.number != null && Number(x.sale.number) > 0
-        ? `Чек №${x.sale.number}`
-        : (x.sale.orderId ? `Заказ ${x.sale.orderId}` : `Чек ${x.sale.id.slice(-6)}`)
-      active.push({
-        id: `active-sale-${x.sale.id}`,
-        ts: x.ts,
-        when: fmtWhen(x.ts, x.sale.createdAtIso),
-        title: partial ? `${checkLabel} · частично` : `${checkLabel} · к оплате`,
-        sub: partial
-          ? `Остаток ${fmtMoney(st.remain)} из ${fmtMoney(x.amt)}`
-          : `Ещё не погашен · ${fmtMoney(st.remain)}`,
-        items: linesLabel(lines) || undefined,
-        lines: lines.length ? lines : undefined,
-        amount: st.remain,
-        tone: 'debt',
-        debtStatus: partial ? 'partial' : 'open',
-        debtPaid: st.paid,
-        debtRemain: st.remain,
-        saleId: x.sale.id,
-        orderId: x.sale.orderId || x.sale.id,
-        debtEntryId: findDebtEntryId(x.sale.id, x.sale.orderId),
-      })
-    }
-
-    const unpaidSum = active.reduce((s, r) => s + (Number(r.amount) || 0), 0)
-    const gap = Math.round((clientDebt - unpaidSum) * 100) / 100
-    if (gap > 0.5) {
-      active.push({
-        id: 'active-balance-gap',
-        ts: Date.now(),
-        when: 'сейчас',
-        title: 'Прочий долг',
-        sub: `В балансе есть, в деталях чеков нет · ${fmtMoney(gap)}`,
-        amount: gap,
-        tone: 'debt',
-        debtStatus: 'open',
-        debtPaid: 0,
-        debtRemain: gap,
-      })
-    }
-
-    return active.sort((a, b) => a.ts - b.ts)
-  }, [client, sales, clientDebt, histTick, products])
-
-  const histPaidDebts = useMemo(
-    () => histDebtOrders.filter(r => r.debtStatus === 'paid'),
-    [histDebtOrders],
-  )
-  const histOpenDebts = useMemo(
-    () => histActiveDebts.slice(0, 20),
-    [histActiveDebts],
-  )
-  const histActiveDebtSum = useMemo(
-    () => histActiveDebts.reduce((s, r) => s + (Number(r.amount) || 0), 0),
-    [histActiveDebts],
-  )
-
   const cashierDebtPanel = useMemo(() => {
     void histTick
     const empty = {
@@ -2807,7 +2444,7 @@ export default function CashierModule({
     }
     if (!client) return empty
 
-    const history = client.phone ? loadDebtHistory(client.phone) : []
+    const history = loadDebtHistoryForClient(client)
     const posSales = sales
       .filter(s => {
         const matchId = client.id && s.clientId === client.id
@@ -2845,24 +2482,7 @@ export default function CashierModule({
     ) / 100
     const residualCash = Math.max(0, Math.round((cashOnCard - cashChargeSum) * 100) / 100)
 
-    const allPaySum = Math.round(
-      history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
-    ) / 100
-    const chargeSum = Math.round((posOriginal + cashChargeSum + residualCash) * 100) / 100
-    const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
-    const gapPays: DebtHistoryEntry[] = missingPay > 0.05
-      ? [{
-          id: 'gap-pay',
-          date: 'сводка',
-          time: '',
-          ts: 2,
-          desc: 'Погашения (раньше / без записи по чекам)',
-          amount: missingPay,
-          type: 'pay',
-          source: 'cashier',
-        }]
-      : []
-    const payRows = [...checkPays, ...gapPays, ...manualPays].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    const payRows = [...checkPays, ...manualPays].sort((a, b) => (b.ts || 0) - (a.ts || 0))
 
     const creditSales = posSales.map(s => {
       const st = saleStatus[s.id] || { status: 'open' as const, paid: 0, remain: s.debtAdded }
@@ -2944,6 +2564,84 @@ export default function CashierModule({
     }
   }, [client, sales, clientDebt, histTick, products])
 
+  const histActiveDebts = useMemo(() => {
+    if (!client) return [] as ClientHistRow[]
+    const history = loadDebtHistoryForClient(client)
+    const { unpaid } = buildDebtOrderBalances(history)
+    const findDebtEntryId = (saleId: string, orderId?: string) => {
+      const keys = [saleId, orderId, saleId ? `sale-${saleId}` : ''].filter(Boolean) as string[]
+      return unpaid.find(d => keys.some(k => debtOrderIdsMatch(d.orderId, k)))?.id
+    }
+    const active: ClientHistRow[] = cashierDebtPanel.creditSales
+      .filter(s => s.remain > 0.001)
+      .map(s => {
+        const sale = sales.find(x => x.id === s.id)
+        const lines = sale ? mapSaleLines(sale.items, products) : []
+        const partial = s.status === 'partial'
+        return {
+          id: `active-sale-${s.id}`,
+          ts: s.ts,
+          when: s.when,
+          title: partial ? `${s.label} · частично` : `${s.label} · к оплате`,
+          sub: partial
+            ? `Остаток ${fmtMoney(s.remain)} из ${fmtMoney(s.debtAdded)}`
+            : `Ещё не погашен · ${fmtMoney(s.remain)}`,
+          items: s.items || undefined,
+          lines: lines.length ? lines : undefined,
+          amount: s.remain,
+          tone: 'debt' as const,
+          debtStatus: (partial ? 'partial' : 'open') as ClientHistRow['debtStatus'],
+          debtPaid: Math.max(0, Math.round((s.debtAdded - s.remain) * 100) / 100),
+          debtRemain: s.remain,
+          saleId: s.id,
+          orderId: sale?.orderId || s.id,
+          debtEntryId: findDebtEntryId(s.id, sale?.orderId),
+        }
+      })
+    const unpaidSum = active.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+    const gap = Math.round((clientDebt - unpaidSum) * 100) / 100
+    if (gap > 0.5) {
+      active.push({
+        id: 'active-balance-gap',
+        ts: Date.now(),
+        when: 'сейчас',
+        title: 'Прочий долг',
+        sub: `В балансе есть, в деталях чеков нет · ${fmtMoney(gap)}`,
+        amount: gap,
+        tone: 'debt',
+        debtStatus: 'open',
+        debtPaid: 0,
+        debtRemain: gap,
+      })
+    }
+    return active.sort((a, b) => a.ts - b.ts)
+  }, [client, cashierDebtPanel.creditSales, sales, products, clientDebt])
+
+  const histPaidDebts = useMemo((): ClientHistRow[] => (
+    cashierDebtPanel.creditSales
+      .filter(s => s.status === 'paid')
+      .map(s => {
+        const sale = sales.find(x => x.id === s.id)
+        const lines = sale ? mapSaleLines(sale.items, products) : []
+        return {
+          id: `sale-${s.id}`,
+          ts: s.ts,
+          when: s.when,
+          title: `${s.label} · долг погашен`,
+          sub: 'оплачен полностью',
+          items: s.items || undefined,
+          lines: lines.length ? lines : undefined,
+          amount: s.debtAdded,
+          tone: 'credit' as const,
+          debtStatus: 'paid' as const,
+          debtPaid: s.debtAdded,
+          debtRemain: 0,
+          saleId: s.id,
+          orderId: sale?.orderId || s.id,
+        }
+      })
+  ), [cashierDebtPanel.creditSales, sales, products])
+
   function renderHistRow(row: ClientHistRow, opts?: { compact?: boolean }) {
     return (
       <button
@@ -2986,15 +2684,15 @@ export default function CashierModule({
     const bonus = Number(loyalty?.bonus) || 0
     let repaid = 0
     let charged = 0
-    if (client?.phone) {
-      for (const h of loadDebtHistory(client.phone)) {
+    if (client) {
+      for (const h of loadDebtHistoryForClient(client)) {
         if (h.type === 'pay') repaid += Number(h.amount) || 0
         else charged += Math.abs(Number(h.amount) || 0)
       }
     }
-    const creditSales = clientHistory.filter(r => r.tone === 'credit').length
+    const creditSales = cashierDebtPanel.totalChecks
     return { bonus, repaid, charged, creditSales }
-  }, [client, loyalty, histTick, clientHistory])
+  }, [client, loyalty, histTick, cashierDebtPanel.totalChecks])
 
   const subtotalGross = useMemo(() => cart.reduce((s, l) => s + lineGross(l), 0), [cart])
   const itemDiscAmount = useMemo(() => cart.reduce((s, l) => s + (lineGross(l) - lineNet(l)), 0), [cart])
@@ -6019,20 +5717,21 @@ export default function CashierModule({
         }
         void useOfflineSync.getState().syncNow()
       }
-      if (client?.phone) {
+      if (client?.id) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
+        const histKey = debtAccountKey(client)
         const purchaseAmt = Math.round((Number(cashPaid) || 0) * 100) / 100
-        if (purchaseAmt > 0.001) {
+        if (histKey && purchaseAmt > 0.001) {
           recordStorePurchase(
-            client.phone,
+            histKey,
             purchaseAmt,
             'Покупка в магазине · нал',
             { orderId: created?.orderId || created?.id || undefined, itemsSummary },
           )
         }
-        if (debtAdded > 0.001) {
+        if (histKey && debtAdded > 0.001) {
           const baseDesc = debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
-          recordStoreDebtCharge(client.phone, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
+          recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
             orderId: created?.orderId || created?.id || undefined,
             itemsSummary,
             source: 'pos',
@@ -6078,9 +5777,9 @@ export default function CashierModule({
         const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
         debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
         try {
-          if (client.phone) {
             // Списываем со старых чеков (FIFO), чтобы остатки в «Чеки» сразу уменьшились
-            const history = loadDebtHistory(client.phone)
+            const histKey = debtAccountKey(client)
+            const history = loadDebtHistoryForClient(client)
             const creditSales = sales
               .filter(s => {
                 const matchId = client.id && s.clientId === client.id
@@ -6107,16 +5806,17 @@ export default function CashierModule({
                   ? `Чек №${s.number}`
                   : `Чек ${String(s.id).slice(-6)}`,
               }))
-            const fifo = recordStoreDebtRepaymentFifo(client.phone, payAmt, targets, {
-              method,
-              source: 'cashier',
-              desc: 'Погашение долга с чеком',
-            })
-            if (fifo.appliedToChecks > 0.001) {
-              debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
+            if (histKey) {
+              const fifo = recordStoreDebtRepaymentFifo(histKey, payAmt, targets, {
+                method,
+                source: 'cashier',
+                desc: 'Погашение долга с чеком',
+              })
+              if (fifo.appliedToChecks > 0.001) {
+                debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
+              }
             }
             setHistTick(t => t + 1)
-          }
         } catch { /* ignore */ }
         void debtRepaySafe(cardClient.card, {
           amount: payAmt,
@@ -6377,8 +6077,9 @@ export default function CashierModule({
       const withCard = await ensureClientHasCard(client)
       const payAmt = Math.round(Math.min(amount, maxForTarget) * 100) / 100
       const target = repayTarget
-      if (target?.debtEntryId && withCard.phone && target.orderId) {
-        ensureDebtHistoryOrderId(withCard.phone, target.debtEntryId, target.orderId)
+      const histKey = debtAccountKey(withCard)
+      if (target?.debtEntryId && histKey && target.orderId) {
+        ensureDebtHistoryOrderId(histKey, target.debtEntryId, target.orderId)
       }
       const repaid = await debtRepaySafe(withCard.card!, {
         amount: payAmt,
@@ -6406,9 +6107,9 @@ export default function CashierModule({
         return
       }
       let fifoChecks = 0
-      if (client.phone) {
+      if (histKey) {
         if (target?.orderId) {
-          recordStoreDebtRepayment(client.phone, payAmt, {
+          recordStoreDebtRepayment(histKey, payAmt, {
             method: repayMethod,
             orderId: target.orderId,
             desc: `Погашение · ${target.label}`,
@@ -6423,12 +6124,12 @@ export default function CashierModule({
               remain: Number(r.debtRemain ?? r.amount) || 0,
               label: (r.title || '').replace(/\s·\s(к оплате|частично)$/i, '').trim() || undefined,
             }))
-          fifoChecks = recordStoreDebtRepaymentFifo(client.phone, payAmt, targets, {
+          fifoChecks = recordStoreDebtRepaymentFifo(histKey, payAmt, targets, {
             method: repayMethod,
             source: 'cashier',
           }).checkCount
         }
-        if (repayBonus > 0) {
+        if (repayBonus > 0 && client.phone) {
           recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
         }
       }
@@ -9896,8 +9597,7 @@ export default function CashierModule({
                     onClick={() => {
                                 if (!row.saleId) return
                                 const match = histActiveDebts.find(r => r.saleId === row.saleId)
-                                  || histPaidDebts.find(r => r.id.includes(row.saleId!))
-                                  || clientHistory.find(r => r.id.includes(row.saleId!))
+                                  || histPaidDebts.find(r => r.saleId === row.saleId)
                                 if (match) setHistDetail(match)
                                 else {
                                   const sale = sales.find(s => s.id === row.saleId)
