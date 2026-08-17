@@ -3,10 +3,10 @@
 // Локальный кэш каталога + очередь чеков + синхронизация
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { getLocalDb } from './localDbClient'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
+import { androidPersist } from './androidPersist'
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -109,7 +109,7 @@ export interface PendingOp<P = any> {
 /** Старое название — чек в очереди */
 export type PendingSale = PendingOp<PosSalePayload>
 
-// ── Хранилище (Desktop SQLite → Android файл → IndexedDB → localStorage) ──
+// ── Хранилище (Desktop local DB → IndexedDB → localStorage) ──
 const DB_NAME = 'kakapo_offline'
 const DB_VERSION = 1
 const STORE_KV = 'kv'
@@ -124,7 +124,10 @@ function hasIndexedDB(): boolean {
 }
 
 function deskDb() {
-  return getLocalDb()
+  if (typeof window === 'undefined') return null
+  const d = window.kakapoDesktop
+  if (!d?.isDesktop || !d.localDbKvGet || !d.localDbKvSet) return null
+  return d
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -153,8 +156,16 @@ function idbRun<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectSto
   }))
 }
 
+function androidFiles() {
+  return androidPersist()
+}
+
 // ── KV: кэш каталога ──
 async function kvSet(key: string, value: unknown): Promise<void> {
+  const files = androidFiles()
+  if (files) {
+    try { await files.kvSet(key, value) } catch { /* дальше копии */ }
+  }
   const desk = deskDb()
   if (desk?.localDbKvSet) {
     try {
@@ -169,6 +180,13 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
+  const files = androidFiles()
+  if (files) {
+    try {
+      const v = await files.kvGet(key)
+      if (v !== undefined && v !== null) return v as T
+    } catch { /* fallback */ }
+  }
   const desk = deskDb()
   if (desk?.localDbKvGet) {
     try {
@@ -179,7 +197,12 @@ async function kvGet<T>(key: string): Promise<T | null> {
   if (hasIndexedDB()) {
     try {
       const v = await idbRun<T | undefined>(STORE_KV, 'readonly', s => s.get(key))
-      if (v !== undefined && v !== null) return v as T
+      if (v !== undefined && v !== null) {
+        if (files) {
+          try { await files.kvSet(key, v) } catch { /* ignore */ }
+        }
+        return v as T
+      }
     } catch { /* fallback */ }
   }
   try {
@@ -315,6 +338,16 @@ function lsQueueWrite(list: PendingOp[]) {
 export async function getPending(): Promise<PendingOp[]> {
   const byRef = new Map<string, PendingOp>()
 
+  const files = androidFiles()
+  if (files) {
+    try {
+      for (const raw of (await files.queueAll()) || []) {
+        const row = normalizeRow(raw)
+        if (row.clientRef) byRef.set(row.clientRef, row)
+      }
+    } catch { /* fallback */ }
+  }
+
   const desk = deskDb()
   if (desk?.localDbQueueAll) {
     try {
@@ -341,9 +374,14 @@ export async function getPending(): Promise<PendingOp[]> {
 
   if (byRef.size === 0) return lsQueueRead().sort(byOrder)
 
-  if (idbOnly > 0 && desk?.localDbQueuePut) {
+  if (idbOnly > 0) {
     for (const row of byRef.values()) {
-      try { await desk.localDbQueuePut(row) } catch { /* ignore */ }
+      if (files) {
+        try { await files.queuePut(row) } catch { /* ignore */ }
+      }
+      if (desk?.localDbQueuePut) {
+        try { await desk.localDbQueuePut(row) } catch { /* ignore */ }
+      }
     }
   }
 
@@ -351,6 +389,10 @@ export async function getPending(): Promise<PendingOp[]> {
 }
 
 async function putPending(row: PendingOp): Promise<void> {
+  const files = androidFiles()
+  if (files) {
+    try { await files.queuePut(row) } catch { /* fallback */ }
+  }
   const desk = deskDb()
   if (desk?.localDbQueuePut) {
     try {
@@ -370,6 +412,10 @@ async function putPending(row: PendingOp): Promise<void> {
 }
 
 async function deletePending(clientRef: string): Promise<void> {
+  const files = androidFiles()
+  if (files) {
+    try { await files.queueDelete(clientRef) } catch { /* ignore */ }
+  }
   const desk = deskDb()
   if (desk?.localDbQueueDelete) {
     try {

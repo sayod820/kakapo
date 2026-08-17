@@ -796,6 +796,14 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       return
     }
     try {
+      const { isTradeLocalFirst } = await import('./offlineV2')
+      if (isTradeLocalFirst() && !get().products.length) {
+        try {
+          const { readCachedProducts } = await import('./offline')
+          const cached = await readCachedProducts()
+          if (cached && cached.length) set({ products: cached, loaded: true })
+        } catch { /* дальше сервер */ }
+      }
       const raw = ensureArray<Product>(await api.getProducts(), 'products')
       const { sanitizeProductForLocalCache, cacheProducts, getPending } = await import('./offline')
       let products = raw.map(sanitizeProductForLocalCache)

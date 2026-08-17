@@ -2,7 +2,7 @@
 
 /**
  * Persist in-memory DB snapshot to PostgreSQL (docs + kv_meta).
- * UPSERT — не DELETE всей базы на каждый persist (очередь за 2 дня).
+ * UPSERT — не DELETE всей базы на каждый persist (очередь кассы 3+ дня).
  */
 
 import { withTransaction } from './client.js'

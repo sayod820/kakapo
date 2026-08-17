@@ -233,7 +233,7 @@ public class MainActivity extends BridgeActivity {
   }
 
   public class KakapoBridge {
-    private final KakapoSqliteStore db = new KakapoSqliteStore(MainActivity.this);
+    private final KakapoFileStore files = new KakapoFileStore(MainActivity.this);
 
     @JavascriptInterface
     public void setTheme(String theme) {
@@ -252,55 +252,37 @@ public class MainActivity extends BridgeActivity {
     }
 
     @JavascriptInterface
-    public String queueAll() { return db.queueAll(); }
+    public String kvGet(String key) { return files.kvGet(key); }
 
     @JavascriptInterface
-    public boolean queuePut(String json) { return db.queuePut(json); }
+    public boolean kvSet(String key, String json) { return files.kvSet(key, json); }
 
     @JavascriptInterface
-    public boolean queueDelete(String clientRef) { return db.queueDelete(clientRef); }
+    public boolean kvDelete(String key) { return files.kvDelete(key); }
 
     @JavascriptInterface
-    public String kvGet(String key) { return db.kvGet(key); }
+    public String queueAll() { return files.queueAll(); }
 
     @JavascriptInterface
-    public boolean kvSet(String key, String json) { return db.kvSet(key, json); }
+    public boolean queuePut(String json) { return files.queuePut(json); }
 
     @JavascriptInterface
-    public boolean kvDelete(String key) { return db.kvDelete(key); }
+    public boolean queueDelete(String clientRef) { return files.queueDelete(clientRef); }
 
     @JavascriptInterface
-    public String metaGet() { return db.metaGet(); }
+    public String spillSlice(String id, int off, int n) { return files.spillSlice(id, off, n); }
 
     @JavascriptInterface
-    public boolean metaPatch(String json) { return db.metaPatch(json); }
+    public boolean ingestBegin() { return files.ingestBegin(); }
 
     @JavascriptInterface
-    public boolean markInstalled() { return db.markInstalled(); }
+    public boolean ingestAppend(String chunk) { return files.ingestAppend(chunk); }
 
     @JavascriptInterface
-    public boolean mirrorPut(String json) { return db.mirrorPut(json); }
+    public boolean ingestKvSet(String key) { return files.ingestKvSet(key); }
 
     @JavascriptInterface
-    public String mirrorGet(String kind, String id) { return db.mirrorGet(kind, id); }
-
-    @JavascriptInterface
-    public String mirrorList(String kind, int limit) { return db.mirrorList(kind, limit); }
-
-    @JavascriptInterface
-    public boolean entityPut(String json) { return db.entityPut(json); }
-
-    @JavascriptInterface
-    public boolean entityPutMany(String json) { return db.entityPutMany(json); }
-
-    @JavascriptInterface
-    public String entityGet(String kind, String id) { return db.entityGet(kind, id); }
-
-    @JavascriptInterface
-    public String entityList(String kind, String optsJson) { return db.entityList(kind, optsJson); }
-
-    @JavascriptInterface
-    public boolean entityDelete(String kind, String id) { return db.entityDelete(kind, id); }
+    public boolean ingestQueuePut() { return files.ingestQueuePut(); }
   }
 
   private void injectAndroidFlag() {

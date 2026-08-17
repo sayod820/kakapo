@@ -34,7 +34,7 @@ export default function LocalDbBootstrap({
     setBusy(true)
     setError('')
     setPasswordStep(null)
-    const alive = await pingApiForBootstrap(25000)
+    const alive = await pingApiForBootstrap(4000)
     setOnline(alive)
     if (!alive) {
       setError('Для первого запуска нужен интернет. Подключите сеть и нажмите «Скачать».')
@@ -83,7 +83,7 @@ export default function LocalDbBootstrap({
           onDone()
           return
         }
-        const alive = await pingApiForBootstrap(25000)
+        const alive = await pingApiForBootstrap(4000)
         if (cancelled) return
         setOnline(alive)
         setChecking(false)

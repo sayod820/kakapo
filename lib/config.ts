@@ -40,6 +40,8 @@ export function getApiUrl(): string {
     if (explicit && /^https?:\/\//i.test(explicit)) return explicit
     const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
       || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
+      || !!(window as Window & { KakapoAndroid?: { kvGet?: unknown } }).KakapoAndroid
+      || !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
     if (nativeApk) {
       return normalizeApiBase('https://kakappo.shop/api/kakapo')
     }
@@ -64,6 +66,8 @@ export function getWsUrl(): string {
     if (explicit) return explicit.replace(/\/$/, '')
     const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
       || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
+      || !!(window as Window & { KakapoAndroid?: { kvGet?: unknown } }).KakapoAndroid
+      || !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
     if (nativeApk) return 'wss://kakappo.shop'
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     return `${proto}//${window.location.host}`

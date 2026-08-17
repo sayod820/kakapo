@@ -1,7 +1,7 @@
 /**
  * Локальные сущности SQLite (Desktop) + fallback на KV.
  */
-import { getLocalDb } from './localDbClient'
+import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 
 export type EntityKind =
   | 'product'
@@ -32,8 +32,8 @@ export async function entityPut(
   data: unknown,
   opts?: { updatedAtIso?: string; deleted?: boolean },
 ): Promise<boolean> {
-  const desk = getLocalDb()
-  if (desk?.localDbEntityPut) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbEntityPut) {
     const res = await desk.localDbEntityPut({
       kind,
       id: String(id),
@@ -50,8 +50,8 @@ export async function entityGet<T = unknown>(
   kind: EntityKind | string,
   id: string,
 ): Promise<LocalEntityRow<T> | null> {
-  const desk = getLocalDb()
-  if (desk?.localDbEntityGet) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbEntityGet) {
     const row = await desk.localDbEntityGet(kind, String(id))
     if (!row) return null
     return {
@@ -68,8 +68,8 @@ export async function entityList<T = unknown>(
   kind?: EntityKind | string,
   opts?: { since?: string; limit?: number; includeDeleted?: boolean },
 ): Promise<LocalEntityRow<T>[]> {
-  const desk = getLocalDb()
-  if (desk?.localDbEntityList) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbEntityList) {
     const rows = await desk.localDbEntityList(kind, opts)
     return (rows || []).map(r => ({
       kind: r.kind,
@@ -87,8 +87,8 @@ export async function entityUpsertMany(
   items: Array<{ id: string | number; data: unknown; updatedAtIso?: string }>,
 ): Promise<void> {
   if (!items.length) return
-  const desk = getLocalDb()
-  if (desk?.localDbEntityPutMany) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbEntityPutMany) {
     await desk.localDbEntityPutMany(
       items.map(it => ({
         kind,
@@ -105,8 +105,8 @@ export async function entityUpsertMany(
 }
 
 export async function getSyncCursor(): Promise<string> {
-  const desk = getLocalDb()
-  if (desk?.localDbMetaGet) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbMetaGet) {
     try {
       const meta = await desk.localDbMetaGet()
       return String(meta?.syncCursor || '')
@@ -121,8 +121,8 @@ export async function getSyncCursor(): Promise<string> {
 
 export async function setSyncCursor(cursor: string): Promise<void> {
   const value = String(cursor || '')
-  const desk = getLocalDb()
-  if (desk?.localDbMetaPatch) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbMetaPatch) {
     await desk.localDbMetaPatch({ syncCursor: value })
     return
   }

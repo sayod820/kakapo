@@ -4,6 +4,16 @@ const ANDROID_UA = /Android/i
 const KAKAPO_ANDROID_UA = /KakapoTradeAndroid/i
 
 /** Нативное приложение Торговля (APK), не браузер Chrome на телефоне. */
+export function hasKakapoAndroidBridge(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const b = (window as Window & { KakapoAndroid?: { kvGet?: unknown } }).KakapoAndroid
+    return typeof b?.kvGet === 'function'
+  } catch {
+    return false
+  }
+}
+
 export function isTradeAndroidNative(): boolean {
   if (typeof window === 'undefined') return false
   try {
@@ -11,6 +21,7 @@ export function isTradeAndroidNative(): boolean {
       Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string }
       kakapoAndroid?: boolean
     }
+    if (hasKakapoAndroidBridge()) return true
     if (w.kakapoAndroid === true) return true
     if (w.Capacitor?.isNativePlatform?.()) {
       const platform = String(w.Capacitor.getPlatform?.() || '').toLowerCase()
@@ -56,7 +67,7 @@ export function isTradeMobileUi(): boolean {
   return false
 }
 
-/** На телефоне нет USB-принтера / весов / шаблона чека */
+/** На телефоне нет USB-принтера / весов / шаблона чека — не показываем настройки. */
 export function hideTradeHardwareUi(): boolean {
   return isTradeAndroid()
 }

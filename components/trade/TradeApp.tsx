@@ -337,7 +337,8 @@ const CSS = `
     display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:900
   }
   .k-rep-flt-btn{display:inline-flex!important}
-  .k-rep-flt-btn.is-on{border-color:var(--green);color:var(--green)}
+  .k-rep-flt-btn.is-on,
+  .k-rep-actions .k-btn-s.is-on{border-color:var(--green);color:var(--green)}
   .k-rep-dates{
     display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:420px;margin:0 0 8px
   }
@@ -371,6 +372,7 @@ const CSS = `
   }
   .k-rep-highlight span{display:block;font-size:11px;color:var(--muted);font-weight:700}
   .k-rep-highlight b{display:block;font-size:18px;font-weight:900;margin-top:3px;line-height:1.15}
+  .k-rep-highlight small{display:block;font-size:10px;font-weight:800;margin-top:2px}
   .k-rep-stats{
     display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px;
     margin:0 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)

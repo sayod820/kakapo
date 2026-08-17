@@ -99,34 +99,67 @@ if (-not (Test-Path (Join-Path $Root 'www\trade\index.html'))) {
 }
 npx cap sync android
 
-Write-Host 'Gradle assembleDebug...'
+$Release = $false
+if ($args -contains '-Release') { $Release = $true }
+
+$ksDir = Join-Path $Root 'keystore'
+$ksFile = Join-Path $ksDir 'kakapo-release.jks'
+$ksProps = Join-Path $ksDir 'keystore.properties'
+if ($Release) {
+  New-Item -ItemType Directory -Force -Path $ksDir | Out-Null
+  if (-not (Test-Path $ksFile)) {
+    $pass = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
+    $keytool = Join-Path $javaHome 'bin\keytool.exe'
+    & $keytool -genkeypair -v -storetype JKS -keystore $ksFile -alias kakapo -keyalg RSA -keysize 2048 -validity 10000 -storepass $pass -keypass $pass -dname 'CN=KAKAPO Trade, OU=KAKAPO, O=KAKAPO, L=Dushanbe, C=TJ'
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    @"
+storeFile=kakapo-release.jks
+storePassword=$pass
+keyAlias=kakapo
+keyPassword=$pass
+"@ | Set-Content -Path $ksProps -Encoding ASCII
+    Write-Host "Created keystore: $ksFile  (keep a backup, do not lose it)" -ForegroundColor Yellow
+  }
+  if (-not (Test-Path $ksProps)) {
+    Write-Host 'ERROR: keystore/keystore.properties missing' -ForegroundColor Red
+    exit 1
+  }
+}
+
+$task = if ($Release) { 'assembleRelease' } else { 'assembleDebug' }
+Write-Host "Gradle $task..."
 Push-Location (Join-Path $Root 'android')
 try {
   $gradleBat = Find-GradleBat
   if ($gradleBat) {
-    & $gradleBat assembleDebug --no-daemon
+    & $gradleBat $task --no-daemon
   } else {
-    & .\gradlew.bat assembleDebug --no-daemon
+    & .\gradlew.bat $task --no-daemon
   }
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
   Pop-Location
 }
 
-$apk = Join-Path $Root 'android\app\build\outputs\apk\debug\app-debug.apk'
-if (-not (Test-Path $apk)) {
-  Write-Host 'APK не найден после сборки' -ForegroundColor Red
-  exit 1
-}
-
 $outDir = Join-Path $Root 'dist'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$outApk = Join-Path $outDir 'KAKAPO-Trade-debug.apk'
-Copy-Item $apk $outApk -Force
 
-$releaseApk = Join-Path $Root 'android\app\build\outputs\apk\release\app-release-unsigned.apk'
-if (Test-Path $releaseApk) {
-  Copy-Item $releaseApk (Join-Path $outDir 'KAKAPO-Trade-release-unsigned.apk') -Force
+if ($Release) {
+  $apk = Join-Path $Root 'android\app\build\outputs\apk\release\app-release.apk'
+  if (-not (Test-Path $apk)) {
+    Write-Host 'Signed release APK не найден' -ForegroundColor Red
+    exit 1
+  }
+  $outApk = Join-Path $outDir 'KAKAPO-Trade.apk'
+  Copy-Item $apk $outApk -Force
+} else {
+  $apk = Join-Path $Root 'android\app\build\outputs\apk\debug\app-debug.apk'
+  if (-not (Test-Path $apk)) {
+    Write-Host 'APK не найден после сборки' -ForegroundColor Red
+    exit 1
+  }
+  $outApk = Join-Path $outDir 'KAKAPO-Trade-debug.apk'
+  Copy-Item $apk $outApk -Force
 }
 
 Write-Host "OK: $outApk" -ForegroundColor Green

@@ -10,6 +10,7 @@ import {
   readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { loadDebtHistory } from '@/lib/clientVipCredit'
 import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
@@ -18,27 +19,36 @@ import {
   REPORT_PERIODS,
   REPORT_TABS,
   SALE_STATUS_OPTS,
+  abcClassify,
   aggregateSales,
   buildProductInsights,
   cashierStats,
   dailyBreakdown,
   defaultPosId,
+  deltaPct,
   downloadCsv,
   filterByCreatedAt,
   filterSales,
   filterShifts,
   formatPeriodLabel,
+  hourlyBreakdown,
+  inPeriod,
   isSaleFullyReturned,
   isSalePartiallyReturned,
+  lossProducts,
+  orderSuggestions,
   paymentLabel,
   periodRange,
   periodToApiQuery,
+  pointStats,
   posName,
+  previousPeriodRange,
   revisionDiffCount,
   round2,
   saleNumberLabel,
   sumCogs,
   sumExpenses,
+  sumLedgerDebtRepaid,
   sumReceiptCost,
   sumReceiptPaid,
   sumWriteoffCost,
@@ -76,9 +86,10 @@ export default function ReportsModule() {
   const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>('all')
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<ReportTab>('overview')
-  const [productView, setProductView] = useState<'top' | 'unsold' | 'dead' | 'categories' | 'suppliers'>('top')
+  const [productView, setProductView] = useState<'top' | 'unsold' | 'dead' | 'loss' | 'order' | 'abc' | 'categories' | 'suppliers'>('top')
   const [showHelp, setShowHelp] = useState(false)
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [comparePrev, setComparePrev] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthLocal, setTruthLocal] = useState(false)
@@ -136,7 +147,41 @@ export default function ReportsModule() {
   const revStats = useMemo(() => revisionDiffCount(periodRevisions), [periodRevisions])
   const byCashier = useMemo(() => cashierStats(periodSalesAll), [periodSalesAll])
   const byDay = useMemo(() => dailyBreakdown(periodSalesAll), [periodSalesAll])
+  const byPoint = useMemo(() => pointStats(periodSalesAll, posPoints, defPos), [periodSalesAll, posPoints, defPos])
+  const byHour = useMemo(() => hourlyBreakdown(periodSalesAll), [periodSalesAll])
+  const abcRows = useMemo(() => abcClassify(productInsights.all), [productInsights.all])
+  const lossRows = useMemo(() => lossProducts(productInsights.all), [productInsights.all])
+  const orderRows = useMemo(() => orderSuggestions(productInsights.all, from, to), [productInsights.all, from, to])
 
+  const prevRange = useMemo(
+    () => previousPeriodRange(period, customFrom, customTo),
+    [period, customFrom, customTo],
+  )
+  const prevSales = useMemo(
+    () => filterSales(sales, {
+      from: prevRange.from, to: prevRange.to, posId: filterPosId, defPos, cashierId: filterCashier,
+    }),
+    [sales, prevRange, filterPosId, defPos, filterCashier],
+  )
+  const prevAgg = useMemo(() => aggregateSales(prevSales), [prevSales])
+
+  const ledgerRepaid = useMemo(() => {
+    const journal = truth?.journal || []
+    if (journal.length) return sumLedgerDebtRepaid(journal)
+    return sumLedgerDebtRepaid(truth?.cashBook?.entries)
+  }, [truth])
+  const historyRepaid = useMemo(() => {
+    let n = 0
+    for (const c of clients) {
+      if (!c.phone) continue
+      for (const row of loadDebtHistory(c.phone)) {
+        if (row.type !== 'pay') continue
+        if (!inPeriod(new Date(row.ts).toISOString(), from, to)) continue
+        n = round2(n + (Number(row.amount) || 0))
+      }
+    }
+    return n
+  }, [clients, from, to])
   const supplierDebt = useMemo(
     () => round2(suppliers.reduce((s, x) => s + (Number(x.payableAmount) || 0), 0)),
     [suppliers],
@@ -149,6 +194,8 @@ export default function ReportsModule() {
     () => round2(clientDebtors.reduce((s, c) => s + (Number(c.debt) || 0), 0)),
     [clientDebtors],
   )
+  const debtRepaid = ledgerRepaid > 0.001 ? ledgerRepaid : historyRepaid
+  const debtLeft = round2(Math.max(0, clientDebtTotal))
   const creditSales = useMemo(
     () => periodSalesAll.filter(s => !isSaleFullyReturned(s) && (Number(s.debtAdded) || 0) > 0.001),
     [periodSalesAll],
@@ -166,6 +213,7 @@ export default function ReportsModule() {
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
+  const revDelta = comparePrev ? deltaPct(salesAgg.revenue, prevAgg.revenue) : null
 
   const apiQuery = useMemo(
     () => periodToApiQuery(period, customFrom, customTo, {
@@ -295,6 +343,30 @@ export default function ReportsModule() {
       )
       return
     }
+    if (productView === 'abc') {
+      downloadCsv(
+        `kakapo-abc-${periodLabel}.csv`,
+        ['ABC', 'Товар', 'Выручка', 'Доля %', 'Кол-во', 'Прибыль', 'Остаток'],
+        abcRows.map(r => [r.abc, r.productName, r.revenue, r.share, r.qty, r.profit, r.stock]),
+      )
+      return
+    }
+    if (productView === 'loss') {
+      downloadCsv(
+        `kakapo-loss-${periodLabel}.csv`,
+        ['Товар', 'Причина', 'Кол-во', 'Выручка', 'Себест', 'Прибыль', 'Остаток'],
+        lossRows.map(r => [r.productName, r.reason, r.qty, r.revenue, r.cogs, r.profit, r.stock]),
+      )
+      return
+    }
+    if (productView === 'order') {
+      downloadCsv(
+        `kakapo-order-${periodLabel}.csv`,
+        ['Товар', 'Остаток', 'Продано', 'Заказать', 'Причина'],
+        orderRows.map(r => [r.productName, r.stock, r.qty, r.suggestQty, r.reason]),
+      )
+      return
+    }
     const rows = productView === 'top'
       ? productInsights.top
       : productView === 'dead'
@@ -352,6 +424,14 @@ export default function ReportsModule() {
           </button>
           <button
             type="button"
+            className={`k-btn k-btn-s${comparePrev ? ' is-on' : ''}`}
+            title="Сравнить с прошлым таким же периодом"
+            onClick={() => setComparePrev(v => !v)}
+          >
+            ±
+          </button>
+          <button
+            type="button"
             className={`k-btn k-btn-s k-rep-flt-btn${filtersOpen || filterCount ? ' is-on' : ''}`}
             title="Фильтры"
             onClick={() => setFiltersOpen(v => !v)}
@@ -381,10 +461,10 @@ export default function ReportsModule() {
       {showHelp && (
         <div className="k-rep-help">
           <b>Как смотреть</b>
-          <div>1) Период сверху · фильтры через ⚙</div>
-          <div>2) Вкладки — разные отчёты</div>
+          <div>1) Период сверху · фильтры через ⚙ · ± сравнение с прошлым таким же отрезком</div>
+          <div>2) Вкладки — разные отчёты. Долг: выдали / вернули / осталось у клиентов</div>
           <div>3) Выручка = чеки · Прибыль = выручка − себестоимость · Сверки = касса факт</div>
-          <div>4) CSV — выгрузка в Excel</div>
+          <div>4) Товары: ABC, минус, заказать · CSV — выгрузка в Excel</div>
         </div>
       )}
 
@@ -442,6 +522,11 @@ export default function ReportsModule() {
             <div>
               <span>Выручка</span>
               <b style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</b>
+              {revDelta != null && (
+                <small style={{ color: revDelta >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
+                  {revDelta >= 0 ? '+' : ''}{revDelta}% к прошлому
+                </small>
+              )}
             </div>
             <div>
               <span>Прибыль</span>
@@ -456,7 +541,9 @@ export default function ReportsModule() {
           <div className="k-rep-stats">
             <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>
             <div><span>Карта</span><b>{fmtMoney(salesAgg.card)}</b></div>
-            <div><span>Долг</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
+            <div><span>Долг выдали</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
+            <div><span>Долг вернули</span><b style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</b></div>
+            <div><span>Долг осталось</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</b></div>
             <div><span>Чеков</span><b>{salesAgg.salesCount}</b></div>
             <div><span>Ср. чек</span><b>{fmtMoney(salesAgg.avgCheck)}</b></div>
             <div><span>Возвраты</span><b style={{ color: 'var(--red)' }}>{salesAgg.returnedCount}</b></div>
@@ -512,6 +599,45 @@ export default function ReportsModule() {
                         <small>×{r.qty} · себ. {fmtMoney(r.cogs)}</small>
                       </div>
                       <b className="k-rep-amt" style={{ color: 'var(--green)' }}>{fmtMoney(r.revenue)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="k-rep-split">
+            <div className="k-rep-panel">
+              <div className="k-rep-panel-h">По точкам</div>
+              {!byPoint.length ? (
+                <div className="k-empty">Нет продаж</div>
+              ) : (
+                <div className="k-rep-list">
+                  {byPoint.map(p => (
+                    <div key={p.key} className="k-rep-row">
+                      <div className="k-rep-row-txt">
+                        <b>{p.name}</b>
+                        <small>{p.checks} чек. · нал {fmtMoney(p.cash)} · карта {fmtMoney(p.card)} · долг {fmtMoney(p.credit)}</small>
+                      </div>
+                      <b className="k-rep-amt">{fmtMoney(p.revenue)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="k-rep-panel">
+              <div className="k-rep-panel-h">Пик по часам</div>
+              {byHour.every(h => !h.checks) ? (
+                <div className="k-empty">Нет продаж</div>
+              ) : (
+                <div className="k-rep-list">
+                  {[...byHour].filter(h => h.checks > 0).sort((a, b) => b.revenue - a.revenue).slice(0, 8).map(h => (
+                    <div key={h.hour} className="k-rep-row">
+                      <div className="k-rep-row-txt">
+                        <b>{String(h.hour).padStart(2, '0')}:00</b>
+                        <small>{h.checks} чек.</small>
+                      </div>
+                      <b className="k-rep-amt">{fmtMoney(h.revenue)}</b>
                     </div>
                   ))}
                 </div>
@@ -643,6 +769,42 @@ export default function ReportsModule() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'hours' && (
+        <div className="k-card" style={{ overflow: 'hidden' }}>
+          <div className="k-card-h"><b>Продажи по часам</b></div>
+          {byHour.every(h => !h.checks) ? (
+            <div className="k-empty">Нет продаж за период</div>
+          ) : (
+            <div className="k-tbl-scroll">
+              <table className="k-tbl">
+                <thead>
+                  <tr>
+                    <th>Час</th>
+                    <th>Чеков</th>
+                    <th>Выручка</th>
+                    <th>Нал</th>
+                    <th>Карта</th>
+                    <th>Долг</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byHour.map(h => (
+                    <tr key={h.hour} style={{ opacity: h.checks ? 1 : 0.45 }}>
+                      <td style={{ fontWeight: 800 }}>{String(h.hour).padStart(2, '0')}:00</td>
+                      <td>{h.checks}</td>
+                      <td style={{ fontWeight: 800 }}>{fmtMoney(h.revenue)}</td>
+                      <td>{fmtMoney(h.cash)}</td>
+                      <td>{fmtMoney(h.card)}</td>
+                      <td>{fmtMoney(h.credit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -1003,9 +1165,10 @@ export default function ReportsModule() {
       {tab === 'debts' && (
         <>
           <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Долг клиентов</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(clientDebtTotal)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Долг осталось</div><div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(debtLeft)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Должников</div><div className="kv">{clientDebtors.length}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Выдано в долг</div><div className="kv">{fmtMoney(salesAgg.credit)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Выдали за период</div><div className="kv">{fmtMoney(salesAgg.credit)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Вернули за период</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(debtRepaid)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Чеков в долг</div><div className="kv">{creditSales.length}</div></div>
           </div>
           <div className="k-card" style={{ overflow: 'hidden', marginBottom: 14 }}>
@@ -1090,6 +1253,9 @@ export default function ReportsModule() {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {([
               { id: 'top', label: 'Хорошо продаются' },
+              { id: 'abc', label: 'ABC' },
+              { id: 'order', label: 'Заказать' },
+              { id: 'loss', label: 'В минус' },
               { id: 'unsold', label: 'Не продавались' },
               { id: 'dead', label: 'Залежались' },
               { id: 'categories', label: 'Категории' },
@@ -1141,6 +1307,117 @@ export default function ReportsModule() {
                           <td>{fmtMoney(r.revenue)}</td>
                           <td>{fmtMoney(r.cogs)}</td>
                           <td style={{ color: r.profit >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>{fmtMoney(r.profit)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'abc' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>ABC · A ≈ 80% выручки, B ≈ 15%, C ≈ 5%</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!abcRows.length ? <div className="k-empty">Нет продаж за период</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>ABC</th>
+                        <th>Товар</th>
+                        <th>Доля</th>
+                        <th>Кол-во</th>
+                        <th>Выручка</th>
+                        <th>Прибыль</th>
+                        <th>Остаток</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {abcRows.map(r => (
+                        <tr key={r.productId}>
+                          <td style={{ fontWeight: 900, color: r.abc === 'A' ? 'var(--green)' : r.abc === 'B' ? 'var(--gold)' : 'var(--muted)' }}>{r.abc}</td>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td>{r.share}%</td>
+                          <td>{r.qty}</td>
+                          <td>{fmtMoney(r.revenue)}</td>
+                          <td style={{ color: r.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(r.profit)}</td>
+                          <td>{r.stock}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'order' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>Нужно заказать · остаток vs скорость продаж · {orderRows.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!orderRows.length ? <div className="k-empty">Пока хватает остатка</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>Товар</th>
+                        <th>Остаток</th>
+                        <th>Продано</th>
+                        <th>Заказать</th>
+                        <th>Почему</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderRows.map(r => (
+                        <tr key={r.productId}>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td style={{ color: r.stock <= 0 ? 'var(--red)' : 'var(--gold)', fontWeight: 800 }}>{r.stock}</td>
+                          <td>{r.qty}</td>
+                          <td style={{ fontWeight: 900, color: 'var(--green)' }}>{r.suggestQty}</td>
+                          <td>{r.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {productView === 'loss' && (
+            <div className="k-card" style={{ overflow: 'hidden' }}>
+              <div className="k-card-h">
+                <b>В минус · {lossRows.length}</b>
+                <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportProducts}>CSV</button>
+              </div>
+              {!lossRows.length ? <div className="k-empty">Убыточных продаж нет</div> : (
+                <div className="k-tbl-scroll">
+                  <table className="k-tbl">
+                    <thead>
+                      <tr>
+                        <th>Товар</th>
+                        <th>Причина</th>
+                        <th>Кол-во</th>
+                        <th>Выручка</th>
+                        <th>Себест.</th>
+                        <th>Прибыль</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lossRows.map(r => (
+                        <tr key={r.productId}>
+                          <td style={{ fontWeight: 800 }}>{r.productName}</td>
+                          <td>{r.reason}</td>
+                          <td>{r.qty}</td>
+                          <td>{fmtMoney(r.revenue)}</td>
+                          <td>{fmtMoney(r.cogs)}</td>
+                          <td style={{ color: 'var(--red)', fontWeight: 900 }}>{fmtMoney(r.profit)}</td>
                         </tr>
                       ))}
                     </tbody>

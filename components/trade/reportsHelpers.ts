@@ -10,13 +10,14 @@ import type {
   StockWriteoff,
 } from '@/lib/types'
 
-export type ReportPeriod = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
+export type ReportPeriod = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'all' | 'custom'
 export type ReportTab =
   | 'overview'
   | 'sales'
   | 'returns'
   | 'cashiers'
   | 'shifts'
+  | 'hours'
   | 'till'
   | 'profit'
   | 'warehouse'
@@ -29,6 +30,7 @@ export type PayFilter = 'all' | 'cash' | 'card' | 'credit' | 'mixed'
 
 export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
   { id: 'today', label: 'Сегодня' },
+  { id: 'yesterday', label: 'Вчера' },
   { id: '7d', label: '7 дней' },
   { id: '30d', label: '30 дней' },
   { id: 'month', label: 'Этот месяц' },
@@ -41,6 +43,7 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Чеки: оплата и статус' },
   { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты' },
   { id: 'cashiers', label: 'Кассиры', icon: '👤', hint: 'Кто сколько продал' },
+  { id: 'hours', label: 'По часам', icon: '🕒', hint: 'Когда больше продаж' },
   { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие и закрытие кассы' },
   { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
   { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка минус себестоимость FIFO' },
@@ -79,6 +82,9 @@ export const LEDGER_TYPE_LABELS: Record<string, string> = {
   deposit: 'Вклад',
   withdraw: 'Снятие',
   purchase_pay: 'Оплата закупа',
+  debt_repay_cash: 'Погашение долга · нал',
+  debt_repay_card: 'Погашение долга · карта',
+  debt_repay: 'Погашение долга',
 }
 
 export function ledgerTypeLabel(type: string) {
@@ -130,6 +136,11 @@ export function periodRange(
   if (period === 'all') return { from: null, to: null }
   if (period === 'today') {
     return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), to: end }
+  }
+  if (period === 'yesterday') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
+    const endY = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - 1
+    return { from: start, to: endY }
   }
   if (period === 'month') {
     return { from: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), to: end }
@@ -664,6 +675,143 @@ export function downloadCsv(filename: string, headers: string[], rows: (string |
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+export function previousPeriodRange(
+  period: ReportPeriod,
+  customFrom?: string,
+  customTo?: string,
+): { from: number | null; to: number | null } {
+  const { from, to } = periodRange(period, customFrom, customTo)
+  if (from == null || to == null) return { from: null, to: null }
+  const span = Math.max(1, to - from)
+  return { from: from - span - 1, to: from - 1 }
+}
+
+export function deltaPct(current: number, previous: number) {
+  if (!(Math.abs(previous) > 0.001)) return null
+  return round2(((current - previous) / Math.abs(previous)) * 100)
+}
+
+export function sumLedgerDebtRepaid(entries?: { type?: string; amount?: number; signedAmount?: number }[]) {
+  let n = 0
+  for (const e of entries || []) {
+    const t = String(e.type || '')
+    if (!t.includes('debt_repay')) continue
+    n = round2(n + Math.abs(Number(e.amount) || Number(e.signedAmount) || 0))
+  }
+  return n
+}
+
+export type PointRow = {
+  key: string
+  name: string
+  checks: number
+  revenue: number
+  cash: number
+  card: number
+  credit: number
+}
+
+export function pointStats(sales: PosSale[], points: PosPoint[], defPos: string | null): PointRow[] {
+  const acc = new Map<string, PointRow>()
+  for (const s of sales) {
+    if (isSaleFullyReturned(s)) continue
+    const key = s.posId || defPos || '—'
+    const name = posName(points, key)
+    const row = acc.get(key) || { key, name, checks: 0, revenue: 0, cash: 0, card: 0, credit: 0 }
+    row.checks += 1
+    row.revenue = round2(row.revenue + (Number(s.total) || 0))
+    row.cash = round2(row.cash + (Number(s.paidCash) || 0))
+    row.card = round2(row.card + (Number(s.paidCard) || 0))
+    row.credit = round2(row.credit + (Number(s.debtAdded) || 0))
+    acc.set(key, row)
+  }
+  return Array.from(acc.values()).sort((a, b) => b.revenue - a.revenue)
+}
+
+export type HourRow = {
+  hour: number
+  checks: number
+  revenue: number
+  cash: number
+  card: number
+  credit: number
+}
+
+export function hourlyBreakdown(sales: PosSale[]): HourRow[] {
+  const acc = Array.from({ length: 24 }, (_, hour) => ({
+    hour, checks: 0, revenue: 0, cash: 0, card: 0, credit: 0,
+  }))
+  for (const s of sales) {
+    if (isSaleFullyReturned(s)) continue
+    const d = new Date(s.createdAtIso)
+    if (Number.isNaN(d.getTime())) continue
+    const row = acc[d.getHours()]
+    row.checks += 1
+    row.revenue = round2(row.revenue + (Number(s.total) || 0))
+    row.cash = round2(row.cash + (Number(s.paidCash) || 0))
+    row.card = round2(row.card + (Number(s.paidCard) || 0))
+    row.credit = round2(row.credit + (Number(s.debtAdded) || 0))
+  }
+  return acc
+}
+
+export type AbcRow = ProductInsightRow & { abc: 'A' | 'B' | 'C'; share: number }
+
+export function abcClassify(rows: ProductInsightRow[]): AbcRow[] {
+  const sold = rows.filter(r => r.revenue > 0.001)
+  const total = sold.reduce((s, r) => s + r.revenue, 0)
+  let cum = 0
+  return sold.map(r => {
+    const before = total > 0 ? cum / total : 0
+    cum = round2(cum + r.revenue)
+    const abc: 'A' | 'B' | 'C' = before < 0.8 ? 'A' : before < 0.95 ? 'B' : 'C'
+    return { ...r, abc, share: total > 0 ? round2((r.revenue / total) * 100) : 0 }
+  })
+}
+
+export type OrderSuggestRow = ProductInsightRow & { daysCover: number; suggestQty: number; reason: string }
+
+export function orderSuggestions(
+  rows: ProductInsightRow[],
+  from: number | null,
+  to: number | null,
+): OrderSuggestRow[] {
+  const spanMs = from != null && to != null ? Math.max(1, to - from) : 7 * 864e5
+  const days = Math.max(1, spanMs / 864e5)
+  const out: OrderSuggestRow[] = []
+  for (const r of rows) {
+    if (!(r.qty > 0)) continue
+    const daily = r.qty / days
+    const weekNeed = daily * 7
+    const daysCover = daily > 0.001 ? r.stock / daily : 999
+    let reason = ''
+    let suggestQty = 0
+    if (r.stock <= 0) {
+      reason = 'Нет на складе, продавался'
+      suggestQty = Math.max(1, Math.ceil(weekNeed))
+    } else if (daysCover < 3) {
+      reason = `Хватит ~${Math.max(0, Math.round(daysCover))} дн.`
+      suggestQty = Math.max(1, Math.ceil(weekNeed - r.stock))
+    } else if (r.stock < weekNeed * 0.4) {
+      reason = 'Мало к скорости продаж'
+      suggestQty = Math.max(1, Math.ceil(weekNeed - r.stock))
+    }
+    if (suggestQty > 0) out.push({ ...r, daysCover: round2(daysCover), suggestQty, reason })
+  }
+  return out.sort((a, b) => a.daysCover - b.daysCover).slice(0, 80)
+}
+
+export function lossProducts(rows: ProductInsightRow[]): (ProductInsightRow & { reason: string })[] {
+  return rows
+    .filter(r => r.qty > 0 && r.profit < -0.009)
+    .map(r => ({
+      ...r,
+      reason: r.cogs > r.revenue ? 'Себестоимость выше цены продажи' : 'Убыток по FIFO',
+    }))
+    .sort((a, b) => a.profit - b.profit)
+    .slice(0, 80)
 }
 
 export function formatPeriodLabel(period: ReportPeriod, customFrom?: string, customTo?: string) {

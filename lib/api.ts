@@ -31,7 +31,8 @@ import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
 import { getTradeDeviceIdSync } from './tradeDevice'
-import { noteApiFail, noteApiOk, shouldSkipFetchAsOffline } from './apiReachability'
+import { noteApiFail, noteApiOk, recentlyApiOk, shouldSkipFetchAsOffline } from './apiReachability'
+import { isTradeLocalFirst } from './offlineV2'
 
 // ── Сетевые ошибки (нет связи / таймаут) для офлайн-режима ──
 export class NetworkError extends Error {
@@ -260,14 +261,14 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     }
     res = await withTimeout(
       fetch(url, { ...options, headers, signal: ctrl.signal }),
-      timeoutMs,
+      (isTradeLocalFirst() && !recentlyApiOk(45_000)) ? Math.min(timeoutMs, 2800) : timeoutMs,
       ctrl,
     )
   } catch (e) {
     noteApiFail()
     const timedOut = e instanceof NetworkError || (e instanceof Error && e.message.includes('Сервер не отвечает'))
-    // Сетевая ошибка / таймаут: один повтор максимум, иначе касса «висит»
-    if (timedOut && attempt < 1 && timeoutMs > 2000) {
+    const allowRetry = timedOut && attempt < 1 && timeoutMs > 2000 && !isTradeLocalFirst()
+    if (allowRetry) {
       await new Promise(r => setTimeout(r, 400))
       return requestUrl<T>(url, options, attempt + 1, Math.min(timeoutMs, 8000))
     }

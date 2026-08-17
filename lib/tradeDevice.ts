@@ -2,8 +2,8 @@
  * Постоянный код этого аппарата + привязка к точке продаж.
  * Не MAC и не IP: один раз записали на диск и не меняем.
  */
-import { isKakapoDesktop } from './desktopBridge'
-import { getLocalDb } from './localDbClient'
+import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
+import { androidPersist } from './androidPersist'
 
 const LS_DEVICE = 'kakapo_trade_device_id'
 const LS_BIND = 'kakapo_trade_device_bind'
@@ -51,23 +51,36 @@ function writeLs(key: string, value: string) {
 export function ensureTradeDeviceReady(): Promise<void> {
   if (ready) return ready
   ready = (async () => {
-    const desk = getLocalDb()
+    const desk = getKakapoDesktop()
+    const files = androidPersist()
     let id = ''
-    if (desk?.localDbKvGet) {
+    if (isKakapoDesktop() && desk?.localDbKvGet) {
       try { id = String((await desk.localDbKvGet(KV_DEVICE)) || '') } catch { /* ignore */ }
+    }
+    if (!id && files) {
+      try { id = String((await files.kvGet(KV_DEVICE)) || '') } catch { /* ignore */ }
     }
     if (!id) id = readLs(LS_DEVICE)
     if (!id) id = newId()
     deviceIdMem = id
     writeLs(LS_DEVICE, id)
-    if (desk?.localDbKvSet) {
+    if (isKakapoDesktop() && desk?.localDbKvSet) {
       try { await desk.localDbKvSet(KV_DEVICE, id) } catch { /* ignore */ }
+    }
+    if (files) {
+      try { await files.kvSet(KV_DEVICE, id) } catch { /* ignore */ }
     }
 
     let bind: TradeDeviceBind | null = null
-    if (desk?.localDbKvGet) {
+    if (isKakapoDesktop() && desk?.localDbKvGet) {
       try {
         const raw = await desk.localDbKvGet(KV_BIND)
+        if (raw && typeof raw === 'object') bind = raw as TradeDeviceBind
+      } catch { /* ignore */ }
+    }
+    if (!bind && files) {
+      try {
+        const raw = await files.kvGet(KV_BIND)
         if (raw && typeof raw === 'object') bind = raw as TradeDeviceBind
       } catch { /* ignore */ }
     }
@@ -79,6 +92,9 @@ export function ensureTradeDeviceReady(): Promise<void> {
     }
     if (bind && bind.deviceId !== id) bind = null
     bindMem = bind
+    if (bind && files) {
+      try { await files.kvSet(KV_BIND, bind) } catch { /* ignore */ }
+    }
   })()
   return ready
 }
@@ -108,9 +124,13 @@ export function getBoundDeviceNameSync(): string {
 export async function saveTradeDeviceBind(bind: TradeDeviceBind): Promise<void> {
   bindMem = bind
   writeLs(LS_BIND, JSON.stringify(bind))
-  const desk = getLocalDb()
-  if (desk?.localDbKvSet) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbKvSet) {
     try { await desk.localDbKvSet(KV_BIND, bind) } catch { /* ignore */ }
+  }
+  const files = androidPersist()
+  if (files) {
+    try { await files.kvSet(KV_BIND, bind) } catch { /* ignore */ }
   }
 }
 
@@ -119,9 +139,13 @@ export async function clearTradeDeviceBind(): Promise<void> {
   if (typeof window !== 'undefined') {
     try { localStorage.removeItem(LS_BIND) } catch { /* ignore */ }
   }
-  const desk = getLocalDb()
-  if (desk?.localDbKvDelete) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbKvDelete) {
     try { await desk.localDbKvDelete(KV_BIND) } catch { /* ignore */ }
+  }
+  const files = androidPersist()
+  if (files) {
+    try { await files.kvDelete(KV_BIND) } catch { /* ignore */ }
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * LWW + журнал конфликтов для двустороннего синка.
  */
-import { getLocalDb } from './localDbClient'
+import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 
 export type ConflictEntry = {
   at: string
@@ -93,8 +93,8 @@ export async function appendConflictLog(entry: Omit<ConflictEntry, 'at'> & { at?
     remoteAt: entry.remoteAt,
     note: entry.note,
   }
-  const desk = getLocalDb()
-  if (desk?.localDbMetaGet && desk?.localDbMetaPatch) {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbMetaGet && desk?.localDbMetaPatch) {
     try {
       const meta = await desk.localDbMetaGet()
       const prev = Array.isArray(meta.syncConflicts) ? meta.syncConflicts as ConflictEntry[] : []
