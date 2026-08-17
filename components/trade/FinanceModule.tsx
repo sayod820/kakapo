@@ -407,7 +407,7 @@ export default function FinanceModule() {
   const cashBox = truth?.cashBox
   const journal: MoneyLedgerEntry[] = truth?.journal || []
   const tabMeta = FINANCE_TABS.find(t => t.id === tab)
-  const filterCount = [posFilter, cashierFilter, typeFilter].filter(Boolean).length
+  const filterCount = (tab === 'box' ? [posFilter] : [posFilter, cashierFilter, typeFilter]).filter(Boolean).length
 
   function exportCsv() {
     const stamp = ymdLocal()
@@ -569,7 +569,7 @@ export default function FinanceModule() {
         </div>
       </div>
 
-      <div className="k-fin-toolbar">
+      <div className={`k-fin-toolbar${tab === 'box' ? ' k-fin-toolbar-box' : ''}`}>
         <div className="k-subtabs k-fin-periods">
           {REPORT_PERIODS.map(p => (
             <button
@@ -586,8 +586,8 @@ export default function FinanceModule() {
           <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
             {refreshing ? '…' : '↻'}
           </button>
-          <button type="button" className="k-btn k-btn-s" title="CSV" onClick={exportCsv}>CSV</button>
-          <button type="button" className="k-btn k-btn-s" title="Печать" onClick={printFinance}>🖨</button>
+          <button type="button" className="k-btn k-btn-s k-fin-csv" title="CSV" onClick={exportCsv}>CSV</button>
+          <button type="button" className="k-btn k-btn-s k-fin-print" title="Печать" onClick={printFinance}>🖨</button>
           <button
             type="button"
             className={`k-btn k-btn-s k-fin-flt-btn${filtersOpen || filterCount ? ' is-on' : ''}`}
@@ -612,19 +612,22 @@ export default function FinanceModule() {
         </div>
       )}
 
-      <div className={`k-fin-filters${filtersOpen ? ' is-open' : ''}`}>
+      <div className={`k-fin-filters${tab === 'box' ? ' k-fin-filters-box' : ''}${filtersOpen ? ' is-open' : ''}`}>
         <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)} title="Точка" aria-label="Точка">
           <option value="">Точка · все</option>
           {posPoints.filter(p => p.active !== false).map(p => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+        {tab !== 'box' && (
         <select className="k-sel" value={cashierFilter} onChange={e => setCashierFilter(e.target.value)} title="Кассир" aria-label="Кассир">
           <option value="">Кассир · все</option>
           {cashiers.map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+        )}
+        {tab !== 'box' && (
         <select className="k-sel" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} title="Тип" aria-label="Тип">
           <option value="">Тип · все</option>
           {Object.entries({
@@ -642,6 +645,7 @@ export default function FinanceModule() {
             <option key={k} value={k}>{v}</option>
           ))}
         </select>
+        )}
       </div>
 
       <div className="k-subtabs k-fin-tabs">
@@ -660,7 +664,7 @@ export default function FinanceModule() {
           </button>
         ))}
       </div>
-      {tabMeta && <div className="k-fin-hint">{tabMeta.hint}</div>}
+      {tabMeta && <div className={`k-fin-hint${tab === 'box' ? ' k-hide-mob' : ''}`}>{tabMeta.hint}</div>}
 
       {truthError && (
         <div className="k-fin-err">{truthError}</div>
@@ -1212,7 +1216,7 @@ export default function FinanceModule() {
               <b>{convDir === 'card_to_cash' ? 'Карта → нал' : 'Нал → карта'}</b>
               <button type="button" onClick={() => setConvOpen(false)}>×</button>
             </div>
-            <div className="k-modal-b" style={{ padding: 16 }}>
+            <div className="k-modal-b k-fin-conv-body">
               <div className="k-field">
                 <label>{convDir === 'card_to_cash' ? 'С карты доступно' : 'Наличных доступно'}</label>
                 <div style={{ fontSize: 15, fontWeight: 800 }}>

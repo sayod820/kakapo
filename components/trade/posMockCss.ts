@@ -1427,8 +1427,9 @@ export const POS_MOCK_CSS = `
 
   .modal-card.hist-card{width:520px;max-height:min(90vh,820px);display:flex;flex-direction:column;}
   .overlay.hist-fs-overlay{z-index:280;padding:12px;align-items:stretch;justify-content:stretch;}
-  /* Погашение/пополнение поверх истории клиента — иначе «Погасить долг» открывается «под» панелью */
-  .overlay.stack-above-hist{z-index:320;}
+  /* Погашение/пополнение и детали чека поверх истории клиента */
+  .overlay.stack-above-hist{z-index:360;}
+  .overlay.hist-detail-overlay{z-index:340;}
   .modal-card.hist-card-fs{
     width:min(1100px,100%);max-width:100%;height:min(96vh,100%);max-height:96vh;
     margin:0 auto;border-radius:18px;display:flex;flex-direction:column;
@@ -1496,8 +1497,7 @@ export const POS_MOCK_CSS = `
   .pos-root button.hist-row{width:100%;text-align:left;cursor:pointer;color:inherit;font:inherit;}
   .pos-root button.hist-row:hover{border-color:var(--accent);}
   .hist-row:last-child{margin-bottom:0;}
-  .hist-detail-overlay{z-index:220;}
-  .modal-card.hist-detail-card{width:420px;}
+  .modal-card.hist-detail-card{width:420px;max-width:calc(100vw - 24px);}
   .hist-detail-sum{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:900;color:var(--org);margin:4px 0 8px;}
   .hist-detail-items{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);}
   .hist-detail-items .hist-items{font-size:12.5px;line-height:1.45;}

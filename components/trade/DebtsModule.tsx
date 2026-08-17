@@ -8,7 +8,9 @@ import {
   cardNumsMatch,
   type AdminCard,
 } from '@/lib/cardCrm'
+import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
 import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
+import { debtRepaySafe, resolveOpenShift } from '@/lib/offlinePosOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -18,6 +20,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { getBoundPosIdSync } from '@/lib/tradeDevice'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import {
   buildDebtOrderBalances,
@@ -50,16 +53,50 @@ type SortMode = 'debt' | 'name'
 type DetailTab = 'history' | 'pos' | 'cash' | 'pay'
 type PosViewFilter = 'open' | 'all'
 
+type PayMethod = 'cash' | 'card'
+type SaleRepayState = { amount: string; saving: boolean; method: PayMethod }
+
 type HistAddState = {
   open: boolean
   action: 'repay' | 'add'
   amount: string
   desc: string
   saving: boolean
+  method: PayMethod
 }
 
 function emptyHistAdd(action: 'repay' | 'add' = 'add'): HistAddState {
-  return { open: false, action, amount: '', desc: '', saving: false }
+  return { open: false, action, amount: '', desc: '', saving: false, method: 'cash' }
+}
+
+function PayMethodToggle({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: PayMethod
+  disabled?: boolean
+  onChange: (m: PayMethod) => void
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {([
+        ['cash', 'Нал'],
+        ['card', 'Карта'],
+      ] as [PayMethod, string][]).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          className={`k-btn k-btn-s${value === id ? ' k-btn-g' : ''}`}
+          disabled={disabled}
+          style={{ fontSize: 12, minHeight: 0, padding: '6px 10px' }}
+          onClick={() => onChange(id)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 type PosDebtSale = {
@@ -123,6 +160,40 @@ function saleLabel(s: { number?: number; orderId?: string; id: string }): string
 function cardForClient(client: EnrichedClient, cards: AdminCard[]): AdminCard | undefined {
   if (!client.card) return undefined
   return cards.find(c => cardNumsMatch(c.num, client.card) && c.status !== 'unlinked')
+}
+
+async function repayDebtIntoOpenShift(
+  client: EnrichedClient,
+  amount: number,
+  opts: { method: PayMethod; note?: string },
+) {
+  const shift = resolveOpenShift(getBoundPosIdSync())
+  if (!shift) {
+    throw new Error('Откройте смену, чтобы принять погашение в кассу')
+  }
+  let card = cardForClient(client, useCardStore.getState().cards)
+  if (!card) {
+    const provisioned = await provisionLoyaltyCardSafe(client)
+    card = cardForClient(provisioned.data, useCardStore.getState().cards)
+    client = { ...client, ...provisioned.data }
+  }
+  if (!card) throw new Error('Не удалось получить карту лояльности')
+  const fresh = useClientStore.getState().clients.find(c => c.id === client.id) || client
+  const prevDebt = Math.max(0, Number(fresh.debt) || 0, Number(card.debt) || 0)
+  if (amount > prevDebt + 0.009) {
+    throw new Error(`Долг клиента ${fmtMoney(prevDebt)}`)
+  }
+  return debtRepaySafe(card.num, {
+    amount,
+    method: opts.method,
+    note: opts.note,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    shiftId: shift.id,
+    posId: shift.posId,
+    clientId: client.id,
+    prevDebt,
+  })
 }
 
 function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
@@ -299,8 +370,10 @@ export default function DebtsModule({
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   const sales = usePosStore(s => s.sales)
+  const shifts = usePosStore(s => s.shifts)
   const orders = useOrders(s => s.orders)
   const apiError = useClientStore(s => s.apiError)
+  const openShift = useMemo(() => resolveOpenShift(getBoundPosIdSync()), [shifts])
 
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
 
@@ -314,7 +387,7 @@ export default function DebtsModule({
   const [histTick, setHistTick] = useState(0)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
-  const [saleRepay, setSaleRepay] = useState<{ amount: string; saving: boolean } | null>(null)
+  const [saleRepay, setSaleRepay] = useState<SaleRepayState | null>(null)
   const [posView, setPosView] = useState<PosViewFilter>('open')
 
   const refreshAll = useCallback(() => {
@@ -462,7 +535,7 @@ export default function DebtsModule({
     const st = detailData?.saleStatus[saleId]
     const cardDebt = Math.max(0, Number(detailClient?.debt) || 0)
     const remain = Math.min(st?.remain ?? 0, cardDebt)
-    setSaleRepay(remain > 0.001 ? { amount: String(remain), saving: false } : null)
+    setSaleRepay(remain > 0.001 ? { amount: String(remain), saving: false, method: 'cash' } : null)
   }
 
   async function submitSaleRepay() {
@@ -499,21 +572,21 @@ export default function DebtsModule({
     setSaleRepay(prev => prev ? { ...prev, saving: true } : prev)
     setHistMsg('')
     try {
-      await adjustClientDebtSafe(detailClient, {
-        action: 'repay',
-        amount,
-        skipDebtHistory: true,
+      const method = saleRepay.method || 'cash'
+      await repayDebtIntoOpenShift(detailClient, amount, {
+        method,
+        note: `Погашение · ${saleLabel(s)} · ${detailClient.name}`,
       })
       recordStoreDebtRepayment(detailClient.phone, amount, {
         desc: `Погашение · ${saleLabel(s)}`,
         orderId: linkOrderId,
-        source: 'manual',
+        method,
       })
       const nextRemain = Math.round((maxPay - amount) * 100) / 100
-      setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)}`)
+      setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
       void refreshAll()
       if (nextRemain > 0.001) {
-        setSaleRepay({ amount: String(nextRemain), saving: false })
+        setSaleRepay({ amount: String(nextRemain), saving: false, method })
       } else {
         setSaleRepay(null)
       }
@@ -531,6 +604,7 @@ export default function DebtsModule({
       amount: action === 'repay' && detailClient ? String(Number(detailClient.debt) || '') : '',
       desc: '',
       saving: false,
+      method: 'cash',
     })
     setHistEdit(null)
   }
@@ -545,8 +619,31 @@ export default function DebtsModule({
     setHistAdd(prev => ({ ...prev, saving: true }))
     setHistMsg('')
     try {
+      if (histAdd.action === 'repay') {
+        const debtNow = Math.max(0, Number(detailClient.debt) || 0)
+        if (amount > debtNow + 0.009) {
+          setHistAdd(prev => ({ ...prev, saving: false }))
+          setHistMsg(`Долг клиента ${fmtMoney(debtNow)}`)
+          return
+        }
+        const method = histAdd.method || 'cash'
+        const res = await repayDebtIntoOpenShift(detailClient, amount, {
+          method,
+          note: `Погашение долга · ${detailClient.name}`,
+        })
+        if (detailClient.phone) {
+          recordStoreDebtRepayment(detailClient.phone, amount, {
+            method,
+            desc: histAdd.desc.trim() || undefined,
+          })
+        }
+        setHistAdd(emptyHistAdd('repay'))
+        setHistMsg(`Оплата записана: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
+        if (!res.offline) void refreshAll()
+        return
+      }
       const res = await adjustClientDebtSafe(detailClient, {
-        action: histAdd.action === 'repay' ? 'repay' : 'charge',
+        action: 'charge',
         amount,
       })
       const desc = histAdd.desc.trim()
@@ -555,9 +652,7 @@ export default function DebtsModule({
         if (latest) updateDebtHistoryEntry(detailClient.phone, latest.id, { desc })
       }
       setHistAdd(emptyHistAdd(histAdd.action))
-      setHistMsg(histAdd.action === 'repay'
-        ? `Оплата записана: ${fmtMoney(amount)}`
-        : `Выдано наличными: ${fmtMoney(amount)}`)
+      setHistMsg(`Выдано наличными: ${fmtMoney(amount)}`)
       if (!res.offline) void refreshAll()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
@@ -756,7 +851,24 @@ export default function DebtsModule({
         <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10, color: 'var(--gold)' }}>
           {histAdd.action === 'repay' ? 'Погашение долга' : 'Выдать наличные в долг'}
         </div>
+        {histAdd.action === 'repay' && (
+          <div style={{ fontSize: 12, marginBottom: 8, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
+            {openShift
+              ? `В кассу · ${openShift.cashierName || 'смена открыта'} · ${histAdd.method === 'card' ? 'карта' : 'нал'}`
+              : 'Смена закрыта — откройте смену, чтобы принять оплату'}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {histAdd.action === 'repay' && (
+            <div>
+              <label style={{ fontSize: 11 }}>Оплата</label>
+              <PayMethodToggle
+                value={histAdd.method}
+                disabled={histAdd.saving}
+                onChange={m => setHistAdd(prev => ({ ...prev, method: m }))}
+              />
+            </div>
+          )}
           <div style={{ flex: '1 1 110px' }}>
             <label style={{ fontSize: 11 }}>Сумма</label>
         <input
@@ -787,7 +899,7 @@ export default function DebtsModule({
               Весь долг
             </button>
           )}
-          <button type="button" className="k-btn k-btn-g" style={{ fontSize: 13 }} disabled={histAdd.saving} onClick={() => void submitHistoryAdd()}>
+          <button type="button" className="k-btn k-btn-g" style={{ fontSize: 13 }} disabled={histAdd.saving || (histAdd.action === 'repay' && !openShift)} onClick={() => void submitHistoryAdd()}>
             {histAdd.saving ? '…' : 'Сохранить'}
           </button>
           <button type="button" className="k-btn k-btn-s" style={{ fontSize: 13 }} disabled={histAdd.saving} onClick={() => setHistAdd(emptyHistAdd())}>
@@ -798,7 +910,7 @@ export default function DebtsModule({
     )
   }
 
-  const msgOk = /Удалено|обновлена|Оплата|Выдано|Записано|С карты|исправлен|Долг на карте/i.test(histMsg)
+  const msgOk = /Удалено|обновлена|Оплата|Выдано|Записано|С карты|исправлен|Долг на карте|Погашено/i.test(histMsg)
   const cardDebt = detailClient ? Math.max(0, Number(detailClient.debt) || 0) : 0
 
   return (
@@ -1467,31 +1579,46 @@ export default function DebtsModule({
                     <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>
                       Погасить этот чек
                     </div>
+                    <div style={{ fontSize: 12, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
+                      {openShift
+                        ? `В кассу · ${openShift.cashierName || 'смена открыта'}`
+                        : 'Смена закрыта — откройте смену, чтобы принять оплату'}
+                    </div>
+                    <PayMethodToggle
+                      value={saleRepay?.method || 'cash'}
+                      disabled={!!saleRepay?.saving || !openShift}
+                      onChange={m => setSaleRepay(prev => ({
+                        amount: prev?.amount ?? String(maxPay),
+                        saving: false,
+                        method: m,
+                      }))}
+                    />
                     <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
                       <input
-                        className="k-input"
+                        className="k-inp"
                         inputMode="decimal"
                         value={saleRepay?.amount ?? String(maxPay)}
-                        onChange={e => setSaleRepay({
+                        onChange={e => setSaleRepay(prev => ({
                           amount: sanitizeDecimalInput(e.target.value),
                           saving: false,
-                        })}
+                          method: prev?.method || 'cash',
+                        }))}
                         placeholder={String(maxPay)}
                         style={{ flex: 1 }}
                       />
                       <button
                         type="button"
                         className="k-btn k-btn-g"
-                        disabled={!!saleRepay?.saving}
+                        disabled={!!saleRepay?.saving || !openShift}
                         onClick={() => void submitSaleRepay()}
                         style={{ whiteSpace: 'nowrap' }}
                       >
                         {saleRepay?.saving ? '…' : 'Погасить'}
-                </button>
-            </div>
+                      </button>
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      Макс. {fmtMoney(maxPay)} · спишется только с этого чека
-          </div>
+                      Макс. {fmtMoney(maxPay)} · спишется только с этого чека · {(saleRepay?.method || 'cash') === 'card' ? 'карта' : 'нал'}
+                    </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {[maxPay, Math.round(maxPay / 2 * 100) / 100].filter((v, i, a) => v > 0.001 && a.indexOf(v) === i).map(v => (
                         <button
@@ -1499,7 +1626,11 @@ export default function DebtsModule({
                           type="button"
                           className="k-btn"
                           style={{ fontSize: 11, minHeight: 0, padding: '4px 10px' }}
-                          onClick={() => setSaleRepay({ amount: String(v), saving: false })}
+                          onClick={() => setSaleRepay(prev => ({
+                            amount: String(v),
+                            saving: false,
+                            method: prev?.method || 'cash',
+                          }))}
                         >
                           {fmtMoney(v)}
                         </button>

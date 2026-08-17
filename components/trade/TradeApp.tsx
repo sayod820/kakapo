@@ -252,7 +252,7 @@ const CSS = `
     display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 10px
   }
   .k-fin-box-hero{
-    padding:16px 18px;border-radius:12px;border:1px solid var(--line);
+    padding:16px 18px;border-radius:12px;border:1px solid var(--border);
     background:var(--card);margin:0 0 10px
   }
   .k-fin-box-hero .kl{font-size:12px;color:var(--muted);font-weight:700}
@@ -260,7 +260,7 @@ const CSS = `
   .k-fin-box-move-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
   .k-fin-box-move{width:100%;margin:0}
   .k-fin-box-card{
-    padding:14px 16px;border-radius:12px;border:1px solid var(--line);
+    padding:14px 16px;border-radius:12px;border:1px solid var(--border);
     background:var(--card)
   }
   .k-fin-box-card .kl{font-size:11px;color:var(--muted);font-weight:700}
@@ -268,9 +268,9 @@ const CSS = `
   .k-fin-box-main{margin-bottom:10px}
   .k-fin-box-points{display:grid;gap:8px}
   .k-fin-box-point{
-    padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg)
+    padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card2)
   }
-  .k-fin-box-point.is-open{border-color:color-mix(in srgb, var(--green) 45%, var(--line))}
+  .k-fin-box-point.is-open{border-color:color-mix(in srgb, var(--green) 45%, var(--border))}
   .k-fin-box-point-h{
     display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:8px
   }
@@ -315,6 +315,7 @@ const CSS = `
     background:var(--badge-warn-bg);color:var(--red);display:inline-flex;align-items:center;justify-content:center
   }
   .k-fin-hint{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 10px;line-height:1.35}
+  .k-fin-conv-body{padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
   .k-fin-submeta{
     display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;
     margin:0 0 10px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card)
@@ -2086,9 +2087,35 @@ const CSS = `
       display:flex;flex-direction:column;gap:10px;align-items:center
     }
     .k-fin-fab-stack .k-fin-fab{position:static;right:auto;bottom:auto}
-    .k-finance-mod{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+    .k-finance-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
+    .k-finance-mod:has(.k-fin-fab),
+    .k-finance-mod:has(.k-fin-fab-stack){padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
     .k-finance-mod:has(.k-modal-bg) .k-fin-fab,
     .k-finance-mod:has(.k-modal-bg) .k-fin-fab-stack{display:none!important}
+    .k-fin-print{display:none!important}
+    .k-fin-toolbar-box .k-fin-periods,
+    .k-fin-toolbar-box .k-fin-dates{display:none!important}
+    .k-fin-box-hero{padding:12px 14px;border-radius:10px;margin-bottom:8px}
+    .k-fin-box-hero .kl{font-size:11px}
+    .k-fin-box-hero .kv{font-size:22px;margin-top:2px}
+    .k-fin-box-hero .k-fin-kpi-sub{font-size:10px;margin-top:3px;line-height:1.3}
+    .k-fin-box-totals{gap:6px;margin-bottom:8px}
+    .k-fin-box-card{padding:10px 12px;border-radius:10px}
+    .k-fin-box-card .kl{font-size:10px}
+    .k-fin-box-card .kv{
+      font-size:18px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+    }
+    .k-fin-box-move-row{gap:6px;margin-bottom:10px}
+    .k-fin-box-move{
+      min-height:42px!important;padding:8px 6px!important;font-size:12px!important;
+      white-space:nowrap;border-radius:10px
+    }
+    .k-fin-box-point{padding:10px 12px;border-radius:10px}
+    .k-fin-box-point-h{flex-direction:column;align-items:flex-start;gap:2px;margin-bottom:6px}
+    .k-fin-box-point-h b{font-size:13px}
+    .k-fin-box-point-h span{font-size:10px}
+    .k-fin-box-point-nums b{font-size:14px}
+    .k-fin-filters.k-fin-filters-box{grid-template-columns:1fr}
     .k-reports-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
     .k-rep-toolbar{flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
     .k-rep-periods{
@@ -2158,6 +2185,7 @@ const CSS = `
     }
     .k-fin-actions{margin-left:0;justify-content:flex-end}
     .k-fin-actions .k-btn{width:32px;height:32px;font-size:15px}
+    .k-fin-actions .k-fin-csv{width:auto;min-width:40px;padding:0 8px;font-size:11px;font-weight:800}
     .k-fin-flt-btn{display:inline-flex!important}
     .k-fin-dates{max-width:none;margin-bottom:8px}
     .k-fin-filters{display:none;grid-template-columns:1fr;gap:5px;margin-bottom:8px}
@@ -2167,8 +2195,11 @@ const CSS = `
       background:var(--bg);padding:2px 0 4px
     }
     .k-fin-tabs .k-subtab{
-      min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px
+      display:inline-flex;position:relative;flex-direction:column;gap:2px;
+      min-height:44px!important;padding:5px 8px!important;font-size:10px;border-radius:8px
     }
+    .k-fin-tab-ic{font-size:15px}
+    .k-fin-tabs .k-fin-tab-n{position:absolute;top:2px;right:2px}
     .k-fin-hint{font-size:11px;margin-bottom:8px}
     .k-fin-submeta{
       grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:6px 8px;margin-bottom:8px
@@ -2185,6 +2216,8 @@ const CSS = `
     .k-fin-amt,.k-fin-amt-col b{font-size:12px}
     .k-body:has(.k-receipt-modal-bg) .k-bottom-nav,
     .k-trade:has(.k-receipt-modal-bg) .k-bottom-nav,
+    .k-body:has(.k-modal-bg) .k-bottom-nav,
+    .k-trade:has(.k-modal-bg) .k-bottom-nav,
     .k-body:has(.k-modal-fs-bg) .k-bottom-nav,
     .k-trade:has(.k-modal-fs-bg) .k-bottom-nav,
     .k-body:has(.k-arrivals-modal) .k-bottom-nav,
@@ -2239,6 +2272,10 @@ const CSS = `
     padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
   }
   html.kakapo-android .k-finance-mod{
+    padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
+  }
+  html.kakapo-android .k-finance-mod:has(.k-fin-fab),
+  html.kakapo-android .k-finance-mod:has(.k-fin-fab-stack){
     padding-bottom:calc(120px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
   }
 

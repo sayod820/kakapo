@@ -1238,8 +1238,9 @@ export default function CashierModule({
       if (catModalOpen) { setCatModalOpen(false); return true }
       if (layerPickOpen) { setLayerPickOpen(false); return true }
       if (topupOpen) { setTopupOpen(false); return true }
-      if (repayOpen) { setRepayOpen(false); return true }
-      if (histOpen) { setHistOpen(false); return true }
+      if (repayOpen) { setRepayOpen(false); setRepayTarget(null); return true }
+      if (histDetail) { setHistDetail(null); return true }
+      if (histOpen) { setHistOpen(false); setHistDetail(null); return true }
       if (creditNoteOpen) { setCreditNoteOpen(false); return true }
       if (openShiftModal) { setOpenShiftModal(false); return true }
       if (createPosModal) { setCreatePosModal(false); return true }
@@ -9718,7 +9719,7 @@ export default function CashierModule({
       )}
 
       {histOpen && client && loyalty && (
-        <div className="overlay hist-fs-overlay" onClick={() => setHistOpen(false)}>
+        <div className="overlay hist-fs-overlay" onClick={() => { setHistOpen(false); setHistDetail(null) }}>
           <div className="modal-card hist-card hist-card-fs cashier-debts-panel" onClick={e => e.stopPropagation()}>
             <div className="cashier-debts-head">
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0, flex: 1 }}>
@@ -9741,7 +9742,7 @@ export default function CashierModule({
                   </div>
                 </div>
               </div>
-              <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => setHistOpen(false)}>✕</button>
+              <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => { setHistOpen(false); setHistDetail(null) }}>✕</button>
                 </div>
 
             <div className="cashier-debts-metrics">
