@@ -287,9 +287,10 @@ export async function registerClientAccount(
 }
 
 export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[]) {
-  const card = client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined
+  const card = (client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined)
+    || cards.find(c => c.clientId === client.id && c.status !== 'unlinked')
   return {
-    card: client.card || '',
+    card: client.card || card?.num || '',
     level: resolveCardAuthoritativeLevel(card, client),
     bonus: card?.bonus ?? client.bonus,
     debt: effectiveDebt(card, client),

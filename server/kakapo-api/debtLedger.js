@@ -276,8 +276,10 @@ export function runDebtMaintenance(db, nowIso = new Date().toISOString()) {
     if (!client?.phone) continue
     ensureDebtLedger(client)
     reconcileDebtLedger(client)
+    const digits = String(client.card || '').replace(/\D/g, '')
     const card = (db.cards || []).find(c =>
       (client.card && String(c.num).toUpperCase() === String(client.card).toUpperCase())
+      || (digits && String(c.num).replace(/\D/g, '') === digits)
       || phoneKey(c.phone) === phoneKey(client.phone),
     )
     let blockedNow = false

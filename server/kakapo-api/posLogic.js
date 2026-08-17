@@ -469,10 +469,62 @@ function getClientById(db, clientId) {
   return (db.clients || []).find(c => String(c.id) === String(clientId)) || null
 }
 
+function cardNumDigits(num) {
+  return String(num || '').replace(/\D/g, '')
+}
+
 function getCardByNum(db, cardNum) {
   const key = String(cardNum || '').trim().toUpperCase()
   if (!key) return null
-  return (db.cards || []).find(c => String(c.num || '').trim().toUpperCase() === key) || null
+  const cards = db.cards || []
+  const exact = cards.find(c => String(c.num || '').trim().toUpperCase() === key)
+  if (exact) return exact
+  const digits = cardNumDigits(key)
+  if (!digits) return null
+  return cards.find(c => cardNumDigits(c.num) === digits) || null
+}
+
+function getClientByCard(db, card) {
+  if (!card) return null
+  if (card.clientId) {
+    const byId = getClientById(db, card.clientId)
+    if (byId) return byId
+  }
+  if (card.phone) {
+    const byPhone = findClientByPhone(db, card.phone)
+    if (byPhone) return byPhone
+  }
+  const digits = cardNumDigits(card.num)
+  if (!digits) return null
+  return (db.clients || []).find(c => cardNumDigits(c.card) === digits) || null
+}
+
+/** Клиент и карта чека: id / телефон / номер карты, в обе стороны. */
+function resolveSaleClientAndCard(db, sale) {
+  let client = getClientById(db, sale.clientId)
+    || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
+  let card = getCardByNum(db, sale.cardNum)
+    || (client?.card ? getCardByNum(db, client.card) : null)
+  if (!client && card) client = getClientByCard(db, card)
+  if (!card && client) {
+    card = getCardByNum(db, client.card)
+      || (db.cards || []).find(c =>
+        String(c.clientId || '') === String(client.id) && c.status !== 'unlinked')
+      || null
+  }
+  return { client, card }
+}
+
+function applyDebtToPair(client, card, nextDebt) {
+  const d = Math.max(0, round2(nextDebt))
+  if (client) {
+    client.debt = d
+    if (d > 0) client.debtEnabled = true
+  }
+  if (card) {
+    card.debt = d
+    if (d > 0) card.debtEnabled = true
+  }
 }
 
 function syncSupplierPayable(supplier) {
@@ -2244,8 +2296,7 @@ export function createPosSale(db, data = {}) {
   // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.
   // На наличку кассы НЕ влияет: деньги уже были внесены при пополнении.
   if (paidWallet > 0 && !skipBalances) {
-    const walletClient = getClientById(db, data.clientId) || null
-    const walletCard = getCardByNum(db, data.cardNum)
+    const { client: walletClient, card: walletCard } = resolveSaleClientAndCard(db, data)
     const balance = Math.max(
       Number(walletCard?.wallet) || 0,
       Number(walletClient?.wallet) || 0,
@@ -2261,8 +2312,7 @@ export function createPosSale(db, data = {}) {
     }
   }
   if (debtAdded > 0 && !skipBalances) {
-    const client = getClientById(db, data.clientId) || null
-    const card = getCardByNum(db, data.cardNum)
+    const { client, card } = resolveSaleClientAndCard(db, data)
     // Касса (торговая точка) оформляет долг без лимита. Лимит действует только
     // в приложении клиента; включить проверку тут можно флагом data.enforceDebtLimit.
     if (client && data.enforceDebtLimit === true) {
@@ -2270,14 +2320,7 @@ export function createPosSale(db, data = {}) {
       if (!gate.ok) throw new Error(gate.reason)
     }
     const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
-    if (client) {
-      client.debt = nextDebt
-      client.debtEnabled = true
-    }
-    if (card) {
-      card.debt = nextDebt
-      card.debtEnabled = true
-    }
+    applyDebtToPair(client, card, nextDebt)
     if (client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
       const { notifications } = addDebtCharge(client, card, {
@@ -2293,18 +2336,9 @@ export function createPosSale(db, data = {}) {
     }
   }
   if (skipBalances) {
-    const client = getClientById(db, data.clientId) || null
-    const card = getCardByNum(db, data.cardNum)
+    const { client, card } = resolveSaleClientAndCard(db, data)
     if (data.clientDebtAfter != null) {
-      const d = round2(data.clientDebtAfter)
-      if (client) {
-        client.debt = d
-        if (d > 0) client.debtEnabled = true
-      }
-      if (card) {
-        card.debt = d
-        if (card.debt > 0) card.debtEnabled = true
-      }
+      applyDebtToPair(client, card, data.clientDebtAfter)
     }
     if (data.walletAfter != null) {
       const w = round2(data.walletAfter)
@@ -2633,24 +2667,11 @@ export function returnPosSale(db, saleId, meta = {}) {
   const skipBalanceRestore = !!(meta.appliedLocal || meta.queuedOffline || meta.skipBalances)
 
   if (cutDebt > 0) {
-    const client = getClientById(db, sale.clientId)
-      || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
-    const card = getCardByNum(db, sale.cardNum)
-      || (client?.card ? getCardByNum(db, client.card) : null)
-    if (skipBalanceRestore) {
-      if (meta.clientDebtAfter != null) {
-        const d = round2(meta.clientDebtAfter)
-        if (client) client.debt = Math.max(0, d)
-        if (card) card.debt = Math.max(0, d)
-      } else {
-        const nextDebt = Math.max(0, round2(effectiveDebt(client, card) - cutDebt))
-        if (client) client.debt = nextDebt
-        if (card) card.debt = nextDebt
-      }
+    const { client, card } = resolveSaleClientAndCard(db, sale)
+    if (skipBalanceRestore && meta.clientDebtAfter != null) {
+      applyDebtToPair(client, card, meta.clientDebtAfter)
     } else {
-      const nextDebt = Math.max(0, round2(effectiveDebt(client, card) - cutDebt))
-      if (client) client.debt = nextDebt
-      if (card) card.debt = nextDebt
+      applyDebtToPair(client, card, effectiveDebt(client, card) - cutDebt)
     }
     if (client) {
       applyDebtRepayment(client, card, cutDebt, {
@@ -2663,19 +2684,14 @@ export function returnPosSale(db, saleId, meta = {}) {
 
   // Возврат денег на кошелёк клиента (если платили с кошелька)
   if (cutWallet > 0 && !skipBalanceRestore) {
-    const client = getClientById(db, sale.clientId) || null
-    const card = getCardByNum(db, sale.cardNum)
+    const { client, card } = resolveSaleClientAndCard(db, sale)
     if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
     if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
   }
 
   // Возврат бонусов клиенту
   if (cutBonus > 0 && !skipBalanceRestore) {
-    const client =
-      getClientById(db, sale.clientId)
-      || (sale.clientPhone ? findClientByPhone(db, sale.clientPhone) : null)
-    const card = getCardByNum(db, sale.cardNum)
-      || (client?.card ? getCardByNum(db, client.card) : null)
+    const { client, card } = resolveSaleClientAndCard(db, sale)
     if (card) {
       card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
     }

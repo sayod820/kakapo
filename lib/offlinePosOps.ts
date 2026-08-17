@@ -658,6 +658,41 @@ function liveDebtNow(num: string, clientId: string | undefined, fallback: number
   return round2(Math.max(effectiveDebt(card, client), fallback))
 }
 
+/** Клиент и карта чека: id / телефон / номер, в обе стороны. */
+function resolveSaleClientAndCard(sale: {
+  clientId?: string
+  clientPhone?: string
+  cardNum?: string
+}) {
+  const clientId = String(sale.clientId || '')
+  const saleCardNum = String(sale.cardNum || '')
+  const phone = String(sale.clientPhone || '')
+  const clients = useClientStore.getState().clients
+  const cards = useCardStore.getState().cards
+
+  let cl = clientId ? clients.find(c => c.id === clientId) : undefined
+  if (!cl && phone) cl = clients.find(c => phonesMatch(c.phone, phone))
+
+  const wantNum = saleCardNum || cl?.card || ''
+  let card = wantNum ? cards.find(c => cardNumsMatch(c.num, wantNum)) : undefined
+  if (!card && cl) {
+    card = cards.find(c =>
+      (c.clientId && c.clientId === cl!.id && c.status !== 'unlinked')
+      || (!!cl!.phone && phonesMatch(c.phone, cl!.phone) && c.status !== 'unlinked'),
+    )
+  }
+  if (!cl && card) {
+    cl = card.clientId
+      ? clients.find(c => c.id === card!.clientId)
+      : clients.find(c =>
+          cardNumsMatch(c.card, card!.num)
+          || (!!card!.phone && phonesMatch(c.phone, card!.phone)),
+        )
+  }
+  const resolvedCardNum = card?.num || wantNum || cl?.card || ''
+  return { cl, card, phone, resolvedCardNum }
+}
+
 export async function debtRepaySafe(
   num: string,
   input: {
@@ -762,21 +797,22 @@ export async function returnSaleSafe(
 
   const applyAndQueue = async () => {
     const returned = applyLocalReturn(sale, input.items)
-    let clientDebtAfter: number | undefined
-    const clientId = String(returned.clientId || sale.clientId || '')
-    const phone = String(returned.clientPhone || sale.clientPhone || '')
-    const cl = clientId
-      ? useClientStore.getState().clients.find(c => c.id === clientId)
-      : useClientStore.getState().clients.find(c => phone && phonesMatch(c.phone, phone))
-    if (cl) clientDebtAfter = round2(Number(cl.debt) || 0)
+    const party = resolveSaleClientAndCard({
+      clientId: returned.clientId || sale.clientId,
+      clientPhone: returned.clientPhone || sale.clientPhone,
+      cardNum: returned.cardNum || sale.cardNum,
+    })
+    const clientDebtAfter = (party.cl || party.card)
+      ? round2(effectiveDebt(party.cl, party.card))
+      : undefined
     await useOfflineSync.getState().queueOp('sale_return', {
       clientRef,
       saleId: sale.id,
       note: input.note,
       cashierId: input.cashierId,
       items: input.items,
-      clientId: returned.clientId || sale.clientId,
-      cardNum: returned.cardNum || sale.cardNum,
+      clientId: party.cl?.id || returned.clientId || sale.clientId,
+      cardNum: party.resolvedCardNum || returned.cardNum || sale.cardNum,
       clientDebtAfter,
       cutDebt: Math.max(0, round2((Number(sale.debtAdded) || 0) - (Number(returned.debtAdded) || 0))),
     })
@@ -950,51 +986,45 @@ function applyLocalReturn(
 
 function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof computeReturnCuts>) {
   if (!(cuts.cutDebt > 0 || cuts.cutWallet > 0 || cuts.cutBonus > 0)) return
-  const clientId = String(sale.clientId || '')
-  const cardNum = String(sale.cardNum || '')
-  const phone = String(sale.clientPhone || '')
-  markMoneyPending({ clientId, cardNum })
+  const { cl, card, phone, resolvedCardNum } = resolveSaleClientAndCard(sale)
+  markMoneyPending({ clientId: cl?.id, cardNum: resolvedCardNum })
+  if (sale.cardNum && resolvedCardNum && !cardNumsMatch(sale.cardNum, resolvedCardNum)) {
+    markMoneyPending({ cardNum: sale.cardNum })
+  }
+  if (cl?.card && resolvedCardNum && !cardNumsMatch(cl.card, resolvedCardNum)) {
+    markMoneyPending({ cardNum: cl.card })
+  }
 
-  let cl = clientId
-    ? useClientStore.getState().clients.find(c => c.id === clientId)
-    : undefined
-  if (!cl && phone) {
-    cl = useClientStore.getState().clients.find(c => phonesMatch(c.phone, phone))
+  const nextDebt = Math.max(0, round2(effectiveDebt(cl, card) - cuts.cutDebt))
+  const nums = [resolvedCardNum, sale.cardNum, cl?.card, card?.num]
+    .map(n => String(n || '').trim())
+    .filter((n, i, arr) => n && arr.findIndex(x => cardNumsMatch(x, n)) === i)
+
+  const clientPatch: Partial<AdminClient> = {}
+  if (cuts.cutDebt > 0) clientPatch.debt = nextDebt
+  if (cuts.cutWallet > 0) clientPatch.wallet = round2((Number(cl?.wallet) || 0) + cuts.cutWallet)
+  if (cuts.cutBonus > 0) clientPatch.bonus = round2((Number(cl?.bonus) || 0) + cuts.cutBonus)
+  if (cl && Object.keys(clientPatch).length) {
+    useClientStore.getState().updateClient(cl.id, clientPatch, { skipApi: true })
   }
-  if (cl) {
-    const card = (cardNum || cl.card)
-      ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, cardNum || cl.card || ''))
-      : undefined
-    const nextDebt = Math.max(0, round2(effectiveDebt(cl, card) - cuts.cutDebt))
-    useClientStore.getState().updateClient(cl.id, {
-      debt: nextDebt,
-      wallet: round2((Number(cl.wallet) || 0) + cuts.cutWallet),
-      bonus: round2((Number(cl.bonus) || 0) + cuts.cutBonus),
-    }, { skipApi: true })
-    const num = cardNum || cl.card || ''
-    if (num) {
-      useCardStore.getState().updateCardLoyalty(num, {
-        debt: nextDebt,
-        wallet: round2((Number(card?.wallet) || Number(cl.wallet) || 0) + cuts.cutWallet),
-        bonus: round2((Number(card?.bonus) || Number(cl.bonus) || 0) + cuts.cutBonus),
-        posCashBonus: round2((Number(card?.posCashBonus) || 0) + cuts.cutBonus),
-      } as any, { skipApi: true })
+
+  for (const num of nums) {
+    const cur = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+    if (!cur && !cl) continue
+    const cardPatch: Record<string, unknown> = {}
+    if (cuts.cutDebt > 0) cardPatch.debt = nextDebt
+    if (cuts.cutWallet > 0) {
+      cardPatch.wallet = round2((Number(cur?.wallet) || Number(cl?.wallet) || 0) + cuts.cutWallet)
     }
-  } else {
-    const num = cardNum || ''
-    if (num) {
-      const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
-      if (card) {
-        const nextDebt = Math.max(0, round2(effectiveDebt(card) - cuts.cutDebt))
-        useCardStore.getState().updateCardLoyalty(num, {
-          debt: nextDebt,
-          wallet: round2((Number(card.wallet) || 0) + cuts.cutWallet),
-          bonus: round2((Number(card.bonus) || 0) + cuts.cutBonus),
-          posCashBonus: round2((Number(card.posCashBonus) || 0) + cuts.cutBonus),
-        } as any, { skipApi: true })
-      }
+    if (cuts.cutBonus > 0) {
+      cardPatch.bonus = round2((Number(cur?.bonus) || Number(cl?.bonus) || 0) + cuts.cutBonus)
+      cardPatch.posCashBonus = round2((Number(cur?.posCashBonus) || 0) + cuts.cutBonus)
+    }
+    if (Object.keys(cardPatch).length) {
+      useCardStore.getState().updateCardLoyalty(num, cardPatch as any, { skipApi: true })
     }
   }
+
   if (cuts.cutDebt > 0) {
     const histKey = debtAccountKey(cl) || String(phone || '').trim()
     if (histKey) {

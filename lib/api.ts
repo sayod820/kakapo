@@ -1087,6 +1087,8 @@ export const api = {
     skipStock?: boolean
     skipBalances?: boolean
     queuedOffline?: boolean
+    clientDebtAfter?: number
+    cutDebt?: number
   }) =>
     request<PosSale>(`/pos/sales/${encodeURIComponent(id)}/return`, {
       method: 'POST',

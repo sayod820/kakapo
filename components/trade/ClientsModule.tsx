@@ -7,6 +7,7 @@ import {
   cardHasDebtSection,
   cardLoyaltyFromCard,
   cardNumsMatch,
+  effectiveDebt,
   type AdminCard,
   type CardLoyaltyForm,
 } from '@/lib/cardCrm'
@@ -118,8 +119,15 @@ function bonusPercentForLevel(level: ClientLevel, vip: boolean): number {
 }
 
 function cardForClient(client: AdminClient, cards: AdminCard[]): AdminCard | undefined {
-  if (!client.card) return undefined
-  return cards.find(c => cardNumsMatch(c.num, client.card) && c.status !== 'unlinked')
+  if (client.card) {
+    const byNum = cards.find(c => cardNumsMatch(c.num, client.card) && c.status !== 'unlinked')
+    if (byNum) return byNum
+  }
+  return cards.find(c => c.clientId === client.id && c.status !== 'unlinked')
+}
+
+function clientShownDebt(client: AdminClient, cards: AdminCard[]): number {
+  return effectiveDebt(cardForClient(client, cards), client)
 }
 
 type HistoryRow =
@@ -259,29 +267,29 @@ export default function ClientsModule() {
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), [])
 
   const stats = useMemo(() => {
-    const totalDebt = clients.reduce((s, c) => s + (Number(c.debt) || 0), 0)
-    const withDebt = clients.filter(c => (Number(c.debt) || 0) > 0).length
+    const totalDebt = clients.reduce((s, c) => s + clientShownDebt(c, cards), 0)
+    const withDebt = clients.filter(c => clientShownDebt(c, cards) > 0).length
     const vipCount = clients.filter(c => !!c.vip).length
     const withCard = clients.filter(c => !!(c.card || '').trim()).length
     const totalBonus = clients.reduce((s, c) => s + (Number(c.bonus) || 0), 0)
     const overLimit = clients.filter(c => {
       const limit = resolveEffectiveDebtLimit(c)
-      return limit > 0 && (Number(c.debt) || 0) > limit
+      return limit > 0 && clientShownDebt(c, cards) > limit
     }).length
     return { totalDebt, withDebt, vipCount, withCard, totalBonus, overLimit }
-  }, [clients])
+  }, [clients, cards])
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase()
     let list = clients
-    if (filter === 'debt') list = list.filter(c => (Number(c.debt) || 0) > 0)
+    if (filter === 'debt') list = list.filter(c => clientShownDebt(c, cards) > 0)
     else if (filter === 'vip') list = list.filter(c => !!c.vip)
     else if (filter === 'blocked') list = list.filter(c => !!c.blocked)
     else if (filter === 'no_card') list = list.filter(c => !(c.card || '').trim())
     else if (filter === 'over_limit') {
       list = list.filter(c => {
         const limit = resolveEffectiveDebtLimit(c)
-        return limit > 0 && (Number(c.debt) || 0) > limit
+        return limit > 0 && clientShownDebt(c, cards) > limit
       })
     }
     if (query) {
@@ -293,13 +301,13 @@ export default function ClientsModule() {
       )
     }
     const sorted = [...list]
-    if (sort === 'debt') sorted.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
+    if (sort === 'debt') sorted.sort((a, b) => clientShownDebt(b, cards) - clientShownDebt(a, cards))
     else if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     else if (sort === 'spent') sorted.sort((a, b) => (Number(b.spent) || 0) - (Number(a.spent) || 0))
     else if (sort === 'bonus') sorted.sort((a, b) => (Number(b.bonus) || 0) - (Number(a.bonus) || 0))
     else sorted.sort((a, b) => String(b.lastOrderAt || b.createdAt || '').localeCompare(String(a.lastOrderAt || a.createdAt || '')))
     return sorted
-  }, [clients, q, sort, filter])
+  }, [clients, cards, q, sort, filter])
 
   const cashBonusPreview = useMemo(() => {
     if (!cashForm.open) return 0
@@ -419,7 +427,7 @@ export default function ClientsModule() {
   }
 
   async function removeClient(c: EnrichedClient) {
-    if ((Number(c.debt) || 0) > 0) {
+    if (clientShownDebt(c, cards) > 0) {
       alert('Нельзя удалить клиента с непогашенным долгом — сначала погасите задолженность')
       return
     }
@@ -631,11 +639,11 @@ export default function ClientsModule() {
       ) : (
         <div className="k-cli-list">
           {filtered.map(c => {
-            const debt = Number(c.debt) || 0
+            const card = cardForClient(c, cards)
+            const debt = effectiveDebt(card, c)
             const levelColor = CLIENT_LEVEL_COLORS[c.level] || 'var(--muted)'
             const debtLimit = resolveEffectiveDebtLimit(c)
             const overLimit = debtLimit > 0 && debt > debtLimit
-            const card = cardForClient(c, cards)
             const cardStatus = card ? CARD_STATUS_LABELS[card.status] : null
             const rowClass = [
               'k-cli-row',
