@@ -73,6 +73,8 @@ export default function ProductImage({
         <img
           src={src}
           alt={alt || product.name || ''}
+          loading={preferThumb ? 'lazy' : 'eager'}
+          decoding="async"
           style={{
             width: '100%',
             height: '100%',

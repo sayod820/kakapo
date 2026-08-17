@@ -9,7 +9,7 @@
  */
 
 import { createHash, randomBytes } from 'crypto'
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync, readFileSync } from 'fs'
 import { basename, join } from 'path'
 import sharp from 'sharp'
 import { DATA_DIR } from './db.js'
@@ -17,10 +17,10 @@ import { DATA_DIR } from './db.js'
 export const UPLOAD_ROOT = join(DATA_DIR, 'uploads')
 export const PRODUCT_UPLOAD_DIR = join(UPLOAD_ROOT, 'products')
 /** Макс. длинная сторона основного фото (только уменьшение, без кадрирования) */
-export const PRODUCT_PHOTO_MAX_SIDE = 1600
+export const PRODUCT_PHOTO_MAX_SIDE = 1400
 export const PRODUCT_THUMB_SIZE = 400
-export const PRODUCT_WEBP_QUALITY = 92
-export const PRODUCT_THUMB_QUALITY = 86
+export const PRODUCT_WEBP_QUALITY = 78
+export const PRODUCT_THUMB_QUALITY = 70
 
 export function ensureUploadDirs() {
   mkdirSync(PRODUCT_UPLOAD_DIR, { recursive: true })
@@ -131,4 +131,146 @@ export async function processAndSaveProductPhoto(input, opts = {}) {
     height: outMeta.height || srcH,
     bytes: webp.length,
   }
+}
+
+function isDataPhoto(url) {
+  return /^data:image\//i.test(String(url || ''))
+}
+
+function bufferFromDataUrl(url) {
+  const m = String(url || '').match(/^data:image\/[a-zA-Z0-9.+-]+;base64,([\s\S]+)$/i)
+  if (!m) return null
+  try {
+    const buf = Buffer.from(m[1].replace(/\s/g, ''), 'base64')
+    return buf.length > 32 ? buf : null
+  } catch {
+    return null
+  }
+}
+
+function uploadFileName(url) {
+  const name = basename(String(url || '').split('?')[0])
+  if (!name || name.includes('..')) return null
+  if (!/^[A-Za-z0-9._-]+\.(webp|jpe?g|png|gif|bmp|heic|heif|tiff?)$/i.test(name)) return null
+  return name
+}
+
+function localProductFile(url) {
+  const raw = String(url || '')
+  if (!raw) return null
+  if (!/\/uploads\/products\//i.test(raw) && !/^https?:\/\//i.test(raw)) return null
+  if (/^https?:\/\//i.test(raw) && !/\/uploads\/products\//i.test(raw)) return null
+  const name = uploadFileName(raw)
+  if (!name) return null
+  const full = join(PRODUCT_UPLOAD_DIR, name)
+  return existsSync(full) ? full : null
+}
+
+function deleteLocalUpload(url) {
+  const full = localProductFile(url)
+  if (!full) return
+  try { unlinkSync(full) } catch { /* ignore */ }
+}
+
+export function stripHeavyPhotoFields(product) {
+  if (!product || typeof product !== 'object') return product
+  const next = { ...product }
+  if (isDataPhoto(next.photo)) next.photo = null
+  if (isDataPhoto(next.photoThumb)) next.photoThumb = null
+  return next
+}
+
+export function productPhotoNeedsConvert(product) {
+  const photo = String(product?.photo || '').trim()
+  const thumb = String(product?.photoThumb || '').trim()
+  if (!photo) return false
+  if (isDataPhoto(photo) || isDataPhoto(thumb)) return true
+  if (!isManagedProductPhotoUrl(photo)) return true
+  if (!isManagedProductPhotoUrl(thumb)) return true
+  if (!localProductFile(photo)) return true
+  if (!localProductFile(thumb)) return true
+  return false
+}
+
+async function writeThumbFromMain(mainPath, productId) {
+  const thumb = await sharp(mainPath, { failOn: 'none' })
+    .rotate()
+    .resize(PRODUCT_THUMB_SIZE, PRODUCT_THUMB_SIZE, {
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .webp({ quality: PRODUCT_THUMB_QUALITY, effort: 4 })
+    .toBuffer()
+  const mainName = basename(mainPath)
+  const thumbName = mainName.replace(/\.webp$/i, '-thumb.webp')
+  if (thumbName === mainName) {
+    const base = makeBaseName(productId)
+    const newThumb = `${base}-thumb.webp`
+    writeFileSync(join(PRODUCT_UPLOAD_DIR, newThumb), thumb)
+    return publicUrl(newThumb)
+  }
+  writeFileSync(join(PRODUCT_UPLOAD_DIR, thumbName), thumb)
+  return publicUrl(thumbName)
+}
+
+/**
+ * Старое JPEG/PNG/base64 → WebP + миниатюра. Уже готовые WebP не трогаем.
+ * @returns {Promise<boolean>} true если запись товара изменилась
+ */
+export async function convertStoredProductPhoto(product) {
+  if (!product || typeof product !== 'object') return false
+  const photo = String(product.photo || '').trim()
+  const thumb = String(product.photoThumb || '').trim()
+  if (!photo) return false
+  if (!productPhotoNeedsConvert(product)) return false
+
+  const mainFile = localProductFile(photo)
+  if (
+    mainFile
+    && isManagedProductPhotoUrl(photo)
+    && (!thumb || !isManagedProductPhotoUrl(thumb) || !localProductFile(thumb))
+  ) {
+    product.photoThumb = await writeThumbFromMain(mainFile, product.id)
+    return true
+  }
+
+  let input = null
+  if (isDataPhoto(photo)) input = bufferFromDataUrl(photo)
+  else if (mainFile) input = readFileSync(mainFile)
+  if (!input) return false
+
+  const result = await processAndSaveProductPhoto(input, {
+    productId: product.id,
+    replaceUrl: isManagedProductPhotoUrl(photo) ? photo : undefined,
+  })
+  if (mainFile && !isManagedProductPhotoUrl(photo)) deleteLocalUpload(photo)
+  product.photo = result.url
+  product.photoThumb = result.thumbUrl
+  return true
+}
+
+export async function migrateProductPhotos(products, { persist, onConverted } = {}) {
+  let converted = 0
+  let failed = 0
+  let skipped = 0
+  for (const p of products || []) {
+    if (!productPhotoNeedsConvert(p)) {
+      skipped++
+      continue
+    }
+    try {
+      const ok = await convertStoredProductPhoto(p)
+      if (ok) {
+        converted++
+        persist?.()
+        onConverted?.(p)
+      } else {
+        skipped++
+      }
+    } catch (e) {
+      failed++
+      console.warn('[photos] не удалось конвертировать товар', p?.id, e?.message || e)
+    }
+  }
+  return { converted, failed, skipped }
 }

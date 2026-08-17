@@ -67,7 +67,7 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
           animation: animDelay ? `fadeUp .45s cubic-bezier(.16,1,.3,1) ${animDelay}s both` : undefined }}>
         <div style={{ width:62, height:62, borderRadius:16, background:grad, display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, flexShrink:0, position:'relative', overflow:'hidden' }}>
           {photo
-            ? <img src={photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', padding:4, boxSizing:'border-box', display:'block' }}/>
+            ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'contain', padding:4, boxSizing:'border-box', display:'block' }}/>
             : emoji}
           {disc>0 && <div style={{ position:'absolute', top:-4, left:-4, borderRadius:8, background:'var(--red)', padding:'1px 5px', fontSize:9, fontWeight:800, color:'white', zIndex:2 }}>-{disc}%</div>}
         </div>
@@ -105,7 +105,7 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
       </div>
       <div style={{ height:110, background:grad, display:'flex', alignItems:'center', justifyContent:'center', fontSize:48, animation:p.isHot?'float 3s ease-in-out infinite':undefined, overflow:'hidden', position:'relative' }}>
         {photo
-          ? <img src={photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'contain', padding:6, boxSizing:'border-box', display:'block', animation:'float 3.2s ease-in-out infinite' }}/>
+          ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'contain', padding:6, boxSizing:'border-box', display:'block', animation:'float 3.2s ease-in-out infinite' }}/>
           : emoji}
       </div>
       <div style={{ padding:'10px 10px 8px', flex:1, display:'flex', flexDirection:'column', gap:3 }}>

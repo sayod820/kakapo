@@ -6,6 +6,7 @@
 
 import { listAllOpenStockLayers } from './posLogic.js'
 import { listSyncDeletesSince } from './syncDeletes.js'
+import { stripHeavyPhotoFields } from './productPhotoPipeline.js'
 
 function asIso(v) {
   const s = String(v || '').trim()
@@ -108,9 +109,10 @@ export function buildSyncChanges(db, opts = {}) {
     ? rawDays
     : DEFAULT_FULL_HISTORY_DAYS
 
-  const products = full
+  const products = (full
     ? (db.products || [])
     : filterBySince(db.products || [], since)
+  ).map(stripHeavyPhotoFields)
   const categories = full
     ? (db.categories || [])
     : filterBySince(db.categories || [], since)

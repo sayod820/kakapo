@@ -21,6 +21,8 @@ import {
   ensureUploadDirs,
   processAndSaveProductPhoto,
   deleteManagedProductPhoto,
+  stripHeavyPhotoFields,
+  migrateProductPhotos,
   UPLOAD_ROOT,
 } from './productPhotoPipeline.js'
 import {
@@ -512,6 +514,18 @@ app.post('/products/photo', (req, res) => {
   })
 })
 
+app.post('/products/convert-photos', async (_req, res) => {
+  try {
+    const result = await migrateProductPhotos(db.products || [], {
+      persist,
+      onConverted: p => broadcastProduct(p),
+    })
+    res.json({ ok: true, ...result })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось конвертировать фото' })
+  }
+})
+
 /** Фото блюда: любое изображение → WebP, старый управляемый файл удаляется. */
 app.post('/restaurants/photo', (req, res) => {
   photoUpload.single('photo')(req, res, async err => {
@@ -545,7 +559,7 @@ function broadcast(event, order) {
 }
 
 function broadcastProduct(product) {
-  const msg = JSON.stringify({ event: 'product_update', product })
+  const msg = JSON.stringify({ event: 'product_update', product: stripHeavyPhotoFields(product) })
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(msg)
   }
@@ -945,7 +959,7 @@ app.patch('/auth/admin', (req, res) => {
   res.json({ ok: true, login: nextLogin })
 })
 
-app.get('/products', (_req, res) => res.json(db.products))
+app.get('/products', (_req, res) => res.json((db.products || []).map(stripHeavyPhotoFields)))
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
   const barcode = nextFreeEan13(db.products, next)
@@ -5205,4 +5219,16 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   }, 6 * 60 * 60 * 1000)
   auditTimer.unref()
   setImmediate(() => runLoyaltyBackfill())
+  setTimeout(() => {
+    void migrateProductPhotos(db.products || [], {
+      persist,
+      onConverted: p => broadcastProduct(p),
+    }).then(r => {
+      if (r.converted || r.failed) {
+        console.log(`[photos] WebP: конвертировано ${r.converted}, пропущено ${r.skipped}, ошибок ${r.failed}`)
+      }
+    }).catch(e => {
+      console.warn('[photos] миграция не удалась', e?.message || e)
+    })
+  }, 2500)
 })
