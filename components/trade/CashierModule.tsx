@@ -24,6 +24,7 @@ import {
   deletePosPointSafe,
   ensureCashierSafe,
 } from '@/lib/offlinePosOps'
+import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
 import { USE_API } from '@/lib/config'
 import { loyaltySummaryForClient } from '@/lib/clientCardSync'
 import {
@@ -34,16 +35,15 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { cardNumsMatch } from '@/lib/cardCrm'
+import { cardNumsMatch, effectiveDebt } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
-  allocateRepaymentFifo,
   buildDebtOrderBalances,
   buildSaleDebtStatuses,
-  debtHistoryTotals,
   debtOrderIdsMatch,
   debtStatusForSale,
   ensureDebtHistoryOrderId,
+  isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   loadBalanceTopups,
   loadDebtHistory,
@@ -52,8 +52,10 @@ import {
   recordStoreDebtRepayment,
   recordStoreDebtRepaymentFifo,
   recordStorePurchase,
+  saleOpenCreditAmount,
   subscribeBalanceTopup,
   subscribeDebtHistory,
+  syncDebtHistoryFromLedger,
   topupBalanceCredit,
   type DebtHistoryEntry,
   type DebtOrderBalance,
@@ -960,6 +962,17 @@ export default function CashierModule({
       return { ...t, client: typeof u === 'function' ? u(t.client) : u }
     }))
   }
+  async function ensureClientHasCard(c: AdminClient): Promise<AdminClient> {
+    if (c.card) {
+      const linked = useCardStore.getState().cards.find(x => cardNumsMatch(x.num, c.card!) && x.status !== 'unlinked')
+      if (linked) return c
+    }
+    const res = await provisionLoyaltyCardSafe(c)
+    const fresh = useClientStore.getState().clients.find(x => x.id === c.id) || res.data
+    if (!fresh.card) throw new Error('Не удалось получить карту лояльности')
+    setClient(fresh)
+    return fresh
+  }
   function setPay(u: PayMethod | ((prev: PayMethod) => PayMethod)) {
     setTickets(prev => prev.map(t => {
       if (t.id !== activeTicketId) return t
@@ -1020,7 +1033,6 @@ export default function CashierModule({
 
   const [clientOpen, setClientOpen] = useState(false)
   const [clientQ, setClientQ] = useState('')
-  const [clientPick, setClientPick] = useState<AdminClient | null>(null)
   const [clientScanOpen, setClientScanOpen] = useState(false)
   const [clientScanBuf, setClientScanBuf] = useState('')
   const [camScanOpen, setCamScanOpen] = useState(false)
@@ -1423,6 +1435,22 @@ export default function CashierModule({
     const offTopup = subscribeBalanceTopup(bump)
     return () => { offDebt(); offTopup() }
   }, [])
+  useEffect(() => {
+    const phone = client?.phone
+    if (!phone) return
+    void syncDebtHistoryFromLedger(phone)
+  }, [client?.phone])
+  const prevClientIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const id = client?.id || null
+    if (prevClientIdRef.current && prevClientIdRef.current !== id) {
+      setPayDebtOn(false)
+      setPayDebtBuf('')
+      setPayGivenBuf('')
+      setRepayTarget(null)
+    }
+    prevClientIdRef.current = id
+  }, [client?.id])
   useEffect(() => {
     if (!qtyEditOpen) return
     const t = window.setTimeout(() => {
@@ -2353,15 +2381,42 @@ export default function CashierModule({
     setSelectedCatSlugs([slug])
   }
 
+  function pickClientInPos(c: AdminClient, toast = true) {
+    setClient(c)
+    setBonusUsed(0)
+    setPayDebtOn(false)
+    setPayDebtBuf('')
+    setPayGivenBuf('')
+    setRepayTarget(null)
+    setClientOpen(false)
+    setClientScanOpen(false)
+    setClientScanBuf('')
+    setClientQ('')
+    if (toast) showToast('Клиент выбран', c.name)
+  }
+
   const clientHits = useMemo(() => {
     const query = clientQ.trim().toLowerCase()
-    if (query.length < 2) return []
-    return clients.filter(c =>
-      c.name.toLowerCase().includes(query)
-      || (c.phone || '').replace(/\s/g, '').includes(query.replace(/\s/g, ''))
-      || (c.card || '').toLowerCase().includes(query),
-    ).slice(0, 8)
-  }, [clients, clientQ])
+    const qDigits = query.replace(/\s/g, '')
+    const debtOf = (c: AdminClient) => {
+      const card = c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined
+      return effectiveDebt(card, c)
+    }
+    if (!query) {
+      return [...clients]
+        .filter(c => debtOf(c) > 0.001)
+        .sort((a, b) => debtOf(b) - debtOf(a))
+        .slice(0, 12)
+    }
+    return clients
+      .filter(c =>
+        c.name.toLowerCase().includes(query)
+        || (c.phone || '').replace(/\s/g, '').includes(qDigits)
+        || (c.card || '').toLowerCase().includes(query),
+      )
+      .sort((a, b) => debtOf(b) - debtOf(a) || a.name.localeCompare(b.name, 'ru'))
+      .slice(0, 20)
+  }, [clients, clientQ, cards])
 
   const loyalty = useMemo(() => (client ? loyaltySummaryForClient(client, cards) : null), [client, cards])
   const debtLimit = loyalty ? resolveEffectiveDebtLimit(loyalty) : 0
@@ -2418,8 +2473,12 @@ export default function CashierModule({
       const matchId = client.id && s.clientId === client.id
       const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
       if (!matchId && !matchPhone) continue
-      const isCredit = s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
-      const methodLabel = isCredit
+      const isReturned = s.status === 'returned'
+      const openCredit = saleOpenCreditAmount(s)
+      const isCredit = openCredit > 0.001
+      const methodLabel = isReturned
+        ? 'Возврат'
+        : isCredit
         ? 'В долг'
         : s.paymentMethod === 'cash'
           ? 'Наличные'
@@ -2432,10 +2491,10 @@ export default function CashierModule({
       const ts = when.getTime() || 0
       const total = Number(s.total) || 0
       const mappedLines = mapSaleLines(s.items, products)
-      const debtMeta = isCredit ? debtStatusFor(s.id, Number(s.debtAdded) || total, ts) : null
+      const debtMeta = isCredit ? debtStatusFor(s.id, openCredit, ts) : null
       if (debtMeta?.debtId) linkedDebtIds.add(debtMeta.debtId)
 
-      let title = isCredit ? 'Чек в долг' : 'Чек'
+      let title = isReturned ? 'Чек · возврат' : isCredit ? 'Чек в долг' : 'Чек'
       let sub = methodLabel
       if (isCredit && debtMeta) {
         if (debtMeta.debtStatus === 'paid') {
@@ -2586,14 +2645,14 @@ export default function CashierModule({
         const matchId = client.id && s.clientId === client.id
         const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
         if (!matchId && !matchPhone) return false
-        return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+        return saleOpenCreditAmount(s) > 0.001
       })
       .map(s => ({
         sale: s,
         ts: new Date(s.createdAtIso).getTime() || 0,
-        amt: Number(s.debtAdded) || Number(s.total) || 0,
+        amt: saleOpenCreditAmount(s),
       }))
-      .filter(x => x.amt > 0)
+      .filter(x => x.amt > 0.001)
       .sort((a, b) => a.ts - b.ts)
 
     type St = { status: 'paid' | 'partial' | 'open'; paid: number; remain: number }
@@ -2754,12 +2813,10 @@ export default function CashierModule({
         const matchId = client.id && s.clientId === client.id
         const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
         if (!matchId && !matchPhone) return false
-        return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+        return saleOpenCreditAmount(s) > 0.001
       })
       .map(s => {
-        const debtAdded = Number(s.debtAdded) > 0
-          ? Number(s.debtAdded)
-          : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0)
+        const debtAdded = saleOpenCreditAmount(s)
         return {
           id: s.id,
           orderId: s.orderId,
@@ -2769,7 +2826,7 @@ export default function CashierModule({
           items: mapSaleLines(s.items, products),
         }
       })
-      .filter(s => s.debtAdded > 0)
+      .filter(s => s.debtAdded > 0.001)
       .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)))
 
     const cardDebt = Math.max(0, Math.round(clientDebt * 100) / 100)
@@ -2780,17 +2837,18 @@ export default function CashierModule({
     )
 
     const manual = history.filter(isManualDebtHistoryEntry)
-    const cashRows = manual.filter(r => r.type === 'debt')
+    const cashRows = history.filter(r => isLedgerCashHistoryDebt(r, posSales))
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const manualPays = manual.filter(r => r.type === 'pay')
-    const manualTotals = debtHistoryTotals(manual)
-    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
-    const residualCash = Math.max(0, Math.round((cashOnCard - Math.max(0, manualNet)) * 100) / 100)
+    const cashChargeSum = Math.round(
+      cashRows.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+    ) / 100
+    const residualCash = Math.max(0, Math.round((cashOnCard - cashChargeSum) * 100) / 100)
 
     const allPaySum = Math.round(
       history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
     ) / 100
-    const chargeSum = Math.round((posOriginal + manualTotals.borrowed + residualCash) * 100) / 100
+    const chargeSum = Math.round((posOriginal + cashChargeSum + residualCash) * 100) / 100
     const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
     const gapPays: DebtHistoryEntry[] = missingPay > 0.05
       ? [{
@@ -2842,7 +2900,7 @@ export default function CashierModule({
         ts: Number(r.ts) || 0,
         when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
         kind: 'cash' as const,
-        desc: r.desc || 'Ручное начисление',
+        desc: `${r.desc || 'Ручное начисление'}${r.overdue ? ' · просрочен' : r.dueDate ? ` · до ${r.dueDate}` : ''}`,
         amount: Math.abs(Number(r.amount) || 0),
       })),
       ...payRows.map(r => ({
@@ -3067,14 +3125,7 @@ export default function CashierModule({
       showToast('Клиент не найден', 'Проверьте QR-код или номер карты')
       return false
     }
-    setClient(found)
-    setBonusUsed(0)
-    setClientOpen(false)
-    setClientScanOpen(false)
-    setClientScanBuf('')
-    setClientQ('')
-    setClientPick(null)
-    showToast('Клиент выбран', `${found.name}${found.card ? ` · ${found.card}` : ''}`)
+    pickClientInPos(found)
     return true
   }
 
@@ -6014,9 +6065,15 @@ export default function CashierModule({
 
       const debtRepay = payDebtForSale
       let debtRepayNote = ''
-      if (debtRepay > 0.001 && client?.card && apiMethod !== 'credit') {
+      if (debtRepay > 0.001 && client && apiMethod !== 'credit') {
         const method = cashPaid > 0.001 ? 'cash' : 'card'
-        // Сразу локально — карта тоже в очередь, без ожидания сети
+        let cardClient = client
+        try {
+          if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
+        } catch { /* без карты погашение с чеком пропустим */ }
+        if (!cardClient.card) {
+          // не смогли выдать карту — долг останется, кассир погасит отдельно
+        } else {
         const prevDebt = Number(loyalty?.debt) || clientDebt
         const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
         debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
@@ -6029,18 +6086,16 @@ export default function CashierModule({
                 const matchId = client.id && s.clientId === client.id
                 const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
                 if (!matchId && !matchPhone) return false
-                return s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0
+                return saleOpenCreditAmount(s) > 0.001
               })
               .map(s => ({
                 id: s.id,
                 orderId: s.orderId || s.id,
                 dateIso: s.createdAtIso,
-                debtAdded: Number(s.debtAdded) > 0
-                  ? Number(s.debtAdded)
-                  : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0),
+                debtAdded: saleOpenCreditAmount(s),
                 number: s.number,
               }))
-              .filter(s => s.debtAdded > 0)
+              .filter(s => s.debtAdded > 0.001)
             const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
             const targets = creditSales
               .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
@@ -6063,15 +6118,16 @@ export default function CashierModule({
             setHistTick(t => t + 1)
           }
         } catch { /* ignore */ }
-        void debtRepaySafe(client.card, {
+        void debtRepaySafe(cardClient.card, {
           amount: payAmt,
           method,
           cashierId: activeShift.cashierId,
           shiftId: activeShift.id,
           posId: activeShift.posId || activePosPoint?.id,
-          clientId: client.id,
+          clientId: cardClient.id,
           prevDebt,
         }).catch(() => {})
+        }
       }
 
       const parts: string[] = []
@@ -6271,8 +6327,8 @@ export default function CashierModule({
     if (principal <= 0) return
     setBusy(true)
     try {
-      if (!client.card) throw new Error('У клиента нет карты')
-      const topup = await cardTopupSafe(client.card, {
+      const withCard = await ensureClientHasCard(client)
+      const topup = await cardTopupSafe(withCard.card!, {
         cash,
         credit,
         note: `Пополнение бонусов · ${client.name}`,
@@ -6318,38 +6374,13 @@ export default function CashierModule({
     }
     setBusy(true)
     try {
-      if (!client.card) throw new Error('У клиента нет карты')
+      const withCard = await ensureClientHasCard(client)
       const payAmt = Math.round(Math.min(amount, maxForTarget) * 100) / 100
       const target = repayTarget
-      if (target?.debtEntryId && client.phone && target.orderId) {
-        ensureDebtHistoryOrderId(client.phone, target.debtEntryId, target.orderId)
+      if (target?.debtEntryId && withCard.phone && target.orderId) {
+        ensureDebtHistoryOrderId(withCard.phone, target.debtEntryId, target.orderId)
       }
-      const oldestActive = (target
-        ? histActiveDebts.filter(r =>
-          r.orderId === target.orderId
-          || r.saleId === target.orderId
-          || (r.debtEntryId && r.debtEntryId === target.debtEntryId),
-        )
-        : histActiveDebts
-      )
-        .slice()
-        .sort((a, b) => a.ts - b.ts)
-        .map(r => ({
-          id: r.debtEntryId || r.id,
-          remainingAmount: Number(r.debtRemain ?? r.amount) || 0,
-          originalAmount: Number(r.amount) || 0,
-          paidAmount: Number(r.debtPaid) || 0,
-          partial: r.debtStatus === 'partial',
-          date: '',
-          time: '',
-          ts: r.ts,
-          desc: r.title,
-          amount: -(Number(r.debtRemain ?? r.amount) || 0),
-          type: 'debt' as const,
-          orderId: r.orderId,
-        }))
-      const fifoPreview = allocateRepaymentFifo(oldestActive, payAmt)
-      const repaid = await debtRepaySafe(client.card, {
+      const repaid = await debtRepaySafe(withCard.card!, {
         amount: payAmt,
         method: repayMethod,
         note: target
@@ -6374,12 +6405,33 @@ export default function CashierModule({
         showToast('Уже принято', 'Это погашение уже записано')
         return
       }
+      let fifoChecks = 0
       if (client.phone) {
-        recordStoreDebtRepayment(client.phone, payAmt, {
-          method: repayMethod,
-          orderId: target?.orderId,
-          desc: target ? `Погашение · ${target.label}` : undefined,
-        })
+        if (target?.orderId) {
+          recordStoreDebtRepayment(client.phone, payAmt, {
+            method: repayMethod,
+            orderId: target.orderId,
+            desc: `Погашение · ${target.label}`,
+          })
+        } else {
+          const targets = histActiveDebts
+            .filter(r => (Number(r.debtRemain ?? r.amount) || 0) > 0.001)
+            .slice()
+            .sort((a, b) => a.ts - b.ts)
+            .map(r => ({
+              orderId: r.orderId || r.saleId,
+              remain: Number(r.debtRemain ?? r.amount) || 0,
+              label: (r.title || '').replace(/\s·\s(к оплате|частично)$/i, '').trim() || undefined,
+            }))
+          fifoChecks = recordStoreDebtRepaymentFifo(client.phone, payAmt, targets, {
+            method: repayMethod,
+            source: 'cashier',
+          }).checkCount
+        }
+        if (repayBonus > 0) {
+          recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
+        }
+      }
         if (repayBonus > 0) {
           recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
         }
@@ -6393,8 +6445,8 @@ export default function CashierModule({
       setRepayMethod('cash')
       setRepayTarget(null)
       const targetNote = target ? ` · ${target.label}` : ''
-      const fifoNote = !target && fifoPreview.length
-        ? ` · списано с ${fifoPreview.length} чек${fifoPreview.length === 1 ? 'а' : 'ов'} (со старых)`
+      const fifoNote = !target && fifoChecks > 0
+        ? ` · с ${fifoChecks} чек${fifoChecks === 1 ? 'а' : 'ов'} (со старых)`
         : ''
       const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
       const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
@@ -7857,7 +7909,6 @@ export default function CashierModule({
                 return
               }
               setClientQ('')
-              setClientPick(null)
               setClientOpen(true)
             }}
           >
@@ -8826,7 +8877,7 @@ export default function CashierModule({
                 ref={clientSearchRef}
                 value={clientQ}
                 onChange={e => setClientQ(e.target.value)}
-                placeholder="Телефон, карта, QR или имя…"
+                placeholder="Имя, телефон, карта…"
                 autoFocus
                 onKeyDown={e => {
                   if (e.key !== 'Enter') return
@@ -8835,10 +8886,7 @@ export default function CashierModule({
                   if (!raw) return
                   if (applyClientScan(raw)) return
                   if (clientHits.length === 1) {
-                    setClient(clientHits[0])
-                    setBonusUsed(0)
-                    setClientOpen(false)
-                    showToast('Клиент выбран', clientHits[0].name)
+                    pickClientInPos(clientHits[0])
                   }
                 }}
               />
@@ -8855,28 +8903,42 @@ export default function CashierModule({
               <QrIcon size={16} />
               <span>Сканировать QR клиента</span>
             </button>
-            <div style={{ maxHeight: 220, overflowY: 'auto', marginBottom: 12 }}>
+            {!clientQ.trim() && clientHits.length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8, fontWeight: 700 }}>
+                Должники · нажмите на строку
+              </div>
+            )}
+            <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
                 const sum = loyaltySummaryForClient(c, cards)
-                const selected = clientPick?.id === c.id
+                const debt = effectiveDebt(c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined, c)
                 return (
-                  <button key={c.id} type="button" className={`client-result ${selected ? 'on' : ''}`} onClick={() => setClientPick(c)}>
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="client-result"
+                    onClick={() => pickClientInPos(c)}
+                  >
                     <div className="av">{initialsOf(c.name)}</div>
                     <div className="ci">
                       <b>{c.name}</b>
-                      <span>{c.phone} · {c.card || 'без карты'} · ⭐ {fmtBonus(sum.bonus)}</span>
+                      <span>
+                        {c.phone || '—'} · {c.card || 'без карты'} · ⭐ {fmtBonus(sum.bonus)}
+                        {debt > 0.001 ? <> · <span className="debt">долг {fmtMoney(debt)}</span></> : null}
+                      </span>
                     </div>
-                    <span className="pick-mark" aria-hidden>{selected ? '✓' : ''}</span>
                   </button>
                 )
               })}
-              {clientQ.trim().length >= 2 && !clientHits.length && (
+              {clientQ.trim().length >= 1 && !clientHits.length && (
                 <div style={{ fontSize: 11, color: 'var(--t3)', padding: 8 }}>Клиент не найден</div>
+              )}
+              {!clientQ.trim() && !clientHits.length && (
+                <div style={{ fontSize: 11, color: 'var(--t3)', padding: 8 }}>Нет клиентов с долгом</div>
               )}
             </div>
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" onClick={() => setClientOpen(false)}>Отмена</button>
-              <button type="button" className="btn-confirm" disabled={!clientPick} onClick={() => { setClient(clientPick); setBonusUsed(0); setClientOpen(false) }}>Выбрать</button>
             </div>
           </div>
         </div>

@@ -11,7 +11,7 @@ import {
 } from '@/lib/cardCrm'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
 import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
-import { debtRepaySafe, resolveOpenShift } from '@/lib/offlinePosOps'
+import { debtRepaySafe, financeMoveSafe, resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -31,12 +31,16 @@ import {
   debtOrderIdsMatch,
   debtStatusForSale,
   ensureDebtHistoryOrderId,
+  isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   loadDebtHistory,
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
+  recordStoreDebtRepaymentFifo,
   removeDebtHistoryEntry,
+  saleOpenCreditAmount,
   subscribeDebtHistory,
+  syncDebtHistoryFromLedger,
   updateDebtHistoryEntry,
   type DebtHistoryEntry,
   type SaleDebtStatus,
@@ -198,6 +202,47 @@ async function repayDebtIntoOpenShift(
   })
 }
 
+async function chargeCashDebtFromOpenShift(
+  client: EnrichedClient,
+  amount: number,
+  opts: { note?: string },
+) {
+  const shift = resolveOpenShift(getBoundPosIdSync())
+  if (!shift) {
+    throw new Error('Откройте смену, чтобы выдать наличные из кассы')
+  }
+  const expected = shiftExpectedCashLocal(shift)
+  if (amount > expected + 0.009) {
+    throw new Error(`В кассе недостаточно наличных (доступно ${fmtMoney(expected)})`)
+  }
+  const note = opts.note || `Выдача наличных · ${client.name}`
+  await financeMoveSafe({
+    type: 'withdraw',
+    amount,
+    note,
+    shiftId: shift.id,
+    posId: shift.posId,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    createdBy: shift.cashierName,
+  })
+  try {
+    return await adjustClientDebtSafe(client, { action: 'charge', amount })
+  } catch (e) {
+    await financeMoveSafe({
+      type: 'deposit',
+      amount,
+      note: `Отмена выдачи наличных · ${client.name}`,
+      shiftId: shift.id,
+      posId: shift.posId,
+      cashierId: shift.cashierId,
+      cashierName: shift.cashierName,
+      createdBy: shift.cashierName,
+    }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
+    throw e
+  }
+}
+
 function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
   return sales.filter(s =>
     (s.clientId && s.clientId === client.id)
@@ -207,9 +252,8 @@ function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
 
 function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[] {
   return salesFor(client, sales)
-    .filter(s => s.paymentMethod === 'credit' || Number(s.debtAdded) > 0)
     .map(s => {
-      const debtAdded = Number(s.debtAdded) > 0 ? Number(s.debtAdded) : (s.paymentMethod === 'credit' ? Number(s.total) || 0 : 0)
+      const debtAdded = saleOpenCreditAmount(s)
       const paidCash = Number(s.paidCash) || 0
       const paidCard = Number(s.paidCard) || 0
       const partial = debtAdded > 0 && (paidCash > 0 || paidCard > 0)
@@ -236,7 +280,7 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
         })),
       }
     })
-    .filter(s => s.debtAdded > 0)
+    .filter(s => s.debtAdded > 0.001)
     .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)))
 }
 
@@ -299,15 +343,20 @@ function buildFeed(
   const rows: FeedRow[] = [
     ...manual.map(row => {
       const isPay = row.type === 'pay'
+      const dueNote = row.overdue
+        ? ' · просрочен'
+        : row.dueDate
+          ? ` · до ${row.dueDate}`
+          : ''
       return {
         key: `h-${row.id}`,
         ts: Number(row.ts) || 0,
         dateLabel: `${row.date}${row.time ? ` · ${row.time}` : ''}`,
         kind: (isPay ? 'pay' : 'cash') as FeedRow['kind'],
         title: isPay ? 'Оплата' : 'Наличные',
-        desc: row.desc || (isPay ? 'Погашение долга' : 'Ручное начисление'),
+        desc: `${row.desc || (isPay ? 'Погашение долга' : 'Ручное начисление')}${dueNote}`,
         amount: isPay ? -Math.abs(Number(row.amount) || 0) : Math.abs(Number(row.amount) || 0),
-        editable: row,
+        editable: isManualDebtHistoryEntry(row) ? row : undefined,
       }
     }),
     ...checkPays.map(row => ({
@@ -448,17 +497,24 @@ export default function DebtsModule({
 
   const detailClient = detailId ? debtClients.find(c => c.id === detailId) || null : null
 
+  useEffect(() => {
+    const phone = detailClient?.phone
+    if (!phone) return
+    void syncDebtHistoryFromLedger(phone)
+  }, [detailClient?.phone])
+
   const detailData = useMemo(() => {
     if (!detailClient) return null
     void histTick
     const history = detailClient.phone
       ? loadDebtHistory(detailClient.phone).sort((a, b) => (b.ts || 0) - (a.ts || 0))
       : []
+    const posSalesForCash = posDebtSalesFor(detailClient, sales)
     const manual = history.filter(isManualDebtHistoryEntry)
-    const cash = manual.filter(r => r.type === 'debt')
+    const cash = history.filter(r => isLedgerCashHistoryDebt(r, posSalesForCash))
     const pays = manual.filter(r => r.type === 'pay')
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
-    const posSales = posDebtSalesFor(detailClient, sales)
+    const posSales = posSalesForCash
     const manualTotals = debtHistoryTotals(manual)
     const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
     const { saleStatus, posOriginal, posRemain, cashOnCard } = buildSaleDebtStatuses(
@@ -466,14 +522,16 @@ export default function DebtsModule({
       history,
       cardDebt,
     )
-    const manualNet = Math.round((manualTotals.borrowed - manualTotals.repaid) * 100) / 100
-    const residualCash = Math.max(0, Math.round((cashOnCard - Math.max(0, manualNet)) * 100) / 100)
+    const cashChargeSum = Math.round(
+      cash.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+    ) / 100
+    const residualCash = Math.max(0, Math.round((cashOnCard - cashChargeSum) * 100) / 100)
 
     // Недостающие погашения: сумма чеков − оплаты в истории − долг на карте
     const allPaySum = Math.round(
       history.filter(r => r.type === 'pay').reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
     ) / 100
-    const chargeSum = Math.round((posOriginal + manualTotals.borrowed + residualCash) * 100) / 100
+    const chargeSum = Math.round((posOriginal + cashChargeSum + residualCash) * 100) / 100
     const missingPay = Math.max(0, Math.round((chargeSum - allPaySum - cardDebt) * 100) / 100)
     const gapPays: DebtHistoryEntry[] = missingPay > 0.05
       ? [{
@@ -489,7 +547,7 @@ export default function DebtsModule({
       : []
 
     const payRows = [...checkPays, ...gapPays]
-    const feed = buildFeed(manual, posSales, residualCash, payRows, saleStatus)
+    const feed = buildFeed([...cash, ...pays], posSales, residualCash, payRows, saleStatus)
     return {
       history,
       manual,
@@ -653,19 +711,35 @@ export default function DebtsModule({
           return
         }
         if (detailClient.phone) {
-          recordStoreDebtRepayment(detailClient.phone, amount, {
-            method,
-            desc: histAdd.desc.trim() || undefined,
-          })
+          const openChecks = (detailData?.posSales || [])
+            .map(s => ({
+              orderId: s.orderId || s.id,
+              remain: Number(detailData?.saleStatus[s.id]?.remain) || 0,
+              label: saleLabel(s),
+              ts: Date.parse(s.dateIso) || 0,
+            }))
+            .filter(t => t.remain > 0.001)
+            .sort((a, b) => a.ts - b.ts)
+          if (openChecks.length) {
+            recordStoreDebtRepaymentFifo(detailClient.phone, amount, openChecks, {
+              method,
+              source: 'cashier',
+              desc: histAdd.desc.trim() || undefined,
+            })
+          } else {
+            recordStoreDebtRepayment(detailClient.phone, amount, {
+              method,
+              desc: histAdd.desc.trim() || undefined,
+            })
+          }
         }
         setHistAdd(emptyHistAdd('repay'))
         setHistMsg(`Оплата записана: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
         if (!res.offline) void refreshAll()
         return
       }
-      const res = await adjustClientDebtSafe(detailClient, {
-        action: 'charge',
-        amount,
+      const res = await chargeCashDebtFromOpenShift(detailClient, amount, {
+        note: histAdd.desc.trim() || `Выдача наличных · ${detailClient.name}`,
       })
       const desc = histAdd.desc.trim()
       if (desc && detailClient.phone) {
@@ -673,7 +747,7 @@ export default function DebtsModule({
         if (latest) updateDebtHistoryEntry(detailClient.phone, latest.id, { desc })
       }
       setHistAdd(emptyHistAdd(histAdd.action))
-      setHistMsg(`Выдано наличными: ${fmtMoney(amount)}`)
+      setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
       if (!res.offline) void refreshAll()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
@@ -872,11 +946,15 @@ export default function DebtsModule({
         <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10, color: 'var(--gold)' }}>
           {histAdd.action === 'repay' ? 'Погашение долга' : 'Выдать наличные в долг'}
         </div>
-        {histAdd.action === 'repay' && (
+        {(histAdd.action === 'repay' || histAdd.action === 'add') && (
           <div style={{ fontSize: 12, marginBottom: 8, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
-            {openShift
-              ? `В кассу · ${openShift.cashierName || 'смена открыта'} · ${histAdd.method === 'card' ? 'карта' : 'нал'}`
-              : 'Смена закрыта — откройте смену, чтобы принять оплату'}
+            {histAdd.action === 'repay'
+              ? (openShift
+                ? `В кассу · ${openShift.cashierName || 'смена открыта'} · ${histAdd.method === 'card' ? 'карта' : 'нал'}`
+                : 'Смена закрыта — откройте смену, чтобы принять оплату')
+              : (openShift
+                ? `Из кассы · ${openShift.cashierName || 'смена открыта'} · нал · в ящике ${fmtMoney(shiftExpectedCashLocal(openShift))}`
+                : 'Смена закрыта — откройте смену, чтобы выдать наличные')}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -920,7 +998,7 @@ export default function DebtsModule({
               Весь долг
             </button>
           )}
-          <button type="button" className="k-btn k-btn-g" style={{ fontSize: 13 }} disabled={histAdd.saving || (histAdd.action === 'repay' && !openShift)} onClick={() => void submitHistoryAdd()}>
+          <button type="button" className="k-btn k-btn-g" style={{ fontSize: 13 }} disabled={histAdd.saving || !openShift} onClick={() => void submitHistoryAdd()}>
             {histAdd.saving ? '…' : 'Сохранить'}
           </button>
           <button type="button" className="k-btn k-btn-s" style={{ fontSize: 13 }} disabled={histAdd.saving} onClick={() => setHistAdd(emptyHistAdd())}>
@@ -1057,6 +1135,11 @@ export default function DebtsModule({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <b style={{ fontSize: 14 }}>{detailClient.name}</b>
                       <DebtStatusBadge overLimit={detailClient.overLimit} debt={cardDebt} />
+                      {detailClient.debtCreditBlocked && (
+                        <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>
+                          Новый долг закрыт
+                        </span>
+                      )}
                       <span className="k-badge" style={{
                         fontSize: 10,
                         background: `${CLIENT_LEVEL_COLORS[detailClient.level] || 'var(--muted)'}22`,
@@ -1076,6 +1159,18 @@ export default function DebtsModule({
                           })()}
                         </span>
                       )}
+                      {(() => {
+                        const overdueN = detailData.history.filter(r => r.type === 'debt' && r.overdue).length
+                        if (overdueN > 0) {
+                          return <span style={{ color: 'var(--red)' }}>{' · '}просрочено: {overdueN}</span>
+                        }
+                        const nextDue = [...detailData.history]
+                          .filter(r => r.type === 'debt' && r.dueDate && (r.daysLeft == null || r.daysLeft >= 0))
+                          .sort((a, b) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999))[0]
+                        return nextDue?.dueDate
+                          ? <span>{' · '}срок {nextDue.dueDate}</span>
+                          : null
+                      })()}
                   </div>
                   </div>
                     </div>

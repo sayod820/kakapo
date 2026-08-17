@@ -8,11 +8,15 @@ import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clien
 import { USE_API } from './config'
 import { api } from './api'
 import { ACCOUNT_NS, loadAccountJson, saveAccountJson } from './clientAccountStorage'
-import type { StoreUser } from './clientSession'
+import { phoneDigits, type StoreUser } from './clientSession'
 import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
 
 const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
+const LEDGER_DEBT_PREFIX = 'ldg-'
+const LEDGER_PAY_PREFIX = 'ldg-pay-'
+const DEBT_HISTORY_CAP = 120
+const ledgerSyncInflight = new Map<string, Promise<DebtLedgerResponse | null>>()
 
 export type VipCreditState = {
   enabled: boolean
@@ -202,6 +206,31 @@ export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
     unpaid: unpaid.sort(sortDesc),
     paid: paid.sort(sortDesc),
   }
+}
+
+/** Остаток долга по чеку. Полный возврат = 0. Не подставляем total, если debtAdded уже 0. */
+export function saleOpenCreditAmount(s: {
+  status?: string
+  paymentMethod?: string
+  debtAdded?: number | null
+  total?: number
+  items?: { qty?: number; returnedQty?: number }[]
+}): number {
+  if (s.status === 'returned') return 0
+  const items = s.items || []
+  if (
+    items.length > 0
+    && items.every(it => (Number(it.returnedQty) || 0) >= (Number(it.qty) || 0) - 0.001)
+  ) {
+    return 0
+  }
+  if (s.debtAdded != null && Number.isFinite(Number(s.debtAdded))) {
+    return Math.max(0, Math.round(Number(s.debtAdded) * 100) / 100)
+  }
+  if (s.paymentMethod === 'credit') {
+    return Math.max(0, Math.round((Number(s.total) || 0) * 100) / 100)
+  }
+  return 0
 }
 
 /** Остаток долга по конкретному чеку (по orderId / сумме+времени). */
@@ -441,9 +470,16 @@ export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
   }))
 }
 
+export function isImportedLedgerHistoryId(id?: string): boolean {
+  const v = String(id || '')
+  return v.startsWith(LEDGER_DEBT_PREFIX) || v.startsWith(LEDGER_PAY_PREFIX)
+}
+
 /** Ручная запись (начисление/погашение в разделе Долги) — можно править/удалить. Чеки и заказы — нет. */
 export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
   if (row.type === 'purchase') return false
+  // Серверный журнал — только для показа, не правим локально
+  if (isImportedLedgerHistoryId(row.id)) return false
   // Привязка к чеку/заказу — не ручная правка
   if (row.orderId) return false
   if (row.source === 'manual') return true
@@ -457,8 +493,221 @@ export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
 }
 
 function saveDebtHistoryList(phone: string, list: DebtHistoryEntry[]) {
-  saveAccountJson(DEBT_HIST, list.slice(0, 100), phone)
+  saveAccountJson(DEBT_HIST, list.slice(0, DEBT_HISTORY_CAP), phone)
   emitDebtHistoryChange()
+}
+
+function mapLedgerSource(source?: string): DebtHistoryEntry['source'] {
+  const s = String(source || '').toLowerCase()
+  if (s === 'pos') return 'pos'
+  if (s === 'order' || s === 'store') return 'order'
+  if (s === 'cashier') return 'cashier'
+  if (s === 'manual' || s === 'admin' || s === 'backfill') return 'manual'
+  return 'cashier'
+}
+
+function ledgerWhen(iso?: string): { ts: number; date: string; time: string } {
+  const ts = Date.parse(String(iso || '')) || Date.now()
+  const when = new Date(ts)
+  return {
+    ts,
+    date: when.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
+    time: when.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+  }
+}
+
+function findMatchingLocalDebt(local: DebtHistoryEntry[], e: DebtLedgerEntry): DebtHistoryEntry | undefined {
+  const ledgerId = `${LEDGER_DEBT_PREFIX}${e.id}`
+  const byId = local.find(r => r.type === 'debt' && (r.id === ledgerId || r.id === e.id))
+  if (byId) return byId
+  const oid = String(e.orderId || e.saleId || '').trim()
+  if (oid) {
+    const byOrder = local.find(r => r.type === 'debt' && debtOrderIdsMatch(r.orderId, oid))
+    if (byOrder) return byOrder
+  }
+  const ts = Date.parse(e.createdAtIso) || 0
+  const amt = Math.abs(Number(e.amount) || 0)
+  if (!(ts > 0) || !(amt > 0)) return undefined
+  return local.find(r =>
+    r.type === 'debt'
+    && Math.abs(Math.abs(Number(r.amount) || 0) - amt) < 0.02
+    && Math.abs((r.ts || 0) - ts) < 10 * 60 * 1000,
+  )
+}
+
+function localPaysCovered(local: DebtHistoryEntry[], e: DebtLedgerEntry): number {
+  const ledgerPayId = `${LEDGER_PAY_PREFIX}${e.id}`
+  const oid = String(e.orderId || e.saleId || '').trim()
+  let covered = 0
+  for (const r of local) {
+    if (r.type !== 'pay') continue
+    if (r.id === ledgerPayId) {
+      covered += Math.abs(Number(r.amount) || 0)
+      continue
+    }
+    if (oid && debtOrderIdsMatch(r.orderId, oid)) {
+      covered += Math.abs(Number(r.amount) || 0)
+    }
+  }
+  return Math.round(covered * 100) / 100
+}
+
+function historyDebtMatchesSale(
+  row: DebtHistoryEntry,
+  sale: { id: string; orderId?: string },
+): boolean {
+  return saleOrderKeys(sale).some(k => debtOrderIdsMatch(row.orderId, k))
+}
+
+/** Наличные / заказ с сервера — в ленте «Нал.», если это не уже показанный чек POS. */
+export function isLedgerCashHistoryDebt(
+  row: DebtHistoryEntry,
+  posSales: { id: string; orderId?: string }[],
+): boolean {
+  if (row.type !== 'debt') return false
+  if (isManualDebtHistoryEntry(row)) return true
+  if (!isImportedLedgerHistoryId(row.id)) return false
+  if (posSales.some(s => historyDebtMatchesSale(row, s))) return false
+  return true
+}
+
+function applyLedgerFlagsToCrm(phone: string, ledger: DebtLedgerResponse) {
+  const strikes = Math.max(0, Number(ledger.overdueStrikes) || 0)
+  const blocked = !!ledger.creditBlocked
+  const clients = useClientStore.getState().clients
+  const cl = clients.find(c => phonesMatch(c.phone, phone))
+  if (cl) {
+    if (!!cl.debtCreditBlocked !== blocked || (Number(cl.debtOverdueStrikes) || 0) !== strikes) {
+      useClientStore.getState().updateClient(cl.id, {
+        debtCreditBlocked: blocked,
+        debtOverdueStrikes: strikes,
+      }, { skipApi: true })
+    }
+  }
+  const card = findCardForPhone(phone)
+  if (card && !!card.debtCreditBlocked !== blocked) {
+    useCardStore.getState().updateCardLoyalty(card.num, { debtCreditBlocked: blocked }, { skipApi: true })
+  }
+}
+
+function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse): boolean {
+  const entries = Array.isArray(ledger.entries) ? ledger.entries : []
+  if (!entries.length) return false
+
+  const prev = loadDebtHistory(phone)
+  const next = prev.map(r => ({ ...r }))
+  let changed = false
+  let unlinkedPayPool = Math.round(
+    next
+      .filter(r => r.type === 'pay' && !String(r.orderId || '').trim() && !isImportedLedgerHistoryId(r.id))
+      .reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+  ) / 100
+
+  for (const e of entries) {
+    const oid = String(e.orderId || e.saleId || '').trim() || undefined
+    const amt = Math.abs(Number(e.amount) || 0)
+    if (!(amt > 0.001)) continue
+
+    const matched = findMatchingLocalDebt(next, e)
+    if (matched) {
+      const idx = next.findIndex(r => r.id === matched.id)
+      if (idx >= 0) {
+        const cur = next[idx]
+        if (
+          cur.dueAtIso !== e.dueAtIso
+          || cur.dueDate !== e.dueDate
+          || cur.daysLeft !== e.daysLeft
+          || !!cur.overdue !== !!e.overdue
+          || (oid && !cur.orderId)
+        ) {
+          next[idx] = {
+            ...cur,
+            dueAtIso: e.dueAtIso,
+            dueDate: e.dueDate,
+            daysLeft: e.daysLeft,
+            overdue: e.overdue,
+            orderId: cur.orderId || oid,
+          }
+          changed = true
+        }
+      }
+    } else {
+      const when = ledgerWhen(e.createdAtIso)
+      next.push({
+        id: `${LEDGER_DEBT_PREFIX}${e.id}`,
+        date: when.date,
+        time: when.time,
+        ts: when.ts,
+        desc: e.desc || 'Долг',
+        amount: -amt,
+        type: 'debt',
+        orderId: oid,
+        source: mapLedgerSource(e.source),
+        dueAtIso: e.dueAtIso,
+        dueDate: e.dueDate,
+        daysLeft: e.daysLeft,
+        overdue: e.overdue,
+      })
+      changed = true
+    }
+
+    const paid = Math.max(0, Math.round((Number(e.paidAmount) || 0) * 100) / 100)
+    if (paid > 0.05) {
+      const covered = localPaysCovered(next, e)
+      let need = Math.round((paid - covered) * 100) / 100
+      if (need > 0.05 && unlinkedPayPool > 0.05) {
+        const fromPool = Math.min(need, unlinkedPayPool)
+        unlinkedPayPool = Math.round((unlinkedPayPool - fromPool) * 100) / 100
+        need = Math.round((need - fromPool) * 100) / 100
+      }
+      if (need > 0.05) {
+        const payWhen = ledgerWhen(e.createdAtIso)
+        next.push({
+          id: `${LEDGER_PAY_PREFIX}${e.id}`,
+          date: payWhen.date,
+          time: payWhen.time,
+          ts: payWhen.ts + 1,
+          desc: 'Погашение (с сервера)',
+          amount: need,
+          type: 'pay',
+          orderId: oid,
+          source: 'cashier',
+        })
+        changed = true
+      }
+    }
+  }
+
+  if (!changed) return false
+  next.sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  saveDebtHistoryList(phone, next)
+  return true
+}
+
+/**
+ * Подтянуть серверный журнал долга в локальную историю (другое устройство / касса).
+ * Локальные ручные строки не затирает. Без сети — no-op.
+ */
+export async function syncDebtHistoryFromLedger(phone: string): Promise<DebtLedgerResponse | null> {
+  const p = String(phone || '').trim()
+  if (!p || !USE_API || typeof window === 'undefined') return null
+  const key = phoneDigits(p) || p
+  const existing = ledgerSyncInflight.get(key)
+  if (existing) return existing
+  const run = (async () => {
+    try {
+      const ledger = await api.getDebtLedger(p)
+      mergeLedgerIntoLocalHistory(p, ledger)
+      applyLedgerFlagsToCrm(p, ledger)
+      return ledger
+    } catch {
+      return null
+    } finally {
+      ledgerSyncInflight.delete(key)
+    }
+  })()
+  ledgerSyncInflight.set(key, run)
+  return run
 }
 
 /** Удалить запись истории. Возвращает удалённую строку или null. */
@@ -629,12 +878,13 @@ export function recordStoreDebtRepaymentFifo(
     method?: 'cash' | 'card'
     source?: DebtHistoryEntry['source']
   },
-): { appliedToChecks: number; residual: number } {
+): { appliedToChecks: number; residual: number; checkCount: number } {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
-  if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0 }
+  if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0, checkCount: 0 }
 
   let left = pay
   let appliedToChecks = 0
+  let checkCount = 0
   for (const t of targetsOldestFirst) {
     if (left <= 0.001) break
     const need = Math.max(0, Math.round((Number(t.remain) || 0) * 100) / 100)
@@ -651,6 +901,7 @@ export function recordStoreDebtRepaymentFifo(
     })
     left = Math.round((left - apply) * 100) / 100
     appliedToChecks = Math.round((appliedToChecks + apply) * 100) / 100
+    checkCount += 1
   }
   if (left > 0.001) {
     recordStoreDebtRepayment(phone, left, {
@@ -659,7 +910,7 @@ export function recordStoreDebtRepaymentFifo(
       desc: meta?.desc || 'Погашение долга (сверх чеков)',
     })
   }
-  return { appliedToChecks, residual: Math.max(0, left) }
+  return { appliedToChecks, residual: Math.max(0, left), checkCount }
 }
 
 export function recordStoreDebtCharge(

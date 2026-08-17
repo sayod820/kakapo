@@ -496,8 +496,8 @@ export async function financeMoveSafe(input: {
           }
         }),
       }))
-      void persistPosSnapshot()
     }
+    void persistPosSnapshot()
     return move
   }
 
