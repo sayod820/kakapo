@@ -42,7 +42,8 @@ import {
   type SaleDebtStatus,
 } from '@/lib/clientVipCredit'
 import { resolveEffectiveDebtLimit } from '@/lib/loyaltyStatusConfig'
-import { usePosStore } from '@/lib/posStore'
+import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
+import { softSyncPosAfterSale, usePosStore } from '@/lib/posStore'
 import { useOrders } from '@/lib/store'
 import type { PosSale } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
@@ -394,8 +395,15 @@ export default function DebtsModule({
   const [posView, setPosView] = useState<PosViewFilter>('open')
 
   const refreshAll = useCallback(() => {
-    void Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+    void Promise.all([
+      hydrateOfflineCaches(),
+      softSyncPosAfterSale(),
+      syncClientsFromApi(),
+      syncCardsFromApi(),
+    ])
   }, [])
+
+  useEffect(() => { refreshAll() }, [refreshAll])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
