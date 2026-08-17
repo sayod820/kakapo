@@ -1888,30 +1888,12 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const { prods, catalogReady } = useLiveCatalog();
   const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
-  if (!catalogReady || !p) {
-    return (
-      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
-        Загрузка товара...
-      </div>
-    );
-  }
-  const qty = cart[p.id] || 0;
   const [tab, setTab] = useState("desc");
   const [storeReviews, setStoreReviews] = useState<Review[]>([]);
   const [storeRevCount, setStoreRevCount] = useState<number | null>(null);
   const [revLoading, setRevLoading] = useState(false);
-  const localPhoto = useProductPhotos(s => s.photos[p.id]);
-  const photo = resolveProductPhoto(p, { preferThumb: false, getPhoto: () => localPhoto });
-  const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
-  const pCat = productCatSlug(p);
-  const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 4);
-  const cartBadge = formatCartBadgeCount(sumCartUnits(cart, prods));
-  const cartBadgeNum = sumCartUnits(cart, prods);
-  const weighted = isWeighted(p);
-  const qtyLabel = weighted ? formatCartQtyStepper(p, qty) : qty;
-  const lineTotal = calcLineTotal(p, qty);
-  const add = () => onAdd(p.id);
-  const rm  = () => onRm(p.id);
+  const productId = p?.id;
+  const localPhoto = useProductPhotos(s => (productId != null ? s.photos[productId] : undefined));
   useEffect(() => {
     if (!USE_API) {
       setStoreRevCount(0);
@@ -1938,6 +1920,25 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
       .catch(() => setStoreReviews([]))
       .finally(() => setRevLoading(false));
   }, [tab]);
+  if (!catalogReady || !p) {
+    return (
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
+        Загрузка товара...
+      </div>
+    );
+  }
+  const qty = cart[p.id] || 0;
+  const photo = resolveProductPhoto(p, { preferThumb: false, getPhoto: () => localPhoto });
+  const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
+  const pCat = productCatSlug(p);
+  const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 4);
+  const cartBadge = formatCartBadgeCount(sumCartUnits(cart, prods));
+  const cartBadgeNum = sumCartUnits(cart, prods);
+  const weighted = isWeighted(p);
+  const qtyLabel = weighted ? formatCartQtyStepper(p, qty) : qty;
+  const lineTotal = calcLineTotal(p, qty);
+  const add = () => onAdd(p.id);
+  const rm  = () => onRm(p.id);
   const storeRevLabel = storeRevCount == null ? '…' : String(storeRevCount);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
@@ -2004,7 +2005,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         {tab==="desc" && <div style={{ fontSize:13, color:"var(--t2)", lineHeight:1.75, animation:"fadeIn .3s ease" }}>{p.desc}</div>}
         {tab==="spec" && (
           <div className="card" style={{ animation:"fadeIn .3s ease", overflow:"hidden" }}>
-            {Object.entries(p.specs).map(([k,v],i,arr) => (
+            {Object.entries(p.specs || {}).map(([k,v],i,arr) => (
               <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"13px 16px", borderBottom:i<arr.length-1?"1px solid var(--b1)":"none" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>{k}</span><span style={{ fontSize:12, fontWeight:700 }}>{v}</span>
               </div>
@@ -6853,7 +6854,7 @@ function hydrateStoreSessionFromStorage(): {
 }
 
 function KakapoAppInner() {
-  useApiSync('all');
+  useApiSync('catalog');
   const { prods } = useLiveCatalog();
   const { page, params, go } = useAppNavigation('home');
   useForcedDarkTheme();
@@ -7130,6 +7131,14 @@ function KakapoAppInner() {
   }, [wished, wishedUpdatedAt, user?.phone, user?.clientId, cartSyncReady]);
 
   const apiOrders = useOrders(s => s.orders);
+  const fetchOrders = useOrders(s => s.fetchOrders);
+
+  useEffect(() => {
+    if (!USE_API) return
+    void fetchOrders().catch(() => {})
+    const id = setInterval(() => { void fetchOrders().catch(() => {}) }, 30000)
+    return () => clearInterval(id)
+  }, [fetchOrders])
 
   const logout = useCallback(() => {
     clearClientSession();

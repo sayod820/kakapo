@@ -30,37 +30,48 @@ function publicUrl(fileName) {
   return `/api/kakapo/uploads/products/${fileName}`
 }
 
-function isManagedProductPhotoUrl(url) {
+function isConvertedWebpUrl(url) {
   if (!url || typeof url !== 'string') return false
   return /\/uploads\/products\/[A-Za-z0-9._-]+\.webp(?:\?|$)/i.test(url)
     || /\/api\/kakapo\/uploads\/products\/[A-Za-z0-9._-]+\.webp(?:\?|$)/i.test(url)
 }
 
-function fileNameFromUrl(url) {
+function isManagedProductPhotoUrl(url) {
+  return isConvertedWebpUrl(url)
+}
+
+function uploadFileName(url) {
+  const name = basename(String(url || '').split('?')[0])
+  if (!name || name.includes('..')) return null
+  if (!/^[A-Za-z0-9._-]+\.(webp|jpe?g|png|gif|bmp|heic|heif|tiff?)$/i.test(name)) return null
+  return name
+}
+
+function unlinkQuiet(full) {
   try {
-    const clean = String(url).split('?')[0]
-    const name = basename(clean)
-    if (!name || name.includes('..') || !name.endsWith('.webp')) return null
-    return name
-  } catch {
-    return null
+    if (full && existsSync(full)) unlinkSync(full)
+  } catch { /* ignore */ }
+}
+
+function deleteCompanionThumbs(fileName) {
+  const stem = String(fileName || '').replace(/\.[^.]+$/i, '')
+  if (!stem) return
+  for (const extra of ['-thumb.webp', '-thumb.jpg', '-thumb.jpeg', '-thumb.png']) {
+    unlinkQuiet(join(PRODUCT_UPLOAD_DIR, `${stem}${extra}`))
   }
 }
 
-export function deleteManagedProductPhoto(url) {
-  if (!isManagedProductPhotoUrl(url)) return false
-  const name = fileNameFromUrl(url)
+/** Удаляет файл фото на диске (JPEG/PNG/WebP) и его миниатюру */
+export function deleteProductPhotoFiles(url) {
+  const name = uploadFileName(url)
   if (!name) return false
-  const full = join(PRODUCT_UPLOAD_DIR, name)
-  try {
-    if (existsSync(full)) unlinkSync(full)
-    const thumb = name.replace(/\.webp$/i, '-thumb.webp')
-    const thumbFull = join(PRODUCT_UPLOAD_DIR, thumb)
-    if (existsSync(thumbFull)) unlinkSync(thumbFull)
-    return true
-  } catch {
-    return false
-  }
+  unlinkQuiet(join(PRODUCT_UPLOAD_DIR, name))
+  deleteCompanionThumbs(name)
+  return true
+}
+
+export function deleteManagedProductPhoto(url) {
+  return deleteProductPhotoFiles(url)
 }
 
 function makeBaseName(productId) {
@@ -71,7 +82,7 @@ function makeBaseName(productId) {
 
 /**
  * @param {Buffer} input
- * @param {{ productId?: number, replaceUrl?: string }} [opts]
+ * @param {{ productId?: number, replaceUrl?: string, replaceThumbUrl?: string }} [opts]
  */
 export async function processAndSaveProductPhoto(input, opts = {}) {
   ensureUploadDirs()
@@ -120,8 +131,11 @@ export async function processAndSaveProductPhoto(input, opts = {}) {
   writeFileSync(join(PRODUCT_UPLOAD_DIR, mainName), webp)
   writeFileSync(join(PRODUCT_UPLOAD_DIR, thumbName), thumb)
 
-  if (opts.replaceUrl) {
-    deleteManagedProductPhoto(opts.replaceUrl)
+  if (opts.replaceUrl && opts.replaceUrl !== publicUrl(mainName)) {
+    deleteProductPhotoFiles(opts.replaceUrl)
+  }
+  if (opts.replaceThumbUrl && opts.replaceThumbUrl !== publicUrl(thumbName)) {
+    deleteProductPhotoFiles(opts.replaceThumbUrl)
   }
 
   return {
@@ -148,28 +162,11 @@ function bufferFromDataUrl(url) {
   }
 }
 
-function uploadFileName(url) {
-  const name = basename(String(url || '').split('?')[0])
-  if (!name || name.includes('..')) return null
-  if (!/^[A-Za-z0-9._-]+\.(webp|jpe?g|png|gif|bmp|heic|heif|tiff?)$/i.test(name)) return null
-  return name
-}
-
 function localProductFile(url) {
-  const raw = String(url || '')
-  if (!raw) return null
-  if (!/\/uploads\/products\//i.test(raw) && !/^https?:\/\//i.test(raw)) return null
-  if (/^https?:\/\//i.test(raw) && !/\/uploads\/products\//i.test(raw)) return null
-  const name = uploadFileName(raw)
+  const name = uploadFileName(url)
   if (!name) return null
   const full = join(PRODUCT_UPLOAD_DIR, name)
   return existsSync(full) ? full : null
-}
-
-function deleteLocalUpload(url) {
-  const full = localProductFile(url)
-  if (!full) return
-  try { unlinkSync(full) } catch { /* ignore */ }
 }
 
 export function stripHeavyPhotoFields(product) {
@@ -227,10 +224,12 @@ export async function convertStoredProductPhoto(product) {
   const mainFile = localProductFile(photo)
   if (
     mainFile
-    && isManagedProductPhotoUrl(photo)
-    && (!thumb || !isManagedProductPhotoUrl(thumb) || !localProductFile(thumb))
+    && isConvertedWebpUrl(photo)
+    && (!thumb || !isConvertedWebpUrl(thumb) || !localProductFile(thumb))
   ) {
+    const oldThumb = thumb
     product.photoThumb = await writeThumbFromMain(mainFile, product.id)
+    if (oldThumb && oldThumb !== product.photoThumb) deleteProductPhotoFiles(oldThumb)
     return true
   }
 
@@ -239,13 +238,11 @@ export async function convertStoredProductPhoto(product) {
   else if (mainFile) input = readFileSync(mainFile)
   if (!input) return false
 
-  const result = await processAndSaveProductPhoto(input, {
-    productId: product.id,
-    replaceUrl: isManagedProductPhotoUrl(photo) ? photo : undefined,
-  })
-  if (mainFile && !isManagedProductPhotoUrl(photo)) deleteLocalUpload(photo)
+  const result = await processAndSaveProductPhoto(input, { productId: product.id })
   product.photo = result.url
   product.photoThumb = result.thumbUrl
+  if (photo && photo !== result.url) deleteProductPhotoFiles(photo)
+  if (thumb && thumb !== result.thumbUrl && thumb !== photo) deleteProductPhotoFiles(thumb)
   return true
 }
 

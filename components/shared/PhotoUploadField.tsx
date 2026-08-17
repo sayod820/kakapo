@@ -3,6 +3,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
+import { resolvePhotoUrl } from '@/lib/productPhotos'
 
 const ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp,image/*'
 
@@ -93,6 +94,7 @@ export default function PhotoUploadField({
   const cameraRef = useRef<HTMLInputElement>(null)
   const busy = stage === 'upload'
   const boxH = compact ? Math.min(height, 120) : height
+  const preview = resolvePhotoUrl(value) || value
 
   async function blobToDataUrl(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -168,13 +170,13 @@ export default function PhotoUploadField({
       <div className="ph-label">{label}</div>
       <button
         type="button"
-        className={`ph-drop${value ? ' has-photo' : ''}`}
+        className={`ph-drop${preview ? ' has-photo' : ''}`}
         onClick={openGallery}
         disabled={busy}
         style={{ height: boxH }}
       >
-        {value ? (
-          <img src={value} alt="" className="ph-img" />
+        {preview ? (
+          <img src={preview} alt="" className="ph-img" />
         ) : (
           <div className="ph-empty">
             <span className="ico">📷</span>
@@ -195,7 +197,7 @@ export default function PhotoUploadField({
           </div>
         )}
 
-        {value && !busy && (
+        {preview && !busy && (
           <span
             role="button"
             tabIndex={0}

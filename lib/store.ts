@@ -862,6 +862,11 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           })
         }
       } catch { /* очередь недоступна — берём сервер как есть */ }
+      const prev = get().products
+      if (!products.length && prev.length) {
+        set({ loaded: true })
+        return
+      }
       set({ products, loaded: true })
       try {
         void cacheProducts(products)

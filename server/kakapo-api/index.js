@@ -23,6 +23,8 @@ import {
   deleteManagedProductPhoto,
   stripHeavyPhotoFields,
   migrateProductPhotos,
+  convertStoredProductPhoto,
+  productPhotoNeedsConvert,
   UPLOAD_ROOT,
 } from './productPhotoPipeline.js'
 import {
@@ -500,11 +502,15 @@ app.post('/products/photo', (req, res) => {
         const p = db.products.find(x => x.id === productId)
         if (p) {
           const prev = p.photo
+          const prevThumb = p.photoThumb
           p.photo = result.url
           p.photoThumb = result.thumbUrl
           persist()
           broadcastProduct(p)
           if (prev && prev !== result.url) deleteManagedProductPhoto(prev)
+          if (prevThumb && prevThumb !== result.thumbUrl && prevThumb !== prev) {
+            deleteManagedProductPhoto(prevThumb)
+          }
         }
       }
       res.json(result)
@@ -562,6 +568,40 @@ function broadcastProduct(product) {
   const msg = JSON.stringify({ event: 'product_update', product: stripHeavyPhotoFields(product) })
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+let photoMigrateInflight = null
+function kickProductPhotoMigration() {
+  if (photoMigrateInflight) return photoMigrateInflight
+  const list = db.products || []
+  if (!list.some(productPhotoNeedsConvert)) return null
+  photoMigrateInflight = migrateProductPhotos(list, {
+    persist,
+    onConverted: p => broadcastProduct(p),
+  }).then(r => {
+    if (r.converted || r.failed) {
+      console.log(`[photos] WebP: конвертировано ${r.converted}, пропущено ${r.skipped}, ошибок ${r.failed}`)
+    }
+    return r
+  }).catch(e => {
+    console.warn('[photos] миграция не удалась', e?.message || e)
+    return null
+  }).finally(() => {
+    photoMigrateInflight = null
+  })
+  return photoMigrateInflight
+}
+
+async function convertProductPhotoIfNeeded(p) {
+  if (!p || !productPhotoNeedsConvert(p)) return false
+  try {
+    const ok = await convertStoredProductPhoto(p)
+    if (ok) broadcastProduct(p)
+    return ok
+  } catch (e) {
+    console.warn('[photos] не удалось конвертировать товар', p?.id, e?.message || e)
+    return false
   }
 }
 
@@ -959,14 +999,17 @@ app.patch('/auth/admin', (req, res) => {
   res.json({ ok: true, login: nextLogin })
 })
 
-app.get('/products', (_req, res) => res.json((db.products || []).map(stripHeavyPhotoFields)))
+app.get('/products', (_req, res) => {
+  kickProductPhotoMigration()
+  res.json((db.products || []).map(stripHeavyPhotoFields))
+})
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
   const barcode = nextFreeEan13(db.products, next)
   // PLU только для весовых — клиент запросит при выборе «на развес»
   res.json({ next, art: String(next), plu: '', barcode })
 })
-app.post('/products', (req, res) => {
+app.post('/products', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
     if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
@@ -1014,20 +1057,22 @@ app.post('/products', (req, res) => {
       after: { name: p.name, price: p.price, stock: p.stock, art: p.art },
     })
     if (clientRef) { p.clientRef = clientRef; rememberKnownOp('product_upsert', clientRef, p) }
+    await convertProductPhotoIfNeeded(p)
     persist()
     broadcastProduct(p)
-    res.json(p)
+    res.json(stripHeavyPhotoFields(p))
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось создать товар' })
   }
 })
-app.patch('/products/:id', (req, res) => {
+app.patch('/products/:id', async (req, res) => {
   const p = db.products.find(x => x.id === Number(req.params.id))
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
   try {
     const clientRef = takeClientRef(req)
     if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
     const previousPhoto = p.photo
+    const previousThumb = p.photoThumb
     const before = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     const body = { ...req.body }
     delete body.clientRef
@@ -1077,14 +1122,18 @@ app.patch('/products/:id', (req, res) => {
       after,
     })
     if (clientRef) rememberKnownOp('product_upsert', clientRef, p)
+    await convertProductPhotoIfNeeded(p)
+    const photoTouched = Object.prototype.hasOwnProperty.call(req.body, 'photo')
+      || Object.prototype.hasOwnProperty.call(req.body, 'photoThumb')
+    if (photoTouched) {
+      if (previousPhoto && previousPhoto !== p.photo) deleteManagedProductPhoto(previousPhoto)
+      if (previousThumb && previousThumb !== p.photoThumb && previousThumb !== previousPhoto) {
+        deleteManagedProductPhoto(previousThumb)
+      }
+    }
     persist()
     broadcastProduct(p)
-    if (Object.prototype.hasOwnProperty.call(req.body, 'photo')
-        && previousPhoto
-        && previousPhoto !== p.photo) {
-      deleteManagedProductPhoto(previousPhoto)
-    }
-    res.json(p)
+    res.json(stripHeavyPhotoFields(p))
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить товар' })
   }
@@ -5219,16 +5268,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   }, 6 * 60 * 60 * 1000)
   auditTimer.unref()
   setImmediate(() => runLoyaltyBackfill())
-  setTimeout(() => {
-    void migrateProductPhotos(db.products || [], {
-      persist,
-      onConverted: p => broadcastProduct(p),
-    }).then(r => {
-      if (r.converted || r.failed) {
-        console.log(`[photos] WebP: конвертировано ${r.converted}, пропущено ${r.skipped}, ошибок ${r.failed}`)
-      }
-    }).catch(e => {
-      console.warn('[photos] миграция не удалась', e?.message || e)
-    })
-  }, 2500)
+  setImmediate(() => {
+    kickProductPhotoMigration()
+  })
 })

@@ -30,19 +30,21 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
 
     const load = async () => {
       try {
-        const { useProducts, useRestaurants, useOrders } = await import('@/lib/store')
+        const { useProducts, usePromos, useRestaurants, useOrders } = await import('@/lib/store')
         const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
-        const { syncClientsFromApi } = await import('@/lib/clientStore')
-        const { syncCardsFromApi } = await import('@/lib/cardStore')
         const { syncLoyaltyStatusConfigFromApi } = await import('@/lib/loyaltyStatusConfig')
-        const tasks = [
+        const tasks: Promise<unknown>[] = [
           syncLoyaltyStatusConfigFromApi(),
           useProducts.getState().fetchProducts(),
+          usePromos.getState().fetchPromos(),
           useRestaurants.getState().fetchRestaurants(),
           syncCourierStoresFromApi(),
-          syncClientsFromApi(),
-          syncCardsFromApi(),
         ]
+        if (mode !== 'catalog') {
+          const { syncClientsFromApi } = await import('@/lib/clientStore')
+          const { syncCardsFromApi } = await import('@/lib/cardStore')
+          tasks.push(syncClientsFromApi(), syncCardsFromApi())
+        }
         if (mode === 'assembler') tasks.push(useOrders.getState().fetchAssemblerOrders())
         else if (mode === 'courier') tasks.push(useOrders.getState().fetchCourierOrders())
         else if (mode === 'all') tasks.push(useOrders.getState().fetchOrders())

@@ -28,6 +28,7 @@ function wsRoleForMode(mode: SyncMode) {
   if (mode === 'courier') return 'courier' as const
   if (mode === 'restaurant') return 'restaurant' as const
   if (mode === 'pos') return 'pos' as const
+  if (mode === 'catalog') return 'client' as const
   return 'admin' as const
 }
 
@@ -271,11 +272,14 @@ export function useApiSync(mode: SyncMode = 'all') {
 
         const tasks: Promise<unknown>[] = [
           syncLoyaltyStatusConfigFromApi(),
-          useProducts.getState().fetchProducts(),
           usePromos.getState().fetchPromos(),
           useRestaurants.getState().fetchRestaurants(),
           syncCourierStoresFromApi(),
         ]
+        // layout ApiSyncProvider уже тянет /products — не качаем каталог дважды (магазин)
+        if (mode !== 'catalog') {
+          tasks.push(useProducts.getState().fetchProducts())
+        }
         if (mode === 'all') {
           tasks.push(syncAssemblerTeamFromApi(), syncPushFromApi())
         }
