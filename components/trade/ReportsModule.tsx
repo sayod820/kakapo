@@ -121,8 +121,8 @@ export default function ReportsModule() {
   )
 
   const returnSales = useMemo(
-    () => periodSalesAll.filter(s => isSaleFullyReturned(s) || isSalePartiallyReturned(s)),
-    [periodSalesAll],
+    () => periodSales.filter(s => isSaleFullyReturned(s) || isSalePartiallyReturned(s)),
+    [periodSales],
   )
 
   const periodShifts = useMemo(
@@ -442,10 +442,11 @@ export default function ReportsModule() {
   const filterCount = [
     posFilter,
     cashierFilter,
-    payFilter !== 'all' ? payFilter : '',
-    statusFilter !== 'all' ? statusFilter : '',
-    q.trim(),
+    (tab === 'sales' || tab === 'returns') && payFilter !== 'all' ? payFilter : '',
+    (tab === 'sales' || tab === 'returns') && statusFilter !== 'all' ? statusFilter : '',
+    (tab === 'sales' || tab === 'returns') && q.trim() ? q : '',
   ].filter(Boolean).length
+  const saleFiltersOn = tab === 'sales' || tab === 'returns'
 
   return (
     <div className="k-reports-mod">
@@ -466,7 +467,7 @@ export default function ReportsModule() {
           ))}
         </div>
         <input
-          className={`k-inp k-rep-search${tab === 'cashiers' || tab === 'shifts' || tab === 'till' ? ' k-rep-search-opt' : ''}`}
+          className={`k-inp k-rep-search${saleFiltersOn ? '' : ' k-rep-search-opt'}`}
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder="Поиск: чек, клиент…"
@@ -516,14 +517,14 @@ export default function ReportsModule() {
       {showHelp && (
         <div className="k-rep-help">
           <b>Как смотреть</b>
-          <div>1) Период сверху · ± сравнение: сегодня с вчера, месяц с прошлым месяцем</div>
+          <div>1) Период · точка · кассир — на все вкладки. Оплата / поиск — только Чеки и Возвраты</div>
           <div>2) Долг: выдали и вернули — за выбранные дни. Осталось — сколько должны сейчас</div>
           <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
           <div>4) Товары: топ за период · не продавались / залежались за 30 дней · заказ по 7 дням</div>
         </div>
       )}
 
-      <div className={`k-rep-filters${filtersOpen ? ' is-open' : ''}`}>
+      <div className={`k-rep-filters${filtersOpen ? ' is-open' : ''}${saleFiltersOn ? '' : ' k-rep-filters-2'}`}>
         <select className="k-sel" value={posFilter} onChange={e => setPosFilter(e.target.value)} title="Точка" aria-label="Точка">
           <option value="">Точка · все</option>
           {posPoints.filter(p => p.active !== false).map(p => (
@@ -536,17 +537,26 @@ export default function ReportsModule() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
-        <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)} title="Оплата" aria-label="Оплата">
-          {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-        </select>
-        <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)} title="Статус" aria-label="Статус">
-          {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-        </select>
+        {saleFiltersOn && (
+          <>
+            <select className="k-sel" value={payFilter} onChange={e => setPayFilter(e.target.value as PayFilter)} title="Оплата" aria-label="Оплата">
+              {PAY_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+            <select className="k-sel" value={statusFilter} onChange={e => setStatusFilter(e.target.value as SaleStatusFilter)} title="Статус" aria-label="Статус">
+              {SALE_STATUS_OPTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </>
+        )}
       </div>
 
-      {(payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
+      {saleFiltersOn && (payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
         <div className="k-rep-filter-note">
-          Фильтр продаж: {periodSales.length} из {periodSalesAll.length} · {periodLabel}
+          Фильтр чеков: {periodSales.length} из {periodSalesAll.length} · {periodLabel}
+        </div>
+      )}
+      {!saleFiltersOn && (payFilter !== 'all' || statusFilter !== 'all' || q.trim()) && (
+        <div className="k-rep-filter-note">
+          Оплата / поиск действуют только во вкладках Чеки и Возвраты
         </div>
       )}
 
@@ -787,7 +797,7 @@ export default function ReportsModule() {
         <div className="k-card" style={{ overflow: 'hidden' }}>
           <div className="k-card-h">
             <b>Возвраты · {returnSales.length}</b>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Сумма возвратов ≈ {fmtMoney(salesAgg.returnTotal)}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Сумма возвратов ≈ {fmtMoney(filteredAgg.returnTotal)}</span>
           </div>
           {!returnSales.length ? (
             <div className="k-empty">Возвратов за период нет</div>
@@ -1046,6 +1056,9 @@ export default function ReportsModule() {
 
       {tab === 'warehouse' && (
         <>
+          {!!posFilter && (
+            <div className="k-rep-note">Склад общий — приходы и списания без привязки к точке, фильтр точки их не режет</div>
+          )}
           <div className="k-kpis" style={{ marginBottom: 16 }}>
             <div className="k-kpi k-statcard"><div className="kl">Приходы</div><div className="kv">{periodReceipts.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Сумма приходов</div><div className="kv">{fmtMoney(purchaseCost)}</div></div>

@@ -40,14 +40,14 @@ export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
 
 export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: string }[] = [
   { id: 'overview', label: 'Сводка', icon: '📈', hint: 'Деньги и итоги за период' },
-  { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Чеки: оплата и статус' },
-  { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты' },
+  { id: 'sales', label: 'Продажи', icon: '🧾', hint: 'Чеки · фильтр оплаты и поиска' },
+  { id: 'returns', label: 'Возвраты', icon: '↩️', hint: 'Полные и частичные возвраты · тот же фильтр чеков' },
   { id: 'cashiers', label: 'Кассиры', icon: '👤', hint: 'Кто сколько продал' },
   { id: 'hours', label: 'По часам', icon: '🕒', hint: 'Когда больше продаж' },
   { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие и закрытие кассы' },
   { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
   { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Доход без расходов и после расходов кассы' },
-  { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
+  { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии · склад общий, без фильтра точки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и закупки' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Выдали и вернули за выбранные дни · осталось — сколько должны сейчас' },
   { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ за период · залежались за 30 дней · заказ по 7 дням' },

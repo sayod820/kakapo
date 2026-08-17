@@ -350,6 +350,7 @@ const CSS = `
   .k-rep-filters{
     display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0 0 8px
   }
+  .k-rep-filters.k-rep-filters-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .k-rep-filters.is-open{display:grid}
   .k-rep-filters .k-sel{
     min-height:32px;height:32px;padding:2px 8px;font-size:12px;box-sizing:border-box;width:100%
