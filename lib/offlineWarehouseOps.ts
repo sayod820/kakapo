@@ -5,6 +5,7 @@
 import { api } from './api'
 import { isLocalId, newClientRef, newLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
+import { applyPurchasePayToOpenShift } from './offlinePosOps'
 import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
@@ -167,6 +168,11 @@ export async function createStockReceiptSafe(
     const localId = newLocalId('rec')
     let receipt = buildLocalReceipt(payload, { id: localId, clientRef, createdAtIso })
     receipt = await enrichReceiptNames(receipt)
+    const paid = round2(receipt.paidNow || 0)
+    if (paid > 0.001) {
+      const shiftId = applyPurchasePayToOpenShift(paid, 1)
+      if (shiftId) receipt = { ...receipt, shiftId }
+    }
     await useOfflineSync.getState().queueOp('stock_receipt_create', body, { localId })
     await applyReceiptStock(receipt, 1)
     usePosStore.setState(s => ({ receipts: [receipt, ...s.receipts] }))
@@ -189,13 +195,22 @@ export async function updateStockReceiptSafe(
   if (isLocalId(id)) {
     // Ещё не на сервере — правим локально и обновляем очередь create
     const old = usePosStore.getState().receipts.find(r => r.id === id)
-    if (old) await applyReceiptStock(old, -1)
+    if (old) {
+      const oldPaid = round2(old.paidNow || 0)
+      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
+      await applyReceiptStock(old, -1)
+    }
     let receipt = buildLocalReceipt(payload, {
       id,
       clientRef: old?.clientRef || clientRef,
       createdAtIso: old?.createdAtIso,
     })
     receipt = await enrichReceiptNames(receipt)
+    const paid = round2(receipt.paidNow || 0)
+    if (paid > 0.001) {
+      const shiftId = applyPurchasePayToOpenShift(paid, 1)
+      if (shiftId) receipt = { ...receipt, shiftId }
+    }
     await applyReceiptStock(receipt, 1)
     usePosStore.setState(s => ({
       receipts: s.receipts.map(r => (r.id === id ? receipt : r)),
@@ -207,13 +222,22 @@ export async function updateStockReceiptSafe(
 
   const applyLocal = async () => {
     const old = usePosStore.getState().receipts.find(r => r.id === id)
-    if (old) await applyReceiptStock(old, -1)
+    if (old) {
+      const oldPaid = round2(old.paidNow || 0)
+      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
+      await applyReceiptStock(old, -1)
+    }
     let receipt = buildLocalReceipt(payload, {
       id,
       clientRef,
       createdAtIso: old?.createdAtIso,
     })
     receipt = await enrichReceiptNames(receipt)
+    const paid = round2(receipt.paidNow || 0)
+    if (paid > 0.001) {
+      const shiftId = applyPurchasePayToOpenShift(paid, 1)
+      if (shiftId) receipt = { ...receipt, shiftId }
+    }
     await applyReceiptStock(receipt, 1)
     await useOfflineSync.getState().queueOp('stock_receipt_update', body)
     usePosStore.setState(s => ({
@@ -231,7 +255,11 @@ export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<
 
   const applyLocal = async () => {
     const old = usePosStore.getState().receipts.find(r => r.id === id)
-    if (old) await applyReceiptStock(old, -1)
+    if (old) {
+      const oldPaid = round2(old.paidNow || 0)
+      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
+      await applyReceiptStock(old, -1)
+    }
     await useOfflineSync.getState().queueOp('stock_receipt_delete', body)
     usePosStore.setState(s => ({ receipts: s.receipts.filter(r => r.id !== id) }))
     return { id }

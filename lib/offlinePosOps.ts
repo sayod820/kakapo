@@ -90,6 +90,27 @@ function shiftById(shiftId: string): PosShift | undefined {
   return usePosStore.getState().shifts.find(s => s.id === shiftId)
 }
 
+export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal'>): number {
+  return round2(
+    (Number(shift.openingCash) || 0)
+    + (Number(shift.salesCash) || 0)
+    + (Number(shift.cashInTotal) || 0)
+    - (Number(shift.expenseTotal) || 0),
+  )
+}
+
+/** Открытая смена: по точке, иначе любая. */
+export function resolveOpenShift(posId?: string): PosShift | undefined {
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  if (!opens.length) return undefined
+  const want = String(posId || '').trim()
+  if (want) {
+    const match = opens.find(s => String(s.posId || '') === want)
+    if (match) return match
+  }
+  return opens[0]
+}
+
 /**
  * Local-first: сразу localApply (очередь + стор), сервер в фоне.
  * apiCall игнорируется — оставлен в сигнатуре для совместимости вызовов.
@@ -198,8 +219,33 @@ export async function financeMoveSafe(input: {
   supplierId?: string
   reason?: string
 }): Promise<OfflineResult<FinanceMove | null>> {
+  const open = resolveOpenShift(input.posId)
+  const shiftId = input.shiftId || open?.id
+  const posId = input.posId || open?.posId || undefined
+  const amount = round2(input.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  if (input.type === 'withdraw' && shiftId) {
+    const shift = shiftById(shiftId)
+    if (shift) {
+      const expected = shiftExpectedCashLocal(shift)
+      if (amount > expected + 0.009) {
+        throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+      }
+    }
+  }
+
   const clientRef = newClientRef()
-  const payload = { ...input, clientRef, amount: round2(input.amount) }
+  const payload = {
+    ...input,
+    clientRef,
+    amount,
+    shiftId,
+    posId,
+    createdBy: input.createdBy || input.cashierName || open?.cashierName,
+    cashierId: input.cashierId || open?.cashierId,
+    cashierName: input.cashierName || open?.cashierName,
+  }
 
   // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
   if (input.supplierId && !isTradeLocalFirst()) {
@@ -821,7 +867,7 @@ export async function createSaleSafe(
 // ── Расход (FinanceModule, Offline V2) ──
 
 function openShiftId(): string | undefined {
-  return usePosStore.getState().shifts.find(s => s.status === 'open')?.id
+  return resolveOpenShift()?.id
 }
 
 function applyExpenseToShift(shiftId: string | undefined, amount: number, dir: 1 | -1) {
@@ -832,20 +878,50 @@ function applyExpenseToShift(shiftId: string | undefined, amount: number, dir: 1
   patchShift(shiftId, { expenseTotal: next })
 }
 
+/** Оплата закупа налом с открытой смены (локально). */
+export function applyPurchasePayToOpenShift(amount: number, dir: 1 | -1 = 1, posId?: string): string | undefined {
+  const amt = round2(amount)
+  if (!(amt > 0.001)) return undefined
+  const open = resolveOpenShift(posId)
+  if (!open) return undefined
+  if (dir > 0) {
+    const expected = shiftExpectedCashLocal(open)
+    if (amt > expected + 0.009) {
+      throw new Error(`В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`)
+    }
+  }
+  applyExpenseToShift(open.id, amt, dir)
+  return open.id
+}
+
 export async function expenseCreateSafe(input: {
   category: string
   amount: number
   note?: string
   createdBy?: string
   shiftId?: string
+  posId?: string
 }): Promise<OfflineResult<PosExpense>> {
   const clientRef = newClientRef()
-  const shiftId = input.shiftId || openShiftId()
+  const open = resolveOpenShift(input.posId)
+  const shiftId = input.shiftId || open?.id
+  const amount = round2(input.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму расхода')
+  if (shiftId) {
+    const shift = shiftById(shiftId)
+    if (shift) {
+      const expected = shiftExpectedCashLocal(shift)
+      if (amount > expected + 0.009) {
+        throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+      }
+    }
+  }
   const payload = {
     ...input,
     shiftId,
+    posId: input.posId || open?.posId,
     clientRef,
-    amount: round2(input.amount),
+    amount,
     category: String(input.category || 'Прочее').trim() || 'Прочее',
   }
 

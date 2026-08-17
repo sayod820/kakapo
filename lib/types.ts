@@ -401,6 +401,9 @@ export interface StockReceipt {
   paidNow: number
   debtAdded: number
   items: StockReceiptItem[]
+  /** Смена, с которой списали оплату закупа */
+  shiftId?: string
+  posId?: string
   /** Служебный слой корректировки остатка (ревизия, возврат) — не закупка */
   stockAdjustment?: boolean
 }

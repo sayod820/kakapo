@@ -13,12 +13,12 @@ import { useOfflineSync } from '@/lib/offlineSync'
 import {
   buildLocalFinanceTruth,
   cacheFinanceTruth,
-  readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import { useBackClose } from '@/lib/hardwareBack'
 import {
   REPORT_PERIODS,
+  downloadCsv,
   filterByCreatedAt,
   inPeriod,
   isSaleFullyReturned,
@@ -29,6 +29,7 @@ import {
   type ReportPeriod,
   ymdLocal,
 } from './reportsHelpers'
+import { resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
 
 const EXPENSE_CATS = ['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Реклама', 'Хозтовары', 'Прочее']
 
@@ -63,7 +64,7 @@ export default function FinanceModule() {
   const suppliers = usePosStore(s => s.suppliers)
   const cashiers = usePosStore(s => s.cashiers)
   const posPoints = usePosStore(s => s.posPoints)
-  const apiReady = usePosStore(s => s.apiReady)
+  const receipts = usePosStore(s => s.receipts)
   const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
 
@@ -79,7 +80,7 @@ export default function FinanceModule() {
   const [msg, setMsg] = useState('')
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthError, setTruthError] = useState('')
-  const [truthLocal, setTruthLocal] = useState(false)
+  const [, setTruthLocal] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const [expOpen, setExpOpen] = useState(false)
@@ -91,6 +92,9 @@ export default function FinanceModule() {
   const [depType, setDepType] = useState<'deposit' | 'withdraw'>('deposit')
   const [depAmount, setDepAmount] = useState('')
   const [depNote, setDepNote] = useState('')
+  const [depShiftId, setDepShiftId] = useState('')
+
+  const openShifts = useMemo(() => shifts.filter(s => s.status === 'open'), [shifts])
 
   useBackClose(expOpen, () => { if (!busy) setExpOpen(false) })
   useBackClose(depOpen, () => { if (!busy) setDepOpen(false) })
@@ -143,7 +147,8 @@ export default function FinanceModule() {
     () => round2(financeMoves.filter(m => m.type === 'withdraw').reduce((s, m) => s + (Number(m.amount) || 0), 0)),
     [financeMoves],
   )
-  const capitalNet = useMemo(() => round2(depositsAll - withdrawsAll), [depositsAll, withdrawsAll])
+  const capitalNet = useMemo(() => round2(deposits - withdraws), [deposits, withdraws])
+  const capitalNetAll = useMemo(() => round2(depositsAll - withdrawsAll), [depositsAll, withdrawsAll])
 
   const cashInTills = useMemo(() => {
     return round2(
@@ -177,10 +182,12 @@ export default function FinanceModule() {
       financeMoves,
       expenses,
       sales,
+      receipts,
       fromMs: from,
       toMs: to,
       posId: posFilter || undefined,
       cashierId: cashierFilter || undefined,
+      type: typeFilter || undefined,
     })
     setTruth(local)
     setTruthLocal(true)
@@ -200,7 +207,7 @@ export default function FinanceModule() {
       // Сеть упала — оставляем локальный расчёт, без красной ошибки «нет сервера»
       setTruthError('')
     }
-  }, [apiQuery, shifts, financeMoves, expenses, sales, from, to, posFilter, cashierFilter])
+  }, [apiQuery, shifts, financeMoves, expenses, sales, receipts, from, to, posFilter, cashierFilter, typeFilter])
 
   useEffect(() => {
     void loadTruth()
@@ -234,16 +241,18 @@ export default function FinanceModule() {
       financeMoves: s.financeMoves,
       expenses: s.expenses,
       sales: s.sales,
+      receipts: s.receipts,
       fromMs: from,
       toMs: to,
       posId: posFilter || undefined,
       cashierId: cashierFilter || undefined,
+      type: typeFilter || undefined,
     })
     setTruth(local)
     setTruthLocal(true)
     setTruthError('')
     void cacheFinanceTruth(apiQuery, local)
-  }, [apiQuery, from, to, posFilter, cashierFilter])
+  }, [apiQuery, from, to, posFilter, cashierFilter, typeFilter])
 
   async function afterFinanceMutation(_offline: boolean) {
     applyLocalTruthNow()
@@ -283,15 +292,31 @@ export default function FinanceModule() {
       const amount = Number(depAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму')
       if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
+      const open = depShiftId
+        ? shifts.find(s => s.id === depShiftId && s.status === 'open')
+        : resolveOpenShift()
+      if (!open && openShifts.length > 0) throw new Error('Выберите открытую смену')
+      if (!open) throw new Error('Нет открытой смены — откройте смену на кассе')
+      if (depType === 'withdraw') {
+        const expected = shiftExpectedCashLocal(open)
+        if (amount > expected + 0.009) {
+          throw new Error(`В кассе недостаточно (доступно ${expected.toFixed(2)} сом)`)
+        }
+      }
       const res = await financeMoveSafe({
         type: depType,
         amount,
         note: depNote.trim() || undefined,
+        shiftId: open.id,
+        posId: open.posId,
+        cashierId: open.cashierId,
+        cashierName: open.cashierName,
       })
       await afterFinanceMutation(!!res.offline)
       setDepOpen(false)
       setDepAmount('')
       setDepNote('')
+      setDepShiftId('')
       if (res.offline) setMsg('Движение сохранено · отправится при связи')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
@@ -343,15 +368,110 @@ export default function FinanceModule() {
   const tabMeta = FINANCE_TABS.find(t => t.id === tab)
   const filterCount = [posFilter, cashierFilter, typeFilter].filter(Boolean).length
 
+  function exportCsv() {
+    const stamp = ymdLocal()
+    if (tab === 'cashbook') {
+      downloadCsv(`kakapo-finance-cashbook-${stamp}.csv`,
+        ['Дата', 'Тип', 'Сумма', 'Остаток', 'Комментарий'],
+        (cashBook?.entries || []).map(e => [
+          e.createdAtIso || '',
+          ledgerTypeLabel(e.type),
+          e.signedAmount ?? e.amount,
+          e.balanceAfter ?? '',
+          e.reason || e.note || '',
+        ]))
+      return
+    }
+    if (tab === 'journal') {
+      downloadCsv(`kakapo-finance-journal-${stamp}.csv`,
+        ['Дата', 'Тип', 'Направление', 'Сумма', 'Кассир', 'Комментарий'],
+        journal.map(r => [
+          r.createdAtIso || '',
+          ledgerTypeLabel(r.type),
+          r.direction,
+          r.signedAmount ?? r.amount,
+          r.cashierName || r.cashierId || '',
+          r.reason || r.note || '',
+        ]))
+      return
+    }
+    if (tab === 'till') {
+      downloadCsv(`kakapo-finance-till-${stamp}.csv`,
+        ['День', 'Кассир', 'Точка', 'Ожид.', 'Факт', 'Разница'],
+        (vs?.rows || []).map(r => [
+          r.day || '',
+          r.cashierName || '',
+          posLabel(r.posId),
+          r.expectedCash,
+          r.actualCash,
+          r.cashDiff,
+        ]))
+      return
+    }
+    if (tab === 'profit') {
+      downloadCsv(`kakapo-finance-profit-${stamp}.csv`,
+        ['Товар', 'Кол-во', 'Выручка', 'Себест.', 'Прибыль'],
+        (profit?.products || []).map(p => [p.productName, p.qty, p.revenue, p.cogs, p.profit]))
+      return
+    }
+    if (tab === 'expenses') {
+      downloadCsv(`kakapo-finance-expenses-${stamp}.csv`,
+        ['Дата', 'Категория', 'Сумма', 'Заметка', 'Кто'],
+        periodExpenses.map(e => [e.createdAtIso || '', e.category, e.amount, e.note || '', e.createdBy || '']))
+      return
+    }
+    if (tab === 'deposits') {
+      downloadCsv(`kakapo-finance-deposits-${stamp}.csv`,
+        ['Дата', 'Тип', 'Сумма', 'Заметка'],
+        periodMoves.map(m => [m.createdAtIso || '', m.type === 'deposit' ? 'Вклад' : 'Снятие', m.amount, m.note || '']))
+      return
+    }
+    if (tab === 'alerts') {
+      downloadCsv(`kakapo-finance-alerts-${stamp}.csv`,
+        ['Дата', 'Сигнал', 'Сумма', 'Текст'],
+        (alerts?.alerts || []).map(a => [a.atIso || '', a.title, a.amount, a.message || '']))
+      return
+    }
+    if (tab === 'debts') {
+      downloadCsv(`kakapo-finance-debts-${stamp}.csv`,
+        ['Кто', 'Тип', 'Сумма'],
+        [
+          ...clientDebtors.map(c => [c.name, 'Клиент', Number(c.debt) || 0] as (string | number)[]),
+          ...suppliers.filter(s => (Number(s.payableAmount) || 0) > 0)
+            .map(s => [s.name, 'Поставщик', Number(s.payableAmount) || 0] as (string | number)[]),
+        ])
+    }
+  }
+
+  function printFinance() {
+    const root = document.querySelector('.k-finance-mod')
+    if (!root || typeof window === 'undefined') return
+    const w = window.open('', '_blank', 'noopener,noreferrer')
+    if (!w) {
+      setMsg('Разрешите всплывающие окна для печати')
+      return
+    }
+    const title = `Финансы · ${tabMeta?.label || tab}`
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
+<style>
+  body{font:13px/1.45 system-ui,-apple-system,sans-serif;color:#111;padding:16px;margin:0}
+  h2{margin:0 0 12px;font-size:18px}
+  .k-btn,.k-fin-toolbar,.k-fin-actions,.k-fin-filters,.k-fin-dates,.k-fin-fab,.k-fin-fab-stack,
+  .k-subtabs,.k-fin-periods,.k-fin-flt-btn,.k-fin-tabs{display:none!important}
+  .k-fin-list{display:block}
+  .k-fin-row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #eee}
+  .k-fin-submeta,.k-fin-kpis,.k-fin-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:0 0 10px}
+  .k-fin-submeta>div,.k-kpi{border:1px solid #ddd;padding:8px;border-radius:6px}
+  .k-empty{padding:12px;color:#666}
+  .k-fin-del{display:none!important}
+</style></head><body><h2>${title}</h2>${root.innerHTML}</body></html>`)
+    w.document.close()
+    w.focus()
+    w.print()
+  }
+
   return (
     <div className="k-finance-mod">
-      {!apiReady && (
-        <div className="k-fin-sync-bar">Локальные данные · синхронизация…</div>
-      )}
-      {truthLocal && apiReady && (
-        <div className="k-fin-sync-bar">Локальные данные · обновятся при связи</div>
-      )}
-
       <div className="k-kpis k-fin-kpis k-hide-mob">
         <div className="k-kpi k-statcard">
           <div className="kl">В кассе</div>
@@ -408,6 +528,8 @@ export default function FinanceModule() {
           <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
             {refreshing ? '…' : '↻'}
           </button>
+          <button type="button" className="k-btn k-btn-s" title="CSV" onClick={exportCsv}>CSV</button>
+          <button type="button" className="k-btn k-btn-s" title="Печать" onClick={printFinance}>🖨</button>
           <button
             type="button"
             className={`k-btn k-btn-s k-fin-flt-btn${filtersOpen || filterCount ? ' is-on' : ''}`}
@@ -706,20 +828,20 @@ export default function FinanceModule() {
       {tab === 'deposits' && (
         <>
           <div className="k-fin-submeta">
-            <div><span>Вклады</span><b style={{ color: 'var(--green)' }}>{fmtMoney(depositsAll)}</b></div>
-            <div><span>Снятия</span><b style={{ color: 'var(--red)' }}>{fmtMoney(withdrawsAll)}</b></div>
-            <div><span>Капитал</span><b style={{ color: capitalNet >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(capitalNet)}</b></div>
-            <div><span>Период</span><b style={{ fontSize: 12 }}>{fmtMoney(deposits)} / {fmtMoney(withdraws)}</b></div>
+            <div><span>Вклады</span><b style={{ color: 'var(--green)' }}>{fmtMoney(deposits)}</b></div>
+            <div><span>Снятия</span><b style={{ color: 'var(--red)' }}>{fmtMoney(withdraws)}</b></div>
+            <div><span>За период</span><b style={{ color: capitalNet >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(capitalNet)}</b></div>
+            <div><span>Всего</span><b style={{ color: capitalNetAll >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(capitalNetAll)}</b></div>
           </div>
           <div className="k-fin-panel">
             <div className="k-fin-panel-h">
               <span>Вклады и снятия</span>
             </div>
-            {!financeMoves.length ? (
-              <div className="k-empty">Пока нет вкладов</div>
+            {!periodMoves.length ? (
+              <div className="k-empty">Нет движений за период</div>
             ) : (
               <div className="k-fin-list">
-                {financeMoves.map(m => (
+                {periodMoves.map(m => (
                   <div key={m.id} className="k-fin-row">
                     <div className="k-fin-row-txt">
                       <b style={{ color: m.type === 'deposit' ? 'var(--green)' : 'var(--red)' }}>
@@ -728,6 +850,7 @@ export default function FinanceModule() {
                       <small>
                         {fmtDateTime(m.createdAtIso)}
                         {m.note ? ` · ${m.note}` : ''}
+                        {m.posId ? ` · ${posLabel(m.posId)}` : ''}
                       </small>
                     </div>
                     <div className="k-fin-amt-col">
@@ -869,6 +992,35 @@ export default function FinanceModule() {
                   <button type="button" className={`k-subtab ${depType === 'withdraw' ? 'active' : ''}`} onClick={() => setDepType('withdraw')}>Снятие</button>
                 </div>
               </div>
+              {openShifts.length > 1 && (
+                <div className="k-field">
+                  <label>Смена / касса</label>
+                  <select
+                    className="k-sel"
+                    value={depShiftId || openShifts[0]?.id || ''}
+                    onChange={e => setDepShiftId(e.target.value)}
+                  >
+                    {openShifts.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.cashierName || 'Кассир'} · {posLabel(s.posId)} · {fmtMoney(shiftExpectedCashLocal(s))} в кассе
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {openShifts.length === 1 && (
+                <div className="k-field">
+                  <label>Касса</label>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    {openShifts[0].cashierName || 'Кассир'} · {posLabel(openShifts[0].posId)} · в кассе {fmtMoney(shiftExpectedCashLocal(openShifts[0]))}
+                  </div>
+                </div>
+              )}
+              {openShifts.length === 0 && (
+                <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>
+                  Нет открытой смены — откройте смену на кассе
+                </div>
+              )}
               <div className="k-field">
                 <label>Сумма</label>
                 <input className="k-inp" value={depAmount} onChange={e => setDepAmount(e.target.value)} inputMode="decimal" placeholder="0.00" />
@@ -878,7 +1030,7 @@ export default function FinanceModule() {
                 <input className="k-inp" value={depNote} onChange={e => setDepNote(e.target.value)} placeholder="Откуда / зачем…" />
               </div>
               {msg && <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>{msg}</div>}
-              <button type="button" className="k-btn k-btn-g" style={{ width: '100%' }} disabled={busy} onClick={() => void submitDeposit()}>
+              <button type="button" className="k-btn k-btn-g" style={{ width: '100%' }} disabled={busy || openShifts.length === 0} onClick={() => void submitDeposit()}>
                 {busy ? 'Сохраняем…' : 'Сохранить'}
               </button>
             </div>

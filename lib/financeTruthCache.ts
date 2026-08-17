@@ -7,6 +7,9 @@ import type { PosShift } from './types'
 
 const CACHE_PREFIX = 'finance_truth:'
 
+/** Как на сервере (financeTruth.js) — алерт от 50 сом */
+export const CASH_DIFF_ALERT_SOM = 50
+
 function queryKey(q?: Record<string, string>): string {
   if (!q) return 'default'
   return Object.entries(q)
@@ -14,6 +17,20 @@ function queryKey(q?: Record<string, string>): string {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join('&') || 'default'
+}
+
+function round2(n: number) {
+  return Math.round((Number(n) || 0) * 100) / 100
+}
+
+function ymd(iso?: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function inRange(iso: string | undefined, fromMs?: number | null, toMs?: number | null) {
@@ -24,6 +41,16 @@ function inRange(iso: string | undefined, fromMs?: number | null, toMs?: number 
   if (fromMs != null && Number.isFinite(fromMs) && t < fromMs) return false
   if (toMs != null && Number.isFinite(toMs) && t > toMs) return false
   return true
+}
+
+/** Нормализация типов фильтра (локальные алиасы ↔ сервер) */
+function typeMatches(entryType: string, filter: string) {
+  if (!filter) return true
+  if (entryType === filter) return true
+  if (filter === 'deposit' && (entryType === 'cash_in' || entryType === 'deposit')) return true
+  if (filter === 'withdraw' && (entryType === 'cash_out' || entryType === 'withdraw')) return true
+  if (filter === 'debt_repay' && entryType.startsWith('debt_repay')) return true
+  return false
 }
 
 export async function cacheFinanceTruth(
@@ -49,9 +76,29 @@ export async function readCachedFinanceTruth(
 
 export type LocalFinanceTruthInput = {
   shifts: PosShift[]
-  financeMoves?: { type: string; amount: number; createdAtIso?: string; note?: string; id?: string; posId?: string; cashierId?: string }[]
-  expenses?: { amount: number; createdAtIso?: string; category?: string; id?: string; posId?: string; cashierId?: string }[]
+  financeMoves?: {
+    type: string
+    amount: number
+    createdAtIso?: string
+    note?: string
+    id?: string
+    posId?: string
+    cashierId?: string
+    shiftId?: string
+    createdBy?: string
+  }[]
+  expenses?: {
+    amount: number
+    createdAtIso?: string
+    category?: string
+    id?: string
+    posId?: string
+    cashierId?: string
+    shiftId?: string
+    createdBy?: string
+  }[]
   sales?: {
+    id?: string
     total?: number
     paidCash?: number
     paidCard?: number
@@ -60,13 +107,35 @@ export type LocalFinanceTruthInput = {
     status?: string
     posId?: string
     cashierId?: string
+    cashierName?: string
+    shiftId?: string
     totalCost?: number
+    items?: {
+      productId?: number
+      productName?: string
+      qty?: number
+      returnedQty?: number
+      price?: number
+      lineTotal?: number
+      unitCost?: number
+      lineCost?: number
+    }[]
+  }[]
+  receipts?: {
+    id?: string
+    paidNow?: number
+    createdAtIso?: string
+    supplierName?: string
+    posId?: string
+    shiftId?: string
+    stockAdjustment?: boolean
   }[]
   /** Фильтры периода / точки (как у API) */
   fromMs?: number | null
   toMs?: number | null
   posId?: string
   cashierId?: string
+  type?: string
 }
 
 /** Локальный снимок из POS-стора — работает без сервера. */
@@ -75,35 +144,76 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
   const toMs = input.toMs ?? null
   const posId = String(input.posId || '').trim()
   const cashierId = String(input.cashierId || '').trim()
+  const typeFilter = String(input.type || '').trim()
 
-  const matchEntity = (row: { posId?: string; cashierId?: string; createdAtIso?: string; openedAtIso?: string }) => {
+  const shiftPos = new Map<string, string>()
+  const shiftCashier = new Map<string, string>()
+  for (const s of input.shifts || []) {
+    if (s.id) {
+      shiftPos.set(s.id, String(s.posId || ''))
+      shiftCashier.set(s.id, String(s.cashierId || ''))
+    }
+  }
+
+  const resolvePos = (row: { posId?: string; shiftId?: string }) =>
+    String(row.posId || (row.shiftId ? shiftPos.get(row.shiftId) : '') || '')
+
+  const resolveCashier = (row: { cashierId?: string; shiftId?: string; createdBy?: string }) =>
+    String(row.cashierId || (row.shiftId ? shiftCashier.get(row.shiftId) : '') || '')
+
+  const matchEntity = (row: {
+    posId?: string
+    cashierId?: string
+    createdAtIso?: string
+    openedAtIso?: string
+    shiftId?: string
+    createdBy?: string
+  }) => {
     const iso = row.createdAtIso || row.openedAtIso
     if (!inRange(iso, fromMs, toMs)) return false
-    if (posId && String(row.posId || '') !== posId) return false
-    if (cashierId && String(row.cashierId || '') !== cashierId) return false
+    if (posId) {
+      const rowPos = resolvePos(row)
+      // без точки — не отбрасываем (старые записи без posId)
+      if (rowPos && rowPos !== posId) return false
+    }
+    if (cashierId) {
+      const rowCashier = resolveCashier(row)
+      if (rowCashier && rowCashier !== cashierId) return false
+      if (!rowCashier && row.createdBy && row.createdBy !== cashierId) {
+        /* createdBy часто имя, не id — не режем */
+      }
+    }
     return true
   }
 
-  const shifts = (input.shifts || []).filter(s => matchEntity({
-    posId: s.posId,
-    cashierId: s.cashierId,
-    openedAtIso: s.openedAtIso,
-    createdAtIso: s.openedAtIso,
-  }))
+  const allShifts = input.shifts || []
+  const closedShifts = allShifts
+    .filter(s => s.status === 'closed')
+    .filter(s => matchEntity({
+      posId: s.posId,
+      cashierId: s.cashierId,
+      openedAtIso: s.closedAtIso || s.openedAtIso,
+      createdAtIso: s.closedAtIso || s.openedAtIso,
+    }))
+
   const moves = (input.financeMoves || []).filter(m => matchEntity(m))
   const expenses = (input.expenses || []).filter(e => matchEntity(e))
   const sales = (input.sales || [])
     .filter(s => s.status !== 'returned')
     .filter(s => matchEntity(s))
+  const receipts = (input.receipts || [])
+    .filter(r => !r.stockAdjustment)
+    .filter(r => (Number(r.paidNow) || 0) > 0.001)
+    .filter(r => matchEntity(r))
 
-  const rows = shifts.map(s => {
+  const rows = closedShifts.map(s => {
     const openingCash = Number(s.openingCash) || 0
     const salesCash = Number(s.salesCash) || 0
     const cashIn = Number(s.cashInTotal) || 0
     const expenseTotal = Number(s.expenseTotal) || 0
-    const expectedCash = Math.round((openingCash + salesCash + cashIn - expenseTotal) * 100) / 100
-    const actualCash = s.status === 'closed' ? (Number(s.closingCash) || 0) : expectedCash
-    const cashDiff = Math.round((actualCash - expectedCash) * 100) / 100
+    const expectedCash = round2(openingCash + salesCash + cashIn - expenseTotal)
+    const actualCash = s.closingCash != null ? (Number(s.closingCash) || 0) : expectedCash
+    const cashDiff = round2(actualCash - expectedCash)
     return {
       shiftId: s.id,
       posId: s.posId || '',
@@ -117,93 +227,262 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
       expectedCash,
       actualCash,
       cashDiff,
-      alert: Math.abs(cashDiff) > 1,
-      day: (s.openedAtIso || '').slice(0, 10),
+      alert: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM,
+      day: ymd(s.closedAtIso || s.openedAtIso),
     }
+  }).sort((a, b) => String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')))
+
+  // Погашение долга нал = salesCash смены − сумма paidCash продаж смены
+  const paidCashByShift = new Map<string, number>()
+  for (const s of input.sales || []) {
+    if (s.status === 'returned') continue
+    const sid = String(s.shiftId || '')
+    if (!sid) continue
+    paidCashByShift.set(sid, round2((paidCashByShift.get(sid) || 0) + (Number(s.paidCash) || 0)))
+  }
+
+  const entries: MoneyLedgerEntry[] = []
+
+  for (const s of sales) {
+    const amount = Number(s.paidCash) || 0
+    if (!(amount > 0.001)) continue
+    entries.push({
+      id: `sale-cash-${s.id || s.createdAtIso}`,
+      type: 'sale_cash',
+      amount,
+      direction: 'in',
+      signedAmount: amount,
+      cashAffect: true,
+      createdAtIso: s.createdAtIso || new Date().toISOString(),
+      posId: resolvePos(s),
+      shiftId: s.shiftId,
+      cashierId: s.cashierId,
+      cashierName: s.cashierName,
+      note: 'Продажа нал',
+      reason: 'Продажа нал',
+    })
+  }
+
+  for (const s of allShifts) {
+    if (!matchEntity({
+      posId: s.posId,
+      cashierId: s.cashierId,
+      createdAtIso: s.closedAtIso || s.openedAtIso,
+      openedAtIso: s.openedAtIso,
+    })) continue
+    const sid = s.id
+    const delta = round2((Number(s.salesCash) || 0) - (paidCashByShift.get(sid) || 0))
+    if (delta > 0.001) {
+      entries.push({
+        id: `debt-repay-${sid}`,
+        type: 'debt_repay_cash',
+        amount: delta,
+        direction: 'in',
+        signedAmount: delta,
+        cashAffect: true,
+        createdAtIso: s.closedAtIso || s.openedAtIso || new Date().toISOString(),
+        posId: s.posId || '',
+        shiftId: sid,
+        cashierId: s.cashierId,
+        cashierName: s.cashierName,
+        reason: 'Погашение долга · нал (по смене)',
+      })
+    }
+  }
+
+  for (const m of moves) {
+    const amount = Number(m.amount) || 0
+    if (!(amount > 0.001)) continue
+    const isIn = m.type === 'deposit' || m.type === 'cash_in'
+    entries.push({
+      id: m.id || `move-${m.createdAtIso}`,
+      type: isIn ? 'deposit' : 'withdraw',
+      amount,
+      direction: isIn ? 'in' : 'out',
+      signedAmount: isIn ? amount : -amount,
+      cashAffect: true,
+      createdAtIso: m.createdAtIso || new Date().toISOString(),
+      posId: resolvePos(m),
+      shiftId: m.shiftId,
+      cashierId: m.cashierId,
+      cashierName: m.createdBy,
+      note: m.note,
+      reason: isIn ? 'Внесение в кассу' : 'Снятие из кассы',
+    })
+  }
+
+  for (const e of expenses) {
+    const amount = Number(e.amount) || 0
+    if (!(amount > 0.001)) continue
+    entries.push({
+      id: e.id || `exp-${e.createdAtIso}`,
+      type: 'expense',
+      amount,
+      direction: 'out',
+      signedAmount: -amount,
+      cashAffect: true,
+      createdAtIso: e.createdAtIso || new Date().toISOString(),
+      posId: resolvePos(e),
+      shiftId: e.shiftId,
+      cashierId: e.cashierId,
+      cashierName: e.createdBy,
+      note: e.category,
+      reason: `Расход · ${e.category || 'Прочее'}`,
+    })
+  }
+
+  for (const r of receipts) {
+    const amount = Number(r.paidNow) || 0
+    entries.push({
+      id: `purchase-${r.id || r.createdAtIso}`,
+      type: 'purchase_pay',
+      amount,
+      direction: 'out',
+      signedAmount: -amount,
+      cashAffect: true,
+      createdAtIso: r.createdAtIso || new Date().toISOString(),
+      posId: resolvePos(r),
+      shiftId: r.shiftId,
+      reason: `Оплата закупа · ${r.supplierName || 'поставщик'}`,
+    })
+  }
+
+  entries.sort((a, b) => String(a.createdAtIso).localeCompare(String(b.createdAtIso)))
+
+  const typed = typeFilter
+    ? entries.filter(e => typeMatches(e.type, typeFilter))
+    : entries
+
+  let balance = 0
+  const withBalance = typed.map(e => {
+    const next = e.cashAffect ? round2(balance + (Number(e.signedAmount) || 0)) : balance
+    if (e.cashAffect) balance = next
+    return { ...e, balanceAfter: e.cashAffect ? next : undefined }
   })
 
-  const revenue = Math.round(sales.reduce((a, s) => a + (Number(s.total) || 0), 0) * 100) / 100
-  const cogs = Math.round(sales.reduce((a, s) => a + (Number(s.totalCost) || 0), 0) * 100) / 100
-  const expenseSum = Math.round(expenses.reduce((a, e) => a + (Number(e.amount) || 0), 0) * 100) / 100
-  const depositSum = Math.round(
-    moves.filter(m => m.type === 'deposit').reduce((a, m) => a + (Number(m.amount) || 0), 0) * 100,
-  ) / 100
-  const withdrawSum = Math.round(
-    moves.filter(m => m.type === 'withdraw').reduce((a, m) => a + (Number(m.amount) || 0), 0) * 100,
-  ) / 100
-  const cashSales = Math.round(sales.reduce((a, s) => a + (Number(s.paidCash) || 0), 0) * 100) / 100
-  const inflow = Math.round((cashSales + depositSum) * 100) / 100
-  const outflow = Math.round((expenseSum + withdrawSum) * 100) / 100
-  const balance = Math.round((inflow - outflow) * 100) / 100
-  const profitAmt = Math.round((revenue - cogs - expenseSum) * 100) / 100
+  const cashEntries = withBalance.filter(e => e.cashAffect)
+  const byDayMap = new Map<string, { day: string; inflow: number; outflow: number; net: number; count: number }>()
+  for (const e of cashEntries) {
+    const day = ymd(e.createdAtIso)
+    if (!day) continue
+    const d = byDayMap.get(day) || { day, inflow: 0, outflow: 0, net: 0, count: 0 }
+    const s = Number(e.signedAmount) || 0
+    if (s >= 0) d.inflow = round2(d.inflow + s)
+    else d.outflow = round2(d.outflow + Math.abs(s))
+    d.net = round2(d.inflow - d.outflow)
+    d.count += 1
+    byDayMap.set(day, d)
+  }
+  const days = [...byDayMap.values()].sort((a, b) => b.day.localeCompare(a.day))
 
-  const entries: MoneyLedgerEntry[] = [
-    ...sales.filter(s => (Number(s.paidCash) || 0) > 0.001).map(s => {
-      const amount = Number(s.paidCash) || 0
-      return {
-        id: `sale-cash-${(s as { id?: string }).id || s.createdAtIso}`,
-        type: 'sale_cash',
-        amount,
-        direction: 'in' as const,
-        signedAmount: amount,
-        cashAffect: true,
-        createdAtIso: s.createdAtIso || new Date().toISOString(),
-        note: 'Продажа нал',
+  const inflow = round2(cashEntries.filter(e => (e.signedAmount || 0) > 0).reduce((a, e) => a + (e.signedAmount || 0), 0))
+  const outflow = round2(cashEntries.filter(e => (e.signedAmount || 0) < 0).reduce((a, e) => a + Math.abs(e.signedAmount || 0), 0))
+  const bookBalance = cashEntries.length
+    ? (cashEntries[cashEntries.length - 1].balanceAfter ?? round2(inflow - outflow))
+    : 0
+
+  // Прибыль = выручка − себестоимость (как на сервере; расходы — отдельно во вкладке)
+  let revenue = 0
+  let cogs = 0
+  const byProduct = new Map<number, {
+    productId: number
+    productName: string
+    qty: number
+    revenue: number
+    cogs: number
+  }>()
+
+  for (const sale of sales) {
+    const rev = round2(Number(sale.total) || 0)
+    let cost = sale.totalCost != null ? round2(Number(sale.totalCost) || 0) : 0
+    if (sale.totalCost == null && sale.items?.length) {
+      for (const it of sale.items) {
+        const left = Math.max(0, round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)))
+        if (!(left > 0)) continue
+        if (it.lineCost != null && Number(it.qty) > 0) {
+          cost = round2(cost + (Number(it.lineCost) || 0) * (left / Number(it.qty)))
+        } else {
+          cost = round2(cost + (Number(it.unitCost) || 0) * left)
+        }
       }
-    }),
-    ...moves.map(m => {
-      const amount = Number(m.amount) || 0
-      const isIn = m.type === 'deposit'
-      return {
-        id: m.id || `move-${m.createdAtIso}`,
-        type: isIn ? 'cash_in' : 'cash_out',
-        amount,
-        direction: (isIn ? 'in' : 'out') as 'in' | 'out',
-        signedAmount: isIn ? amount : -amount,
-        cashAffect: true,
-        createdAtIso: m.createdAtIso || new Date().toISOString(),
-        note: m.note,
+    }
+    if (!(rev > 0) && !(cost > 0)) continue
+    revenue = round2(revenue + rev)
+    cogs = round2(cogs + cost)
+    for (const it of sale.items || []) {
+      const left = Math.max(0, round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)))
+      if (!(left > 0)) continue
+      const unitRev = Number(it.qty) > 0 ? (Number(it.lineTotal) || 0) / Number(it.qty) : Number(it.price) || 0
+      const unitCost = Number(it.unitCost) || 0
+      const pid = Number(it.productId) || 0
+      const prev = byProduct.get(pid) || {
+        productId: pid,
+        productName: it.productName || `#${pid}`,
+        qty: 0,
+        revenue: 0,
+        cogs: 0,
       }
-    }),
-    ...expenses.map(e => {
-      const amount = Number(e.amount) || 0
-      return {
-        id: e.id || `exp-${e.createdAtIso}`,
-        type: 'expense',
-        amount,
-        direction: 'out' as const,
-        signedAmount: -amount,
-        cashAffect: true,
-        createdAtIso: e.createdAtIso || new Date().toISOString(),
-        note: e.category,
-      }
-    }),
-  ].sort((a, b) => String(b.createdAtIso).localeCompare(String(a.createdAtIso)))
+      prev.qty = round2(prev.qty + left)
+      prev.revenue = round2(prev.revenue + unitRev * left)
+      prev.cogs = round2(prev.cogs + unitCost * left)
+      byProduct.set(pid, prev)
+    }
+  }
+
+  const profitAmt = round2(revenue - cogs)
+  const products = [...byProduct.values()]
+    .map(p => ({ ...p, profit: round2(p.revenue - p.cogs) }))
+    .sort((a, b) => b.profit - a.profit)
+    .slice(0, 100)
 
   const withAlert = rows.filter(r => r.alert).length
-  const alerts = rows.filter(r => r.alert).map(r => ({
+  const alerts: FinanceTruthBundle['alerts']['alerts'] = rows.filter(r => r.alert).map(r => ({
     id: `shift-diff-${r.shiftId}`,
-    severity: Math.abs(r.cashDiff) > 50 ? 'high' as const : 'medium' as const,
+    kind: 'cash_diff',
+    severity: Math.abs(r.cashDiff) >= CASH_DIFF_ALERT_SOM * 2 ? 'high' : 'medium',
     title: r.cashDiff < 0 ? 'Недостача в кассе' : 'Излишек в кассе',
     message: `${r.cashierName || 'Кассир'} · ожид. ${r.expectedCash} / факт ${r.actualCash}`,
     amount: r.cashDiff,
     atIso: r.closedAtIso || r.openedAtIso,
   }))
 
+  // Долгие открытые смены
+  const now = Date.now()
+  for (const s of allShifts) {
+    if (s.status !== 'open') continue
+    if (posId && String(s.posId || '') && String(s.posId) !== posId) continue
+    const t = Date.parse(s.openedAtIso || '')
+    if (!Number.isFinite(t)) continue
+    if (now - t > 16 * 3600 * 1000) {
+      alerts.push({
+        id: `longshift-${s.id}`,
+        kind: 'long_shift',
+        severity: 'medium',
+        title: 'Долгая открытая смена',
+        message: `${s.cashierName || 'Кассир'} — смена открыта более 16 часов`,
+        amount: 0,
+        atIso: s.openedAtIso,
+      })
+    }
+  }
+  alerts.sort((a, b) => String(b.atIso || '').localeCompare(String(a.atIso || '')))
+
+  const journalDesc = [...withBalance].reverse()
+
   return {
     cashBook: {
-      balance,
-      entries,
-      days: [],
-      summary: { inflow, outflow, count: entries.length },
+      balance: bookBalance,
+      entries: journalDesc.filter(e => e.cashAffect),
+      days,
+      summary: { inflow, outflow, count: cashEntries.length },
     },
     expectedVsActual: {
-      threshold: 1,
+      threshold: CASH_DIFF_ALERT_SOM,
       rows,
       summary: {
         shifts: rows.length,
         withAlert,
-        absDiffSum: Math.round(rows.reduce((a, r) => a + Math.abs(r.cashDiff), 0) * 100) / 100,
+        absDiffSum: round2(rows.reduce((a, r) => a + Math.abs(r.cashDiff), 0)),
         shortCount: rows.filter(r => r.cashDiff < -0.01).length,
         overCount: rows.filter(r => r.cashDiff > 0.01).length,
       },
@@ -213,20 +492,20 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
         revenue,
         cogs,
         profit: profitAmt,
-        marginPct: revenue > 0 ? Math.round((profitAmt / revenue) * 10000) / 100 : 0,
+        marginPct: revenue > 0 ? round2((profitAmt / revenue) * 100) : 0,
         salesCount: sales.length,
       },
-      products: [],
+      products,
     },
-    journal: entries,
-    alerts: { threshold: 1, alerts, count: alerts.length },
+    journal: journalDesc,
+    alerts: { threshold: CASH_DIFF_ALERT_SOM, alerts, count: alerts.length },
     generatedAtIso: new Date().toISOString(),
   }
 }
 
 /** Собрать локальный truth из apiQuery (from/to/posId/cashierId). */
 export function buildLocalFinanceTruthFromQuery(
-  input: Omit<LocalFinanceTruthInput, 'fromMs' | 'toMs' | 'posId' | 'cashierId'>,
+  input: Omit<LocalFinanceTruthInput, 'fromMs' | 'toMs' | 'posId' | 'cashierId' | 'type'>,
   q?: Record<string, string>,
 ): FinanceTruthBundle {
   const fromMs = q?.from ? Date.parse(q.from) : null
@@ -237,5 +516,6 @@ export function buildLocalFinanceTruthFromQuery(
     toMs: Number.isFinite(toMs as number) ? toMs : null,
     posId: q?.posId,
     cashierId: q?.cashierId,
+    type: q?.type,
   })
 }

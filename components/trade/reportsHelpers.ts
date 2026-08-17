@@ -81,6 +81,8 @@ export const LEDGER_TYPE_LABELS: Record<string, string> = {
   expense: 'Расход',
   deposit: 'Вклад',
   withdraw: 'Снятие',
+  cash_in: 'Вклад',
+  cash_out: 'Снятие',
   purchase_pay: 'Оплата закупа',
   debt_repay_cash: 'Погашение долга · нал',
   debt_repay_card: 'Погашение долга · карта',
