@@ -438,6 +438,197 @@ export default function ReportsModule() {
     )
   }
 
+  /** CSV текущей вкладки — все строки, без обрезки экрана */
+  function exportTabCsv() {
+    if (tab === 'sales') {
+      exportSales()
+      return
+    }
+    if (tab === 'products') {
+      exportProducts()
+      return
+    }
+    if (tab === 'returns') {
+      downloadCsv(
+        `kakapo-returns-${periodLabel}.csv`,
+        ['Чек', 'Дата', 'Точка', 'Кассир', 'Тип', 'Сумма чека', 'Возврат'],
+        returnSales.map(s => {
+          const full = isSaleFullyReturned(s)
+          return [
+            saleNumberLabel(s),
+            fmtDateTime(s.createdAtIso),
+            posName(posPoints, s.posId || defPos),
+            s.cashierName || '',
+            full ? 'Полный' : 'Частичный',
+            Number(s.originalTotal || s.total) || 0,
+            Number(s.lastReturnTotal || (full ? s.originalTotal || s.total : 0)) || 0,
+          ]
+        }),
+      )
+      return
+    }
+    if (tab === 'cashiers') {
+      downloadCsv(
+        `kakapo-cashiers-${periodLabel}.csv`,
+        ['Кассир', 'Чеков', 'Возвратов', 'Выручка', 'Нал', 'Карта', 'Долг'],
+        byCashier.map(r => [r.name, r.checks, r.returns || 0, r.revenue, r.cash, r.card, r.credit]),
+      )
+      return
+    }
+    if (tab === 'hours') {
+      downloadCsv(
+        `kakapo-hours-${periodLabel}.csv`,
+        ['Час', 'Чеков', 'Выручка', 'Нал', 'Карта', 'Долг'],
+        byHour.map(h => [
+          `${String(h.hour).padStart(2, '0')}:00`,
+          h.checks, h.revenue, h.cash, h.card, h.credit,
+        ]),
+      )
+      return
+    }
+    if (tab === 'shifts') {
+      downloadCsv(
+        `kakapo-shifts-${periodLabel}.csv`,
+        ['Статус', 'Кассир', 'Точка', 'Открыта', 'Закрыта', 'Продаж', 'Нал', 'Карта', 'Долг', 'Старт'],
+        shiftRows.map(s => [
+          s.status === 'open' ? 'Открыта' : 'Закрыта',
+          s.cashierName || '',
+          posName(posPoints, s.posId || defPos),
+          s.openedAtIso ? fmtDateTime(s.openedAtIso) : '',
+          s.closedAtIso ? fmtDateTime(s.closedAtIso) : '',
+          s.salesCount || 0,
+          Number(s.salesCash) || 0,
+          Number(s.salesCard) || 0,
+          Number(s.salesCredit) || 0,
+          Number(s.openingCash) || 0,
+        ]),
+      )
+      return
+    }
+    if (tab === 'till') {
+      downloadCsv(
+        `kakapo-till-${periodLabel}.csv`,
+        ['День', 'Кассир', 'Точка', 'Ожидалось', 'Факт', 'Разница', 'Алерт'],
+        (dbTill?.rows || []).map(r => [
+          r.day,
+          r.cashierName || '',
+          posName(posPoints, r.posId || defPos),
+          r.expectedCash,
+          r.actualCash,
+          r.cashDiff,
+          r.alert ? 'да' : '',
+        ]),
+      )
+      return
+    }
+    if (tab === 'profit') {
+      downloadCsv(
+        `kakapo-profit-${periodLabel}.csv`,
+        ['Товар', 'Кол-во', 'Выручка', 'Закуп', 'Доход'],
+        productRows.map(p => [p.productName, p.qty, p.revenue, p.cogs, round2(p.revenue - p.cogs)]),
+      )
+      return
+    }
+    if (tab === 'warehouse') {
+      downloadCsv(
+        `kakapo-warehouse-receipts-${periodLabel}.csv`,
+        ['Дата', 'Поставщик', 'Позиций', 'Сумма', 'Оплачено', 'В долг'],
+        periodReceipts.map(r => [
+          fmtDateTime(r.createdAtIso),
+          r.supplierName || '',
+          r.items?.length || 0,
+          Number(r.totalCost) || 0,
+          Number(r.paidNow) || 0,
+          Number(r.debtAdded) || 0,
+        ]),
+      )
+      return
+    }
+    if (tab === 'suppliers') {
+      downloadCsv(
+        `kakapo-suppliers-${periodLabel}.csv`,
+        ['Поставщик', 'Долг', 'Поставлено', 'Оплачено', 'Последняя поставка'],
+        [...suppliers]
+          .sort((a, b) => (Number(b.payableAmount) || 0) - (Number(a.payableAmount) || 0))
+          .map(s => [
+            s.name,
+            Number(s.payableAmount) || 0,
+            Number(s.totalSupplied) || 0,
+            Number(s.totalPaid) || 0,
+            s.lastDeliveryAtIso ? fmtDateTime(s.lastDeliveryAtIso) : '',
+          ]),
+      )
+      return
+    }
+    if (tab === 'debts') {
+      downloadCsv(
+        `kakapo-debts-${periodLabel}.csv`,
+        ['Клиент', 'Телефон', 'Долг сейчас'],
+        clientDebtors.map(c => [c.name, c.phone || '', Number(c.debt) || 0]),
+      )
+      return
+    }
+    // overview + fallback
+    downloadCsv(
+      `kakapo-overview-${periodLabel}.csv`,
+      ['Показатель', 'Значение'],
+      [
+        ['Период', periodLabel],
+        ['Выручка', salesAgg.revenue],
+        ['Нал', salesAgg.cash],
+        ['Карта', salesAgg.card],
+        ['Кошелёк', salesAgg.wallet],
+        ['Выдали в долг', salesAgg.credit],
+        ['Вернули', debtRepaid],
+        ['Сейчас должны', debtLeft],
+        ['Чеков', salesAgg.salesCount],
+        ['Ср. чек', salesAgg.avgCheck],
+        ['Возвратов', salesAgg.returnedCount],
+        ['Доход без расходов', grossProfit],
+        ['После расходов', netProfit],
+        ['Расходы', expenseTotal],
+        ['Закуп товара', cogs],
+        ['В кассу', tillIn],
+        ['Безнал', cashless],
+        ['Из кассы', tillOut],
+        ['Закупки', purchaseCost],
+        ['Долг поставщикам', supplierDebt],
+      ],
+    )
+  }
+
+  function printReport() {
+    const root = document.querySelector('.k-reports-mod')
+    if (!root || typeof window === 'undefined') return
+    const w = window.open('', '_blank', 'noopener,noreferrer')
+    if (!w) return
+    const title = `Отчёт · ${periodLabel}`
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>${title}</title>
+<style>
+  body{font:13px/1.45 system-ui,-apple-system,sans-serif;color:#111;padding:16px;margin:0}
+  h2{margin:0 0 12px;font-size:18px}
+  table{border-collapse:collapse;width:100%;margin:8px 0}
+  th,td{border:1px solid #ccc;padding:5px 7px;text-align:left;font-size:12px}
+  th{background:#f2f2f2}
+  .k-btn,.k-rep-toolbar,.k-rep-actions,.k-rep-filters,.k-rep-dates,.k-rep-help,
+  .k-subtabs,.k-rep-periods,.k-rep-search,.k-rep-flt-btn{display:none!important}
+  .k-rep-tabs{display:none!important}
+  .k-rep-highlight,.k-rep-stats,.k-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:0 0 10px}
+  .k-rep-highlight>div,.k-rep-stats>div,.k-kpi{border:1px solid #ddd;padding:8px;border-radius:6px}
+  .k-rep-list{display:block}
+  .k-rep-row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #eee}
+</style></head><body>
+<h2>${title}</h2>
+${root.innerHTML}
+</body></html>`)
+    w.document.close()
+    w.focus()
+    window.setTimeout(() => {
+      try { w.print() } catch { /* ignore */ }
+      try { w.close() } catch { /* ignore */ }
+    }, 250)
+  }
+
   // Не блокируем «Загрузка…» — сначала локальные продажи/отчёты
 
   const filterCount = [
@@ -511,6 +702,12 @@ export default function ReportsModule() {
           >
             ⚙{filterCount ? ` ${filterCount}` : ''}
           </button>
+          <button type="button" className="k-btn k-btn-s" title="Скачать CSV этой вкладки" onClick={exportTabCsv}>
+            CSV
+          </button>
+          <button type="button" className="k-btn k-btn-s" title="Печать отчёта" onClick={printReport}>
+            🖨
+          </button>
           <button type="button" className="k-btn k-btn-s" title="Сбросить" onClick={resetFilters}>↺</button>
           <button type="button" className="k-btn k-btn-s" disabled={refreshing} title="Обновить" onClick={() => void refresh()}>
             {refreshing ? '…' : '↻'}
@@ -537,7 +734,7 @@ export default function ReportsModule() {
           <div>1) Период · точка · кассир — на все вкладки. Оплата / поиск — только Чеки и Возвраты</div>
           <div>2) Долг: выдали и вернули — за выбранные дни. Осталось — сколько должны сейчас</div>
           <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
-          <div>4) Товары: топ за период · не продавались / залежались за 30 дней · заказ по 7 дням</div>
+          <div>4) CSV сверху — выгрузка текущей вкладки · 🖨 — печать</div>
         </div>
       )}
 
@@ -821,6 +1018,7 @@ export default function ReportsModule() {
           <div className="k-card-h">
             <b>Возвраты · {returnSales.length}</b>
             <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Сумма возвратов ≈ {fmtMoney(filteredAgg.returnTotal)}</span>
+            <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportTabCsv}>CSV</button>
           </div>
           {!returnSales.length ? (
             <div className="k-empty">Возвратов за период нет</div>
@@ -862,7 +1060,10 @@ export default function ReportsModule() {
 
       {tab === 'cashiers' && (
         <div className="k-rep-panel">
-          <div className="k-rep-panel-h"><span>Кассиры</span></div>
+          <div className="k-rep-panel-h">
+            <span>Кассиры</span>
+            <button type="button" className="k-btn k-btn-s" onClick={exportTabCsv}>CSV</button>
+          </div>
           {!byCashier.length ? (
             <div className="k-empty">Нет продаж по кассирам</div>
           ) : (
@@ -888,7 +1089,10 @@ export default function ReportsModule() {
 
       {tab === 'hours' && (
         <div className="k-card" style={{ overflow: 'hidden' }}>
-          <div className="k-card-h"><b>Продажи по часам</b></div>
+          <div className="k-card-h">
+            <b>Продажи по часам</b>
+            <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportTabCsv}>CSV</button>
+          </div>
           {byHour.every(h => !h.checks) ? (
             <div className="k-empty">Нет продаж за период</div>
           ) : (
@@ -1320,6 +1524,7 @@ export default function ReportsModule() {
               {listShownLabel(SHOW.debtors, clientDebtors.length) && (
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{listShownLabel(SHOW.debtors, clientDebtors.length)}</span>
               )}
+              <button type="button" className="k-btn k-btn-s" style={{ padding: '7px 12px' }} onClick={exportTabCsv}>CSV</button>
             </div>
             {!clientDebtors.length ? <div className="k-empty">Нет должников</div> : (
               <div className="k-tbl-scroll">
