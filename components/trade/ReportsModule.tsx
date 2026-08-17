@@ -72,7 +72,6 @@ export default function ReportsModule() {
   const expiry = usePosStore(s => s.expiry)
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
-  const apiReady = usePosStore(s => s.apiReady)
   const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
   const products = useProducts(s => s.products)
@@ -92,7 +91,6 @@ export default function ReportsModule() {
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
-  const [truthLocal, setTruthLocal] = useState(false)
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -232,7 +230,6 @@ export default function ReportsModule() {
       posId: posFilter || undefined,
       cashierId: cashierFilter || undefined,
     }))
-    setTruthLocal(true)
     if (!USE_API) return
     try {
       const { useOfflineSync } = await import('@/lib/offlineSync')
@@ -249,14 +246,12 @@ export default function ReportsModule() {
       }
       const data = await api.getFinanceTruth(apiQuery)
       setTruth(data)
-      setTruthLocal(false)
       void cacheFinanceTruth(apiQuery, data)
     } catch {
       // Без сети — локальный расчёт уже на экране
       const cached = await readCachedFinanceTruth(apiQuery)
       if (cached) {
         setTruth(cached)
-        setTruthLocal(true)
       }
     }
   }, [apiQuery, shifts, financeMoves, expenses, sales, from, to, posFilter, cashierFilter])
@@ -388,13 +383,6 @@ export default function ReportsModule() {
 
   return (
     <div className="k-reports-mod">
-      {!apiReady && (
-        <div className="k-rep-sync-bar">Локальные данные · синхронизация…</div>
-      )}
-      {truthLocal && apiReady && (
-        <div className="k-rep-sync-bar">Локальные данные · обновятся при связи</div>
-      )}
-
       <div className="k-rep-toolbar">
         <div className="k-subtabs k-rep-periods">
           {REPORT_PERIODS.map(p => (
