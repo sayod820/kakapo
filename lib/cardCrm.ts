@@ -78,6 +78,14 @@ export function cardDigits(num: string | undefined): string {
   return String(num || '').replace(/\D/g, '')
 }
 
+/** Один долг: карта и клиент не должны расходиться. 0 на карте не перекрывает долг клиента. */
+export function effectiveDebt(
+  a?: { debt?: number | null } | null,
+  b?: { debt?: number | null } | null,
+): number {
+  return Math.max(0, Number(a?.debt) || 0, Number(b?.debt) || 0)
+}
+
 export function cardNumsMatch(a: string | undefined, b: string | undefined): boolean {
   if (!a || !b) return false
   if (a === b) return true
@@ -204,7 +212,7 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     level,
     debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
     bonus: Math.max(Number(card.bonus) || 0, Number(client?.bonus) || 0),
-    debt: Math.max(Number(card.debt) || 0, Number(client?.debt) || 0),
+    debt: effectiveDebt(card, client),
     vip: !!(card.vip ?? client?.vip),
     debtEnabled: resolveDebtEnabled(card, client),
     vipUntil: card.vipUntil || client?.vipUntil,
@@ -246,7 +254,7 @@ export function enrichCardWithClient(card: AdminCard, clients: AdminClient[]): A
     level: (mergedLevel === 'basic' ? '' : mergedLevel) as AdminCard['level'],
     bonus: Math.max(card.bonus, client.bonus),
     debtLimit: card.debtLimit ?? client.debtLimit,
-    debt: Math.max(card.debt, client.debt),
+    debt: effectiveDebt(card, client),
     vip: !!(card.vip || client.vip),
     debtEnabled: resolveDebtEnabled(card, client),
     levelAssignMode: lock.levelAssignMode,

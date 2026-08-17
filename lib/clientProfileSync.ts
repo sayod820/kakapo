@@ -11,7 +11,7 @@ import {
   type AdminClient,
   type ClientLevel,
 } from './clientCrm'
-import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, qualifiesForDebtSection, memberSinceDate, type AdminCard } from './cardCrm'
+import { DEFAULT_ADMIN_CARDS, normalizeCard, cardNumsMatch, resolveDebtEnabled, qualifiesForDebtSection, memberSinceDate, effectiveDebt, type AdminCard } from './cardCrm'
 import { isPhoneDeleted, unmarkPhoneDeleted } from './clientTombstones'
 import { isClientInRecovery } from './clientRecovery'
 import {
@@ -133,7 +133,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
       level: pendingManual.level,
       bonus: card.bonus ?? base.bonus,
       wallet: Math.max(0, Number(card.wallet ?? base.wallet) || 0),
-      debt: card.debt ?? base.debt,
+      debt: effectiveDebt(card, base),
       debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
       debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
       debtCreditBlocked: !!(card.debtCreditBlocked ?? base.debtCreditBlocked),
@@ -160,7 +160,7 @@ export function mergeClientWithCard(client: AdminClient, card?: AdminCard | null
     ...loyalty,
     bonus: card.bonus ?? base.bonus,
     wallet: Math.max(0, Number(card.wallet ?? base.wallet) || 0),
-    debt: card.debt ?? base.debt,
+    debt: effectiveDebt(card, base),
     debtLimit: Math.max(0, Number(card.debtLimit ?? base.debtLimit) || 0),
     debtOverdueStrikes: Math.max(0, Number(card.debtOverdueStrikes ?? base.debtOverdueStrikes) || 0),
     debtCreditBlocked: !!(card.debtCreditBlocked ?? base.debtCreditBlocked),

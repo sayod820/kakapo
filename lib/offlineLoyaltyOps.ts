@@ -5,6 +5,7 @@
 // ════════════════════════════════════════════════
 import {
   cardLoyaltyFromCard,
+  effectiveDebt,
   type AdminCard,
   type CardLoyaltyForm,
 } from './cardCrm'
@@ -55,7 +56,7 @@ export async function saveCardLoyaltySafe(
 
   const applyLocal = async () => {
     const clientRef = newClientRef()
-    const prevDebt = Math.max(0, Number(card.debt) || 0)
+    const prevDebt = effectiveDebt(card, useClientStore.getState().clients.find(c => c.id === form.clientId))
     const nextDebt = Math.max(0, Number(form.debt) || 0)
     const phone = (form.phone || card.phone || '').trim()
 
@@ -155,7 +156,7 @@ export async function adjustClientDebtSafe(
   if (!card) throw new Error('Не удалось получить карту лояльности')
 
   const fresh = useClientStore.getState().clients.find(c => c.id === client.id) || client
-  const prevDebt = Math.max(0, Number(fresh.debt) || 0, Number(card.debt) || 0)
+  const prevDebt = effectiveDebt(fresh, card)
   let nextDebt: number
   if (input.absoluteDebt != null) {
     nextDebt = Math.max(0, Math.round(Number(input.absoluteDebt) * 100) / 100)

@@ -4,7 +4,7 @@
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
 import { findDuplicateDebtRepay, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
-import { cardNumsMatch } from './cardCrm'
+import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch } from './clientCrm'
 import { recordStoreDebtRepayment } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
@@ -578,6 +578,27 @@ export async function cardTopupSafe(
 
 // ── Погашение долга ──
 
+export type DebtRepayResult = {
+  nextDebt: number
+  bonusEarned: number
+  /** Повтор того же погашения — касса и история уже записаны */
+  duplicate?: boolean
+}
+
+const debtRepayInflight = new Map<string, Promise<OfflineResult<DebtRepayResult>>>()
+
+function debtRepayDupKey(num: string, amount: number, shiftId?: string) {
+  return `${String(num).trim()}|${round2(amount)}|${String(shiftId || '')}`
+}
+
+function liveDebtNow(num: string, clientId: string | undefined, fallback: number) {
+  const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+  const client = clientId
+    ? useClientStore.getState().clients.find(c => c.id === clientId)
+    : undefined
+  return round2(Math.max(effectiveDebt(card, client), fallback))
+}
+
 export async function debtRepaySafe(
   num: string,
   input: {
@@ -591,7 +612,14 @@ export async function debtRepaySafe(
     clientId?: string
     prevDebt: number
   },
-): Promise<OfflineResult<{ nextDebt: number; bonusEarned: number }>> {
+): Promise<OfflineResult<DebtRepayResult>> {
+  const key = debtRepayDupKey(num, input.amount, input.shiftId)
+  const pending = debtRepayInflight.get(key)
+  if (pending) {
+    const first = await pending
+    return { offline: first.offline, data: { ...first.data, duplicate: true } }
+  }
+
   const clientRef = newClientRef()
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
   const amount = round2(input.amount)
@@ -608,12 +636,16 @@ export async function debtRepaySafe(
     clientId: input.clientId,
   }
 
-  const applyLocal = async () => {
-    const nextDebt = round2(Math.max(0, input.prevDebt - amount))
+  const applyLocal = async (): Promise<DebtRepayResult> => {
     const dup = await findDuplicateDebtRepay({ num, amount, shiftId: input.shiftId })
     if (dup) {
-      return { nextDebt, bonusEarned: 0 }
+      return {
+        nextDebt: liveDebtNow(num, input.clientId, round2(Math.max(0, input.prevDebt - amount))),
+        bonusEarned: 0,
+        duplicate: true,
+      }
     }
+    const nextDebt = round2(Math.max(0, input.prevDebt - amount))
     await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
     if (input.shiftId) {
       const shift = shiftById(input.shiftId)
@@ -625,18 +657,21 @@ export async function debtRepaySafe(
         }
       }
     }
-    const { useCardStore } = await import('./cardStore')
     useCardStore.getState().updateCardLoyalty(num, { debt: nextDebt }, { skipApi: true })
     if (input.clientId) {
-      const { useClientStore } = await import('./clientStore')
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
-    const { markMoneyPending } = await import('./loyaltySaveGuard')
     markMoneyPending({ clientId: input.clientId, cardNum: num })
     return { nextDebt, bonusEarned: 0 }
   }
 
-  return localFirstOp(applyLocal)
+  const run = localFirstOp(applyLocal)
+  debtRepayInflight.set(key, run)
+  try {
+    return await run
+  } finally {
+    debtRepayInflight.delete(key)
+  }
 }
 
 // ── Возврат чека ──
@@ -853,22 +888,37 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
     cl = useClientStore.getState().clients.find(c => phonesMatch(c.phone, phone))
   }
   if (cl) {
+    const card = (cardNum || cl.card)
+      ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, cardNum || cl.card || ''))
+      : undefined
+    const nextDebt = Math.max(0, round2(effectiveDebt(cl, card) - cuts.cutDebt))
     useClientStore.getState().updateClient(cl.id, {
-      debt: Math.max(0, round2((Number(cl.debt) || 0) - cuts.cutDebt)),
+      debt: nextDebt,
       wallet: round2((Number(cl.wallet) || 0) + cuts.cutWallet),
       bonus: round2((Number(cl.bonus) || 0) + cuts.cutBonus),
     }, { skipApi: true })
-  }
-  const num = cardNum || cl?.card || ''
-  if (num) {
-    const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
-    if (card) {
+    const num = cardNum || cl.card || ''
+    if (num) {
       useCardStore.getState().updateCardLoyalty(num, {
-        debt: Math.max(0, round2((Number(card.debt) || 0) - cuts.cutDebt)),
-        wallet: round2((Number(card.wallet) || 0) + cuts.cutWallet),
-        bonus: round2((Number(card.bonus) || 0) + cuts.cutBonus),
-        posCashBonus: round2((Number(card.posCashBonus) || 0) + cuts.cutBonus),
+        debt: nextDebt,
+        wallet: round2((Number(card?.wallet) || Number(cl.wallet) || 0) + cuts.cutWallet),
+        bonus: round2((Number(card?.bonus) || Number(cl.bonus) || 0) + cuts.cutBonus),
+        posCashBonus: round2((Number(card?.posCashBonus) || 0) + cuts.cutBonus),
       } as any, { skipApi: true })
+    }
+  } else {
+    const num = cardNum || ''
+    if (num) {
+      const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+      if (card) {
+        const nextDebt = Math.max(0, round2(effectiveDebt(card) - cuts.cutDebt))
+        useCardStore.getState().updateCardLoyalty(num, {
+          debt: nextDebt,
+          wallet: round2((Number(card.wallet) || 0) + cuts.cutWallet),
+          bonus: round2((Number(card.bonus) || 0) + cuts.cutBonus),
+          posCashBonus: round2((Number(card.posCashBonus) || 0) + cuts.cutBonus),
+        } as any, { skipApi: true })
+      }
     }
   }
   if (cuts.cutDebt > 0 && (phone || cl?.phone)) {
@@ -910,8 +960,13 @@ export async function createSaleSafe(
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
     useOfflineSync.getState().markOffline()
     const offlineSaleId = newLocalId('sale')
+    const linkedCard = client?.card
+      ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+      : undefined
+    const nextDebt = client
+      ? round2(effectiveDebt(client, linkedCard) + (debtAdded > 0.001 ? debtAdded : 0))
+      : 0
     if (client) {
-      const nextDebt = debtAdded > 0.001 ? round2((Number(client.debt) || 0) + debtAdded) : round2(Number(client.debt) || 0)
       const nextWallet = walletPaid > 0.001
         ? round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
         : round2(Number(client.wallet) || 0)
@@ -946,24 +1001,16 @@ export async function createSaleSafe(
     } catch { /* ignore */ }
 
     if (client) {
-      const { useClientStore } = await import('./clientStore')
-      const { useCardStore } = await import('./cardStore')
-
       if (debtAdded > 0.001) {
-        const nextDebt = round2((Number(client.debt) || 0) + debtAdded)
         useClientStore.getState().updateClient(
           client.id,
           { debt: nextDebt, debtEnabled: true },
           { skipApi: true },
         )
         if (client.card) {
-          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
           useCardStore.getState().updateCardLoyalty(
             client.card,
-            {
-              debt: round2((Number(currentCard?.debt) || 0) + debtAdded),
-              debtEnabled: true,
-            },
+            { debt: nextDebt, debtEnabled: true },
             { skipApi: true },
           )
         }

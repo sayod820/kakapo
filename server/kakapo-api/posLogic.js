@@ -12,6 +12,10 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
 }
 
+function effectiveDebt(a, b) {
+  return round2(Math.max(0, Number(a && a.debt) || 0, Number(b && b.debt) || 0))
+}
+
 function nowIso() {
   return new Date().toISOString()
 }
@@ -2254,12 +2258,13 @@ export function createPosSale(db, data = {}) {
       const gate = canTakeNewDebt(client, card, debtAdded)
       if (!gate.ok) throw new Error(gate.reason)
     }
+    const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
     if (client) {
-      client.debt = round2((Number(client.debt) || 0) + debtAdded)
+      client.debt = nextDebt
       client.debtEnabled = true
     }
     if (card) {
-      card.debt = round2((Number(card.debt) || 0) + debtAdded)
+      card.debt = nextDebt
       card.debtEnabled = true
     }
     if (client) {
@@ -2286,7 +2291,7 @@ export function createPosSale(db, data = {}) {
         if (d > 0) client.debtEnabled = true
       }
       if (card) {
-        card.debt = round2(data.cardDebtAfter != null ? data.cardDebtAfter : d)
+        card.debt = d
         if (card.debt > 0) card.debtEnabled = true
       }
     }
@@ -2626,13 +2631,15 @@ export function returnPosSale(db, saleId, meta = {}) {
         const d = round2(meta.clientDebtAfter)
         if (client) client.debt = Math.max(0, d)
         if (card) card.debt = Math.max(0, d)
-      } else if (client) {
-        client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
-        if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+      } else {
+        const nextDebt = Math.max(0, round2(effectiveDebt(client, card) - cutDebt))
+        if (client) client.debt = nextDebt
+        if (card) card.debt = nextDebt
       }
     } else {
-      if (client) client.debt = Math.max(0, round2((Number(client.debt) || 0) - cutDebt))
-      if (card) card.debt = Math.max(0, round2((Number(card.debt) || 0) - cutDebt))
+      const nextDebt = Math.max(0, round2(effectiveDebt(client, card) - cutDebt))
+      if (client) client.debt = nextDebt
+      if (card) card.debt = nextDebt
     }
     if (client) {
       applyDebtRepayment(client, card, cutDebt, {

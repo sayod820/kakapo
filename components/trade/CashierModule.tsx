@@ -6299,7 +6299,7 @@ export default function CashierModule({
   }
 
   async function submitDebtRepay() {
-    if (!client) return
+    if (!client || busy) return
     const amount = Number(repayBuf) || 0
     const prevDebt = clientDebt
     if (amount <= 0) return
@@ -6364,6 +6364,16 @@ export default function CashierModule({
       })
       const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - payAmt)
       const repayBonus = Number(repaid.data.bonusEarned) || 0
+      if (repaid.data.duplicate) {
+        const freshDup = useClientStore.getState().clients.find(c => c.id === client.id)
+        if (freshDup) setClient(freshDup)
+        setRepayOpen(false)
+        setRepayBuf('')
+        setRepayMethod('cash')
+        setRepayTarget(null)
+        showToast('Уже принято', 'Это погашение уже записано')
+        return
+      }
       if (client.phone) {
         recordStoreDebtRepayment(client.phone, payAmt, {
           method: repayMethod,

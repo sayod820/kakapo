@@ -6,6 +6,7 @@ import {
   CARD_STATUS_LABELS,
   cardHasDebtSection,
   cardNumsMatch,
+  effectiveDebt,
   type AdminCard,
 } from '@/lib/cardCrm'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
@@ -254,7 +255,8 @@ function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
 }
 
 function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {
-  const debt = Number(client.debt) || 0
+  const card = cardForClient(client, cards)
+  const debt = effectiveDebt(client, card)
   const debtLimit = resolveEffectiveDebtLimit(client)
   const history = client.phone ? loadDebtHistory(client.phone) : []
   const manual = history.filter(isManualDebtHistoryEntry)
@@ -263,6 +265,7 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: Pos
   const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debt)
   return {
     ...client,
+    debt,
     debtLimit,
     available: Math.max(0, debtLimit - debt),
     overLimit: debtLimit > 0 && debt > debtLimit,
@@ -573,10 +576,15 @@ export default function DebtsModule({
     setHistMsg('')
     try {
       const method = saleRepay.method || 'cash'
-      await repayDebtIntoOpenShift(detailClient, amount, {
+      const repaid = await repayDebtIntoOpenShift(detailClient, amount, {
         method,
         note: `Погашение · ${saleLabel(s)} · ${detailClient.name}`,
       })
+      if (repaid.data.duplicate) {
+        setHistMsg('Это погашение уже записано')
+        setSaleRepay(prev => prev ? { ...prev, saving: false } : prev)
+        return
+      }
       recordStoreDebtRepayment(detailClient.phone, amount, {
         desc: `Погашение · ${saleLabel(s)}`,
         orderId: linkOrderId,
@@ -631,6 +639,11 @@ export default function DebtsModule({
           method,
           note: `Погашение долга · ${detailClient.name}`,
         })
+        if (res.data.duplicate) {
+          setHistAdd(prev => ({ ...prev, saving: false }))
+          setHistMsg('Это погашение уже записано')
+          return
+        }
         if (detailClient.phone) {
           recordStoreDebtRepayment(detailClient.phone, amount, {
             method,

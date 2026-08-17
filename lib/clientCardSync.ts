@@ -13,7 +13,7 @@ import {
   emptyClientProfileForm,
   clientProfileFromClient,
 } from './clientCrm'
-import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled, qualifiesForDebtSection } from './cardCrm'
+import { type AdminCard, type CardLoyaltyForm, emptyCardLoyaltyForm, cardLoyaltyFromCard, cardNumsMatch, canonicalCardNum, resolveDebtEnabled, qualifiesForDebtSection, effectiveDebt } from './cardCrm'
 import { recordStoreDebtCharge, recordStoreDebtRepayment } from './clientVipCredit'
 import { emitCrmSync, findMergedClientByPhone, fetchCrmStoreUser, crmStoreUsersEqual, mergeCrmIntoStoreUser } from './clientProfileSync'
 import { resetClientNotificationsForAccount } from './clientNotifications'
@@ -292,7 +292,7 @@ export function loyaltySummaryForClient(client: AdminClient, cards: AdminCard[])
     card: client.card || '',
     level: resolveCardAuthoritativeLevel(card, client),
     bonus: card?.bonus ?? client.bonus,
-    debt: card?.debt ?? client.debt,
+    debt: effectiveDebt(card, client),
     debtLimit: card?.debtLimit ?? client.debtLimit,
     vip: !!(card?.vip ?? client.vip),
     debtEnabled: resolveDebtEnabled(card, client),
