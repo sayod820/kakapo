@@ -233,6 +233,19 @@ export function saleOpenCreditAmount(s: {
   return 0
 }
 
+/** Чек был в долг — в том числе уже возвращённый. */
+export function saleWasOnCredit(s: {
+  status?: string
+  paymentMethod?: string
+  debtAdded?: number | null
+  total?: number
+  items?: { qty?: number; returnedQty?: number }[]
+}): boolean {
+  if (saleOpenCreditAmount(s) > 0.001) return true
+  if (s.paymentMethod === 'credit') return true
+  return false
+}
+
 /** Остаток долга по конкретному чеку (по orderId / сумме+времени). */
 export function debtStatusForSale(
   list: DebtHistoryEntry[],
@@ -625,18 +638,22 @@ function historyDebtMatchesSale(
   return saleOrderKeys(sale).some(k => debtOrderIdsMatch(row.orderId, k))
 }
 
-/** Наличные / заказ с сервера — в ленте «Нал.», если это не уже показанный чек POS. */
+/** Наличные / заказ с сервера — в ленте «Нал.», если это не чек POS (в т.ч. уже возвращённый). */
 export function isLedgerCashHistoryDebt(
   row: DebtHistoryEntry,
   posSales: { id: string; orderId?: string }[],
 ): boolean {
   if (row.type !== 'debt') return false
   if (posSales.some(s => historyDebtMatchesSale(row, s))) return false
-  if (isManualDebtHistoryEntry(row)) return true
-  if (isImportedLedgerHistoryId(row.id)) return true
+  // Чек / заказ — всегда «Товары», даже если чек вернули и он выпал из открытых.
   if (row.source === 'pos' || row.source === 'order') return false
   if (row.orderId) return false
-  // Старая выдача наличных без source — показать в «Нал.», но не давать править
+  const desc = String(row.desc || '')
+  if (/чек|заказ|возврат/i.test(desc)) return false
+  if (isManualDebtHistoryEntry(row)) return true
+  if (isImportedLedgerHistoryId(row.id)) {
+    return !row.source || row.source === 'cashier' || row.source === 'manual'
+  }
   if (!row.source) return true
   return row.source === 'cashier' || row.source === 'manual'
 }

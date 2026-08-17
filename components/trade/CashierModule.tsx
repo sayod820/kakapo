@@ -54,6 +54,7 @@ import {
   recordStoreDebtRepaymentFifo,
   recordStorePurchase,
   saleOpenCreditAmount,
+  saleWasOnCredit,
   subscribeBalanceTopup,
   subscribeDebtHistory,
   syncDebtHistoryFromLedger,
@@ -2451,21 +2452,28 @@ export default function CashierModule({
     if (!client) return empty
 
     const history = loadDebtHistoryForClient(client)
-    const posSales = sales
-      .filter(s => {
-        const matchId = client.id && s.clientId === client.id
-        const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-        if (!matchId && !matchPhone) return false
-        return saleOpenCreditAmount(s) > 0.001
-      })
+    const clientSales = sales.filter(s => {
+      const matchId = client.id && s.clientId === client.id
+      const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
+      return !!(matchId || matchPhone)
+    })
+    const posSales = clientSales
+      .filter(s => saleWasOnCredit(s))
       .map(s => {
-        const debtAdded = saleOpenCreditAmount(s)
+        const remain = saleOpenCreditAmount(s)
+        const orig = remain > 0.001
+          ? remain
+          : Math.max(
+            remain,
+            Number((s as { originalTotal?: number }).originalTotal) || 0,
+            Number(s.lastReturnTotal) || 0,
+          )
         return {
           id: s.id,
           orderId: s.orderId,
           number: s.number,
           dateIso: s.createdAtIso,
-          debtAdded,
+          debtAdded: orig,
           items: mapSaleLines(s.items, products),
         }
       })
@@ -2480,7 +2488,7 @@ export default function CashierModule({
     )
 
     const manual = history.filter(isManualDebtHistoryEntry)
-    const cashRows = history.filter(r => isLedgerCashHistoryDebt(r, posSales))
+    const cashRows = history.filter(r => isLedgerCashHistoryDebt(r, clientSales))
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const manualPays = manual.filter(r => r.type === 'pay')
     const cashChargeSum = Math.round(
@@ -2529,15 +2537,18 @@ export default function CashierModule({
         desc: `${r.desc || 'Ручное начисление'}${r.overdue ? ' · просрочен' : r.dueDate ? ` · до ${r.dueDate}` : ''}`,
         amount: Math.abs(Number(r.amount) || 0),
       })),
-      ...payRows.map(r => ({
-        key: `pay-${r.id}`,
-        ts: Number(r.ts) || 0,
-        when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
-        kind: 'pay' as const,
-        desc: r.desc || 'Погашение долга',
-        amount: -Math.abs(Number(r.amount) || 0),
-        saleId: r.orderId?.replace(/^sale-/, ''),
-      })),
+      ...payRows.map(r => {
+        const isReturn = /возврат/i.test(String(r.desc || ''))
+        return {
+          key: `pay-${r.id}`,
+          ts: Number(r.ts) || 0,
+          when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
+          kind: 'pay' as const,
+          desc: r.desc || (isReturn ? 'Возврат товара' : 'Погашение долга'),
+          amount: -Math.abs(Number(r.amount) || 0),
+          saleId: r.orderId?.replace(/^sale-/, ''),
+        }
+      }),
     ]
     if (residualCash > 0.005) {
       feedSrc.push({
@@ -9732,9 +9743,10 @@ export default function CashierModule({
                       </thead>
                       <tbody>
                         {cashierDebtPanel.feed.map(row => {
-                          const kindLabel = row.kind === 'pos' ? 'Чек в долг' : row.kind === 'cash' ? 'Наличные' : 'Оплата'
-                          const kindColor = row.kind === 'pos' ? 'var(--blue)' : row.kind === 'cash' ? 'var(--org)' : 'var(--accent)'
-                          const kindIcon = row.kind === 'pos' ? '🧾' : row.kind === 'cash' ? '💵' : '✅'
+                          const isReturn = row.kind === 'pay' && /возврат/i.test(row.desc || '')
+                          const kindLabel = row.kind === 'pos' ? 'Чек в долг' : row.kind === 'cash' ? 'Наличные' : isReturn ? 'Возврат товара' : 'Оплата'
+                          const kindColor = row.kind === 'pos' ? 'var(--blue)' : row.kind === 'cash' ? 'var(--org)' : isReturn ? 'var(--blue)' : 'var(--accent)'
+                          const kindIcon = row.kind === 'pos' ? '🧾' : row.kind === 'cash' ? '💵' : isReturn ? '↩️' : '✅'
                           return (
                             <tr
                               key={row.key}

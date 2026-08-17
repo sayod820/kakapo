@@ -41,6 +41,7 @@ import {
   recordStoreDebtRepaymentFifo,
   removeDebtHistoryEntry,
   saleOpenCreditAmount,
+  saleWasOnCredit,
   subscribeDebtHistory,
   syncDebtHistoryFromLedger,
   updateDebtHistoryEntry,
@@ -214,10 +215,19 @@ function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
 function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[] {
   return salesFor(client, sales)
     .map(s => {
-      const debtAdded = saleOpenCreditAmount(s)
+      const remain = saleOpenCreditAmount(s)
+      const orig = remain > 0.001
+        ? remain
+        : (saleWasOnCredit(s)
+          ? Math.max(
+            remain,
+            Number((s as { originalTotal?: number }).originalTotal) || 0,
+            Number(s.lastReturnTotal) || 0,
+          )
+          : 0)
       const paidCash = Number(s.paidCash) || 0
       const paidCard = Number(s.paidCard) || 0
-      const partial = debtAdded > 0 && (paidCash > 0 || paidCard > 0)
+      const partial = remain > 0 && (paidCash > 0 || paidCard > 0)
       return {
         id: s.id,
         number: s.number,
@@ -226,7 +236,7 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
         total: Number(s.total) || 0,
         paidCash,
         paidCard,
-        debtAdded,
+        debtAdded: orig,
         paymentMethod: s.paymentMethod,
         itemsCount: s.items?.length || 0,
         note: s.note,
@@ -288,9 +298,10 @@ function DebtStatusBadge({ overLimit, debt }: { overLimit: boolean; debt: number
   return <span className="k-badge" style={{ background: 'var(--badge-debt-ok)', color: 'var(--green)' }}>Без долга</span>
 }
 
-function kindMeta(kind: FeedRow['kind']) {
+function kindMeta(kind: FeedRow['kind'], title?: string) {
   if (kind === 'pos') return { label: 'Чек в долг', color: 'var(--blue)', icon: '🧾' }
   if (kind === 'cash') return { label: 'Наличные', color: 'var(--gold)', icon: '💵' }
+  if (/возврат/i.test(String(title || ''))) return { label: 'Возврат товара', color: 'var(--blue)', icon: '↩️' }
   return { label: 'Оплата', color: 'var(--green)', icon: '✅' }
 }
 
@@ -320,16 +331,19 @@ function buildFeed(
         editable: isManualDebtHistoryEntry(row) ? row : undefined,
       }
     }),
-    ...checkPays.map(row => ({
-      key: `cp-${row.id}`,
-      ts: Number(row.ts) || 0,
-      dateLabel: `${row.date}${row.time ? ` · ${row.time}` : ''}`,
-      kind: 'pay' as const,
-      title: 'Оплата',
-      desc: row.desc || 'Погашение чека',
-      amount: -Math.abs(Number(row.amount) || 0),
-      saleId: row.orderId?.replace(/^sale-/, '') || undefined,
-    })),
+    ...checkPays.map(row => {
+      const isReturn = /возврат/i.test(String(row.desc || ''))
+      return {
+        key: `cp-${row.id}`,
+        ts: Number(row.ts) || 0,
+        dateLabel: `${row.date}${row.time ? ` · ${row.time}` : ''}`,
+        kind: 'pay' as const,
+        title: isReturn ? 'Возврат товара' : 'Оплата',
+        desc: row.desc || (isReturn ? 'Возврат товара' : 'Погашение чека'),
+        amount: -Math.abs(Number(row.amount) || 0),
+        saleId: row.orderId?.replace(/^sale-/, '') || undefined,
+      }
+    }),
     ...posSales.map(s => {
       const st = saleStatus[s.id]
       const statusNote = !st
@@ -487,8 +501,9 @@ export default function DebtsModule({
     void histTick
     const history = loadDebtHistoryForClient(detailClient).sort((a, b) => (b.ts || 0) - (a.ts || 0))
     const posSalesForCash = posDebtSalesFor(detailClient, sales)
+    const saleMatch = salesFor(detailClient, sales).map(s => ({ id: s.id, orderId: s.orderId }))
     const manual = history.filter(isManualDebtHistoryEntry)
-    const cash = history.filter(r => isLedgerCashHistoryDebt(r, posSalesForCash))
+    const cash = history.filter(r => isLedgerCashHistoryDebt(r, saleMatch))
     const pays = manual.filter(r => r.type === 'pay')
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const posSales = posSalesForCash
@@ -1236,7 +1251,7 @@ export default function DebtsModule({
                         </thead>
                         <tbody>
                           {detailData.historyFeed.map(row => {
-                            const meta = kindMeta(row.kind)
+                            const meta = kindMeta(row.kind, row.title)
                             const clickable = row.kind === 'pos' && row.saleId
                         return (
                               <tr
