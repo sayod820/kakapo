@@ -73,6 +73,37 @@ function isLocalTradeLoaded() {
   return /127\.0\.0\.1|localhost/i.test(u)
 }
 
+function attachKeyboardFocusFix(win) {
+  if (!win || win.isDestroyed()) return
+  const ping = () => {
+    if (!win || win.isDestroyed()) return
+    try {
+      if (!win.isFocused()) return
+      const wc = win.webContents
+      if (!wc || wc.isDestroyed()) return
+      if (typeof wc.isDevToolsFocused === 'function' && wc.isDevToolsFocused()) return
+      if (typeof wc.isFocused === 'function' && wc.isFocused()) return
+      wc.focus()
+    } catch { /* ignore */ }
+  }
+  win.on('focus', ping)
+  win.on('restore', ping)
+  win.on('show', ping)
+  win.on('maximize', () => setTimeout(ping, 40))
+  win.on('enter-full-screen', () => setTimeout(ping, 60))
+  win.on('leave-full-screen', () => setTimeout(ping, 60))
+  win.webContents.on('devtools-closed', ping)
+  win.webContents.on('did-finish-load', () => setTimeout(ping, 80))
+  if (process.platform === 'win32') {
+    try {
+      win.hookWindowMessage(0x0006, () => { setTimeout(ping, 0) })
+      win.hookWindowMessage(0x0007, () => { setTimeout(ping, 0) })
+    } catch { /* ignore */ }
+  }
+  const tick = setInterval(ping, 400)
+  win.on('closed', () => clearInterval(tick))
+}
+
 function buildRemoteTarget(remoteUrl) {
   try {
     const u = new URL(remoteUrl)
@@ -603,6 +634,7 @@ function createWindow(localUrl = '') {
   }
 
   mainWindow.setFullScreenable(true)
+  attachKeyboardFocusFix(mainWindow)
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return
     const code = String(input.code || '')
@@ -695,6 +727,10 @@ function createWindow(localUrl = '') {
   mainWindow.webContents.on('did-finish-load', () => {
     const loaded = mainWindow?.webContents.getURL() || ''
     bootLog('did-finish-load', loaded)
+    mainWindow.webContents.executeJavaScript(
+      "if(!window.__kakapoKbFocus){window.__kakapoKbFocus=true;window.addEventListener('focus',function(){var el=document.activeElement;if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.isContentEditable)){try{el.focus()}catch(e){}}});}",
+      true,
+    ).catch(() => {})
     if (/^https?:\/\//i.test(loaded)) {
       contentShown = true
       enterFullscreenSafe()

@@ -117,6 +117,8 @@ function buildAuditActorHeaders(): Record<string, string> {
         if (s?.employeeId) out['x-kakapo-employee-id'] = encodeHeaderValue(s.employeeId)
         if (s?.name) out['x-kakapo-employee-name'] = encodeHeaderValue(s.name)
       }
+      const deviceId = getTradeDeviceIdSync()
+      if (deviceId) out['x-kakapo-device-id'] = encodeHeaderValue(deviceId)
     }
   } catch { /* ignore */ }
   return out
@@ -984,7 +986,7 @@ export const api = {
   loginEmployee: (data: { id?: string; name?: string; password: string }) =>
     request<import('./types').TradeEmployee & { token: string }>('/employees/login', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, deviceId: getTradeDeviceIdSync() }),
     }),
 
   // ── POS / склад ──

@@ -833,6 +833,34 @@ export const useProducts = create<ProductsStore>((set, get) => ({
             return { ...p, stock: loc.stock }
           })
         }
+        const pendingProductIds = new Set(
+          pending
+            .filter(r => !r.failed && r.kind === 'product_upsert')
+            .map(r => String(r.payload?.localId || r.payload?.product?.id || r.payload?.id || ''))
+            .filter(Boolean),
+        )
+        if (pendingProductIds.size) {
+          const localById = new Map(get().products.map(p => [String(p.id), p]))
+          products = products.map(p => {
+            if (!pendingProductIds.has(String(p.id))) return p
+            const loc = localById.get(String(p.id))
+            if (!loc) return p
+            return {
+              ...p,
+              name: loc.name,
+              price: loc.price,
+              costPrice: loc.costPrice,
+              e: loc.e,
+              cat: loc.cat,
+              catId: loc.catId,
+              unit: loc.unit,
+              art: loc.art,
+              hot: loc.hot,
+              desc: loc.desc,
+              photo: loc.photo,
+            }
+          })
+        }
       } catch { /* очередь недоступна — берём сервер как есть */ }
       set({ products, loaded: true })
       try {

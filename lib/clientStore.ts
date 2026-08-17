@@ -17,12 +17,35 @@ import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const PENDING_CLIENT_MS = 120_000
+const IDENTITY_PENDING_MS = 15 * 60_000
 /** Клиенты, созданные локально и ещё не подтверждённые API */
 const pendingClientSync = new Map<string, number>()
+/** Имя / телефон / блок изменены локально — GET с сервера не должен откатить */
+const identityPending = new Map<string, number>()
 
 export function markPendingClientSync(id: string) {
   if (!id) return
   pendingClientSync.set(id, Date.now())
+}
+
+export function markClientIdentityPending(id: string) {
+  if (!id) return
+  identityPending.set(id, Date.now())
+}
+
+export function isClientIdentityPending(id: string): boolean {
+  const t = identityPending.get(id)
+  if (!t) return false
+  if (Date.now() - t > IDENTITY_PENDING_MS) {
+    identityPending.delete(id)
+    return false
+  }
+  return true
+}
+
+export function clearClientIdentityPending(id: string) {
+  if (!id) return
+  identityPending.delete(id)
 }
 
 function isPendingClientSync(id: string): boolean {
@@ -219,10 +242,34 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       const apiIds = new Set(apiList.map(c => String(c.id)))
       const merged = apiList.map(c => {
         const normalized = c
-        clearPendingClientSync(normalized.id)
         const lc = local.find(x => x.id === normalized.id)
           || local.find(x => phonesMatch(x.phone, normalized.phone))
-        return mergeClientLoyaltyIfRecent(normalized, lc)
+        let row = mergeClientLoyaltyIfRecent(normalized, lc)
+        if (lc && isClientIdentityPending(lc.id)) {
+          const caughtUp =
+            String(lc.name || '').trim() === String(normalized.name || '').trim()
+            && phonesMatch(lc.phone, normalized.phone)
+            && !!lc.blocked === !!normalized.blocked
+            && String(lc.email || '').trim() === String(normalized.email || '').trim()
+            && String(lc.addr || '').trim() === String(normalized.addr || '').trim()
+            && String(lc.note || '').trim() === String(normalized.note || '').trim()
+          if (caughtUp) {
+            clearClientIdentityPending(lc.id)
+          } else {
+            row = {
+              ...row,
+              name: lc.name,
+              phone: lc.phone,
+              email: lc.email,
+              addr: lc.addr,
+              note: lc.note,
+              blocked: lc.blocked,
+            }
+          }
+        } else {
+          clearPendingClientSync(normalized.id)
+        }
+        return row
       })
       for (const lc of local) {
         if (isClientPurged(lc) || isPhoneDeleted(lc.phone)) continue

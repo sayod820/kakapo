@@ -9,11 +9,16 @@ import {
 } from '@/lib/assemblerTeam'
 
 const LOGIN_CSS = `
-  .al-root{font-family:'Nunito',sans-serif;}
+  .al-root{
+    --asm-notch:max(env(safe-area-inset-top,0px),var(--kakapo-notch,0px));
+    --asm-home:max(env(safe-area-inset-bottom,0px),0px);
+    font-family:'Nunito',sans-serif;
+  }
   .al-ub{font-family:'Unbounded',sans-serif;}
   .al-btn{cursor:pointer;border:none;transition:all .22s cubic-bezier(.16,1,.3,1);}
   .al-btn:active:not(:disabled){transform:scale(.97);}
   .al-btn:disabled{cursor:not-allowed;}
+  .al-back{top:calc(12px + var(--asm-notch))!important;left:calc(18px + env(safe-area-inset-left,0px))!important;}
   .al-inp{transition:border-color .2s,box-shadow .2s,background .2s,transform .15s;}
   .al-inp:focus{border-color:rgba(155,109,255,.7)!important;box-shadow:0 0 0 3px rgba(155,109,255,.18)!important;outline:none;}
   @keyframes alSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
@@ -140,7 +145,7 @@ export default function AssemblerLoginPage({ assemblers, onSuccess }: AssemblerL
         }} />
       </div>
 
-      <Link href="/" className="al-btn" style={{
+      <Link href="/" className="al-btn al-back" style={{
         position: 'absolute', top: 18, left: 18, zIndex: 10,
         width: 42, height: 42, borderRadius: 13,
         background: 'rgba(9,21,8,.85)', backdropFilter: 'blur(12px)',
@@ -151,7 +156,7 @@ export default function AssemblerLoginPage({ assemblers, onSuccess }: AssemblerL
 
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '72px 22px 32px', position: 'relative', zIndex: 1,
+        padding: 'calc(72px + var(--asm-notch)) 22px calc(32px + var(--asm-home))', position: 'relative', zIndex: 1,
       }}>
         <div style={{ textAlign: 'center', marginBottom: 32, animation: 'alFadeUp .55s ease both' }}>
           <div style={{ position: 'relative', width: 96, height: 96, margin: '0 auto 20px' }}>

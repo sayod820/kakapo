@@ -1,5 +1,5 @@
 'use client'
-import { useClientStore, markClientLoyaltySaved, syncClientsFromApi } from './clientStore'
+import { useClientStore, markClientLoyaltySaved, markClientIdentityPending, syncClientsFromApi } from './clientStore'
 import { useCardStore } from './cardStore'
 import {
   phonesMatch,
@@ -327,6 +327,7 @@ export function saveClientProfile(clientId: string | null, form: ClientProfileFo
     }
 
     clientStore.updateClient(clientId, { ...profilePatch, card: cardNum })
+    markClientIdentityPending(clientId)
 
     const client = useClientStore.getState().clients.find(c => c.id === clientId)!
     if (cardNum) {

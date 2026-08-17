@@ -150,6 +150,59 @@ export const usePosStore = create<PosStore>((set) => ({
         financeSummary,
         report,
       }
+      try {
+        const { getPending } = await import('./offline')
+        const pending = await getPending()
+        const local = usePosStore.getState()
+        const pendingSupplierIds = new Set(
+          pending
+            .filter(r => !r.failed && r.kind === 'supplier_upsert')
+            .map(r => String(r.payload?.localId || r.payload?.supplier?.id || r.payload?.id || ''))
+            .filter(Boolean),
+        )
+        if (pendingSupplierIds.size) {
+          const localById = new Map(local.suppliers.map(s => [String(s.id), s]))
+          snapshot.suppliers = (snapshot.suppliers || []).map(s => {
+            if (!pendingSupplierIds.has(String(s.id))) return s
+            const loc = localById.get(String(s.id))
+            if (!loc) return s
+            return {
+              ...s,
+              name: loc.name,
+              phone: loc.phone,
+              address: loc.address,
+              note: loc.note,
+              category: loc.category,
+            }
+          })
+          for (const loc of local.suppliers) {
+            if (!pendingSupplierIds.has(String(loc.id))) continue
+            if (!snapshot.suppliers.some(s => String(s.id) === String(loc.id))) {
+              snapshot.suppliers.push(loc)
+            }
+          }
+        }
+        const pendingCashierIds = new Set(
+          pending
+            .filter(r => !r.failed && r.kind === 'cashier_upsert')
+            .map(r => String(r.payload?.localId || r.payload?.cashier?.id || r.payload?.id || ''))
+            .filter(Boolean),
+        )
+        if (pendingCashierIds.size) {
+          const localById = new Map(local.cashiers.map(c => [String(c.id), c]))
+          snapshot.cashiers = (snapshot.cashiers || []).map(c => {
+            if (!pendingCashierIds.has(String(c.id))) return c
+            const loc = localById.get(String(c.id))
+            return loc ? { ...c, name: loc.name } : c
+          })
+          for (const loc of local.cashiers) {
+            if (!pendingCashierIds.has(String(loc.id))) continue
+            if (!snapshot.cashiers.some(c => String(c.id) === String(loc.id))) {
+              snapshot.cashiers.push(loc)
+            }
+          }
+        }
+      } catch { /* очередь недоступна */ }
       set({ ...snapshot, apiReady: true, apiSyncing: false, apiError: '' })
       try {
         const { notePosOpSeqFromSales, notePosOpSeqFromPoints } = await import('./posOpSeq')

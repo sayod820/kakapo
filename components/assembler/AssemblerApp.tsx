@@ -52,7 +52,23 @@ const CSS = `
     --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
     --gr:#1FD760;--pur:#9B6DFF;--red:#FF4545;
     --header-bg:rgba(3,11,5,.97);
+    --asm-notch:max(env(safe-area-inset-top,0px),var(--kakapo-notch,0px));
+    --asm-home:max(env(safe-area-inset-bottom,0px),0px);
+    --asm-left:env(safe-area-inset-left,0px);
+    --asm-right:env(safe-area-inset-right,0px);
     background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;
+    padding-left:var(--asm-left);padding-right:var(--asm-right);
+  }
+  .assembler-app header{
+    padding-top:var(--asm-notch);
+  }
+  .assembler-app .asm-bottom{
+    padding-bottom:calc(12px + var(--asm-home))!important;
+    padding-left:calc(18px + var(--asm-left))!important;
+    padding-right:calc(18px + var(--asm-right))!important;
+  }
+  .assembler-app .asm-sheet{
+    padding-bottom:calc(24px + var(--asm-home))!important;
   }
   .ub{font-family:'Unbounded',sans-serif;}
   .btn{cursor:pointer;border:none;transition:all .2s cubic-bezier(.16,1,.3,1);}.btn:active{transform:scale(.96);}
@@ -525,7 +541,7 @@ function BottomNav({page, onPage, newCount}) {
     {id:'stats',     icon:'📊', label:'Статистика'},
   ];
   return (
-    <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'8px 18px',paddingBottom:'calc(10px + env(safe-area-inset-bottom,0))',display:'flex',justifyContent:'space-around',zIndex:80}}>
+    <nav className="asm-bottom" style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'8px 18px',display:'flex',justifyContent:'space-around',zIndex:80}}>
       {items.map(item=>(
         <button key={item.id} onClick={()=>onPage(item.id)} className="btn"
           style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'5px 14px',borderRadius:11,background:page===item.id?'rgba(155,109,255,.12)':'transparent',border:`1.5px solid ${page===item.id?'rgba(155,109,255,.3)':'transparent'}`,position:'relative'}}>
@@ -1172,7 +1188,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       </div>
 
       {/* Bottom action */}
-      <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'13px 18px 28px'}}>
+      <div className="asm-bottom" style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,zIndex:90,background:'rgba(3,11,5,.97)',backdropFilter:'blur(26px)',borderTop:'1px solid var(--b1)',padding:'13px 18px 16px'}}>
         {isCancelled ? (
           <div style={{padding:'12px',background:'rgba(255,69,69,.08)',borderRadius:13,border:'1px solid rgba(255,69,69,.25)',textAlign:'center',fontSize:12,color:'#FF6969',fontWeight:700}}>
             Сборка остановлена — заказ отменён
@@ -1234,7 +1250,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       {showConfirm&&(
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={()=>setShowConfirm(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
+          <div className="asm-sheet" style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 28px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
             <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{textAlign:'center',marginBottom:20}}>
               <div style={{fontSize:48,marginBottom:10}}>📦</div>
@@ -1264,7 +1280,7 @@ function CollectPage({order, openEdit, onToggle, onComplete, onHandoff, onBack, 
       {showEdit && (
         <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={() => !saving && setShowEdit(false)} style={{position:'absolute',inset:0,background:'rgba(0,0,0,.85)',backdropFilter:'blur(10px)'}}/>
-          <div style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'88vh',overflowY:'auto',background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 44px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
+          <div className="asm-sheet" style={{position:'relative',zIndex:1,width:'100%',maxWidth:480,maxHeight:'88vh',overflowY:'auto',background:'var(--l1)',borderTop:'1px solid var(--b1)',borderRadius:'24px 24px 0 0',padding:'22px 20px 28px',animation:'slideUp .4s cubic-bezier(.16,1,.3,1)'}}>
             <div style={{width:40,height:4,borderRadius:2,background:'var(--b2)',margin:'0 auto 20px'}}/>
             <div style={{marginBottom:16}}>
               <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:900,marginBottom:6}}>Изменить заказ</div>

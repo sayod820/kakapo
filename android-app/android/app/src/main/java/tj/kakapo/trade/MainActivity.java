@@ -1,6 +1,8 @@
 package tj.kakapo.trade;
 
+import android.Manifest;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
@@ -11,6 +13,8 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.ViewCompat;
@@ -24,6 +28,7 @@ public class MainActivity extends BridgeActivity {
   private static final int COLOR_LIGHT = 0xFFF3F7F4;
   private static final String PREFS = "kakapo_trade";
   private static final String PREF_CHROME = "chrome_color";
+  private static final int REQ_CAMERA = 1001;
   private boolean bridgeAttached = false;
 
   @Override
@@ -35,6 +40,20 @@ public class MainActivity extends BridgeActivity {
     applyChromeColor(loadSavedChromeColor());
     openTradeUi();
     injectAndroidFlag();
+    requestCameraAccess();
+  }
+
+  private void requestCameraAccess() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+        == PackageManager.PERMISSION_GRANTED) {
+      return;
+    }
+    ActivityCompat.requestPermissions(
+      this,
+      new String[] { Manifest.permission.CAMERA },
+      REQ_CAMERA
+    );
   }
 
   @Override
@@ -325,6 +344,14 @@ public class MainActivity extends BridgeActivity {
       + "flex:0 0 auto!important;"
       + "padding-top:calc(10px + var(--kakapo-notch))!important;"
       + "background:var(--panel,var(--kakapo-panel))!important;}"
+      + "html.kakapo-android .assembler-app,html.kakapo-android .al-root{"
+      + "height:100%!important;min-height:0!important;overflow:auto!important;"
+      + "-webkit-overflow-scrolling:touch!important;box-sizing:border-box!important;"
+      + "background:#030B05!important;}"
+      + "html.kakapo-android .assembler-app header{"
+      + "padding-top:var(--kakapo-notch)!important;}"
+      + "html.kakapo-android .al-back{"
+      + "top:calc(12px + var(--kakapo-notch))!important;}"
       /*
        * CRITICAL: flex 1 1 0% + min-height 0 gives .k-main a bounded height
        * so overflow-y:auto actually scrolls. height:auto made it grow forever → no scroll.

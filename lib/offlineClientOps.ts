@@ -14,11 +14,12 @@ import {
   registerClientAccount,
   saveClientProfile,
 } from './clientCardSync'
-import { useClientStore } from './clientStore'
+import { markClientIdentityPending, useClientStore } from './clientStore'
 import { cacheData, isLocalId, newClientRef, newLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
+import { useCardStore } from './cardStore'
 
 export type { OfflineResult }
 
@@ -34,8 +35,18 @@ function persistClients() {
   void cacheData('clients', useClientStore.getState().clients)
 }
 
+function persistCards() {
+  void cacheData('cards', useCardStore.getState().cards)
+}
+
 function findClient(id: string): AdminClient | undefined {
   return useClientStore.getState().clients.find(c => c.id === id)
+}
+
+function syncLinkedCardIdentity(client: AdminClient, opts?: { skipApi?: boolean }) {
+  if (!client?.card) return
+  useCardStore.getState().syncIdentityFromClient(client, opts)
+  persistCards()
 }
 
 function profileToPatch(form: ClientProfileForm) {
@@ -86,6 +97,8 @@ export async function saveClientSafe(input: {
     if (editingId) {
       useClientStore.getState().updateClient(editingId, patch, { skipApi: true })
       client = findClient(editingId)!
+      markClientIdentityPending(editingId)
+      syncLinkedCardIdentity(client)
     } else {
       const localId = newLocalId('cli')
       const registration = withCard ? newClientRegistrationDefaults() : {}
@@ -189,6 +202,8 @@ export async function toggleClientBlockSafe(id: string): Promise<OfflineResult<A
   if (!isTradeLocalFirst()) {
     useClientStore.getState().toggleBlock(id)
     const updated = findClient(id)!
+    markClientIdentityPending(id)
+    syncLinkedCardIdentity(updated)
     return { offline: false, data: updated }
   }
 
@@ -196,6 +211,8 @@ export async function toggleClientBlockSafe(id: string): Promise<OfflineResult<A
     const clientRef = newClientRef()
     useClientStore.getState().updateClient(id, { blocked }, { skipApi: true })
     const updated = findClient(id)!
+    markClientIdentityPending(id)
+    syncLinkedCardIdentity(updated)
     await useOfflineSync.getState().queueOp(
       'client_upsert',
       { clientRef, localId: id, client: { ...updated } },

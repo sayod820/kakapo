@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { isOnline } from '@/lib/offline'
 import {
+  clearTradeDeviceBind,
   defaultDeviceName,
   ensureTradeDeviceReady,
   getTradeDeviceBindSync,
@@ -29,56 +30,46 @@ export default function TradeDeviceGate({
     await ensureTradeDeviceReady()
     const deviceId = getTradeDeviceIdSync()
     const local = getTradeDeviceBindSync()
+    const localOk = !!(local?.posId && local.deviceId === deviceId)
 
-    if (local?.posId && local.deviceId === deviceId) {
-      onReady()
-      if (isOnline()) {
-        void api.checkPosDevice(deviceId).then(async check => {
-          if (check.ok && check.point) {
-            await saveTradeDeviceBind({
-              deviceId,
-              deviceName: check.device?.name || local.deviceName || defaultDeviceName(),
-              posId: check.point.id,
-              posName: check.point.name,
-              boundAtIso: local.boundAtIso || new Date().toISOString(),
-            })
-          }
-        }).catch(() => {})
+    // С сетью источник правды — сервер. Иначе старая привязка на диске
+    // пускает даже после «Отвязать» в админке и после новой установки.
+    if (isOnline()) {
+      try {
+        const check = await api.checkPosDevice(deviceId)
+        if (check.ok && check.point) {
+          await saveTradeDeviceBind({
+            deviceId,
+            deviceName: check.device?.name || local?.deviceName || defaultDeviceName(),
+            posId: check.point.id,
+            posName: check.point.name,
+            boundAtIso: local?.boundAtIso || new Date().toISOString(),
+          })
+          onReady()
+          return true
+        }
+        if (localOk) await clearTradeDeviceBind()
+        setNeedCode(true)
+        setErr('Нет доступа. Это устройство не привязано к точке. Введите код из Админки.')
+        return false
+      } catch (e) {
+        if (isNetworkError(e) && localOk) {
+          onReady()
+          return true
+        }
+        setErr(e instanceof Error ? e.message : 'Не удалось проверить устройство')
+        setNeedCode(true)
+        return false
       }
+    }
+
+    if (localOk) {
+      onReady()
       return true
     }
-
-    if (!isOnline()) {
-      setErr('Нет доступа. Это устройство не привязано. Нужен интернет и код из Админки.')
-      setNeedCode(true)
-      return false
-    }
-
-    try {
-      const check = await api.checkPosDevice(deviceId)
-      if (check.ok && check.point) {
-        await saveTradeDeviceBind({
-          deviceId,
-          deviceName: check.device?.name || defaultDeviceName(),
-          posId: check.point.id,
-          posName: check.point.name,
-          boundAtIso: new Date().toISOString(),
-        })
-        onReady()
-        return true
-      }
-      setNeedCode(true)
-      setErr('Нет доступа. Это устройство не привязано к точке. Введите код из Админки.')
-      return false
-    } catch (e) {
-      if (isNetworkError(e) && local?.posId) {
-        onReady()
-        return true
-      }
-      setErr(e instanceof Error ? e.message : 'Не удалось проверить устройство')
-      setNeedCode(true)
-      return false
-    }
+    setErr('Нет доступа. Это устройство не привязано. Нужен интернет и код из Админки.')
+    setNeedCode(true)
+    return false
   }
 
   useEffect(() => {

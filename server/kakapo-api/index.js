@@ -2267,7 +2267,7 @@ app.get('/employees/directory', (_req, res) => {
 })
 /** Для локальной кассы (офлайн): сотрудники с паролями — только привязанное устройство */
 app.get('/employees/local-auth', (req, res) => {
-  const deviceId = String(req.query.deviceId || '').trim()
+  const deviceId = readTradeDeviceId(req)
   const check = checkPosDevice(db, deviceId)
   if (!check.ok) {
     return res.status(403).json({ detail: 'Устройство не привязано' })
@@ -2327,8 +2327,23 @@ app.delete('/employees/:id', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
   }
 })
+function readTradeDeviceId(req) {
+  const fromBody = String(req.body?.deviceId || '').trim()
+  if (fromBody) return fromBody
+  const fromQuery = String(req.query?.deviceId || '').trim()
+  if (fromQuery) return fromQuery
+  let header = String(req.headers['x-kakapo-device-id'] || '').trim()
+  if (!header) return ''
+  try { header = decodeURIComponent(header) } catch { /* keep */ }
+  return header.trim()
+}
+
 app.post('/employees/login', (req, res) => {
   try {
+    const deviceId = readTradeDeviceId(req)
+    if (!checkPosDevice(db, deviceId).ok) {
+      return res.status(403).json({ detail: 'Устройство не привязано' })
+    }
     const row = loginEmployee(db, req.body || {})
     auditFromReq(db, req, {
       app: 'trade',
@@ -2392,9 +2407,10 @@ app.post('/pos/points/:id/pair-code', (req, res) => {
 
 app.delete('/pos/points/:id/devices/:deviceId', (req, res) => {
   try {
-    const row = unbindPosDevice(db, req.params.id, req.params.deviceId)
+    const deviceId = String(req.params.deviceId || '').trim()
+    const row = unbindPosDevice(db, req.params.id, deviceId)
     persist()
-    broadcastPosUpdate({ kind: 'pos', id: row.id })
+    broadcastPosUpdate({ kind: 'device-unbind', id: row.id, posId: row.id, deviceId })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось отвязать устройство' })
@@ -3416,6 +3432,7 @@ app.patch('/clients/:id', (req, res) => {
     }
   }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+  syncCardIdentityFromClient(c)
   // Долг: единая логика — запись в ledger, проверка лимита, синхронизация карты.
   // В связке «карта+клиент» (saveCardLoyalty) карта обновляется первой, поэтому
   // здесь дельта будет 0 и второй записи в ledger не появится.
@@ -4070,6 +4087,25 @@ function findCardByNum(num) {
   return card
 }
 
+function isPlaceholderClientName(name) {
+  const t = String(name || '').trim()
+  return !t || t === 'Клиент'
+}
+
+function syncCardIdentityFromClient(client) {
+  if (!client) return
+  let card = client.card ? findCardByNum(client.card) : null
+  if (!card) {
+    card = (db.cards || []).find(x => x.clientId === client.id && x.status !== 'unlinked')
+  }
+  if (!card || card.status === 'unlinked') return
+  if (!isPlaceholderClientName(client.name)) card.client = String(client.name).trim()
+  if (client.phone) card.phone = client.phone
+  if (client.id) card.clientId = client.id
+  if (client.blocked) card.status = 'blocked'
+  else if (card.status === 'blocked') card.status = 'active'
+}
+
 /** Создать строку карты, если клиент ссылается на номер, которого нет в db.cards */
 function ensureCardRowForClient(client) {
   if (!client) return null
@@ -4146,15 +4182,17 @@ function syncClientFromCardRow(card) {
   client.card = card.num
   const cardName = String(card.client || '').trim()
   const clientName = String(client.name || '').trim()
-  if (cardName && cardName !== 'Клиент') client.name = cardName
-  else if (!clientName || clientName === 'Клиент') client.name = cardName || clientName || 'Клиент'
+  // Имя принадлежит клиенту. Карта — копия. Не затираем реальное ФИО старым именем на карте.
+  if (isPlaceholderClientName(clientName) && !isPlaceholderClientName(cardName)) {
+    client.name = cardName
+  }
   client.level = cardLevelToBasic(card.level)
   client.bonus = Number(card.bonus) || 0
   client.wallet = Math.max(0, Math.round((Number(card.wallet) || 0) * 100) / 100)
   client.debt = Number(card.debt) || 0
   client.debtLimit = Number(card.debtLimit) || 0
   client.vip = !!card.vip
-  client.blocked = card.status === 'blocked'
+  // Блок — поле клиента. Карта копирует его при PATCH клиента, не наоборот.
   client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
   if (card.loyaltyPeriod) client.loyaltyPeriod = card.loyaltyPeriod
   if (card.levelLockedPeriod) client.levelLockedPeriod = card.levelLockedPeriod
@@ -4415,6 +4453,22 @@ app.patch('/cards/:num', (req, res) => {
       if (body.vip === false) body.vipUntil = undefined
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
+    if (body.client != null && !isPlaceholderClientName(body.client)) {
+      const named = (db.clients || []).find(c =>
+        c.card === num
+        || (card.clientId && c.id === card.clientId)
+        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+      )
+      if (named) named.name = String(body.client).trim()
+    }
+    if (body.status != null) {
+      const linked = (db.clients || []).find(c =>
+        c.card === num
+        || (card.clientId && c.id === card.clientId)
+        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+      )
+      if (linked) linked.blocked = body.status === 'blocked'
+    }
     // ВАЖНО: сначала обрабатываем дельту долга, пока client.debt ещё равен prevDebt.
     // Если синхронизировать client.debt из карты ДО handleClientDebtDelta, то
     // внутренняя проверка лимита (canTakeNewDebt) увидит уже увеличенный долг и
@@ -4938,6 +4992,7 @@ app.post('/audit/:id/restore', (req, res) => {
       if (!c) return res.status(404).json({ detail: 'Клиент не найден' })
       const patch = pickDefined(before, ['name', 'phone', 'vip', 'level', 'debt', 'bonus', 'debtEnabled', 'blocked'])
       Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+      syncCardIdentityFromClient(c)
       if (c.card) {
         const linked = findCardByNum(c.card)
         if (linked) {

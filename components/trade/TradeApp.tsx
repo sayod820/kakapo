@@ -31,6 +31,12 @@ import { isTradeAndroidNative } from '@/lib/tradeAndroid'
 import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import { USE_API } from '@/lib/config'
+import { api } from '@/lib/api'
+import {
+  clearTradeDeviceBind,
+  ensureTradeDeviceReady,
+  getTradeDeviceIdSync,
+} from '@/lib/tradeDevice'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -3143,6 +3149,43 @@ function TradeAppGate() {
   /** null = ещё проверяем диск; true = установка ок; false = нужен первый скач */
   const [localDbReady, setLocalDbReady] = useState<boolean | null>(null)
   const [deviceReady, setDeviceReady] = useState(() => !USE_API)
+  const boundAtRef = useRef(0)
+
+  useEffect(() => {
+    if (!USE_API) return
+    let stopped = false
+
+    async function kickIfUnbound() {
+      const started = Date.now()
+      try {
+        await ensureTradeDeviceReady()
+        const deviceId = getTradeDeviceIdSync()
+        if (!deviceId) return
+        const check = await api.checkPosDevice(deviceId)
+        if (stopped) return
+        if (check.ok && check.point) return
+        if (boundAtRef.current > started) return
+        await clearTradeDeviceBind()
+        clearTradeEmployeeSession()
+        setSession(null)
+        setDeviceReady(false)
+      } catch {
+        /* нет сети — локально не выгоняем */
+      }
+    }
+
+    function onRevoked() {
+      void kickIfUnbound()
+    }
+    window.addEventListener('kakapo:device-revoked', onRevoked)
+    const timer = window.setInterval(() => { void kickIfUnbound() }, 6000)
+    void kickIfUnbound()
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener('kakapo:device-revoked', onRevoked)
+    }
+  }, [])
 
   useEffect(() => {
     try {
@@ -3203,7 +3246,10 @@ function TradeAppGate() {
     return (
       <TradeDeviceGate
         theme={theme}
-        onReady={() => setDeviceReady(true)}
+        onReady={() => {
+          boundAtRef.current = Date.now()
+          setDeviceReady(true)
+        }}
       />
     )
   }

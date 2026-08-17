@@ -66,6 +66,7 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.financeMoves)) db.financeMoves = []
   if (!Array.isArray(db.moneyLedger)) db.moneyLedger = []
   if (!Array.isArray(db.posPoints)) db.posPoints = []
+  if (!Array.isArray(db.revokedPosDevices)) db.revokedPosDevices = []
   if (!db.cashVault || typeof db.cashVault !== 'object') {
     db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
   }
@@ -222,6 +223,8 @@ export function bindPosDevice(db, data = {}) {
   if (!row) throw new Error('Код неверный или уже истек. Возьмите новый в админке.')
   if (row.active === false) throw new Error('Точка отключена')
 
+  db.revokedPosDevices = (db.revokedPosDevices || []).filter(d => String(d.id) !== deviceId)
+
   for (const p of db.posPoints || []) {
     const list = ensurePointDevices(p)
     const idx = list.findIndex(d => String(d.id) === deviceId)
@@ -280,6 +283,13 @@ export function unbindPosDevice(db, posId, deviceId) {
   if (!row) throw new Error('Точка продаж не найдена')
   const id = String(deviceId || '').trim()
   row.devices = ensurePointDevices(row).filter(d => String(d.id) !== id)
+  if (id) {
+    const list = db.revokedPosDevices || []
+    if (!list.some(d => String(d.id) === id)) {
+      list.push({ id, posId: String(posId), unboundAtIso: nowIso() })
+    }
+    db.revokedPosDevices = list.slice(-500)
+  }
   row.updatedAtIso = nowIso()
   return publicPosPoint(row)
 }
@@ -288,6 +298,7 @@ export function checkPosDevice(db, deviceId) {
   ensurePosCollections(db)
   const id = String(deviceId || '').trim()
   if (!id) return { ok: false }
+  if ((db.revokedPosDevices || []).some(d => String(d.id) === id)) return { ok: false }
   for (const p of db.posPoints || []) {
     if (p.active === false) continue
     const device = ensurePointDevices(p).find(d => String(d.id) === id)

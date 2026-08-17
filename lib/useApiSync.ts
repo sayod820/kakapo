@@ -11,6 +11,7 @@ import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posSt
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
+import { getTradeDeviceIdSync } from './tradeDevice'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
@@ -165,6 +166,14 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'pos_update') {
       const kind = String(msg.payload?.kind || msg.payload?.reason || '')
+      if (kind === 'device-unbind') {
+        const unboundId = String(msg.payload?.deviceId || '')
+        const mine = getTradeDeviceIdSync()
+        if (unboundId && mine && unboundId === mine) {
+          window.dispatchEvent(new CustomEvent('kakapo:device-revoked'))
+        }
+        return
+      }
       // CRM / лояльность — сразу клиенты и карты
       if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
         pull.crm()

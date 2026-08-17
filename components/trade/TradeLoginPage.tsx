@@ -182,6 +182,8 @@ export default function TradeLoginPage({
           })
           .catch(() => {})
       } catch (error) {
+        const msg = error instanceof Error ? error.message : ''
+        if (/не привязан/i.test(msg)) throw error
         if (isNetworkError(error)) {
           const ok = await tryLocal()
           if (ok) return

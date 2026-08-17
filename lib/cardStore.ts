@@ -4,7 +4,7 @@ import { emitCrmSync } from './clientProfileSync'
 import { USE_API } from './config'
 import { api } from './api'
 import { ensureArray } from './apiGuards'
-import { useClientStore } from './clientStore'
+import { useClientStore, isClientIdentityPending } from './clientStore'
 import { phonesMatch, type AdminClient, type ClientLevel } from './clientCrm'
 import { onBonusCredited } from './pushService'
 import {
@@ -121,7 +121,6 @@ function pushLoyaltyToClient(card: AdminCard, skipApi?: boolean) {
     bonus: card.bonus,
     debt: card.debt,
     debtLimit: card.debtLimit,
-    blocked: card.status === 'blocked',
   }, { skipApi })
   if (card.bonus > prevBonus) {
     onBonusCredited(client.phone, card.bonus - prevBonus, card.num)
@@ -143,9 +142,9 @@ interface CardStore {
   hydrate: () => void
   reload: () => void
   setCards: (list: AdminCard[]) => void
-  updateCard: (num: string, patch: Partial<AdminCard>) => void
+  updateCard: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean }) => void
   updateCardLoyalty: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean }) => void
-  syncIdentityFromClient: (client: AdminClient) => void
+  syncIdentityFromClient: (client: AdminClient, opts?: { skipApi?: boolean }) => void
   assignToClient: (num: string, client: AdminClient) => void
   linkCard: (num: string, data: {
     phone: string
@@ -182,10 +181,10 @@ export const useCardStore = create<CardStore>((set, get) => ({
     saveCards(cards)
     set({ cards })
   },
-  updateCard: (num, patch) => set(s => {
+  updateCard: (num, patch, opts) => set(s => {
     const cards = s.cards.map(c => (c.num === num ? normalizeCard({ ...c, ...patch, num }) : c))
-    saveCards(cards)
-    if (USE_API) api.updateCard(num, patch).catch(console.error)
+    saveCards(cards, { skipEmit: opts?.skipApi })
+    if (USE_API && !opts?.skipApi) api.updateCard(num, patch).catch(console.error)
     return { cards }
   }),
   updateCardLoyalty: (num, patch, opts) => set(s => {
@@ -197,14 +196,15 @@ export const useCardStore = create<CardStore>((set, get) => ({
     if (USE_API && !opts?.skipApi && updated) api.updateCard(updated.num, patch).catch(console.error)
     return { cards }
   }),
-  syncIdentityFromClient: client => {
+  syncIdentityFromClient: (client, opts) => {
     if (!client.card) return
+    markPendingCardSync(client.card)
     get().updateCard(client.card, {
       client: client.name,
       phone: client.phone,
       clientId: client.id,
       status: client.blocked ? 'blocked' : 'active',
-    })
+    }, opts)
   },
   assignToClient: (num, client) => {
     const issued = memberSinceDate(client)
@@ -375,8 +375,21 @@ export const useCardStore = create<CardStore>((set, get) => ({
       const local = get().cards
       const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
       const merged = apiCards.map(ac => {
-        clearPendingCardSync(ac.num)
-        return mergeCardLoyaltyIfRecent(ac, findLocalCard(local, ac.num))
+        const localCard = findLocalCard(local, ac.num)
+        let row = mergeCardLoyaltyIfRecent(ac, localCard)
+        const clientId = String(localCard?.clientId || ac.clientId || '')
+        if (localCard && clientId && isClientIdentityPending(clientId)) {
+          row = {
+            ...row,
+            client: localCard.client || row.client,
+            phone: localCard.phone || row.phone,
+            clientId: localCard.clientId || row.clientId,
+            status: localCard.status,
+          }
+        } else {
+          clearPendingCardSync(ac.num)
+        }
+        return row
       })
       for (const lc of local) {
         if (!isPendingCardSync(lc.num)) continue
