@@ -393,6 +393,7 @@ export default function FinanceModule() {
         ])
       return
     }
+    if (tab === 'cashbook') {
       downloadCsv(`kakapo-finance-cashbook-${stamp}.csv`,
         ['Дата', 'Тип', 'Сумма', 'Остаток', 'Комментарий'],
         (cashBook?.entries || []).map(e => [
