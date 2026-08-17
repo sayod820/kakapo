@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import { api } from './api'
 import { USE_API } from './config'
 import type {
+  CashVault,
   FinanceMove,
   PosCashier,
   PosExpense,
@@ -16,6 +17,31 @@ import type {
   StockWriteoff,
 } from './types'
 
+const EMPTY_VAULT: CashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
+
+/** Сервер + локальные сдачи, которых ещё нет на сервере */
+function mergeCashVault(local: CashVault | undefined, server: CashVault): CashVault {
+  const serverTransfers = server.transfers || []
+  const serverShiftIds = new Set(serverTransfers.map(t => String(t.shiftId)))
+  const localOnly = (local?.transfers || []).filter(t => t.shiftId && !serverShiftIds.has(String(t.shiftId)))
+  if (!localOnly.length) {
+    return {
+      cashTotal: Number(server.cashTotal) || 0,
+      cardTotal: Number(server.cardTotal) || 0,
+      transfers: serverTransfers,
+    }
+  }
+  const extraCash = localOnly.reduce((a, t) => a + (Number(t.cashAmount) || 0), 0)
+  const extraCard = localOnly.reduce((a, t) => a + (Number(t.cardAmount) || 0), 0)
+  return {
+    cashTotal: Math.round(((Number(server.cashTotal) || 0) + extraCash) * 100) / 100,
+    cardTotal: Math.round(((Number(server.cardTotal) || 0) + extraCard) * 100) / 100,
+    transfers: [...localOnly, ...serverTransfers].sort((a, b) =>
+      String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
+    ),
+  }
+}
+
 export interface PosStore {
   cashiers: PosCashier[]
   posPoints: PosPoint[]
@@ -27,6 +53,7 @@ export interface PosStore {
   suppliers: PosSupplier[]
   expenses: PosExpense[]
   financeMoves: FinanceMove[]
+  cashVault: CashVault
   expiry: Array<{
     receiptId: string
     receiptCreatedAtIso?: string
@@ -57,6 +84,7 @@ export const usePosStore = create<PosStore>((set) => ({
   suppliers: [],
   expenses: [],
   financeMoves: [],
+  cashVault: { ...EMPTY_VAULT, transfers: [] },
   expiry: [],
   financeSummary: null,
   report: null,
@@ -83,6 +111,7 @@ export const usePosStore = create<PosStore>((set) => ({
         suppliers,
         expenses,
         financeMoves,
+        cashVault,
         expiry,
         financeSummary,
         report,
@@ -97,6 +126,7 @@ export const usePosStore = create<PosStore>((set) => ({
         api.getSuppliers(),
         api.getExpenses(),
         api.getFinanceMoves(),
+        api.getCashVault().catch(() => ({ ...EMPTY_VAULT, transfers: [] as CashVault['transfers'] })),
         api.getStockExpiry(),
         api.getPosFinanceSummary(),
         api.getPosReport(),
@@ -112,6 +142,10 @@ export const usePosStore = create<PosStore>((set) => ({
         suppliers,
         expenses,
         financeMoves,
+        cashVault: mergeCashVault(
+          usePosStore.getState().cashVault,
+          cashVault || { ...EMPTY_VAULT, transfers: [] },
+        ),
         expiry,
         financeSummary,
         report,
@@ -133,7 +167,13 @@ export const usePosStore = create<PosStore>((set) => ({
           const { readCachedData } = await import('./offline')
           const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
           if (cached) {
-            set({ ...cached, apiReady: true, apiSyncing: false, apiError: '' })
+            set({
+              ...cached,
+              cashVault: cached.cashVault || { ...EMPTY_VAULT, transfers: [] },
+              apiReady: true,
+              apiSyncing: false,
+              apiError: '',
+            })
             return
           }
         } catch { /* нет кэша */ }
@@ -242,6 +282,7 @@ export async function softSyncPosAfterSale() {
           suppliers: cur.suppliers,
           expenses: cur.expenses,
           financeMoves: cur.financeMoves,
+          cashVault: cur.cashVault,
           expiry: cur.expiry,
           financeSummary: cur.financeSummary,
           report: cur.report,
@@ -306,6 +347,7 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
           suppliers: snap.suppliers,
           expenses: snap.expenses,
           financeMoves: snap.financeMoves,
+          cashVault: snap.cashVault,
           expiry: snap.expiry,
           financeSummary: snap.financeSummary,
           report: snap.report,

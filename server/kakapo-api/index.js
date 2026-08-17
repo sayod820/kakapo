@@ -104,6 +104,7 @@ import {
   listPosShifts,
   openPosShift,
   closePosShift,
+  getCashVault,
   listSuppliers,
   createSupplier,
   updateSupplier,
@@ -152,6 +153,7 @@ import {
   getProfitReport,
   getFinanceAlerts,
   getFinanceTruthBundle,
+  getCashBoxSnapshot,
   listMoneyLedger,
 } from './financeTruth.js'
 import {
@@ -3017,6 +3019,12 @@ app.get('/finance/journal', (req, res) => {
 })
 app.get('/finance/alerts', (req, res) => {
   res.json(getFinanceAlerts(db, financeTruthQuery(req)))
+})
+app.get('/finance/vault', (_req, res) => {
+  res.json(getCashVault(db))
+})
+app.get('/finance/cashbox', (req, res) => {
+  res.json(getCashBoxSnapshot(db, financeTruthQuery(req)))
 })
 
 function normalizePhoneDigits(phone) {

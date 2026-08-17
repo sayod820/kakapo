@@ -326,6 +326,89 @@ export function getFinanceTruthBundle(db, q = {}) {
     profit: getProfitReport(db, q),
     journal: listMoneyLedger(db, q).slice(0, 500),
     alerts: getFinanceAlerts(db, q),
+    cashBox: getCashBoxSnapshot(db, q),
     generatedAtIso: nowIso(),
+  }
+}
+
+/**
+ * Денежный ящик: основной (после закрытий) + текущее на открытых точках.
+ * total* = основной + открытые точки.
+ */
+export function getCashBoxSnapshot(db, q = {}) {
+  ensureLedger(db)
+  if (!db.cashVault || typeof db.cashVault !== 'object') {
+    db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
+  }
+  if (!Array.isArray(db.cashVault.transfers)) db.cashVault.transfers = []
+
+  const posFilter = String(q.posId || '').trim()
+
+  let transfers = [...(db.cashVault.transfers || [])]
+  if (posFilter) transfers = transfers.filter(t => String(t.posId || '') === posFilter)
+  transfers.sort((a, b) => String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')))
+
+  const mainCash = posFilter
+    ? round2(transfers.reduce((a, t) => a + (Number(t.cashAmount) || 0), 0))
+    : round2(db.cashVault.cashTotal)
+  const mainCard = posFilter
+    ? round2(transfers.reduce((a, t) => a + (Number(t.cardAmount) || 0), 0))
+    : round2(db.cashVault.cardTotal)
+
+  const pointsList = (db.posPoints || []).filter(p => p.active !== false)
+  const openShifts = (db.posShifts || []).filter(s => s.status === 'open')
+
+  const points = pointsList
+    .filter(p => !posFilter || p.id === posFilter)
+    .map(p => {
+      const shift = openShifts.find(s => String(s.posId || '') === String(p.id))
+      if (!shift) {
+        return {
+          posId: p.id,
+          posName: p.name || p.id,
+          open: false,
+          cashNow: 0,
+          cardNow: 0,
+        }
+      }
+      const cashNow = shiftExpectedCash(shift)
+      const cardNow = round2(Number(shift.salesCard) || 0)
+      return {
+        posId: p.id,
+        posName: p.name || p.id,
+        shiftId: shift.id,
+        cashierName: shift.cashierName || '',
+        open: true,
+        cashNow,
+        cardNow,
+      }
+    })
+
+  // Точки без записи в posPoints, но с открытой сменой
+  for (const s of openShifts) {
+    const pid = String(s.posId || '')
+    if (!pid) continue
+    if (posFilter && pid !== posFilter) continue
+    if (points.some(p => p.posId === pid)) continue
+    points.push({
+      posId: pid,
+      posName: pid,
+      shiftId: s.id,
+      cashierName: s.cashierName || '',
+      open: true,
+      cashNow: shiftExpectedCash(s),
+      cardNow: round2(Number(s.salesCard) || 0),
+    })
+  }
+
+  const openCash = round2(points.reduce((a, p) => a + (Number(p.cashNow) || 0), 0))
+  const openCard = round2(points.reduce((a, p) => a + (Number(p.cardNow) || 0), 0))
+
+  return {
+    totalCash: round2(mainCash + openCash),
+    totalCard: round2(mainCard + openCard),
+    main: { cash: mainCash, card: mainCard },
+    points,
+    transfers: transfers.slice(0, 50),
   }
 }

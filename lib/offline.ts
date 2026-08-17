@@ -295,6 +295,7 @@ export async function persistPosSnapshot(): Promise<void> {
       suppliers: cur.suppliers,
       expenses: cur.expenses,
       financeMoves: cur.financeMoves,
+      cashVault: cur.cashVault,
       expiry: cur.expiry,
       financeSummary: cur.financeSummary,
       report: cur.report,

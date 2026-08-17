@@ -87,6 +87,8 @@ export const LEDGER_TYPE_LABELS: Record<string, string> = {
   debt_repay_cash: 'Погашение долга · нал',
   debt_repay_card: 'Погашение долга · карта',
   debt_repay: 'Погашение долга',
+  vault_cash_in: 'Сдача · нал в основной',
+  vault_card_in: 'Сдача · карта в основной',
 }
 
 export function ledgerTypeLabel(type: string) {

@@ -248,6 +248,30 @@ const CSS = `
   .k-fin-kpis .k-kpi .kl{font-size:11px}
   .k-fin-kpis .k-kpi .kv{font-size:20px;margin-top:4px}
   .k-fin-kpi-sub{font-size:11px;color:var(--muted);margin-top:4px;font-weight:700}
+  .k-fin-box-totals{
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px
+  }
+  .k-fin-box-card{
+    padding:14px 16px;border-radius:12px;border:1px solid var(--line);
+    background:var(--card)
+  }
+  .k-fin-box-card .kl{font-size:11px;color:var(--muted);font-weight:700}
+  .k-fin-box-card .kv{font-size:22px;font-weight:900;margin-top:4px}
+  .k-fin-box-main{margin-bottom:10px}
+  .k-fin-box-points{display:grid;gap:8px}
+  .k-fin-box-point{
+    padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg)
+  }
+  .k-fin-box-point.is-open{border-color:color-mix(in srgb, var(--green) 45%, var(--line))}
+  .k-fin-box-point-h{
+    display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:8px
+  }
+  .k-fin-box-point-h b{font-size:14px}
+  .k-fin-box-point-h span{font-size:11px;color:var(--muted);font-weight:700}
+  .k-fin-box-point-h span.is-on{color:var(--green)}
+  .k-fin-box-point-nums{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .k-fin-box-point-nums span{display:block;font-size:10px;color:var(--muted);font-weight:700}
+  .k-fin-box-point-nums b{display:block;font-size:15px;font-weight:900;margin-top:2px}
   .k-fin-meta{display:none}
   .k-fin-toolbar{
     display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center

@@ -1234,6 +1234,11 @@ export const api = {
     const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
     return request<import('./types').FinanceTruthBundle['alerts']>(`/finance/alerts${qs ? `?${qs}` : ''}`)
   },
+  getCashVault: () => request<import('./types').CashVault>('/finance/vault'),
+  getCashBox: (q?: Record<string, string>) => {
+    const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
+    return request<import('./types').CashBoxSnapshot>(`/finance/cashbox${qs ? `?${qs}` : ''}`)
+  },
   getPosReport: () => request<any>('/reports/pos'),
 
   // ── Синхронизация ──

@@ -2,7 +2,7 @@
 // KAKAPO — кэш FinanceTruth для офлайн Финансы / Отчёты
 // ════════════════════════════════════════════════
 import { cacheData, readCachedData } from './offline'
-import type { FinanceTruthBundle, MoneyLedgerEntry } from './types'
+import type { CashBoxSnapshot, CashVault, FinanceTruthBundle, MoneyLedgerEntry, PosPoint } from './types'
 import type { PosShift } from './types'
 
 const CACHE_PREFIX = 'finance_truth:'
@@ -130,12 +130,98 @@ export type LocalFinanceTruthInput = {
     shiftId?: string
     stockAdjustment?: boolean
   }[]
+  cashVault?: CashVault
+  posPoints?: PosPoint[]
   /** Фильтры периода / точки (как у API) */
   fromMs?: number | null
   toMs?: number | null
   posId?: string
   cashierId?: string
   type?: string
+}
+
+function shiftExpected(s: PosShift) {
+  return round2(
+    (Number(s.openingCash) || 0)
+    + (Number(s.salesCash) || 0)
+    + (Number(s.cashInTotal) || 0)
+    - (Number(s.expenseTotal) || 0),
+  )
+}
+
+/** Локальный свод ящика: основной + открытые точки */
+export function buildLocalCashBoxSnapshot(input: {
+  shifts: PosShift[]
+  cashVault?: CashVault | null
+  posPoints?: PosPoint[]
+  posId?: string
+}): CashBoxSnapshot {
+  const vault = input.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  const posFilter = String(input.posId || '').trim()
+  const openShifts = (input.shifts || []).filter(s => s.status === 'open')
+  const pointsList = (input.posPoints || []).filter(p => p.active !== false)
+
+  let transfers = [...(vault.transfers || [])]
+  if (posFilter) transfers = transfers.filter(t => String(t.posId || '') === posFilter)
+  transfers.sort((a, b) => String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')))
+
+  const mainCash = posFilter
+    ? round2(transfers.reduce((a, t) => a + (Number(t.cashAmount) || 0), 0))
+    : round2(Number(vault.cashTotal) || 0)
+  const mainCard = posFilter
+    ? round2(transfers.reduce((a, t) => a + (Number(t.cardAmount) || 0), 0))
+    : round2(Number(vault.cardTotal) || 0)
+
+  const points = pointsList
+    .filter(p => !posFilter || p.id === posFilter)
+    .map(p => {
+      const shift = openShifts.find(s => String(s.posId || '') === String(p.id))
+      if (!shift) {
+        return {
+          posId: p.id,
+          posName: p.name || p.id,
+          open: false,
+          cashNow: 0,
+          cardNow: 0,
+        }
+      }
+      return {
+        posId: p.id,
+        posName: p.name || p.id,
+        shiftId: shift.id,
+        cashierName: shift.cashierName || '',
+        open: true,
+        cashNow: shiftExpected(shift),
+        cardNow: round2(Number(shift.salesCard) || 0),
+      }
+    })
+
+  for (const s of openShifts) {
+    const pid = String(s.posId || '')
+    if (!pid) continue
+    if (posFilter && pid !== posFilter) continue
+    if (points.some(p => p.posId === pid)) continue
+    points.push({
+      posId: pid,
+      posName: pid,
+      shiftId: s.id,
+      cashierName: s.cashierName || '',
+      open: true,
+      cashNow: shiftExpected(s),
+      cardNow: round2(Number(s.salesCard) || 0),
+    })
+  }
+
+  const openCash = round2(points.reduce((a, p) => a + (Number(p.cashNow) || 0), 0))
+  const openCard = round2(points.reduce((a, p) => a + (Number(p.cardNow) || 0), 0))
+
+  return {
+    totalCash: round2(mainCash + openCash),
+    totalCard: round2(mainCard + openCard),
+    main: { cash: mainCash, card: mainCard },
+    points,
+    transfers: transfers.slice(0, 50),
+  }
 }
 
 /** Локальный снимок из POS-стора — работает без сервера. */
@@ -499,6 +585,12 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
     },
     journal: journalDesc,
     alerts: { threshold: CASH_DIFF_ALERT_SOM, alerts, count: alerts.length },
+    cashBox: buildLocalCashBoxSnapshot({
+      shifts: allShifts,
+      cashVault: input.cashVault,
+      posPoints: input.posPoints,
+      posId,
+    }),
     generatedAtIso: new Date().toISOString(),
   }
 }

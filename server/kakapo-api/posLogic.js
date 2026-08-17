@@ -62,6 +62,12 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.financeMoves)) db.financeMoves = []
   if (!Array.isArray(db.moneyLedger)) db.moneyLedger = []
   if (!Array.isArray(db.posPoints)) db.posPoints = []
+  if (!db.cashVault || typeof db.cashVault !== 'object') {
+    db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
+  }
+  if (!Array.isArray(db.cashVault.transfers)) db.cashVault.transfers = []
+  if (db.cashVault.cashTotal == null) db.cashVault.cashTotal = 0
+  if (db.cashVault.cardTotal == null) db.cashVault.cardTotal = 0
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
   ensureDefaultPosPoint(db)
 }
@@ -1038,6 +1044,11 @@ export function closePosShift(db, id, data = {}) {
   ensurePosCollections(db)
   const row = db.posShifts.find(s => s.id === id)
   if (!row) throw new Error('Смена не найдена')
+  if (row.status === 'closed') {
+    // идемпотентность: уже закрыта — только убедимся, что сдача в ящик есть
+    transferClosedShiftToVault(db, row)
+    return row
+  }
   const expectedCash = round2(
     (Number(row.openingCash) || 0)
     + (Number(row.salesCash) || 0)
@@ -1073,7 +1084,79 @@ export function closePosShift(db, id, data = {}) {
     note: row.note,
     meta: { expectedCash, actualCash, cashDiff },
   })
+  transferClosedShiftToVault(db, row)
   return row
+}
+
+/** Сдача закрытой смены в основной ящик (нал факт + карта). Идемпотентно по shiftId. */
+export function transferClosedShiftToVault(db, shift) {
+  ensurePosCollections(db)
+  if (!shift || shift.status !== 'closed') return null
+  const shiftId = String(shift.id || '')
+  if (!shiftId) return null
+  if ((db.cashVault.transfers || []).some(t => String(t.shiftId) === shiftId)) return null
+
+  const cashAmount = round2(
+    shift.actualCash != null ? shift.actualCash : (shift.closingCash != null ? shift.closingCash : 0),
+  )
+  const cardAmount = round2(Number(shift.salesCard) || 0)
+  const transfer = {
+    id: nextId('VTR'),
+    shiftId,
+    posId: shift.posId || '',
+    closedAtIso: shift.closedAtIso || nowIso(),
+    cashAmount,
+    cardAmount,
+    cashierId: shift.cashierId || '',
+    cashierName: shift.cashierName || '',
+    note: shift.note || '',
+  }
+  db.cashVault.transfers.unshift(transfer)
+  db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + cashAmount)
+  db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + cardAmount)
+
+  if (cashAmount > 0.001) {
+    appendMoneyLedger(db, {
+      type: 'vault_cash_in',
+      amount: cashAmount,
+      direction: 'in',
+      cashAffect: false,
+      posId: transfer.posId,
+      shiftId,
+      cashierId: transfer.cashierId,
+      cashierName: transfer.cashierName,
+      refType: 'vault_transfer',
+      refId: transfer.id,
+      reason: 'Сдача смены · нал в основной',
+    })
+  }
+  if (cardAmount > 0.001) {
+    appendMoneyLedger(db, {
+      type: 'vault_card_in',
+      amount: cardAmount,
+      direction: 'in',
+      cashAffect: false,
+      posId: transfer.posId,
+      shiftId,
+      cashierId: transfer.cashierId,
+      cashierName: transfer.cashierName,
+      refType: 'vault_transfer',
+      refId: transfer.id,
+      reason: 'Сдача смены · карта в основной',
+    })
+  }
+  return transfer
+}
+
+export function getCashVault(db) {
+  ensurePosCollections(db)
+  return {
+    cashTotal: round2(db.cashVault.cashTotal),
+    cardTotal: round2(db.cashVault.cardTotal),
+    transfers: [...(db.cashVault.transfers || [])].sort((a, b) =>
+      String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
+    ),
+  }
 }
 
 export function listSuppliers(db) {

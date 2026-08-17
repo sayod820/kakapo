@@ -34,6 +34,7 @@ import { resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
 const EXPENSE_CATS = ['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Реклама', 'Хозтовары', 'Прочее']
 
 type FinanceTab =
+  | 'box'
   | 'alerts'
   | 'till'
   | 'cashbook'
@@ -44,6 +45,7 @@ type FinanceTab =
   | 'debts'
 
 const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string }[] = [
+  { id: 'box', label: 'Ящик', icon: '🗃️', hint: 'Основной + точки: нал и карта сейчас' },
   { id: 'cashbook', label: 'Книга', icon: '📒', hint: 'Наличные: приход, расход и остаток' },
   { id: 'alerts', label: 'Сигналы', icon: '⚠️', hint: 'Недостачи, излишки и долгие смены' },
   { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
@@ -65,6 +67,7 @@ export default function FinanceModule() {
   const cashiers = usePosStore(s => s.cashiers)
   const posPoints = usePosStore(s => s.posPoints)
   const receipts = usePosStore(s => s.receipts)
+  const cashVault = usePosStore(s => s.cashVault)
   const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
 
@@ -74,7 +77,7 @@ export default function FinanceModule() {
   const [posFilter, setPosFilter] = useState('')
   const [cashierFilter, setCashierFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [tab, setTab] = useState<FinanceTab>('cashbook')
+  const [tab, setTab] = useState<FinanceTab>('box')
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -183,6 +186,8 @@ export default function FinanceModule() {
       expenses,
       sales,
       receipts,
+      cashVault,
+      posPoints,
       fromMs: from,
       toMs: to,
       posId: posFilter || undefined,
@@ -207,7 +212,7 @@ export default function FinanceModule() {
       // Сеть упала — оставляем локальный расчёт, без красной ошибки «нет сервера»
       setTruthError('')
     }
-  }, [apiQuery, shifts, financeMoves, expenses, sales, receipts, from, to, posFilter, cashierFilter, typeFilter])
+  }, [apiQuery, shifts, financeMoves, expenses, sales, receipts, cashVault, posPoints, from, to, posFilter, cashierFilter, typeFilter])
 
   useEffect(() => {
     void loadTruth()
@@ -242,6 +247,8 @@ export default function FinanceModule() {
       expenses: s.expenses,
       sales: s.sales,
       receipts: s.receipts,
+      cashVault: s.cashVault,
+      posPoints: s.posPoints,
       fromMs: from,
       toMs: to,
       posId: posFilter || undefined,
@@ -364,13 +371,28 @@ export default function FinanceModule() {
   const vs = truth?.expectedVsActual
   const cashBook = truth?.cashBook
   const profit = truth?.profit
+  const cashBox = truth?.cashBox
   const journal: MoneyLedgerEntry[] = truth?.journal || []
   const tabMeta = FINANCE_TABS.find(t => t.id === tab)
   const filterCount = [posFilter, cashierFilter, typeFilter].filter(Boolean).length
 
   function exportCsv() {
     const stamp = ymdLocal()
-    if (tab === 'cashbook') {
+    if (tab === 'box') {
+      downloadCsv(`kakapo-finance-box-${stamp}.csv`,
+        ['Где', 'Нал', 'Карта', 'Статус'],
+        [
+          ['Всего', cashBox?.totalCash ?? 0, cashBox?.totalCard ?? 0, ''],
+          ['Основной', cashBox?.main.cash ?? 0, cashBox?.main.card ?? 0, 'сдано'],
+          ...(cashBox?.points || []).map(p => [
+            p.posName,
+            p.cashNow,
+            p.cardNow,
+            p.open ? `открыта · ${p.cashierName || ''}` : 'нет смены',
+          ]),
+        ])
+      return
+    }
       downloadCsv(`kakapo-finance-cashbook-${stamp}.csv`,
         ['Дата', 'Тип', 'Сумма', 'Остаток', 'Комментарий'],
         (cashBook?.entries || []).map(e => [
@@ -610,6 +632,82 @@ export default function FinanceModule() {
       {/* Сетевые ошибки POS не блокируют Финансы — данные локальные */}
       {apiError && !isTradeLocalFirst() && !truth && (
         <div className="k-fin-err">{apiError}</div>
+      )}
+
+      {tab === 'box' && (
+        <>
+          <div className="k-fin-box-totals">
+            <div className="k-fin-box-card k-fin-box-card-cash">
+              <div className="kl">Нал · всего</div>
+              <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashBox?.totalCash ?? 0)}</div>
+              <div className="k-fin-kpi-sub">основной + открытые точки</div>
+            </div>
+            <div className="k-fin-box-card k-fin-box-card-card">
+              <div className="kl">Карта · всего</div>
+              <div className="kv">{fmtMoney(cashBox?.totalCard ?? 0)}</div>
+              <div className="k-fin-kpi-sub">основной + открытые точки</div>
+            </div>
+          </div>
+
+          <div className="k-fin-panel k-fin-box-main">
+            <div className="k-fin-panel-h">Основной</div>
+            <div className="k-fin-submeta k-fin-submeta-2">
+              <div><span>Нал сдано</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashBox?.main.cash ?? 0)}</b></div>
+              <div><span>Карта сдано</span><b>{fmtMoney(cashBox?.main.card ?? 0)}</b></div>
+            </div>
+            <div className="k-fin-hint" style={{ marginBottom: 0 }}>
+              После закрытия смены нал (факт) и карта уходят сюда
+            </div>
+          </div>
+
+          <div className="k-fin-panel">
+            <div className="k-fin-panel-h">Точки сейчас</div>
+            {!cashBox?.points?.length ? (
+              <div className="k-empty">Нет точек кассы</div>
+            ) : (
+              <div className="k-fin-box-points">
+                {cashBox.points.map(p => (
+                  <div key={p.posId} className={`k-fin-box-point${p.open ? ' is-open' : ''}`}>
+                    <div className="k-fin-box-point-h">
+                      <b>{p.posName}</b>
+                      <span className={p.open ? 'is-on' : ''}>
+                        {p.open ? `Смена · ${p.cashierName || 'кассир'}` : 'Нет смены'}
+                      </span>
+                    </div>
+                    <div className="k-fin-box-point-nums">
+                      <div><span>Нал</span><b style={{ color: 'var(--green)' }}>{fmtMoney(p.cashNow)}</b></div>
+                      <div><span>Карта</span><b>{fmtMoney(p.cardNow)}</b></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="k-fin-panel">
+            <div className="k-fin-panel-h">Последние сдачи в основной</div>
+            {!cashBox?.transfers?.length ? (
+              <div className="k-empty">Пока нет закрытых смен с сдачей</div>
+            ) : (
+              <div className="k-fin-list">
+                {cashBox.transfers.slice(0, 30).map(t => (
+                  <div key={t.id} className="k-fin-row">
+                    <div className="k-fin-row-txt">
+                      <b>{t.cashierName || 'Кассир'} · {posLabel(t.posId)}</b>
+                      <small>
+                        {fmtDateTime(t.closedAtIso)}
+                        {' · '}нал {fmtMoney(t.cashAmount)} · карта {fmtMoney(t.cardAmount)}
+                      </small>
+                    </div>
+                    <b className="k-fin-amt" style={{ color: 'var(--green)' }}>
+                      {fmtMoney(round2((Number(t.cashAmount) || 0) + (Number(t.cardAmount) || 0)))}
+                    </b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {tab === 'alerts' && (

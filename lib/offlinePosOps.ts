@@ -182,15 +182,38 @@ export async function closeShiftSafe(
     const expected = current
       ? round2((current.openingCash || 0) + (current.salesCash || 0) + (current.cashInTotal || 0) - (current.expenseTotal || 0))
       : payload.closingCash
+    const closedAtIso = new Date().toISOString()
     patchShift(shiftId, {
       status: 'closed',
-      closedAtIso: new Date().toISOString(),
+      closedAtIso,
       closingCash: payload.closingCash,
       actualCash: payload.closingCash,
       expectedCash: expected,
       cashDiff: round2(payload.closingCash - expected),
     })
-    return current ? { ...current, status: 'closed' as const } : null
+    if (current) {
+      applyLocalVaultTransfer({
+        ...current,
+        status: 'closed',
+        closedAtIso,
+        closingCash: payload.closingCash,
+        actualCash: payload.closingCash,
+        expectedCash: expected,
+        cashDiff: round2(payload.closingCash - expected),
+      })
+    }
+    void persistPosSnapshot()
+    return current
+      ? {
+          ...current,
+          status: 'closed' as const,
+          closedAtIso,
+          closingCash: payload.closingCash,
+          actualCash: payload.closingCash,
+          expectedCash: expected,
+          cashDiff: round2(payload.closingCash - expected),
+        }
+      : null
   }
 
   const res = await raceCashierOp(
@@ -201,8 +224,44 @@ export async function closeShiftSafe(
     }),
     applyLocal,
   )
-  if (res.data) shadowMirrorShift(res.data)
+  if (res.data) {
+    shadowMirrorShift(res.data)
+    if (res.data.status === 'closed' && !res.offline) {
+      applyLocalVaultTransfer(res.data)
+      void persistPosSnapshot()
+    }
+  }
   return res
+}
+
+/** Локально сдать закрытую смену в основной ящик (идемпотентно). */
+export function applyLocalVaultTransfer(shift: PosShift) {
+  if (!shift?.id || shift.status !== 'closed') return
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  if ((vault.transfers || []).some(t => String(t.shiftId) === String(shift.id))) return
+
+  const cashAmount = round2(
+    shift.actualCash != null ? Number(shift.actualCash) : (Number(shift.closingCash) || 0),
+  )
+  const cardAmount = round2(Number(shift.salesCard) || 0)
+  const transfer = {
+    id: newLocalId('vtr'),
+    shiftId: shift.id,
+    posId: shift.posId || '',
+    closedAtIso: shift.closedAtIso || new Date().toISOString(),
+    cashAmount,
+    cardAmount,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    note: shift.note,
+  }
+  usePosStore.setState(s => ({
+    cashVault: {
+      cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) + cashAmount),
+      cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) + cardAmount),
+      transfers: [transfer, ...(s.cashVault?.transfers || [])],
+    },
+  }))
 }
 
 // ── Движение по кассе ──

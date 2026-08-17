@@ -225,6 +225,45 @@ export interface PosShift {
   note?: string
 }
 
+/** Сдача смены в основной ящик */
+export interface CashVaultTransfer {
+  id: string
+  shiftId: string
+  posId?: string
+  closedAtIso: string
+  cashAmount: number
+  cardAmount: number
+  cashierId?: string
+  cashierName?: string
+  note?: string
+}
+
+/** Основной денежный ящик (после закрытий смен) */
+export interface CashVault {
+  cashTotal: number
+  cardTotal: number
+  transfers: CashVaultTransfer[]
+}
+
+/** Свод ящика для UI: основной + точки сейчас */
+export interface CashBoxPointRow {
+  posId: string
+  posName: string
+  shiftId?: string
+  cashierName?: string
+  open: boolean
+  cashNow: number
+  cardNow: number
+}
+
+export interface CashBoxSnapshot {
+  totalCash: number
+  totalCard: number
+  main: { cash: number; card: number }
+  points: CashBoxPointRow[]
+  transfers: CashVaultTransfer[]
+}
+
 /** Вклад в кассу / снятие денег владельцем */
 export interface FinanceMove {
   id: string
@@ -328,6 +367,7 @@ export interface FinanceTruthBundle {
     }[]
     count: number
   }
+  cashBox?: CashBoxSnapshot
   generatedAtIso: string
 }
 
