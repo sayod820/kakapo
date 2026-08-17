@@ -6432,10 +6432,6 @@ export default function CashierModule({
           recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
         }
       }
-        if (repayBonus > 0) {
-          recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
-        }
-      }
       if (!repaid.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
