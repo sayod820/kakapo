@@ -37,6 +37,7 @@ import {
   isSalePartiallyReturned,
   lookbackRange,
   lossProducts,
+  matchesPos,
   orderSuggestions,
   paymentLabel,
   periodRange,
@@ -50,6 +51,7 @@ import {
   saleNumberLabel,
   sumCogs,
   sumExpenses,
+  sumFinanceMoves,
   sumReceiptCost,
   sumReceiptPaid,
   sumWriteoffCost,
@@ -129,6 +131,14 @@ export default function ReportsModule() {
   const periodWriteoffs = useMemo(() => filterByCreatedAt(writeoffs, from, to), [writeoffs, from, to])
   const periodRevisions = useMemo(() => filterByCreatedAt(revisions, from, to), [revisions, from, to])
   const periodExpenses = useMemo(() => filterByCreatedAt(expenses, from, to), [expenses, from, to])
+  const periodMoves = useMemo(
+    () => filterByCreatedAt(financeMoves, from, to).filter(m => {
+      if (!filterPosId) return true
+      if (!m.posId) return true
+      return m.posId === filterPosId
+    }),
+    [financeMoves, from, to, filterPosId],
+  )
 
   const salesAgg = useMemo(() => aggregateSales(periodSalesAll), [periodSalesAll])
   const filteredAgg = useMemo(() => aggregateSales(periodSales), [periodSales])
@@ -232,9 +242,27 @@ export default function ReportsModule() {
   )
   const grossProfit = useMemo(() => round2(salesAgg.revenue - cogs), [salesAgg.revenue, cogs])
   const netProfit = useMemo(() => round2(grossProfit - expenseTotal), [grossProfit, expenseTotal])
-  const openShiftsNow = useMemo(() => periodShifts.filter(s => s.status === 'open'), [periodShifts])
-  const cashIn = useMemo(() => round2(salesAgg.cash + salesAgg.card), [salesAgg.cash, salesAgg.card])
-  const cashOut = useMemo(() => round2(purchasePaid + expenseTotal), [purchasePaid, expenseTotal])
+  const openShiftsNow = useMemo(
+    () => shifts.filter(s => {
+      if (s.status !== 'open') return false
+      if (!matchesPos(s.posId, filterPosId, defPos)) return false
+      if (filterCashier && s.cashierId !== filterCashier && s.cashierName !== filterCashier) return false
+      return true
+    }),
+    [shifts, filterPosId, defPos, filterCashier],
+  )
+  const depositSum = useMemo(() => sumFinanceMoves(periodMoves, 'deposit'), [periodMoves])
+  const withdrawSum = useMemo(() => sumFinanceMoves(periodMoves, 'withdraw'), [periodMoves])
+  const tillIn = useMemo(() => round2(salesAgg.cash + depositSum), [salesAgg.cash, depositSum])
+  const cashless = useMemo(() => round2(salesAgg.card + salesAgg.wallet), [salesAgg.card, salesAgg.wallet])
+  const tillOut = useMemo(
+    () => round2(purchasePaid + expenseTotal + withdrawSum),
+    [purchasePaid, expenseTotal, withdrawSum],
+  )
+  const shiftRows = useMemo(() => {
+    const seen = new Set(periodShifts.map(s => s.id))
+    return [...openShiftsNow.filter(s => !seen.has(s.id)), ...periodShifts]
+  }, [openShiftsNow, periodShifts])
   const dbTill = truth?.expectedVsActual
   const profitPct = salesAgg.revenue > 0 ? round2((grossProfit / salesAgg.revenue) * 100) : 0
 
@@ -314,18 +342,19 @@ export default function ReportsModule() {
   }, [loadTruth])
 
   function resetFilters() {
-    setPeriod('30d')
+    setPeriod('today')
     setPosFilter('')
     setCashierFilter('')
     setPayFilter('all')
     setStatusFilter('all')
     setQ('')
+    setComparePrev(false)
   }
 
   function exportSales() {
     downloadCsv(
       `kakapo-sales-${periodLabel}.csv`,
-      ['Чек', 'Дата', 'Точка', 'Кассир', 'Оплата', 'Клиент', 'Сумма', 'Нал', 'Карта', 'Долг', 'Статус'],
+      ['Чек', 'Дата', 'Точка', 'Кассир', 'Оплата', 'Клиент', 'Сумма', 'Нал', 'Карта', 'Кошелёк', 'Долг', 'Статус'],
       periodSales.map(s => {
         const full = isSaleFullyReturned(s)
         const partial = isSalePartiallyReturned(s)
@@ -339,6 +368,7 @@ export default function ReportsModule() {
           Number(s.total) || 0,
           Number(s.paidCash) || 0,
           Number(s.paidCard) || 0,
+          Number(s.paidWallet) || 0,
           Number(s.debtAdded) || 0,
           full ? 'Возврат' : partial ? 'Частичный' : 'Продажа',
         ]
@@ -564,6 +594,7 @@ export default function ReportsModule() {
           <div className="k-rep-stats">
             <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>
             <div><span>Карта</span><b>{fmtMoney(salesAgg.card)}</b></div>
+            <div><span>Кошелёк</span><b>{fmtMoney(salesAgg.wallet)}</b></div>
             <div title="За выбранные дни"><span>Выдали за дни</span><b style={{ color: 'var(--gold)' }}>{fmtMoney(salesAgg.credit)}</b></div>
             <div title={repaidAllPoints ? 'Погашения без точки — все клиенты' : 'За выбранные дни'}>
               <span>Вернули за дни</span>
@@ -573,8 +604,9 @@ export default function ReportsModule() {
             <div><span>Чеков</span><b>{salesAgg.salesCount}</b></div>
             <div><span>Ср. чек</span><b>{fmtMoney(salesAgg.avgCheck)}</b></div>
             <div><span>Возвраты</span><b style={{ color: 'var(--red)' }}>{salesAgg.returnedCount}</b></div>
-            <div><span>Пришло</span><b style={{ color: 'var(--green)' }}>{fmtMoney(cashIn)}</b></div>
-            <div><span>Ушло</span><b>{fmtMoney(cashOut)}</b></div>
+            <div title="Нал продаж + вклады в кассу"><span>В кассу</span><b style={{ color: 'var(--green)' }}>{fmtMoney(tillIn)}</b></div>
+            <div title="Карта + кошелёк"><span>Безнал</span><b>{fmtMoney(cashless)}</b></div>
+            <div title="Расходы + снятия + оплата закупа"><span>Из кассы</span><b>{fmtMoney(tillOut)}</b></div>
             <div><span>Закупки</span><b>{fmtMoney(purchaseCost)}</b></div>
             <div><span>Расходы</span><b>{fmtMoney(expenseTotal)}</b></div>
             <div><span>Поставщ.</span><b>{fmtMoney(supplierDebt)}</b></div>
@@ -584,7 +616,7 @@ export default function ReportsModule() {
           <div className="k-rep-note">
             Выдали / вернули — за {periodLabel}. Сейчас должны — сколько на клиентах сейчас
             {repaidAllPoints ? ' · вернули: все точки (в погашении нет точки)' : ''}
-            {' · '}смен: {openShiftsNow.length} откр. / {periodShifts.length} в периоде
+            {' · '}открыто сейчас {openShiftsNow.length} / смен в периоде {periodShifts.length}
             {' · '}списания {periodWriteoffs.length} ({fmtMoney(writeoffCost)})
             {' · '}ревизии {revStats.count}
             {(dbTill?.summary.withAlert ?? 0) > 0
@@ -680,7 +712,7 @@ export default function ReportsModule() {
           <div className="k-kpis" style={{ marginBottom: 16 }}>
             <div className="k-kpi k-statcard"><div className="kl">Показано</div><div className="kv">{periodSales.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Выручка (фильтр)</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(filteredAgg.revenue)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Нал / Карта</div><div className="kv">{fmtMoney(filteredAgg.cash)} / {fmtMoney(filteredAgg.card)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Нал / Карта / Кошелёк</div><div className="kv">{fmtMoney(filteredAgg.cash)} / {fmtMoney(filteredAgg.card)} / {fmtMoney(filteredAgg.wallet)}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Долг</div><div className="kv">{fmtMoney(filteredAgg.credit)}</div></div>
           </div>
           <div className="k-card" style={{ overflow: 'hidden' }}>
@@ -841,15 +873,15 @@ export default function ReportsModule() {
       {tab === 'shifts' && (
         <>
           <div className="k-rep-stats">
-            <div><span>Смен</span><b>{periodShifts.length}</b></div>
-            <div><span>Открыто</span><b style={{ color: 'var(--green)' }}>{openShiftsNow.length}</b></div>
+            <div><span>Смен в периоде</span><b>{periodShifts.length}</b></div>
+            <div title="Все открытые сейчас, даже если открыли вчера"><span>Открыто сейчас</span><b style={{ color: 'var(--green)' }}>{openShiftsNow.length}</b></div>
           </div>
           <div className="k-rep-panel">
-            {!periodShifts.length ? (
+            {!shiftRows.length ? (
               <div className="k-empty">Нет смен</div>
             ) : (
               <div className="k-rep-list">
-                {periodShifts.map(s => {
+                {shiftRows.map(s => {
                   const expected = s.expectedCash != null
                     ? Number(s.expectedCash)
                     : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0))

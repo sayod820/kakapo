@@ -26,7 +26,7 @@ export type ReportTab =
   | 'products'
 
 export type SaleStatusFilter = 'all' | 'sold' | 'returned' | 'partial' | 'credit'
-export type PayFilter = 'all' | 'cash' | 'card' | 'credit' | 'mixed'
+export type PayFilter = 'all' | 'cash' | 'card' | 'wallet' | 'credit' | 'mixed'
 
 export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
   { id: 'today', label: 'Сегодня' },
@@ -103,6 +103,7 @@ export const PAY_OPTS: { id: PayFilter; label: string }[] = [
   { id: 'all', label: 'Любая оплата' },
   { id: 'cash', label: 'Наличные' },
   { id: 'card', label: 'Карта' },
+  { id: 'wallet', label: 'Кошелёк' },
   { id: 'credit', label: 'В долг' },
   { id: 'mixed', label: 'Смешанная' },
 ]
@@ -218,6 +219,7 @@ export function paymentLabel(s: PosSale) {
   if (isSaleFullyReturned(s)) return 'Возврат'
   if (s.paymentMethod === 'cash') return 'Наличные'
   if (s.paymentMethod === 'card') return 'Карта'
+  if (s.paymentMethod === 'wallet') return 'Кошелёк'
   if (s.paymentMethod === 'credit' || (Number(s.debtAdded) || 0) > 0) return 'В долг'
   if (s.paymentMethod === 'mixed') return 'Смешанная'
   return String(s.paymentMethod || '—')
@@ -248,6 +250,7 @@ export function filterSales(sales: PosSale[], f: SaleFilters) {
       const pay = f.pay || 'all'
       if (pay === 'all') return true
       if (pay === 'credit') return (Number(s.debtAdded) || 0) > 0 || s.paymentMethod === 'credit'
+      if (pay === 'wallet') return s.paymentMethod === 'wallet' || (Number(s.paidWallet) || 0) > 0.001
       return s.paymentMethod === pay
     })
     .filter(s => {
@@ -303,6 +306,7 @@ export type SalesAgg = {
   revenue: number
   cash: number
   card: number
+  wallet: number
   credit: number
   salesCount: number
   returnedCount: number
@@ -315,6 +319,7 @@ export function aggregateSales(sales: PosSale[]): SalesAgg {
   let revenue = 0
   let cash = 0
   let card = 0
+  let wallet = 0
   let credit = 0
   let salesCount = 0
   let returnedCount = 0
@@ -333,6 +338,7 @@ export function aggregateSales(sales: PosSale[]): SalesAgg {
     revenue = round2(revenue + (Number(s.total) || 0))
     cash = round2(cash + (Number(s.paidCash) || 0))
     card = round2(card + (Number(s.paidCard) || 0))
+    wallet = round2(wallet + (Number(s.paidWallet) || 0))
     credit = round2(credit + (Number(s.debtAdded) || 0))
     if (partial) {
       returnedCount += 1
@@ -344,6 +350,7 @@ export function aggregateSales(sales: PosSale[]): SalesAgg {
     revenue,
     cash,
     card,
+    wallet,
     credit,
     salesCount,
     returnedCount,
@@ -668,8 +675,11 @@ export function sumWriteoffCost(rows: StockWriteoff[]) {
   return round2(rows.reduce((s, r) => s + (Number(r.totalCost) || 0), 0))
 }
 
-export function sumExpenses(rows: PosExpense[]) {
-  return round2(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0))
+export function sumFinanceMoves(
+  moves: { type?: string; amount?: number }[],
+  type: 'deposit' | 'withdraw',
+) {
+  return round2(moves.filter(m => m.type === type).reduce((s, m) => s + (Number(m.amount) || 0), 0))
 }
 
 export function revisionDiffCount(rows: StockRevision[]) {
