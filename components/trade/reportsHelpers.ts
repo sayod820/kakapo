@@ -46,7 +46,7 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'hours', label: 'По часам', icon: '🕒', hint: 'Когда больше продаж' },
   { id: 'shifts', label: 'Смены', icon: '⏱', hint: 'Открытие и закрытие кассы' },
   { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
-  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Выручка минус себестоимость FIFO' },
+  { id: 'profit', label: 'Прибыль', icon: '💎', hint: 'Доход без расходов и после расходов кассы' },
   { id: 'warehouse', label: 'Склад', icon: '🏬', hint: 'Приходы, списания, ревизии, сроки' },
   { id: 'suppliers', label: 'Поставщики', icon: '🚚', hint: 'Долги поставщикам и закупки' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты и продажи в долг' },
@@ -351,6 +351,20 @@ export type TopProductRow = {
   cogs: number
 }
 
+export function saleItemUnitCost(
+  it: Pick<PosSaleItem, 'qty' | 'unitCost' | 'lineCost'>,
+  catalogCost = 0,
+) {
+  const qty0 = Number(it.qty) || 0
+  if (qty0 > 0 && it.lineCost != null && Number.isFinite(Number(it.lineCost))) {
+    return Number(it.lineCost) / qty0
+  }
+  if (it.unitCost != null && Number.isFinite(Number(it.unitCost))) {
+    return Number(it.unitCost)
+  }
+  return Number(catalogCost) || 0
+}
+
 export function topProducts(
   sales: PosSale[],
   productsById: Map<number, Product>,
@@ -367,7 +381,7 @@ export function topProducts(
       const unitRev = qty0 > 0 ? line0 / qty0 : Number(it.price) || 0
       const rev = round2(unitRev * left)
       const pid = Number(it.productId) || 0
-      const cost = Number(productsById.get(pid)?.costPrice) || 0
+      const cost = saleItemUnitCost(it, Number(productsById.get(pid)?.costPrice) || 0)
       const prev = acc.get(pid) || {
         productId: pid,
         productName: it.productName || productsById.get(pid)?.name || `#${pid}`,
@@ -808,7 +822,7 @@ export function lossProducts(rows: ProductInsightRow[]): (ProductInsightRow & { 
     .filter(r => r.qty > 0 && r.profit < -0.009)
     .map(r => ({
       ...r,
-      reason: r.cogs > r.revenue ? 'Себестоимость выше цены продажи' : 'Убыток по FIFO',
+      reason: r.cogs > r.revenue ? 'Закуп дороже продажи' : 'Убыток по товару',
     }))
     .sort((a, b) => a.profit - b.profit)
     .slice(0, 80)

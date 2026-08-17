@@ -366,7 +366,7 @@ const CSS = `
   .k-rep-tab-ic{font-size:13px;line-height:1}
   .k-rep-hint{font-size:12px;color:var(--muted);font-weight:700;margin:0 0 10px;line-height:1.35}
   .k-rep-highlight{
-    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
     margin:0 0 8px;padding:10px 12px;border:1px solid rgba(31,215,96,.35);
     border-radius:12px;background:linear-gradient(135deg,rgba(31,215,96,.08),rgba(31,215,96,.02))
   }
@@ -2086,7 +2086,7 @@ const CSS = `
     }
     .k-rep-hint{font-size:11px;margin-bottom:8px}
     .k-rep-highlight{
-      grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px;margin-bottom:8px
+      grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:8px;margin-bottom:8px
     }
     .k-rep-highlight span{font-size:9px}
     .k-rep-highlight b{font-size:14px;margin-top:2px}

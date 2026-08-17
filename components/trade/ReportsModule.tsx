@@ -134,7 +134,7 @@ export default function ReportsModule() {
   const salesAgg = useMemo(() => aggregateSales(periodSalesAll), [periodSalesAll])
   const filteredAgg = useMemo(() => aggregateSales(periodSales), [periodSales])
   const productsById = useMemo(() => new Map(products.map(p => [Number(p.id), p])), [products])
-  const productRows = useMemo(() => topProducts(periodSalesAll, productsById, 100), [periodSalesAll, productsById])
+  const productRows = useMemo(() => topProducts(periodSalesAll, productsById, 10_000), [periodSalesAll, productsById])
   const productInsights = useMemo(
     () => buildProductInsights(products, periodSalesAll, periodReceipts),
     [products, periodSalesAll, periodReceipts],
@@ -200,16 +200,13 @@ export default function ReportsModule() {
     () => periodSalesAll.filter(s => !isSaleFullyReturned(s) && (Number(s.debtAdded) || 0) > 0.001),
     [periodSalesAll],
   )
-  const margin = useMemo(() => round2(salesAgg.revenue - cogs - expenseTotal), [salesAgg.revenue, cogs, expenseTotal])
+  const grossProfit = useMemo(() => round2(salesAgg.revenue - cogs), [salesAgg.revenue, cogs])
+  const netProfit = useMemo(() => round2(grossProfit - expenseTotal), [grossProfit, expenseTotal])
   const openShiftsNow = useMemo(() => periodShifts.filter(s => s.status === 'open'), [periodShifts])
   const cashIn = useMemo(() => round2(salesAgg.cash + salesAgg.card), [salesAgg.cash, salesAgg.card])
   const cashOut = useMemo(() => round2(purchasePaid + expenseTotal), [purchasePaid, expenseTotal])
-  const dbProfit = truth?.profit?.summary
   const dbTill = truth?.expectedVsActual
-  const profitAmt = dbProfit?.profit ?? margin
-  const profitPct = dbProfit?.marginPct != null
-    ? Number(dbProfit.marginPct)
-    : (salesAgg.revenue > 0 ? round2((profitAmt / salesAgg.revenue) * 100) : 0)
+  const profitPct = salesAgg.revenue > 0 ? round2((grossProfit / salesAgg.revenue) * 100) : 0
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
@@ -463,7 +460,7 @@ export default function ReportsModule() {
           <b>Как смотреть</b>
           <div>1) Период сверху · фильтры через ⚙ · ± сравнение с прошлым таким же отрезком</div>
           <div>2) Вкладки — разные отчёты. Долг: выдали / вернули / осталось у клиентов</div>
-          <div>3) Выручка = чеки · Прибыль = выручка − себестоимость · Сверки = касса факт</div>
+          <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
           <div>4) Товары: ABC, минус, заказать · CSV — выгрузка в Excel</div>
         </div>
       )}
@@ -529,11 +526,17 @@ export default function ReportsModule() {
               )}
             </div>
             <div>
-              <span>Прибыль</span>
-              <b style={{ color: profitAmt >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(profitAmt)}</b>
+              <span>Доход без расходов</span>
+              <b style={{ color: grossProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(grossProfit)}</b>
+              <small style={{ color: 'var(--muted)' }}>продажи − закуп товара</small>
             </div>
             <div>
-              <span>% прибыли</span>
+              <span>После расходов</span>
+              <b style={{ color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(netProfit)}</b>
+              <small style={{ color: 'var(--muted)' }}>ещё − {fmtMoney(expenseTotal)} расходов</small>
+            </div>
+            <div>
+              <span>% дохода</span>
               <b style={{ color: profitPct >= 0 ? 'var(--green)' : 'var(--red)' }}>{profitPct}%</b>
             </div>
           </div>
@@ -914,20 +917,24 @@ export default function ReportsModule() {
       {tab === 'profit' && (
         <>
           <div className="k-kpis" style={{ marginBottom: 16 }}>
-            <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(dbProfit?.revenue ?? salesAgg.revenue)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Себестоимость FIFO</div><div className="kv">{fmtMoney(dbProfit?.cogs ?? cogs)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Закуп товара</div><div className="kv">{fmtMoney(cogs)}</div></div>
             <div className="k-kpi k-statcard">
-              <div className="kl">Прибыль</div>
-              <div className="kv" style={{ color: (dbProfit?.profit ?? salesAgg.revenue - cogs) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {fmtMoney(dbProfit?.profit ?? round2(salesAgg.revenue - cogs))}
-              </div>
+              <div className="kl">Доход без расходов</div>
+              <div className="kv" style={{ color: grossProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(grossProfit)}</div>
             </div>
-            <div className="k-kpi k-statcard"><div className="kl">Наценка %</div><div className="kv">{dbProfit?.marginPct ?? 0}%</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Расходы кассы</div><div className="kv" style={{ color: 'var(--red)' }}>{fmtMoney(expenseTotal)}</div></div>
+            <div className="k-kpi k-statcard">
+              <div className="kl">После расходов</div>
+              <div className="kv" style={{ color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(netProfit)}</div>
+            </div>
+            <div className="k-kpi k-statcard"><div className="kl">% дохода</div><div className="kv">{profitPct}%</div></div>
           </div>
+          <div className="k-rep-note">Доход без расходов = продажи минус закуп товара. После расходов = ещё минус расходы кассы за период.</div>
           <div className="k-card" style={{ overflow: 'hidden' }}>
-            <div className="k-card-h"><b>Прибыль по товарам (сервер)</b></div>
-            {!(truth?.profit?.products?.length) ? (
-              <div className="k-empty">Нет данных прибыли из БД</div>
+            <div className="k-card-h"><b>Доход по товарам</b></div>
+            {!productRows.length ? (
+              <div className="k-empty">Нет продаж за период</div>
             ) : (
               <div className="k-tbl-scroll">
                 <table className="k-tbl">
@@ -936,20 +943,23 @@ export default function ReportsModule() {
                       <th>Товар</th>
                       <th>Кол-во</th>
                       <th>Выручка</th>
-                      <th>Себест.</th>
-                      <th>Прибыль</th>
+                      <th>Закуп</th>
+                      <th>Доход</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {truth!.profit.products.map(p => (
-                      <tr key={p.productId}>
-                        <td style={{ fontWeight: 800 }}>{p.productName}</td>
-                        <td>{p.qty}</td>
-                        <td>{fmtMoney(p.revenue)}</td>
-                        <td>{fmtMoney(p.cogs)}</td>
-                        <td style={{ fontWeight: 900, color: p.profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(p.profit)}</td>
-                      </tr>
-                    ))}
+                    {productRows.slice(0, 100).map(p => {
+                      const rowProfit = round2(p.revenue - p.cogs)
+                      return (
+                        <tr key={p.productId}>
+                          <td style={{ fontWeight: 800 }}>{p.productName}</td>
+                          <td>{p.qty}</td>
+                          <td>{fmtMoney(p.revenue)}</td>
+                          <td>{fmtMoney(p.cogs)}</td>
+                          <td style={{ fontWeight: 900, color: rowProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(rowProfit)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1240,11 +1250,11 @@ export default function ReportsModule() {
             <div className="k-kpi k-statcard"><div className="kl">Не продавались</div><div className="kv" style={{ color: 'var(--gold)' }}>{productInsights.unsold.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Лежат на складе без продаж</div><div className="kv" style={{ color: 'var(--red)' }}>{productInsights.deadStock.length}</div></div>
             <div className="k-kpi k-statcard"><div className="kl">Выручка</div><div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</div></div>
-            <div className="k-kpi k-statcard"><div className="kl">Себестоимость</div><div className="kv">{fmtMoney(dbProfit?.cogs ?? cogs)}</div></div>
+            <div className="k-kpi k-statcard"><div className="kl">Закуп товара</div><div className="kv">{fmtMoney(cogs)}</div></div>
             <div className="k-kpi k-statcard">
-              <div className="kl">Прибыль</div>
-              <div className="kv" style={{ color: (dbProfit?.profit ?? salesAgg.revenue - cogs) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {fmtMoney(dbProfit?.profit ?? round2(salesAgg.revenue - cogs))}
+              <div className="kl">Доход без расходов</div>
+              <div className="kv" style={{ color: grossProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                {fmtMoney(grossProfit)}
               </div>
             </div>
             <div className="k-kpi k-statcard"><div className="kl">Категорий</div><div className="kv">{productInsights.categories.length}</div></div>
