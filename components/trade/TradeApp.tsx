@@ -249,8 +249,16 @@ const CSS = `
   .k-fin-kpis .k-kpi .kv{font-size:20px;margin-top:4px}
   .k-fin-kpi-sub{font-size:11px;color:var(--muted);margin-top:4px;font-weight:700}
   .k-fin-box-totals{
-    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 10px
   }
+  .k-fin-box-hero{
+    padding:16px 18px;border-radius:12px;border:1px solid var(--line);
+    background:var(--card);margin:0 0 10px
+  }
+  .k-fin-box-hero .kl{font-size:12px;color:var(--muted);font-weight:700}
+  .k-fin-box-hero .kv{font-size:28px;font-weight:900;margin-top:4px}
+  .k-fin-box-move-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
+  .k-fin-box-move{width:100%;margin:0}
   .k-fin-box-card{
     padding:14px 16px;border-radius:12px;border:1px solid var(--line);
     background:var(--card)

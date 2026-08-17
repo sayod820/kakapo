@@ -243,6 +243,7 @@ export interface CashVault {
   cashTotal: number
   cardTotal: number
   transfers: CashVaultTransfer[]
+  converts?: { id: string; amount: number; createdAtIso: string; note?: string }[]
 }
 
 /** Свод ящика для UI: основной + точки сейчас */

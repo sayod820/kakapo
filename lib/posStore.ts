@@ -204,6 +204,8 @@ const SHIFT_PENDING_KINDS = new Set([
   'shift_open',
   'shift_close',
   'debt_repay',
+  'vault_card_to_cash',
+  'vault_cash_to_card',
 ])
 
 export async function softSyncPosAfterSale() {

@@ -1235,6 +1235,16 @@ export const api = {
     return request<import('./types').FinanceTruthBundle['alerts']>(`/finance/alerts${qs ? `?${qs}` : ''}`)
   },
   getCashVault: () => request<import('./types').CashVault>('/finance/vault'),
+  convertVaultCardToCash: (data: { amount: number; note?: string; clientRef?: string }) =>
+    request<{ id: string; amount: number }>(
+      '/finance/vault/card-to-cash',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+  convertVaultCashToCard: (data: { amount: number; note?: string; clientRef?: string }) =>
+    request<{ id: string; amount: number }>(
+      '/finance/vault/cash-to-card',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
   getCashBox: (q?: Record<string, string>) => {
     const qs = q ? new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== '')).toString() : ''
     return request<import('./types').CashBoxSnapshot>(`/finance/cashbox${qs ? `?${qs}` : ''}`)

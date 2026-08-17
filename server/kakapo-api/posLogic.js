@@ -66,6 +66,7 @@ export function ensurePosCollections(db) {
     db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
   }
   if (!Array.isArray(db.cashVault.transfers)) db.cashVault.transfers = []
+  if (!Array.isArray(db.cashVault.converts)) db.cashVault.converts = []
   if (db.cashVault.cashTotal == null) db.cashVault.cashTotal = 0
   if (db.cashVault.cardTotal == null) db.cashVault.cardTotal = 0
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
@@ -1156,7 +1157,144 @@ export function getCashVault(db) {
     transfers: [...(db.cashVault.transfers || [])].sort((a, b) =>
       String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
     ),
+    converts: [...(db.cashVault.converts || [])].sort((a, b) =>
+      String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')),
+    ),
   }
+}
+
+/** Карта → нал: сначала основной ящик, потом открытые смены. */
+export function convertVaultCardToCash(db, data = {}) {
+  ensurePosCollections(db)
+  const amount = round2(data.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  const openShifts = (db.posShifts || []).filter(s => s.status === 'open')
+  const mainCard = round2(db.cashVault.cardTotal)
+  const openCard = round2(openShifts.reduce((a, s) => a + (Number(s.salesCard) || 0), 0))
+  const available = round2(mainCard + openCard)
+  if (amount > available + 0.009) {
+    throw new Error(`На карте только ${available.toFixed(2)} сом`)
+  }
+
+  let left = amount
+  const fromMain = Math.min(left, mainCard)
+  if (fromMain > 0.001) {
+    db.cashVault.cardTotal = round2(mainCard - fromMain)
+    db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + fromMain)
+    left = round2(left - fromMain)
+  }
+
+  const fromShifts = []
+  for (const s of openShifts) {
+    if (left <= 0.001) break
+    const have = round2(Number(s.salesCard) || 0)
+    if (!(have > 0.001)) continue
+    const take = Math.min(left, have)
+    s.salesCard = round2(have - take)
+    s.cashInTotal = round2((Number(s.cashInTotal) || 0) + take)
+    fromShifts.push({ shiftId: s.id, posId: s.posId || '', amount: take })
+    left = round2(left - take)
+  }
+
+  const row = {
+    id: nextId('VCC'),
+    amount,
+    fromMain,
+    fromShifts,
+    createdAtIso: nowIso(),
+    note: String(data.note || '').trim(),
+    clientRef: data.clientRef || undefined,
+  }
+  db.cashVault.converts.unshift(row)
+
+  appendMoneyLedger(db, {
+    type: 'vault_card_to_cash',
+    amount,
+    direction: 'info',
+    cashAffect: false,
+    signedAmount: 0,
+    reason: 'Карта → нал',
+    note: row.note,
+    refType: 'vault_convert',
+    refId: row.id,
+    meta: { fromMain, fromShifts },
+  })
+  return row
+}
+
+/** Нал → карта: сначала основной ящик, потом открытые смены. */
+export function convertVaultCashToCard(db, data = {}) {
+  ensurePosCollections(db)
+  const amount = round2(data.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  const openShifts = (db.posShifts || []).filter(s => s.status === 'open')
+  const mainCash = round2(db.cashVault.cashTotal)
+  const openCash = round2(openShifts.reduce((a, s) => a + shiftExpectedCash(s), 0))
+  const available = round2(mainCash + openCash)
+  if (amount > available + 0.009) {
+    throw new Error(`Наличных только ${available.toFixed(2)} сом`)
+  }
+
+  let left = amount
+  const fromMain = Math.min(left, mainCash)
+  if (fromMain > 0.001) {
+    db.cashVault.cashTotal = round2(mainCash - fromMain)
+    db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + fromMain)
+    left = round2(left - fromMain)
+  }
+
+  const fromShifts = []
+  for (const s of openShifts) {
+    if (left <= 0.001) break
+    const have = shiftExpectedCash(s)
+    if (!(have > 0.001)) continue
+    const take = Math.min(left, have)
+    let rest = take
+    const fromIn = Math.min(rest, round2(Number(s.cashInTotal) || 0))
+    if (fromIn > 0.001) {
+      s.cashInTotal = round2((Number(s.cashInTotal) || 0) - fromIn)
+      rest = round2(rest - fromIn)
+    }
+    const fromSales = Math.min(rest, round2(Number(s.salesCash) || 0))
+    if (fromSales > 0.001) {
+      s.salesCash = round2((Number(s.salesCash) || 0) - fromSales)
+      rest = round2(rest - fromSales)
+    }
+    if (rest > 0.001) {
+      s.openingCash = round2(Math.max(0, (Number(s.openingCash) || 0) - rest))
+    }
+    s.salesCard = round2((Number(s.salesCard) || 0) + take)
+    fromShifts.push({ shiftId: s.id, posId: s.posId || '', amount: take })
+    left = round2(left - take)
+  }
+
+  const row = {
+    id: nextId('VCT'),
+    amount,
+    dir: 'cash_to_card',
+    fromMain,
+    fromShifts,
+    createdAtIso: nowIso(),
+    note: String(data.note || '').trim(),
+    clientRef: data.clientRef || undefined,
+  }
+  db.cashVault.converts.unshift(row)
+
+  appendMoneyLedger(db, {
+    type: 'vault_cash_to_card',
+    amount,
+    direction: 'info',
+    cashAffect: false,
+    signedAmount: 0,
+    reason: 'Нал → карта',
+    note: row.note,
+    refType: 'vault_convert',
+    refId: row.id,
+    meta: { fromMain, fromShifts },
+  })
+  return row
 }
 
 export function listSuppliers(db) {

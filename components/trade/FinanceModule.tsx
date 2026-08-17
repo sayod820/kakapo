@@ -8,7 +8,7 @@ import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
-import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe } from '@/lib/offlinePosOps'
+import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe, vaultCardToCashSafe, vaultCashToCardSafe } from '@/lib/offlinePosOps'
 import { useOfflineSync } from '@/lib/offlineSync'
 import {
   buildLocalFinanceTruth,
@@ -45,7 +45,6 @@ type FinanceTab =
   | 'debts'
 
 const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string }[] = [
-  { id: 'box', label: 'Ящик', icon: '🗃️', hint: 'Основной + точки: нал и карта сейчас' },
   { id: 'cashbook', label: 'Книга', icon: '📒', hint: 'Наличные: приход, расход и остаток' },
   { id: 'alerts', label: 'Сигналы', icon: '⚠️', hint: 'Недостачи, излишки и долгие смены' },
   { id: 'till', label: 'Сверки', icon: '⚖️', hint: 'Ожидалось в кассе vs факт при закрытии' },
@@ -54,6 +53,7 @@ const FINANCE_TABS: { id: FinanceTab; label: string; icon: string; hint: string 
   { id: 'expenses', label: 'Расходы', icon: '🧾', hint: 'Траты бизнеса за период' },
   { id: 'deposits', label: 'Вклады', icon: '🏦', hint: 'Свои деньги в кассу и снятия' },
   { id: 'debts', label: 'Долги', icon: '💳', hint: 'Клиенты должны нам · мы — поставщикам' },
+  { id: 'box', label: 'Ящик', icon: '🗃️', hint: 'Сначала всё вместе, потом нал и карта отдельно' },
 ]
 
 export default function FinanceModule() {
@@ -77,7 +77,7 @@ export default function FinanceModule() {
   const [posFilter, setPosFilter] = useState('')
   const [cashierFilter, setCashierFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [tab, setTab] = useState<FinanceTab>('box')
+  const [tab, setTab] = useState<FinanceTab>('cashbook')
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -97,10 +97,16 @@ export default function FinanceModule() {
   const [depNote, setDepNote] = useState('')
   const [depShiftId, setDepShiftId] = useState('')
 
+  const [convOpen, setConvOpen] = useState(false)
+  const [convDir, setConvDir] = useState<'card_to_cash' | 'cash_to_card'>('card_to_cash')
+  const [convAmount, setConvAmount] = useState('')
+  const [convNote, setConvNote] = useState('')
+
   const openShifts = useMemo(() => shifts.filter(s => s.status === 'open'), [shifts])
 
   useBackClose(expOpen, () => { if (!busy) setExpOpen(false) })
   useBackClose(depOpen, () => { if (!busy) setDepOpen(false) })
+  useBackClose(convOpen, () => { if (!busy) setConvOpen(false) })
   useBackClose(filtersOpen, () => setFiltersOpen(false))
 
   const { from, to } = useMemo(
@@ -332,6 +338,33 @@ export default function FinanceModule() {
     }
   }
 
+  async function submitConvert() {
+    if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const amount = Number(convAmount)
+      if (!(amount > 0)) throw new Error('Укажите сумму')
+      const toCash = convDir === 'card_to_cash'
+      const max = round2(toCash ? (cashBox?.totalCard ?? 0) : (cashBox?.totalCash ?? 0))
+      if (amount > max + 0.009) {
+        throw new Error(toCash ? `На карте только ${max.toFixed(2)} сом` : `Наличных только ${max.toFixed(2)} сом`)
+      }
+      const res = toCash
+        ? await vaultCardToCashSafe({ amount, note: convNote.trim() || undefined })
+        : await vaultCashToCardSafe({ amount, note: convNote.trim() || undefined })
+      await afterFinanceMutation(!!res.offline)
+      setConvOpen(false)
+      setConvAmount('')
+      setConvNote('')
+      if (res.offline) setMsg('Перевод сохранён · отправится при связи')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function removeMove(id: string) {
     if (!isTradeLocalFirst() && !guardMutation()) return
     if (!confirm('Удалить запись?')) return
@@ -382,8 +415,10 @@ export default function FinanceModule() {
       downloadCsv(`kakapo-finance-box-${stamp}.csv`,
         ['Где', 'Нал', 'Карта', 'Статус'],
         [
-          ['Всего', cashBox?.totalCash ?? 0, cashBox?.totalCard ?? 0, ''],
-          ['Основной', cashBox?.main.cash ?? 0, cashBox?.main.card ?? 0, 'сдано'],
+          ['Всего', round2((cashBox?.totalCash ?? 0) + (cashBox?.totalCard ?? 0)), '', ''],
+          ['Нал', cashBox?.totalCash ?? 0, '', ''],
+          ['Карта', cashBox?.totalCard ?? 0, '', ''],
+          ['Основной нал', cashBox?.main.cash ?? 0, cashBox?.main.card ?? 0, 'сдано'],
           ...(cashBox?.points || []).map(p => [
             p.posName,
             p.cashNow,
@@ -637,17 +672,50 @@ export default function FinanceModule() {
 
       {tab === 'box' && (
         <>
+          <div className="k-fin-box-hero">
+            <div className="kl">Всего в ящике</div>
+            <div className="kv">{fmtMoney(round2((cashBox?.totalCash ?? 0) + (cashBox?.totalCard ?? 0)))}</div>
+            <div className="k-fin-kpi-sub">нал + карта · основной и открытые точки</div>
+          </div>
           <div className="k-fin-box-totals">
             <div className="k-fin-box-card k-fin-box-card-cash">
-              <div className="kl">Нал · всего</div>
+              <div className="kl">Нал</div>
               <div className="kv" style={{ color: 'var(--green)' }}>{fmtMoney(cashBox?.totalCash ?? 0)}</div>
-              <div className="k-fin-kpi-sub">основной + открытые точки</div>
             </div>
             <div className="k-fin-box-card k-fin-box-card-card">
-              <div className="kl">Карта · всего</div>
+              <div className="kl">Карта</div>
               <div className="kv">{fmtMoney(cashBox?.totalCard ?? 0)}</div>
-              <div className="k-fin-kpi-sub">основной + открытые точки</div>
             </div>
+          </div>
+          <div className="k-fin-box-move-row">
+            <button
+              type="button"
+              className="k-btn k-btn-g k-fin-box-move"
+              disabled={!canEditOffline || (cashBox?.totalCard ?? 0) < 0.01}
+              title={canEditOffline ? 'Перевести с карты в нал' : OFFLINE_BLOCK_MESSAGE}
+              onClick={() => {
+                setMsg('')
+                setConvDir('card_to_cash')
+                setConvAmount(String(cashBox?.totalCard ?? ''))
+                setConvOpen(true)
+              }}
+            >
+              Карта → нал
+            </button>
+            <button
+              type="button"
+              className="k-btn k-fin-box-move"
+              disabled={!canEditOffline || (cashBox?.totalCash ?? 0) < 0.01}
+              title={canEditOffline ? 'Перевести с нал на карту' : OFFLINE_BLOCK_MESSAGE}
+              onClick={() => {
+                setMsg('')
+                setConvDir('cash_to_card')
+                setConvAmount(String(cashBox?.totalCash ?? ''))
+                setConvOpen(true)
+              }}
+            >
+              Нал → карта
+            </button>
           </div>
 
           <div className="k-fin-panel k-fin-box-main">
@@ -1131,6 +1199,54 @@ export default function FinanceModule() {
               {msg && <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>{msg}</div>}
               <button type="button" className="k-btn k-btn-g" style={{ width: '100%' }} disabled={busy || openShifts.length === 0} onClick={() => void submitDeposit()}>
                 {busy ? 'Сохраняем…' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {convOpen && (
+        <div className="k-modal-bg" onClick={() => !busy && setConvOpen(false)}>
+          <div className="k-modal" onClick={e => e.stopPropagation()}>
+            <div className="k-modal-h">
+              <b>{convDir === 'card_to_cash' ? 'Карта → нал' : 'Нал → карта'}</b>
+              <button type="button" onClick={() => setConvOpen(false)}>×</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 16 }}>
+              <div className="k-field">
+                <label>{convDir === 'card_to_cash' ? 'С карты доступно' : 'Наличных доступно'}</label>
+                <div style={{ fontSize: 15, fontWeight: 800 }}>
+                  {fmtMoney(convDir === 'card_to_cash' ? (cashBox?.totalCard ?? 0) : (cashBox?.totalCash ?? 0))}
+                </div>
+              </div>
+              <div className="k-field">
+                <label>Сумма</label>
+                <input
+                  className="k-inp"
+                  value={convAmount}
+                  onChange={e => setConvAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="k-field">
+                <label>Заметка</label>
+                <input
+                  className="k-inp"
+                  value={convNote}
+                  onChange={e => setConvNote(e.target.value)}
+                  placeholder={convDir === 'card_to_cash' ? 'Сняли с терминала…' : 'Положили на карту…'}
+                />
+              </div>
+              {msg && <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>{msg}</div>}
+              <button
+                type="button"
+                className="k-btn k-btn-g"
+                style={{ width: '100%' }}
+                disabled={busy || (convDir === 'card_to_cash' ? (cashBox?.totalCard ?? 0) : (cashBox?.totalCash ?? 0)) < 0.01}
+                onClick={() => void submitConvert()}
+              >
+                {busy ? 'Сохраняем…' : convDir === 'card_to_cash' ? 'Перевести в нал' : 'Перевести на карту'}
               </button>
             </div>
           </div>

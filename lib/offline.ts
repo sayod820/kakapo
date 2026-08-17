@@ -19,6 +19,8 @@ export type QueueKind =
   | 'card_topup'
   | 'debt_repay'
   | 'finance_move'
+  | 'vault_card_to_cash'
+  | 'vault_cash_to_card'
   | 'stock_receipt_create'
   | 'stock_receipt_update'
   | 'stock_receipt_delete'
@@ -57,6 +59,8 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   card_topup: 'Пополнение карты',
   debt_repay: 'Погашение долга',
   finance_move: 'Движение по кассе',
+  vault_card_to_cash: 'Карта → нал',
+  vault_cash_to_card: 'Нал → карта',
   stock_receipt_create: 'Приход',
   stock_receipt_update: 'Изменение прихода',
   stock_receipt_delete: 'Удаление прихода',
@@ -797,6 +801,24 @@ async function sendOp(row: PendingOp): Promise<string> {
         reason: p.reason,
       } as any)
       return String((move as any)?.id || '')
+    }
+    case 'vault_card_to_cash': {
+      const p = row.payload || {}
+      const rowOut = await api.convertVaultCardToCash({
+        clientRef: p.clientRef,
+        amount: Number(p.amount) || 0,
+        note: p.note,
+      })
+      return String((rowOut as any)?.id || '')
+    }
+    case 'vault_cash_to_card': {
+      const p = row.payload || {}
+      const rowOut = await api.convertVaultCashToCard({
+        clientRef: p.clientRef,
+        amount: Number(p.amount) || 0,
+        note: p.note,
+      })
+      return String((rowOut as any)?.id || '')
     }
     case 'stock_receipt_create': {
       const p = row.payload || {}

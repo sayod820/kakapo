@@ -264,6 +264,148 @@ export function applyLocalVaultTransfer(shift: PosShift) {
   }))
 }
 
+/** Карта → нал в ящике (основной, потом открытые смены). */
+export async function vaultCardToCashSafe(input: {
+  amount: number
+  note?: string
+}): Promise<OfflineResult<{ id: string; amount: number }>> {
+  const amount = round2(input.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  const mainCard = round2(Number(vault.cardTotal) || 0)
+  const openCard = round2(opens.reduce((a, s) => a + (Number(s.salesCard) || 0), 0))
+  const available = round2(mainCard + openCard)
+  if (amount > available + 0.009) {
+    throw new Error(`На карте только ${available.toFixed(2)} сом`)
+  }
+
+  const clientRef = newClientRef()
+  const payload = { clientRef, amount, note: input.note }
+
+  const applyLocal = async () => {
+    const localId = newLocalId('vcc')
+    await useOfflineSync.getState().queueOp('vault_card_to_cash', payload, { localId })
+    applyLocalCardToCash(amount)
+    void persistPosSnapshot()
+    return { id: localId, amount }
+  }
+
+  return raceCashierOp(
+    () => api.convertVaultCardToCash(payload),
+    applyLocal,
+  )
+}
+
+function applyLocalCardToCash(amount: number) {
+  let left = round2(amount)
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  const mainCard = round2(Number(vault.cardTotal) || 0)
+  const fromMain = Math.min(left, mainCard)
+  if (fromMain > 0.001) {
+    usePosStore.setState(s => ({
+      cashVault: {
+        ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+        cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) - fromMain),
+        cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) + fromMain),
+      },
+    }))
+    left = round2(left - fromMain)
+  }
+  if (left <= 0.001) return
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  for (const sh of opens) {
+    if (left <= 0.001) break
+    const have = round2(Number(sh.salesCard) || 0)
+    if (!(have > 0.001)) continue
+    const take = Math.min(left, have)
+    patchShift(sh.id, {
+      salesCard: round2(have - take),
+      cashInTotal: round2((Number(sh.cashInTotal) || 0) + take),
+    })
+    left = round2(left - take)
+  }
+}
+
+function applyLocalCashToCard(amount: number) {
+  let left = round2(amount)
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  const mainCash = round2(Number(vault.cashTotal) || 0)
+  const fromMain = Math.min(left, mainCash)
+  if (fromMain > 0.001) {
+    usePosStore.setState(s => ({
+      cashVault: {
+        ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+        cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) - fromMain),
+        cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) + fromMain),
+      },
+    }))
+    left = round2(left - fromMain)
+  }
+  if (left <= 0.001) return
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  for (const sh of opens) {
+    if (left <= 0.001) break
+    const have = shiftExpectedCashLocal(sh)
+    if (!(have > 0.001)) continue
+    const take = Math.min(left, have)
+    let rest = take
+    const fromIn = Math.min(rest, round2(Number(sh.cashInTotal) || 0))
+    const patch: Partial<PosShift> = {
+      salesCard: round2((Number(sh.salesCard) || 0) + take),
+    }
+    if (fromIn > 0.001) {
+      patch.cashInTotal = round2((Number(sh.cashInTotal) || 0) - fromIn)
+      rest = round2(rest - fromIn)
+    }
+    const fromSales = Math.min(rest, round2(Number(sh.salesCash) || 0))
+    if (fromSales > 0.001) {
+      patch.salesCash = round2((Number(sh.salesCash) || 0) - fromSales)
+      rest = round2(rest - fromSales)
+    }
+    if (rest > 0.001) {
+      patch.openingCash = round2(Math.max(0, (Number(sh.openingCash) || 0) - rest))
+    }
+    patchShift(sh.id, patch)
+    left = round2(left - take)
+  }
+}
+
+/** Нал → карта в ящике (основной, потом открытые смены). */
+export async function vaultCashToCardSafe(input: {
+  amount: number
+  note?: string
+}): Promise<OfflineResult<{ id: string; amount: number }>> {
+  const amount = round2(input.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  const mainCash = round2(Number(vault.cashTotal) || 0)
+  const openCash = round2(opens.reduce((a, s) => a + shiftExpectedCashLocal(s), 0))
+  const available = round2(mainCash + openCash)
+  if (amount > available + 0.009) {
+    throw new Error(`Наличных только ${available.toFixed(2)} сом`)
+  }
+
+  const clientRef = newClientRef()
+  const payload = { clientRef, amount, note: input.note }
+
+  const applyLocal = async () => {
+    const localId = newLocalId('vct')
+    await useOfflineSync.getState().queueOp('vault_cash_to_card', payload, { localId })
+    applyLocalCashToCard(amount)
+    void persistPosSnapshot()
+    return { id: localId, amount }
+  }
+
+  return raceCashierOp(
+    () => api.convertVaultCashToCard(payload),
+    applyLocal,
+  )
+}
+
 // ── Движение по кассе ──
 
 export async function financeMoveSafe(input: {

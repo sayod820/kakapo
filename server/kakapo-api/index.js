@@ -105,6 +105,8 @@ import {
   openPosShift,
   closePosShift,
   getCashVault,
+  convertVaultCardToCash,
+  convertVaultCashToCard,
   listSuppliers,
   createSupplier,
   updateSupplier,
@@ -3022,6 +3024,36 @@ app.get('/finance/alerts', (req, res) => {
 })
 app.get('/finance/vault', (_req, res) => {
   res.json(getCashVault(db))
+})
+app.post('/finance/vault/card-to-cash', (req, res) => {
+  try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.cashVault?.converts || []).find(c => c.clientRef === clientRef)
+      if (known) return res.json(known)
+    }
+    const row = convertVaultCardToCash(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'vault-convert', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось перевести' })
+  }
+})
+app.post('/finance/vault/cash-to-card', (req, res) => {
+  try {
+    const clientRef = String(req.body?.clientRef || '').trim()
+    if (clientRef) {
+      const known = (db.cashVault?.converts || []).find(c => c.clientRef === clientRef)
+      if (known) return res.json(known)
+    }
+    const row = convertVaultCashToCard(db, req.body || {})
+    persist()
+    broadcastPosUpdate({ kind: 'vault-convert', id: row.id })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось перевести' })
+  }
 })
 app.get('/finance/cashbox', (req, res) => {
   res.json(getCashBoxSnapshot(db, financeTruthQuery(req)))
