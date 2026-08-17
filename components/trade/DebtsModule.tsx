@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -11,7 +11,7 @@ import {
 } from '@/lib/cardCrm'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
 import { adjustClientDebtSafe } from '@/lib/offlineLoyaltyOps'
-import { debtRepaySafe, financeMoveSafe, resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
+import { chargeCashDebtFromOpenShift, debtRepaySafe, resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
 import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
@@ -202,47 +202,6 @@ async function repayDebtIntoOpenShift(
     clientId: client.id,
     prevDebt,
   })
-}
-
-async function chargeCashDebtFromOpenShift(
-  client: EnrichedClient,
-  amount: number,
-  opts: { note?: string },
-) {
-  const shift = resolveOpenShift(getBoundPosIdSync())
-  if (!shift) {
-    throw new Error('Откройте смену, чтобы выдать наличные из кассы')
-  }
-  const expected = shiftExpectedCashLocal(shift)
-  if (amount > expected + 0.009) {
-    throw new Error(`В кассе недостаточно наличных (доступно ${fmtMoney(expected)})`)
-  }
-  const note = opts.note || `Выдача наличных · ${client.name}`
-  await financeMoveSafe({
-    type: 'withdraw',
-    amount,
-    note,
-    shiftId: shift.id,
-    posId: shift.posId,
-    cashierId: shift.cashierId,
-    cashierName: shift.cashierName,
-    createdBy: shift.cashierName,
-  })
-  try {
-    return await adjustClientDebtSafe(client, { action: 'charge', amount })
-  } catch (e) {
-    await financeMoveSafe({
-      type: 'deposit',
-      amount,
-      note: `Отмена выдачи наличных · ${client.name}`,
-      shiftId: shift.id,
-      posId: shift.posId,
-      cashierId: shift.cashierId,
-      cashierName: shift.cashierName,
-      createdBy: shift.cashierName,
-    }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
-    throw e
-  }
 }
 
 function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
@@ -444,6 +403,7 @@ export default function DebtsModule({
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
   const [saleRepay, setSaleRepay] = useState<SaleRepayState | null>(null)
   const [posView, setPosView] = useState<PosViewFilter>('open')
+  const desktopAutoPicked = useRef(false)
 
   const refreshAll = useCallback(() => {
     void Promise.all([
@@ -490,14 +450,31 @@ export default function DebtsModule({
     return sorted
   }, [debtClients, q, sort, filter])
 
-  // Автовыбор первого клиента на десктопе
-  useEffect(() => {
-    if (detailId) return
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches) return
-    if (filtered[0]) setDetailId(filtered[0].id)
-  }, [filtered, detailId])
+  const detailClient = useMemo(() => {
+    if (!detailId) return null
+    const fromDebt = debtClients.find(c => c.id === detailId)
+    if (fromDebt) return fromDebt
+    const raw = clients.find(c => c.id === detailId)
+    return raw ? enrichDebtClient(raw, cards, sales) : null
+  }, [detailId, debtClients, clients, cards, sales, histTick])
 
-  const detailClient = detailId ? debtClients.find(c => c.id === detailId) || null : null
+  const visibleList = useMemo(() => {
+    if (!detailId || filtered.some(c => c.id === detailId)) return filtered
+    return detailClient ? [detailClient, ...filtered] : filtered
+  }, [filtered, detailId, detailClient])
+
+  // На десктопе один раз открыть первого должника. После погашения — не перескакивать на следующего.
+  useEffect(() => {
+    if (desktopAutoPicked.current) return
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches) return
+    if (detailId) {
+      desktopAutoPicked.current = true
+      return
+    }
+    if (!filtered[0]) return
+    desktopAutoPicked.current = true
+    setDetailId(filtered[0].id)
+  }, [filtered, detailId])
 
   useEffect(() => {
     const phone = detailClient?.phone
@@ -938,14 +915,28 @@ export default function DebtsModule({
           {histAdd.action === 'repay' ? 'Погашение долга' : 'Выдать наличные в долг'}
         </div>
         {(histAdd.action === 'repay' || histAdd.action === 'add') && (
-          <div style={{ fontSize: 12, marginBottom: 8, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
+          <div style={{
+            fontSize: 12, marginBottom: 8, fontWeight: 700,
+            color: openShift ? 'var(--muted)' : 'var(--red)',
+            display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+          }}>
             {histAdd.action === 'repay'
               ? (openShift
                 ? `В кассу · ${openShift.cashierName || 'смена открыта'} · ${histAdd.method === 'card' ? 'карта' : 'нал'}`
-                : 'Смена закрыта — откройте смену, чтобы принять оплату')
+                : 'Смена закрыта — чтобы принять оплату')
               : (openShift
                 ? `Из кассы · ${openShift.cashierName || 'смена открыта'} · нал · в ящике ${fmtMoney(shiftExpectedCashLocal(openShift))}`
-                : 'Смена закрыта — откройте смену, чтобы выдать наличные')}
+                : 'Смена закрыта — чтобы выдать наличные')}
+            {!openShift && onNavigate && (
+              <button
+                type="button"
+                className="k-btn k-btn-g"
+                style={{ fontSize: 12, minHeight: 0, padding: '5px 10px' }}
+                onClick={() => onNavigate('sales')}
+              >
+                Открыть кассу
+              </button>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1057,11 +1048,11 @@ export default function DebtsModule({
       </div>
 
           <div className="k-debts-list-b">
-      {!filtered.length ? (
+      {!visibleList.length ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                 Никого не найдено
         </div>
-            ) : filtered.map(c => {
+            ) : visibleList.map(c => {
             const debt = Number(c.debt) || 0
               const active = c.id === detailId
             return (
@@ -1232,7 +1223,7 @@ export default function DebtsModule({
                       Пока нет движений
                     </div>
                   ) : (
-                    <div style={{ overflowX: 'auto' }}>
+                    <div className="k-debts-table-wrap">
                       <table className="k-debts-table">
                         <thead>
                           <tr>
@@ -1325,7 +1316,7 @@ export default function DebtsModule({
                           )
                         }
                         return (
-                          <div style={{ overflowX: 'auto' }}>
+                          <div className="k-debts-table-wrap">
                             <table className="k-debts-table">
                               <thead>
                                 <tr>
@@ -1686,10 +1677,23 @@ export default function DebtsModule({
                     <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>
                       Погасить этот чек
                     </div>
-                    <div style={{ fontSize: 12, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
+                    <div style={{
+                      fontSize: 12, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700,
+                      display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                    }}>
                       {openShift
                         ? `В кассу · ${openShift.cashierName || 'смена открыта'}`
-                        : 'Смена закрыта — откройте смену, чтобы принять оплату'}
+                        : 'Смена закрыта — чтобы принять оплату'}
+                      {!openShift && onNavigate && (
+                        <button
+                          type="button"
+                          className="k-btn k-btn-g"
+                          style={{ fontSize: 12, minHeight: 0, padding: '5px 10px' }}
+                          onClick={() => onNavigate('sales')}
+                        >
+                          Открыть кассу
+                        </button>
+                      )}
                     </div>
                     <PayMethodToggle
                       value={saleRepay?.method || 'cash'}

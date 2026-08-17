@@ -1288,6 +1288,7 @@ const CSS = `
   .k-debts-actions{display:flex;gap:8px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--border);background:var(--panel)}
   .k-debts-actions .k-btn{flex:1;min-width:100px;justify-content:center;min-height:36px;padding:8px 12px;font-size:12px}
   .k-debts-table{width:100%;border-collapse:collapse;font-size:12px}
+  .k-debts-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .k-debts-table th{text-align:left;font-size:10px;color:var(--muted);font-weight:800;padding:4px 5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
   .k-debts-table td{padding:5px;border-bottom:1px solid var(--border);vertical-align:middle}
   .k-debts-foot{padding:8px 10px;border-top:1px solid var(--border);font-size:12px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
@@ -1504,6 +1505,32 @@ const CSS = `
     .k-debts-layout.detail-open .k-debts-list{display:none}
     .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
     .k-debts-list,.k-debts-detail{min-height:0;height:100%;max-height:100%}
+    .k-debts-metrics{grid-template-columns:1fr 1fr;gap:8px}
+    .k-debts-metric:last-child{grid-column:1/-1}
+    .k-debts-metric{padding:8px 10px}
+    .k-debts-metric .kv{font-size:16px}
+    .k-debts-detail .k-subtabs{
+      display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;
+      overflow:visible;flex-wrap:nowrap
+    }
+    .k-debts-detail .k-subtabs .k-subtab{
+      width:100%;justify-content:center;text-align:center;min-height:40px;padding:8px 6px;font-size:11px
+    }
+    .k-debts-table-wrap{overflow:visible}
+    .k-debts-table{width:100%;display:block}
+    .k-debts-table thead{display:none}
+    .k-debts-table tbody{display:flex;flex-direction:column;gap:8px}
+    .k-debts-table tr{
+      display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:start;
+      padding:10px;margin:0;border:1px solid var(--border);border-radius:10px;background:var(--card2)
+    }
+    .k-debts-table td{display:block;padding:0;border:none;min-width:0}
+    .k-debts-table td:nth-child(1){grid-column:1;font-size:11px}
+    .k-debts-table td:nth-child(2){grid-column:2;justify-self:end}
+    .k-debts-table td:nth-child(3){grid-column:1/-1;font-size:13px;font-weight:700;white-space:normal}
+    .k-debts-table td:nth-child(4){grid-column:1;font-size:14px;font-weight:900}
+    .k-debts-table td:nth-child(5){grid-column:2;justify-self:end;font-size:13px}
+    .k-debts-table td:nth-child(5)::before{content:'ост. ';font-weight:700;color:var(--muted);font-size:10px}
     .k-btn{min-height:44px;padding:10px 14px}
     .k-inp,.k-sel,.k-ta{font-size:16px;min-height:44px}
     .k-modal-bg{padding:0;align-items:stretch;justify-content:stretch}

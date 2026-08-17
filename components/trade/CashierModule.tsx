@@ -17,6 +17,7 @@ import {
   financeMoveSafe,
   cardTopupSafe,
   debtRepaySafe,
+  chargeCashDebtFromOpenShift,
   returnSaleSafe,
   createSaleSafe,
   createPosPointSafe,
@@ -35,7 +36,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { cardNumsMatch, effectiveDebt } from '@/lib/cardCrm'
+import { CARD_STATUS_LABELS, cardNumsMatch, effectiveDebt } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   buildDebtOrderBalances,
@@ -1151,6 +1152,8 @@ export default function CashierModule({
     maxAmount: number
     debtEntryId?: string
   } | null>(null)
+  const [chargeOpen, setChargeOpen] = useState(false)
+  const [chargeBuf, setChargeBuf] = useState('')
   /** Погасить старый долг вместе с текущим чеком (только если долг > 0) */
   const [payDebtOn, setPayDebtOn] = useState(false)
   const [payDebtBuf, setPayDebtBuf] = useState('')
@@ -1251,6 +1254,7 @@ export default function CashierModule({
       if (layerPickOpen) { setLayerPickOpen(false); return true }
       if (topupOpen) { setTopupOpen(false); return true }
       if (repayOpen) { setRepayOpen(false); setRepayTarget(null); return true }
+      if (chargeOpen) { setChargeOpen(false); return true }
       if (histDetail) { setHistDetail(null); return true }
       if (histOpen) { setHistOpen(false); setHistDetail(null); return true }
       if (creditNoteOpen) { setCreditNoteOpen(false); return true }
@@ -1331,6 +1335,7 @@ export default function CashierModule({
       || creditNoteOpen
       || topupOpen
       || repayOpen
+      || chargeOpen
       || !!tillMoveKind
     if (!critical) return
     beginCashierCritical()
@@ -1345,6 +1350,7 @@ export default function CashierModule({
     creditNoteOpen,
     topupOpen,
     repayOpen,
+    chargeOpen,
     tillMoveKind,
   ])
 
@@ -1463,7 +1469,7 @@ export default function CashierModule({
   }, [qtyEditOpen, qtyEditMode, qtyEditPad])
 
   useEffect(() => {
-    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || !!tillMoveKind
+    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen || !!tillMoveKind
     if (!open || amountPad) return
     const t = window.setTimeout(() => {
       const el = amountInputRef.current
@@ -1472,7 +1478,7 @@ export default function CashierModule({
       el.select()
     }, 40)
     return () => window.clearTimeout(t)
-  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, tillMoveKind, amountPad])
+  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, chargeOpen, tillMoveKind, amountPad])
 
   useEffect(() => {
     if (!clientScanOpen) return
@@ -1551,7 +1557,7 @@ export default function CashierModule({
     || !!deletePosId
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || camScanOpen || discOpen || discPickOpen
-    || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen
+    || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!dashMenuPosId
     || !!scanBlockAlert
@@ -6159,6 +6165,53 @@ export default function CashierModule({
     }
   }
 
+  async function submitCashCharge() {
+    if (!client || busy) return
+    const amount = Math.round((Number(chargeBuf) || 0) * 100) / 100
+    if (amount <= 0) return
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Откройте смену, чтобы выдать наличные из кассы')
+      return
+    }
+    if (amount > tillExpected + 0.009) {
+      showToast('Мало наличных', `В кассе ${fmtMoney(tillExpected)}`)
+      return
+    }
+    setBusy(true)
+    try {
+      const charged = await chargeCashDebtFromOpenShift(client, amount, {
+        note: `Выдача наличных · ${client.name}`,
+        posId: activeShift.posId || activePosPoint?.id,
+      })
+      if (!charged.offline) void refresh()
+      else void useOfflineSync.getState().syncNow()
+      const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
+      if (fresh) setClient(fresh)
+      setChargeOpen(false)
+      setChargeBuf('')
+      const nextDebt = Number(charged.data.debt) || Math.round((clientDebt + amount) * 100) / 100
+      showToast(
+        'Выдано наличными',
+        `${client.name}: +${fmtMoney(amount)} · из кассы · долг ${fmtMoney(nextDebt)}${charged.offline ? ' · отправится в фоне' : ''}`,
+      )
+    } catch (e) {
+      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать наличные')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openCashCharge() {
+    if (!activeShift) {
+      showToast('Смена закрыта', 'Откройте смену, чтобы выдать наличные из кассы')
+      return
+    }
+    setHistTab('cash')
+    setChargeBuf('')
+    setAmountPad(false)
+    setChargeOpen(true)
+  }
+
   // ─── Gate (только первая загрузка, не при автообновлении) ───
   if (!apiReady) {
     return (
@@ -7284,6 +7337,7 @@ export default function CashierModule({
   const topupTier = cashDepositTierForAmount(topupCash)
   const repayAmount = Number(repayBuf) || 0
   const repayRemain = Math.max(0, clientDebt - repayAmount)
+  const chargeAmount = Number(chargeBuf) || 0
   const repayCashBonus = repayMethod === 'cash' && repayAmount > 0 ? calcCashDepositBonus(repayAmount) : 0
   const repayCashTier = repayMethod === 'cash' && repayAmount > 0 ? cashDepositTierForAmount(repayAmount) : null
 
@@ -9487,6 +9541,84 @@ export default function CashierModule({
         </div>
       )}
 
+      {chargeOpen && client && (
+        <div className="overlay stack-above-hist" onClick={() => {
+          if (busy) return
+          setChargeOpen(false)
+        }}>
+          <PadShell
+            openPad={amountPad}
+            onHidePad={() => setAmountPad(false)}
+            pad={
+              <Keypad onDigit={k => setChargeBuf(b => appendDigit(b, k))} onBack={() => setChargeBuf(b => b.slice(0, -1))} />
+            }
+          >
+          <div className="modal-card">
+            <h3>💵 Выдать наличные</h3>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8 }}>
+              Клиент: <b style={{ color: 'var(--gd)' }}>{client.name}</b>
+              <div style={{ marginTop: 4, fontSize: 11, color: activeShift ? 'var(--t3)' : 'var(--red)' }}>
+                {activeShift
+                  ? `Из кассы · в ящике ${fmtMoney(tillExpected)}`
+                  : 'Смена закрыта — откройте смену'}
+              </div>
+            </div>
+            <div className="kp-display">
+              <div className="lbl">ТЕКУЩИЙ ДОЛГ</div>
+              <div className="val" style={{ color: clientDebt > 0 ? 'var(--org)' : 'var(--t3)' }}>
+                {clientDebt.toFixed(2)} сом
+              </div>
+            </div>
+            <div className="kp-display" style={{ marginTop: -6 }}>
+              <div className="lbl">СУММА ВЫДАЧИ</div>
+              <input
+                ref={amountInputRef}
+                className="kp-field"
+                value={chargeBuf}
+                inputMode="decimal"
+                autoFocus
+                onChange={e => setChargeBuf(sanitizeDecimalInput(e.target.value))}
+                onFocus={e => e.currentTarget.select()}
+                placeholder="0.00"
+              />
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span>Станет долг</span>
+                <b className="mono" style={{ color: 'var(--org)' }}>{(clientDebt + chargeAmount).toFixed(2)}</b>
+              </div>
+            </div>
+            <div className="qty-edit-toolbar">
+              <div className="kp-quick" style={{ margin: 0, flex: 1 }} />
+              <button
+                type="button"
+                className={`qty-pad-toggle ${amountPad ? 'on' : ''}`}
+                onClick={() => setAmountPad(v => !v)}
+                title={amountPad ? 'Скрыть клавиатуру' : 'Экранная клавиатура'}
+              >
+                ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
+              </button>
+            </div>
+            <div className="modal-card-actions">
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setChargeOpen(false)}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy || chargeAmount <= 0 || chargeAmount > tillExpected + 0.001}
+                onClick={() => void submitCashCharge()}
+              >
+                Выдать
+              </button>
+            </div>
+          </div>
+          </PadShell>
+        </div>
+      )}
+
       {histOpen && client && loyalty && (
         <div className="overlay hist-fs-overlay" onClick={() => { setHistOpen(false); setHistDetail(null) }}>
           <div className="modal-card hist-card hist-card-fs cashier-debts-panel" onClick={e => e.stopPropagation()}>
@@ -9507,7 +9639,19 @@ export default function CashierModule({
                   </div>
                   <div className="client-profile-meta" style={{ marginTop: 3 }}>
                   <span>{client.phone || 'без телефона'}</span>
-                    {client.card ? <><span>·</span><span>{client.card} · Активна</span></> : null}
+                    {client.card ? (() => {
+                      const card = cards.find(x => cardNumsMatch(x.num, client.card))
+                      const st = card ? CARD_STATUS_LABELS[card.status] : null
+                      return (
+                        <>
+                          <span>·</span>
+                          <span>
+                            {client.card}
+                            {st ? <> · <span style={{ color: st.c }}>{st.l}</span></> : null}
+                          </span>
+                        </>
+                      )
+                    })() : null}
                   </div>
                 </div>
               </div>
@@ -9575,7 +9719,7 @@ export default function CashierModule({
                 !cashierDebtPanel.feed.length ? (
                   <div className="hist-empty">Пока нет движений</div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="cashier-debts-table-wrap">
                     <table className="cashier-debts-table">
                       <thead>
                         <tr>
@@ -9678,7 +9822,7 @@ export default function CashierModule({
                       return <div className="hist-empty">{posView === 'open' ? 'Все чеки погашены' : 'Нет чеков'}</div>
                     }
                     return (
-                      <div style={{ overflowX: 'auto' }}>
+                      <div className="cashier-debts-table-wrap">
                         <table className="cashier-debts-table">
                           <thead>
                             <tr>
@@ -9752,9 +9896,18 @@ export default function CashierModule({
 
               {histTab === 'cash' && (
                 <>
-                  <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 10 }}>
-                    Наличные = долг на карте минус чеки. Выдача наличных — только в разделе «Долг».
-                </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 12, color: 'var(--t3)' }}>
+                      Наличные = долг на карте минус чеки. Выдача списывает ящик открытой смены.
+                    </div>
+                    <button
+                      type="button"
+                      className="cashier-debts-subtab"
+                      onClick={() => openCashCharge()}
+                    >
+                      + Выдать
+                    </button>
+                  </div>
                   {cashierDebtPanel.residualCash > 0.005 && (
                     <div style={{
                       padding: '12px 14px', borderRadius: 12, marginBottom: 8,
@@ -9831,7 +9984,14 @@ export default function CashierModule({
               >
                 ✓ Погасить долг
               </button>
-                </div>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => openCashCharge()}
+              >
+                Выдать наличные
+              </button>
+            </div>
           </div>
         </div>
       )}

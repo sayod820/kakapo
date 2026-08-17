@@ -5,7 +5,7 @@
 import { api, isNetworkError } from './api'
 import { findDuplicateDebtRepay, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
-import { phonesMatch } from './clientCrm'
+import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, recordStoreDebtRepayment } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { markMoneyPending } from './loyaltySaveGuard'
@@ -502,6 +502,51 @@ export async function financeMoveSafe(input: {
   }
 
   return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
+}
+
+/** Выдать нал из открытой смены и записать долг на карту. Без смены / без наличных в ящике — ошибка. */
+export async function chargeCashDebtFromOpenShift(
+  client: AdminClient,
+  amount: number,
+  opts?: { note?: string; posId?: string },
+): Promise<OfflineResult<{ debt: number }>> {
+  const shift = resolveOpenShift(opts?.posId)
+  if (!shift) {
+    throw new Error('Откройте смену, чтобы выдать наличные из кассы')
+  }
+  const amt = round2(amount)
+  if (!(amt > 0)) throw new Error('Укажите сумму')
+  const expected = shiftExpectedCashLocal(shift)
+  if (amt > expected + 0.009) {
+    throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+  }
+  const note = opts?.note || `Выдача наличных · ${client.name}`
+  await financeMoveSafe({
+    type: 'withdraw',
+    amount: amt,
+    note,
+    shiftId: shift.id,
+    posId: shift.posId,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    createdBy: shift.cashierName,
+  })
+  try {
+    const { adjustClientDebtSafe } = await import('./offlineLoyaltyOps')
+    return await adjustClientDebtSafe(client, { action: 'charge', amount: amt })
+  } catch (e) {
+    await financeMoveSafe({
+      type: 'deposit',
+      amount: amt,
+      note: `Отмена выдачи наличных · ${client.name}`,
+      shiftId: shift.id,
+      posId: shift.posId,
+      cashierId: shift.cashierId,
+      cashierName: shift.cashierName,
+      createdBy: shift.cashierName,
+    }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
+    throw e
+  }
 }
 
 // ── Пополнение карты наличными ──

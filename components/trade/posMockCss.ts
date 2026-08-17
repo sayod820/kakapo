@@ -1466,6 +1466,7 @@ export const POS_MOCK_CSS = `
   .pos-root button.cashier-debts-subtab.on{background:rgba(31,215,96,.12);border-color:var(--accent);color:var(--accent);}
   .cashier-debts-body{padding:4px 0 8px;}
   .cashier-debts-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .cashier-debts-table-wrap{overflow-x:auto;}
   .cashier-debts-table th{text-align:left;font-size:10px;color:var(--t3);font-weight:800;padding:6px 5px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1;}
   .cashier-debts-table td{padding:7px 5px;border-bottom:1px solid var(--border);vertical-align:middle;}
   .cashier-debts-table tbody tr:hover{background:rgba(31,215,96,.04);}
@@ -1476,6 +1477,21 @@ export const POS_MOCK_CSS = `
     .modal-card.hist-card-fs{width:100%;height:100%;max-height:100%;border-radius:0;}
     .overlay.hist-fs-overlay{padding:0;}
     .cashier-debts-metrics{grid-template-columns:1fr 1fr;}
+    .cashier-debts-table-wrap{overflow:visible;}
+    .cashier-debts-table{width:100%;display:block;}
+    .cashier-debts-table thead{display:none;}
+    .cashier-debts-table tbody{display:flex;flex-direction:column;gap:8px;}
+    .cashier-debts-table tr{
+      display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:start;
+      padding:10px;margin:0;border:1px solid var(--border);border-radius:10px;background:var(--surface2);
+    }
+    .cashier-debts-table td{display:block;padding:0;border:none;min-width:0;}
+    .cashier-debts-table td:nth-child(1){grid-column:1;font-size:11px;}
+    .cashier-debts-table td:nth-child(2){grid-column:2;justify-self:end;}
+    .cashier-debts-table td:nth-child(3){grid-column:1/-1;font-size:13px;font-weight:700;white-space:normal;}
+    .cashier-debts-table td:nth-child(4){grid-column:1;font-size:14px;font-weight:900;}
+    .cashier-debts-table td:nth-child(5){grid-column:2;justify-self:end;font-size:13px;}
+    .cashier-debts-table td:nth-child(5)::before{content:'ост. ';font-weight:700;color:var(--t3);font-size:10px;}
   }
   .hist-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:3px;margin:2px 0 12px;border-radius:14px;background:var(--surface2);border:1.5px solid var(--border);flex-shrink:0;}
   .pos-root button.hist-tab{padding:10px 8px;border-radius:11px;font-size:12px;font-weight:800;color:var(--t3);display:flex;align-items:center;justify-content:center;gap:7px;}
