@@ -23,6 +23,8 @@ import {
   aggregateSales,
   buildProductInsights,
   cashierStats,
+  canComparePeriod,
+  comparePeriodLabel,
   dailyBreakdown,
   defaultPosId,
   deltaPct,
@@ -268,7 +270,9 @@ export default function ReportsModule() {
 
   const periodLabel = formatPeriodLabel(period, customFrom, customTo)
   const activeTabHint = REPORT_TABS.find(t => t.id === tab)?.hint || ''
-  const revDelta = comparePrev ? deltaPct(salesAgg.revenue, prevAgg.revenue) : null
+  const compareOn = comparePrev && canComparePeriod(period)
+  const prevLabel = comparePeriodLabel(period)
+  const revDelta = compareOn ? deltaPct(salesAgg.revenue, prevAgg.revenue) : null
 
   const apiQuery = useMemo(
     () => periodToApiQuery(period, customFrom, customTo, {
@@ -452,7 +456,10 @@ export default function ReportsModule() {
               key={p.id}
               type="button"
               className={`k-subtab ${period === p.id ? 'active' : ''}`}
-              onClick={() => setPeriod(p.id)}
+              onClick={() => {
+                setPeriod(p.id)
+                if (p.id === 'all') setComparePrev(false)
+              }}
             >
               {p.label}
             </button>
@@ -471,8 +478,9 @@ export default function ReportsModule() {
           </button>
           <button
             type="button"
-            className={`k-btn k-btn-s${comparePrev ? ' is-on' : ''}`}
-            title="Сравнить с прошлым таким же периодом"
+            className={`k-btn k-btn-s${compareOn ? ' is-on' : ''}`}
+            title={canComparePeriod(period) ? `Сравнить ${comparePeriodLabel(period)}` : 'Для «Всё время» сравнивать не с чем'}
+            disabled={!canComparePeriod(period)}
             onClick={() => setComparePrev(v => !v)}
           >
             ±
@@ -508,7 +516,7 @@ export default function ReportsModule() {
       {showHelp && (
         <div className="k-rep-help">
           <b>Как смотреть</b>
-          <div>1) Период сверху · фильтры через ⚙ · ± сравнение с прошлым таким же отрезком</div>
+          <div>1) Период сверху · ± сравнение: сегодня с вчера, месяц с прошлым месяцем</div>
           <div>2) Долг: выдали и вернули — за выбранные дни. Осталось — сколько должны сейчас</div>
           <div>3) Доход = продажи − закуп товара. После расходов = ещё минус расходы кассы</div>
           <div>4) Товары: топ за период · не продавались / залежались за 30 дней · заказ по 7 дням</div>
@@ -569,9 +577,9 @@ export default function ReportsModule() {
             <div>
               <span>Выручка</span>
               <b style={{ color: 'var(--green)' }}>{fmtMoney(salesAgg.revenue)}</b>
-              {revDelta != null && (
-                <small style={{ color: revDelta >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
-                  {revDelta >= 0 ? '+' : ''}{revDelta}% к прошлому
+              {compareOn && (
+                <small style={{ color: revDelta == null ? 'var(--muted)' : revDelta >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
+                  {revDelta != null ? `${revDelta >= 0 ? '+' : ''}${revDelta}% ${prevLabel}` : `было ${fmtMoney(prevAgg.revenue)}`}
                 </small>
               )}
             </div>
@@ -590,6 +598,17 @@ export default function ReportsModule() {
               <b style={{ color: profitPct >= 0 ? 'var(--green)' : 'var(--red)' }}>{profitPct}%</b>
             </div>
           </div>
+
+          {compareOn && (
+            <div className="k-rep-note">
+              Было {prevLabel}: выручка {fmtMoney(prevAgg.revenue)}
+              {' · '}нал {fmtMoney(prevAgg.cash)}
+              {' · '}карта {fmtMoney(prevAgg.card)}
+              {prevAgg.wallet > 0.001 ? ` · кошелёк ${fmtMoney(prevAgg.wallet)}` : ''}
+              {' · '}долг {fmtMoney(prevAgg.credit)}
+              {' · '}чеков {prevAgg.salesCount}
+            </div>
+          )}
 
           <div className="k-rep-stats">
             <div><span>Нал</span><b>{fmtMoney(salesAgg.cash)}</b></div>

@@ -720,10 +720,42 @@ export function previousPeriodRange(
   customFrom?: string,
   customTo?: string,
 ): { from: number | null; to: number | null } {
+  const now = new Date()
+  if (period === 'all') return { from: null, to: null }
+  if (period === 'today') {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const yStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
+    return { from: yStart, to: yStart + (now.getTime() - todayStart) }
+  }
+  if (period === 'yesterday') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2).getTime()
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime() - 1
+    return { from: start, to: end }
+  }
+  if (period === 'month') {
+    return {
+      from: new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(),
+      to: new Date(now.getFullYear(), now.getMonth(), 1).getTime() - 1,
+    }
+  }
   const { from, to } = periodRange(period, customFrom, customTo)
   if (from == null || to == null) return { from: null, to: null }
   const span = Math.max(1, to - from)
   return { from: from - span - 1, to: from - 1 }
+}
+
+export function canComparePeriod(period: ReportPeriod) {
+  return period !== 'all'
+}
+
+export function comparePeriodLabel(period: ReportPeriod) {
+  if (period === 'today') return 'к вчера'
+  if (period === 'yesterday') return 'к позавчера'
+  if (period === '7d') return 'к прошлым 7 дн.'
+  if (period === '30d') return 'к прошлым 30 дн.'
+  if (period === 'month') return 'к прошлому месяцу'
+  if (period === 'custom') return 'к прошлому отрезку'
+  return 'к прошлому'
 }
 
 export function deltaPct(current: number, previous: number) {
