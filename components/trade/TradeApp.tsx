@@ -2785,9 +2785,25 @@ function TradeAppInner({
     try { el.focus({ preventScroll: true }) } catch { el.focus() }
   }
 
+  function overlayIsVisible(el: Element): boolean {
+    if (!(el instanceof HTMLElement)) return false
+    if (el.closest('[aria-hidden="true"]')) return false
+    const host = el.closest('.pos-host')
+    if (host instanceof HTMLElement) {
+      if (host.getAttribute('aria-hidden') === 'true') return false
+      if (host.style.display === 'none') return false
+    }
+    const st = window.getComputedStyle(el)
+    if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return false
+    return true
+  }
+
   function tradeSearchBlocked() {
     if (catalogBack) return true
-    if (document.querySelector('.modal-card, .overlay, .k-modal, .k-modal-bg')) return true
+    const nodes = document.querySelectorAll('.modal-card, .overlay, .k-modal, .k-modal-bg')
+    for (const n of nodes) {
+      if (overlayIsVisible(n)) return true
+    }
     return false
   }
 

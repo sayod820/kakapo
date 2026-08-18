@@ -20,6 +20,60 @@ import type {
 
 const EMPTY_VAULT: CashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
 
+/** Пока удаление ещё в очереди — входящий sync не должен вернуть строку. */
+const inboundDeletedIds = new Set<string>()
+const inboundDeletedTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export function noteInboundDeletedIds(ids: Array<string | undefined | null>) {
+  for (const raw of ids) {
+    const id = String(raw || '').trim()
+    if (!id) continue
+    inboundDeletedIds.add(id)
+    const prev = inboundDeletedTimers.get(id)
+    if (prev) clearTimeout(prev)
+    inboundDeletedTimers.set(id, setTimeout(() => {
+      inboundDeletedIds.delete(id)
+      inboundDeletedTimers.delete(id)
+    }, 60_000))
+  }
+}
+
+function omitInboundDeleted<T extends { id?: string }>(list: T[]): T[] {
+  if (!inboundDeletedIds.size || !list?.length) return list
+  return list.filter(row => !inboundDeletedIds.has(String(row?.id || '')))
+}
+
+async function pendingDeleteIds(): Promise<Set<string>> {
+  try {
+    const { getPending } = await import('./offline')
+    const pending = await getPending()
+    const ids = new Set<string>()
+    for (const row of pending) {
+      if (row.failed) continue
+      if (!String(row.kind || '').includes('delete')) continue
+      const p = (row.payload || {}) as Record<string, unknown>
+      for (const key of ['id', 'paymentId', 'receiptId']) {
+        const v = String(p[key] || '').trim()
+        if (v) ids.add(v)
+      }
+    }
+    return ids
+  } catch {
+    return new Set()
+  }
+}
+
+function dropDeletedRemote<T extends { id?: string }>(remote: T[], extra: Set<string>): T[] {
+  const hide = extra.size || inboundDeletedIds.size
+  if (!hide) return remote
+  return (remote || []).filter(row => {
+    const id = String(row?.id || '')
+    if (!id) return false
+    if (inboundDeletedIds.has(id) || extra.has(id)) return false
+    return true
+  })
+}
+
 /** Сервер + локальные сдачи, которых ещё нет на сервере */
 function mergeCashVault(local: CashVault | undefined, server: CashVault): CashVault {
   const serverTransfers = server.transfers || []
@@ -204,13 +258,14 @@ export const usePosStore = create<PosStore>((set) => ({
           }
         }
       } catch { /* очередь недоступна */ }
-      snapshot.sales = mergeInboundById(local.sales, snapshot.sales)
+      const delIds = await pendingDeleteIds()
+      snapshot.sales = omitInboundDeleted(mergeInboundById(local.sales, dropDeletedRemote(snapshot.sales, delIds)))
       snapshot.shifts = mergeInboundById(local.shifts, snapshot.shifts)
-      snapshot.receipts = mergeInboundById(local.receipts, snapshot.receipts)
-      snapshot.writeoffs = mergeInboundById(local.writeoffs, snapshot.writeoffs)
-      snapshot.revisions = mergeInboundById(local.revisions, snapshot.revisions)
-      snapshot.expenses = mergeInboundById(local.expenses, snapshot.expenses)
-      snapshot.financeMoves = mergeInboundById(local.financeMoves, snapshot.financeMoves)
+      snapshot.receipts = omitInboundDeleted(mergeInboundById(local.receipts, dropDeletedRemote(snapshot.receipts, delIds)))
+      snapshot.writeoffs = omitInboundDeleted(mergeInboundById(local.writeoffs, dropDeletedRemote(snapshot.writeoffs, delIds)))
+      snapshot.revisions = omitInboundDeleted(mergeInboundById(local.revisions, dropDeletedRemote(snapshot.revisions, delIds)))
+      snapshot.expenses = omitInboundDeleted(mergeInboundById(local.expenses, dropDeletedRemote(snapshot.expenses, delIds)))
+      snapshot.financeMoves = omitInboundDeleted(mergeInboundById(local.financeMoves, dropDeletedRemote(snapshot.financeMoves, delIds)))
       set({ ...snapshot, apiReady: true, apiSyncing: false, apiError: '' })
       try {
         const { notePosOpSeqFromSales, notePosOpSeqFromPoints } = await import('./posOpSeq')
@@ -407,11 +462,12 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
         api.getStockExpiry(days),
       ])
 
+      const delIds = await pendingDeleteIds()
       const cur = usePosStore.getState()
       usePosStore.setState({
-        receipts: mergeInboundById(cur.receipts, receipts),
-        writeoffs: mergeInboundById(cur.writeoffs, writeoffs),
-        revisions: mergeInboundById(cur.revisions, revisions),
+        receipts: omitInboundDeleted(mergeInboundById(cur.receipts, dropDeletedRemote(receipts, delIds))),
+        writeoffs: omitInboundDeleted(mergeInboundById(cur.writeoffs, dropDeletedRemote(writeoffs, delIds))),
+        revisions: omitInboundDeleted(mergeInboundById(cur.revisions, dropDeletedRemote(revisions, delIds))),
         suppliers: mergeInboundById(cur.suppliers, suppliers) as typeof cur.suppliers,
         expiry,
         apiReady: true,
@@ -443,10 +499,11 @@ export async function softSyncFinance() {
         api.getExpenses(),
         api.getCashVault().catch(() => null),
       ])
+      const delIds = await pendingDeleteIds()
       const cur = usePosStore.getState()
       usePosStore.setState({
-        financeMoves: mergeInboundById(cur.financeMoves, financeMoves),
-        expenses: mergeInboundById(cur.expenses, expenses),
+        financeMoves: omitInboundDeleted(mergeInboundById(cur.financeMoves, dropDeletedRemote(financeMoves, delIds))),
+        expenses: omitInboundDeleted(mergeInboundById(cur.expenses, dropDeletedRemote(expenses, delIds))),
         ...(cashVault
           ? { cashVault: mergeCashVault(cur.cashVault, cashVault) }
           : {}),

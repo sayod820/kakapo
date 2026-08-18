@@ -11,7 +11,7 @@ import { localFirstOp, type OfflineResult } from './localFirst'
 import { markMoneyPending } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
-import { usePosStore } from './posStore'
+import { usePosStore, noteInboundDeletedIds } from './posStore'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
@@ -1357,40 +1357,46 @@ export async function expenseCreateSafe(input: {
 
 // ── Удаление расхода (Offline V2) ──
 
-function reverseExpenseLocal(id: string) {
+function reverseExpenseLocal(id: string, extraIds: Array<string | undefined | null> = []) {
   const exp = usePosStore.getState().expenses.find(e => e.id === id)
   if (exp) {
     applyExpenseToShift(exp.shiftId, Number(exp.amount) || 0, -1)
   }
   usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+  noteInboundDeletedIds([id, ...extraIds])
 }
 
 export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
   const clientRef = newClientRef()
+  const mapped = isLocalId(id) ? await resolveLocalId(id) : id
+  const hideIds = [id, mapped]
 
   if (!isTradeLocalFirst()) {
-    await api.deleteExpense(id)
-    reverseExpenseLocal(id)
+    await api.deleteExpense(mapped || id)
+    reverseExpenseLocal(id, hideIds)
     void persistPosSnapshot()
     return { offline: false, data: { id } }
   }
 
   const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('expense_delete', { clientRef, id }, { clientRef })
-    reverseExpenseLocal(id)
+    const serverId = mapped && !isLocalId(mapped) ? mapped : ''
+    if (serverId) {
+      await useOfflineSync.getState().queueOp('expense_delete', { clientRef, id: serverId }, { clientRef })
+    }
+    reverseExpenseLocal(id, hideIds)
     void persistPosSnapshot()
-    return { id }
+    return { id: serverId || id }
   }
 
-  if (isLocalId(id)) {
+  if (!mapped || isLocalId(mapped)) {
     const data = await applyLocal()
     void useOfflineSync.getState().syncNow()
     return { offline: true, data }
   }
 
   return raceCashierOp(async () => {
-    await api.deleteExpense(id)
-    reverseExpenseLocal(id)
+    await api.deleteExpense(mapped || id)
+    reverseExpenseLocal(id, hideIds)
     void persistPosSnapshot()
     return { id }
   }, applyLocal)
@@ -1447,11 +1453,12 @@ function applyFinanceCashReverse(move: FinanceMove) {
   }
 }
 
-function reverseFinanceMoveLocal(id: string) {
+function reverseFinanceMoveLocal(id: string, extraIds: Array<string | undefined | null> = []) {
   const moves = usePosStore.getState().financeMoves
   const target = moves.find(m => m.id === id)
   if (!target) {
     usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    noteInboundDeletedIds([id, ...extraIds])
     return
   }
   const ghosts = moves.filter(m => m.id !== id && isLocalId(m.id) && isFinanceTwin(m, target))
@@ -1461,6 +1468,7 @@ function reverseFinanceMoveLocal(id: string) {
     : undefined
   if (!serverTwin) applyFinanceCashReverse(target)
   usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => !drop.has(m.id)) }))
+  noteInboundDeletedIds([...drop, serverTwin?.id, ...extraIds])
 }
 
 async function dropPendingFinanceCreates(target: FinanceMove | undefined, localIds: string[]) {
@@ -1499,14 +1507,14 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
 
   if (!isTradeLocalFirst()) {
     await api.deleteFinanceMove(queueServerId || id)
-    reverseFinanceMoveLocal(id)
+    reverseFinanceMoveLocal(id, [mapped, queueServerId])
     void persistPosSnapshot()
     return { offline: false, data: { id } }
   }
 
   const applyLocal = async () => {
     await dropPendingFinanceCreates(target, localIds)
-    reverseFinanceMoveLocal(id)
+    reverseFinanceMoveLocal(id, [mapped, queueServerId])
     if (queueServerId) {
       await useOfflineSync.getState().queueOp('finance_move_delete', { clientRef: deleteRef, id: queueServerId }, { clientRef: deleteRef })
     }
@@ -1522,7 +1530,7 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
 
   return raceCashierOp(async () => {
     await api.deleteFinanceMove(queueServerId)
-    reverseFinanceMoveLocal(id)
+    reverseFinanceMoveLocal(id, [mapped, queueServerId])
     void persistPosSnapshot()
     return { id: queueServerId }
   }, applyLocal)

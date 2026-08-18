@@ -74,6 +74,51 @@ export async function readCachedFinanceTruth(
   return readCachedData<FinanceTruthBundle>(`${CACHE_PREFIX}__last`)
 }
 
+function isOffEntityId(id?: string) {
+  return String(id || '').startsWith('off-')
+}
+
+function financeTwinKey(row: {
+  clientRef?: string
+  type?: string
+  category?: string
+  amount?: number
+  shiftId?: string
+  createdAtIso?: string
+}): string {
+  const ref = String(row.clientRef || '').trim()
+  if (ref) return `ref:${ref}`
+  const ts = Date.parse(String(row.createdAtIso || ''))
+  const bucket = Number.isFinite(ts) ? Math.round(ts / 20_000) : String(row.createdAtIso || '')
+  return `fp:${row.type || row.category || ''}|${(Number(row.amount) || 0).toFixed(2)}|${row.shiftId || ''}|${bucket}`
+}
+
+/** Двойная запись (off-* + сервер) не должна дважды плюсовать книгу. */
+function dedupeFinanceRows<T extends {
+  id?: string
+  clientRef?: string
+  type?: string
+  category?: string
+  amount?: number
+  shiftId?: string
+  createdAtIso?: string
+}>(rows: T[]): T[] {
+  const out: T[] = []
+  const indexByKey = new Map<string, number>()
+  for (const row of rows) {
+    const key = financeTwinKey(row)
+    const prevIdx = indexByKey.get(key)
+    if (prevIdx != null) {
+      const prev = out[prevIdx]
+      if (isOffEntityId(prev.id) && !isOffEntityId(row.id)) out[prevIdx] = row
+      continue
+    }
+    indexByKey.set(key, out.length)
+    out.push(row)
+  }
+  return out
+}
+
 export type LocalFinanceTruthInput = {
   shifts: PosShift[]
   financeMoves?: {
@@ -82,6 +127,7 @@ export type LocalFinanceTruthInput = {
     createdAtIso?: string
     note?: string
     id?: string
+    clientRef?: string
     posId?: string
     cashierId?: string
     shiftId?: string
@@ -92,6 +138,7 @@ export type LocalFinanceTruthInput = {
     createdAtIso?: string
     category?: string
     id?: string
+    clientRef?: string
     posId?: string
     cashierId?: string
     shiftId?: string
@@ -282,8 +329,8 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
       createdAtIso: s.closedAtIso || s.openedAtIso,
     }))
 
-  const moves = (input.financeMoves || []).filter(m => matchEntity(m))
-  const expenses = (input.expenses || []).filter(e => matchEntity(e))
+  const moves = dedupeFinanceRows((input.financeMoves || []).filter(m => matchEntity(m)))
+  const expenses = dedupeFinanceRows((input.expenses || []).filter(e => matchEntity(e)))
   const sales = (input.sales || [])
     .filter(s => s.status !== 'returned')
     .filter(s => matchEntity(s))

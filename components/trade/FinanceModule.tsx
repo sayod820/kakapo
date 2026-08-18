@@ -1,9 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
+import type { MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
@@ -68,7 +67,6 @@ export default function FinanceModule() {
   const posPoints = usePosStore(s => s.posPoints)
   const receipts = usePosStore(s => s.receipts)
   const cashVault = usePosStore(s => s.cashVault)
-  const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
 
   const [period, setPeriod] = useState<ReportPeriod>('today')
@@ -82,9 +80,6 @@ export default function FinanceModule() {
   const [busy, setBusy] = useState(false)
   const savingRef = useRef(false)
   const [msg, setMsg] = useState('')
-  const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
-  const [truthError, setTruthError] = useState('')
-  const [, setTruthLocal] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const [expOpen, setExpOpen] = useState(false)
@@ -98,6 +93,8 @@ export default function FinanceModule() {
   const [depNote, setDepNote] = useState('')
   const [depShiftId, setDepShiftId] = useState('')
 
+  const [delMoveId, setDelMoveId] = useState<string | null>(null)
+  const [delExpId, setDelExpId] = useState<string | null>(null)
   const [convOpen, setConvOpen] = useState(false)
   const [convDir, setConvDir] = useState<'card_to_cash' | 'cash_to_card'>('card_to_cash')
   const [convAmount, setConvAmount] = useState('')
@@ -109,6 +106,8 @@ export default function FinanceModule() {
   useBackClose(depOpen, () => { if (!busy) setDepOpen(false) })
   useBackClose(convOpen, () => { if (!busy) setConvOpen(false) })
   useBackClose(filtersOpen, () => setFiltersOpen(false))
+  useBackClose(!!delMoveId, () => setDelMoveId(null))
+  useBackClose(!!delExpId, () => setDelExpId(null))
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -185,9 +184,9 @@ export default function FinanceModule() {
     [clientDebtors],
   )
 
-  const loadTruth = useCallback(async () => {
-    // Всегда локальный расчёт — Финансы работают без сервера
-    const local = buildLocalFinanceTruth({
+  /** Одна цифра: только локальный стор. Серверный truth больше не подменяет книгу. */
+  const truth = useMemo(
+    () => buildLocalFinanceTruth({
       shifts,
       financeMoves,
       expenses,
@@ -200,30 +199,13 @@ export default function FinanceModule() {
       posId: posFilter || undefined,
       cashierId: cashierFilter || undefined,
       type: typeFilter || undefined,
-    })
-    setTruth(local)
-    setTruthLocal(true)
-    setTruthError('')
-    void cacheFinanceTruth(apiQuery, local)
-
-    if (!USE_API) return
-    try {
-      const { isOnline } = await import('@/lib/offline')
-      const online = isOnline() && useOfflineSync.getState().online
-      if (!online) return
-      const data = await api.getFinanceTruth(apiQuery)
-      setTruth(data)
-      setTruthLocal(false)
-      void cacheFinanceTruth(apiQuery, data)
-    } catch {
-      // Сеть упала — оставляем локальный расчёт, без красной ошибки «нет сервера»
-      setTruthError('')
-    }
-  }, [apiQuery, shifts, financeMoves, expenses, sales, receipts, cashVault, posPoints, from, to, posFilter, cashierFilter, typeFilter])
+    }),
+    [shifts, financeMoves, expenses, sales, receipts, cashVault, posPoints, from, to, posFilter, cashierFilter, typeFilter],
+  )
 
   useEffect(() => {
-    void loadTruth()
-  }, [loadTruth])
+    void cacheFinanceTruth(apiQuery, truth)
+  }, [apiQuery, truth])
 
   const refresh = useCallback(() => {
     setRefreshing(true)
@@ -239,38 +221,13 @@ export default function FinanceModule() {
             syncClientsFromApi(),
           ])
         }
-        await loadTruth()
       } finally {
         setRefreshing(false)
       }
     })()
-  }, [loadTruth])
-
-  /** После офлайн-операции сразу пересчитать книгу/KPI из локального стора */
-  const applyLocalTruthNow = useCallback(() => {
-    const s = usePosStore.getState()
-    const local = buildLocalFinanceTruth({
-      shifts: s.shifts,
-      financeMoves: s.financeMoves,
-      expenses: s.expenses,
-      sales: s.sales,
-      receipts: s.receipts,
-      cashVault: s.cashVault,
-      posPoints: s.posPoints,
-      fromMs: from,
-      toMs: to,
-      posId: posFilter || undefined,
-      cashierId: cashierFilter || undefined,
-      type: typeFilter || undefined,
-    })
-    setTruth(local)
-    setTruthLocal(true)
-    setTruthError('')
-    void cacheFinanceTruth(apiQuery, local)
-  }, [apiQuery, from, to, posFilter, cashierFilter, typeFilter])
+  }, [])
 
   async function afterFinanceMutation(_offline: boolean) {
-    applyLocalTruthNow()
     void useOfflineSync.getState().syncNow()
   }
 
@@ -376,25 +333,45 @@ export default function FinanceModule() {
     }
   }
 
-  async function removeMove(id: string) {
+  function removeMove(id: string) {
     if (!isTradeLocalFirst() && !guardMutation()) return
-    if (!confirm('Удалить запись?')) return
+    setDelMoveId(id)
+  }
+
+  function removeExpense(id: string) {
+    if (!isTradeLocalFirst() && !guardMutation()) return
+    setDelExpId(id)
+  }
+
+  async function confirmRemoveMove() {
+    const id = delMoveId
+    if (!id || savingRef.current) return
+    savingRef.current = true
+    setDelMoveId(null)
+    setMsg('')
     try {
       const res = await financeMoveDeleteSafe(id)
       await afterFinanceMutation(!!res.offline)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Не удалось удалить')
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
+    } finally {
+      savingRef.current = false
     }
   }
 
-  async function removeExpense(id: string) {
-    if (!isTradeLocalFirst() && !guardMutation()) return
-    if (!confirm('Удалить этот расход?')) return
+  async function confirmRemoveExpense() {
+    const id = delExpId
+    if (!id || savingRef.current) return
+    savingRef.current = true
+    setDelExpId(null)
+    setMsg('')
     try {
       const res = await expenseDeleteSafe(id)
       await afterFinanceMutation(!!res.offline)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Не удалось удалить расход')
+      setMsg(e instanceof Error ? e.message : 'Не удалось удалить расход')
+    } finally {
+      savingRef.current = false
     }
   }
 
@@ -681,14 +658,6 @@ export default function FinanceModule() {
         ))}
       </div>
       {tabMeta && <div className={`k-fin-hint${tab === 'box' ? ' k-hide-mob' : ''}`}>{tabMeta.hint}</div>}
-
-      {truthError && (
-        <div className="k-fin-err">{truthError}</div>
-      )}
-      {/* Сетевые ошибки POS не блокируют Финансы — данные локальные */}
-      {apiError && !isTradeLocalFirst() && !truth && (
-        <div className="k-fin-err">{apiError}</div>
-      )}
 
       {tab === 'box' && (
         <>
@@ -1214,7 +1183,7 @@ export default function FinanceModule() {
               )}
               <div className="k-field">
                 <label>Сумма</label>
-                <input className="k-inp" value={depAmount} onChange={e => setDepAmount(e.target.value)} inputMode="decimal" placeholder="0.00" />
+                <input className="k-inp" value={depAmount} onChange={e => setDepAmount(e.target.value)} inputMode="decimal" placeholder="0.00" autoFocus />
               </div>
               <div className="k-field">
                 <label>Заметка</label>
@@ -1272,6 +1241,42 @@ export default function FinanceModule() {
               >
                 {busy ? 'Сохраняем…' : convDir === 'card_to_cash' ? 'Перевести в нал' : 'Перевести на карту'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {delMoveId && (
+        <div className="k-modal-bg" onClick={() => setDelMoveId(null)}>
+          <div className="k-modal" onClick={e => e.stopPropagation()}>
+            <div className="k-modal-h">
+              <b>Удалить вклад?</b>
+              <button type="button" onClick={() => setDelMoveId(null)}>×</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 16 }}>
+              <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Запись уйдёт из кассы. Если уже на сервере — удалится и там.</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="k-btn" style={{ flex: 1 }} onClick={() => setDelMoveId(null)}>Отмена</button>
+                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={() => void confirmRemoveMove()}>Удалить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {delExpId && (
+        <div className="k-modal-bg" onClick={() => setDelExpId(null)}>
+          <div className="k-modal" onClick={e => e.stopPropagation()}>
+            <div className="k-modal-h">
+              <b>Удалить расход?</b>
+              <button type="button" onClick={() => setDelExpId(null)}>×</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 16 }}>
+              <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Расход исчезнет из списка и из кассы смены.</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="k-btn" style={{ flex: 1 }} onClick={() => setDelExpId(null)}>Отмена</button>
+                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={() => void confirmRemoveExpense()}>Удалить</button>
+              </div>
             </div>
           </div>
         </div>

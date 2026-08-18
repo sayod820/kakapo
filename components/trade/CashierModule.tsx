@@ -2008,7 +2008,7 @@ export default function CashierModule({
       const t = e.target as HTMLElement | null
       if (!t) return
       // Модалки / другие поля ввода — не трогаем
-      if (t.closest('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .cashier-menu, .pos-settings-fs')) return
+      if (t.closest('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .cashier-menu, .pos-settings-fs, .k-modal-bg, .k-modal')) return
       if (t.closest('textarea, select, [contenteditable="true"]')) return
       // Другой input (не поиск) — не перехватываем, пока пользователь вводит
       const input = t.closest('input')
@@ -2028,7 +2028,7 @@ export default function CashierModule({
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
       const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
@@ -2152,7 +2152,7 @@ export default function CashierModule({
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
       const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs')) return
+      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
       focusProductSearch()
     }, 450)
