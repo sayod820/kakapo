@@ -223,6 +223,7 @@ export interface PosShift {
   cashInTotal?: number
   status: 'open' | 'closed'
   note?: string
+  clientRef?: string
 }
 
 /** Сдача смены в основной ящик */

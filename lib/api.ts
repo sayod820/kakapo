@@ -1027,9 +1027,9 @@ export const api = {
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,
     ),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
-  openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string }) =>
+  openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string; cashierName?: string; openedAtIso?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
-  closePosShift: (id: string, data: { clientRef?: string; closingCash: number; note?: string }) =>
+  closePosShift: (id: string, data: { clientRef?: string; closingCash: number; note?: string; closedAtIso?: string }) =>
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosSales: () => request<PosSale[]>('/pos/sales'),
   createPosSale: (

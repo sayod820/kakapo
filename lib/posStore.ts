@@ -309,10 +309,22 @@ export async function softSyncPosAfterSale() {
     const localShifts = usePosStore.getState().shifts
     const enrichedShifts = (shifts || []).map(sh => {
       const local = localShifts.find(x => String(x.id) === String(sh.id))
-      if (local && isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
-        return { ...sh, cashierName: local.cashierName }
+        || (sh.clientRef
+          ? localShifts.find(x => String(x.clientRef || '') === String(sh.clientRef))
+          : undefined)
+      if (!local) return sh
+      let next = sh
+      if (isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
+        next = { ...next, cashierName: local.cashierName }
       }
-      return sh
+      if (local.openedAtIso && (!sh.openedAtIso || local.openedAtIso < sh.openedAtIso)) {
+        next = { ...next, openedAtIso: local.openedAtIso }
+      }
+      if (local.closedAtIso && (!sh.closedAtIso || String(local.closedAtIso) < String(sh.closedAtIso))) {
+        next = { ...next, closedAtIso: local.closedAtIso }
+      }
+      if (local.clientRef && !next.clientRef) next = { ...next, clientRef: local.clientRef }
+      return next
     })
 
     if (protectShifts) {

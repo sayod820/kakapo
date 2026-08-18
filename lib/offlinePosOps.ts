@@ -143,12 +143,13 @@ export async function openShiftSafe(input: {
 
   const applyLocal = async () => {
     const localId = newLocalId('shift')
+    const openedAtIso = new Date().toISOString()
     const shift: PosShift = {
       id: localId,
       posId: input.posId,
       cashierId: input.cashierId,
       cashierName: input.cashierName,
-      openedAtIso: new Date().toISOString(),
+      openedAtIso,
       openingCash: round2(input.openingCash),
       salesCash: 0,
       salesCard: 0,
@@ -158,8 +159,9 @@ export async function openShiftSafe(input: {
       cashInTotal: 0,
       status: 'open',
       note: input.note,
+      clientRef,
     }
-    await useOfflineSync.getState().queueOp('shift_open', payload, { localId })
+    await useOfflineSync.getState().queueOp('shift_open', { ...payload, openedAtIso }, { localId })
     usePosStore.setState(s => ({ shifts: [shift, ...s.shifts] }))
     return shift
   }
@@ -177,12 +179,12 @@ export async function closeShiftSafe(
   const payload = { clientRef, shiftId, closingCash: round2(input.closingCash), note: input.note }
 
   const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('shift_close', payload)
     const current = shiftById(shiftId)
     const expected = current
       ? round2((current.openingCash || 0) + (current.salesCash || 0) + (current.cashInTotal || 0) - (current.expenseTotal || 0))
       : payload.closingCash
     const closedAtIso = new Date().toISOString()
+    await useOfflineSync.getState().queueOp('shift_close', { ...payload, closedAtIso })
     patchShift(shiftId, {
       status: 'closed',
       closedAtIso,

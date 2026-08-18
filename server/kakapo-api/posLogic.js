@@ -20,6 +20,16 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+/** Время события с кассы: если ушло из офлайна — не подменять временем сервера. */
+function stampFromClient(data, field) {
+  const raw = data && data[field]
+  const clientRef = String((data && data.clientRef) || '').trim()
+  if (clientRef && raw && !Number.isNaN(Date.parse(raw))) {
+    return new Date(raw).toISOString()
+  }
+  return nowIso()
+}
+
 function nowTimeLocal() {
   return new Date().toLocaleTimeString('ru-RU', {
     hour: '2-digit',
@@ -1070,12 +1080,13 @@ export function openPosShift(db, data = {}) {
   const existing = db.posShifts.find(s => s.cashierId === cashier.id && s.status === 'open')
   if (existing) throw new Error('У кассира уже открыта смена')
   const cashierName = named || String(cashier.name || '').trim() || 'Кассир'
+  const openedAtIso = stampFromClient(data, 'openedAtIso')
   const row = {
     id: nextId('SHIFT'),
     posId,
     cashierId: cashier.id,
     cashierName,
-    openedAtIso: nowIso(),
+    openedAtIso,
     closedAtIso: null,
     openingCash: round2(data.openingCash),
     closingCash: null,
@@ -1104,6 +1115,7 @@ export function openPosShift(db, data = {}) {
     refId: row.id,
     reason: 'Открытие смены · разменный фонд',
     note: row.note,
+    createdAtIso: openedAtIso,
   })
   return row
 }
@@ -1126,7 +1138,7 @@ export function closePosShift(db, id, data = {}) {
   const actualCash = round2(data.closingCash)
   const cashDiff = round2(actualCash - expectedCash)
   row.status = 'closed'
-  row.closedAtIso = nowIso()
+  row.closedAtIso = stampFromClient(data, 'closedAtIso')
   row.closingCash = actualCash
   row.expectedCash = expectedCash
   row.actualCash = actualCash
@@ -1151,6 +1163,7 @@ export function closePosShift(db, id, data = {}) {
         : `Излишек ${cashDiff.toFixed(2)} сом`,
     note: row.note,
     meta: { expectedCash, actualCash, cashDiff },
+    createdAtIso: row.closedAtIso,
   })
   transferClosedShiftToVault(db, row)
   return row

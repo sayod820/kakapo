@@ -612,6 +612,13 @@ async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: str
         revisions: s.revisions.map(r => (r.id === localId ? { ...r, id: serverId } : r)),
       }))
       void persistPosSnapshot()
+    } else if (kind === 'shift_open') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        shifts: s.shifts.map(sh => (sh.id === localId ? { ...sh, id: serverId } : sh)),
+        sales: s.sales.map(sale => (sale.shiftId === localId ? { ...sale, shiftId: serverId } : sale)),
+      }))
+      void persistPosSnapshot()
     }
   } catch { /* ignore */ }
 }
@@ -742,6 +749,13 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'shift_open': {
       const p = await resolveRefs(row.payload || {}, ['cashierId', 'posId'])
+      let openedAtIso = String(p.openedAtIso || '').trim()
+      if (!openedAtIso && row.localId) {
+        try {
+          const { usePosStore } = await import('./posStore')
+          openedAtIso = usePosStore.getState().shifts.find(s => s.id === row.localId)?.openedAtIso || ''
+        } catch { /* ignore */ }
+      }
       const shift = await api.openPosShift({
         clientRef: p.clientRef,
         cashierId: p.cashierId,
@@ -749,15 +763,24 @@ async function sendOp(row: PendingOp): Promise<string> {
         openingCash: Number(p.openingCash) || 0,
         note: p.note,
         posId: p.posId,
+        openedAtIso: openedAtIso || undefined,
       } as any)
       return String((shift as any)?.id || '')
     }
     case 'shift_close': {
       const p = await resolveRefs(row.payload, ['shiftId'])
+      let closedAtIso = String(p.closedAtIso || '').trim()
+      if (!closedAtIso) {
+        try {
+          const { usePosStore } = await import('./posStore')
+          closedAtIso = usePosStore.getState().shifts.find(s => s.id === p.shiftId)?.closedAtIso || ''
+        } catch { /* ignore */ }
+      }
       const shift = await api.closePosShift(String(p.shiftId), {
         clientRef: p.clientRef,
         closingCash: Number(p.closingCash) || 0,
         note: p.note,
+        closedAtIso: closedAtIso || undefined,
       } as any)
       return String((shift as any)?.id || '')
     }
