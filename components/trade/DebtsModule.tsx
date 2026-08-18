@@ -276,13 +276,14 @@ function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
 
 function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {
   const card = cardForClient(client, cards)
-  const debt = effectiveDebt(client, card)
+  const debtOnCard = effectiveDebt(client, card)
   const debtLimit = resolveEffectiveDebtLimit(client)
   const history = loadDebtHistoryForClient(client)
   const manual = history.filter(isManualDebtHistoryEntry)
   const totals = debtHistoryTotals(manual)
   const posSales = posDebtSalesFor(client, sales)
-  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debt)
+  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debtOnCard)
+  const debt = Math.round((posRemain + cashOnCard) * 100) / 100
   return {
     ...client,
     debt,
@@ -546,6 +547,7 @@ export default function DebtsModule({
       history,
       cardDebt,
     )
+    const totalDebt = Math.round((posRemain + cashOnCard) * 100) / 100
     const cashChargeSum = Math.round(
       cash.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
     ) / 100
@@ -567,6 +569,7 @@ export default function DebtsModule({
       posSum: posRemain,
       posOriginal,
       cashOnCard,
+      totalDebt,
       residualCash,
       feed,
       historyFeed: withRunningBalance(feed),
@@ -610,8 +613,8 @@ export default function DebtsModule({
   function openSaleDetail(saleId: string) {
     setSaleDetailId(saleId)
     const st = detailData?.saleStatus[saleId]
-    const cardDebt = Math.max(0, Number(detailClient?.debt) || 0)
-    const remain = Math.min(st?.remain ?? 0, cardDebt)
+    const debtNow = Math.max(0, Number(detailData?.totalDebt ?? detailClient?.debt) || 0)
+    const remain = Math.min(st?.remain ?? 0, debtNow)
     setSaleRepay(remain > 0.001 ? { amount: String(remain), saving: false, method: 'cash' } : null)
   }
 
@@ -622,8 +625,8 @@ export default function DebtsModule({
     const s = detailData.posSales.find(x => x.id === saleDetailId)
     if (!s) return
     const st = detailData.saleStatus[s.id]
-    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
-    const maxPay = Math.min(st?.remain ?? 0, cardDebt)
+    const debtNow = Math.max(0, Number(detailData.totalDebt ?? detailClient.debt) || 0)
+    const maxPay = Math.min(st?.remain ?? 0, debtNow)
     const amount = Math.round(Math.min(Number(saleRepay.amount) || 0, maxPay) * 100) / 100
     if (!(amount > 0.001)) {
       setHistMsg('Укажите сумму погашения')
@@ -685,7 +688,7 @@ export default function DebtsModule({
     setHistAdd({
       open: true,
       action,
-      amount: action === 'repay' && detailClient ? String(Number(detailClient.debt) || '') : '',
+      amount: action === 'repay' && detailData ? String(Number(detailData.totalDebt) || '') : '',
       desc: '',
       saving: false,
       method: 'cash',
@@ -704,7 +707,7 @@ export default function DebtsModule({
     setHistMsg('')
     try {
       if (histAdd.action === 'repay') {
-        const debtNow = Math.max(0, Number(detailClient.debt) || 0)
+        const debtNow = Math.max(0, Number(detailData?.totalDebt ?? detailClient.debt) || 0)
         if (amount > debtNow + 0.009) {
           setHistAdd(prev => ({ ...prev, saving: false }))
           setHistMsg(`Долг клиента ${fmtMoney(debtNow)}`)
@@ -1017,12 +1020,12 @@ export default function DebtsModule({
               placeholder={histAdd.action === 'repay' ? 'Погашение долга' : 'Выдано наличными'}
             />
           </div>
-          {histAdd.action === 'repay' && detailClient && Number(detailClient.debt) > 0 && (
+          {histAdd.action === 'repay' && detailData && Number(detailData.totalDebt) > 0 && (
             <button
               type="button"
               className="k-btn k-btn-s"
               style={{ fontSize: 12 }}
-              onClick={() => setHistAdd(prev => ({ ...prev, amount: String(detailClient.debt) }))}
+              onClick={() => setHistAdd(prev => ({ ...prev, amount: String(detailData.totalDebt) }))}
             >
               Весь долг
             </button>
@@ -1220,8 +1223,8 @@ export default function DebtsModule({
                 </div>
                   <div className="k-debts-metric">
                     <div className="kl">Итого</div>
-                    <div className="kv" style={{ color: cardDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                      {cardDebt > 0 ? fmtMoney(cardDebt) : '—'}
+                    <div className="kv" style={{ color: detailData.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
+                      {detailData.totalDebt > 0 ? fmtMoney(detailData.totalDebt) : '—'}
                   </div>
                 </div>
                 </div>
@@ -1551,7 +1554,7 @@ export default function DebtsModule({
                 <button
                   type="button"
                   className="k-btn k-btn-g"
-                  disabled={!(cardDebt > 0)}
+                  disabled={!(detailData.totalDebt > 0)}
                   onClick={() => openAdd('repay')}
                 >
                   ✓ Погасить долг
@@ -1569,8 +1572,8 @@ export default function DebtsModule({
         const s = detailData.posSales.find(x => x.id === saleDetailId)
         if (!s) return null
         const st = detailData.saleStatus[s.id] || { status: 'open' as const, paid: 0, remain: s.debtAdded }
-        const cardDebt = Math.max(0, Number(detailClient?.debt) || 0)
-        const maxPay = Math.min(st.remain, cardDebt)
+        const debtNow = Math.max(0, Number(detailData.totalDebt ?? detailClient?.debt) || 0)
+        const maxPay = Math.min(st.remain, debtNow)
         const canRepay = maxPay > 0.001
         return (
           <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => { setSaleDetailId(null); setSaleRepay(null) }}>
