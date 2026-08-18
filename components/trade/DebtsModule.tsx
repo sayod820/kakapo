@@ -60,7 +60,6 @@ type EnrichedClient = AdminClient & { lastLabel?: string }
 type ListFilter = 'all' | 'with_debt' | 'cleared'
 type SortMode = 'debt' | 'name'
 type DetailTab = 'history' | 'pos' | 'cash' | 'pay'
-type PosViewFilter = 'open' | 'all'
 
 type PayMethod = 'cash' | 'card'
 type SaleRepayState = { amount: string; saving: boolean; method: PayMethod }
@@ -298,6 +297,20 @@ function DebtStatusBadge({ overLimit, debt }: { overLimit: boolean; debt: number
   return <span className="k-badge" style={{ background: 'var(--badge-debt-ok)', color: 'var(--green)' }}>Без долга</span>
 }
 
+function saleFullyPaid(
+  saleId: string | undefined,
+  saleStatus: Record<string, SaleDebtStatus>,
+  posSales: { id: string; orderId?: string }[],
+): boolean {
+  const sid = String(saleId || '').trim()
+  if (!sid) return false
+  const match = posSales.find(s =>
+    debtOrderIdsMatch(s.id, sid) || debtOrderIdsMatch(s.orderId, sid),
+  )
+  const st = saleStatus[match?.id || sid]
+  return !!st && (st.status === 'paid' || st.remain <= 0.001)
+}
+
 function kindMeta(kind: FeedRow['kind'], title?: string) {
   if (kind === 'pos') return { label: 'Чек в долг', color: 'var(--blue)', icon: '🧾' }
   if (kind === 'cash') return { label: 'Наличные', color: 'var(--gold)', icon: '💵' }
@@ -331,7 +344,9 @@ function buildFeed(
         editable: isManualDebtHistoryEntry(row) ? row : undefined,
       }
     }),
-    ...checkPays.map(row => {
+    ...checkPays
+      .filter(row => !saleFullyPaid(row.orderId, saleStatus, posSales))
+      .map(row => {
       const isReturn = /возврат/i.test(String(row.desc || ''))
       return {
         key: `cp-${row.id}`,
@@ -344,15 +359,15 @@ function buildFeed(
         saleId: row.orderId?.replace(/^sale-/, '') || undefined,
       }
     }),
-    ...posSales.map(s => {
+    ...posSales
+      .filter(s => !saleFullyPaid(s.id, saleStatus, posSales))
+      .map(s => {
       const st = saleStatus[s.id]
       const statusNote = !st
         ? ''
-        : st.status === 'paid'
-          ? ' · погашен'
-          : st.status === 'partial'
-            ? ` · остаток ${fmtMoney(st.remain)}`
-            : ` · к оплате ${fmtMoney(st.remain)}`
+        : st.status === 'partial'
+          ? ` · остаток ${fmtMoney(st.remain)}`
+          : ` · к оплате ${fmtMoney(st.remain)}`
       return {
         key: `p-${s.id}`,
         ts: Date.parse(s.dateIso) || 0,
@@ -360,7 +375,6 @@ function buildFeed(
         kind: 'pos' as const,
         title: 'Чек в долг',
         desc: `${saleLabel(s)}${statusNote}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
-        // В истории сумма чека = исходный долг; погашения идут отдельными строками «Оплата»
         amount: Math.abs(Number(s.debtAdded) || 0),
         saleId: s.id,
       }
@@ -416,7 +430,6 @@ export default function DebtsModule({
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
   const [saleRepay, setSaleRepay] = useState<SaleRepayState | null>(null)
-  const [posView, setPosView] = useState<PosViewFilter>('open')
   const desktopAutoPicked = useRef(false)
 
   const refreshAll = useCallback(() => {
@@ -1199,7 +1212,7 @@ export default function DebtsModule({
                 <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
                   {([
                     ['history', 'История'],
-                    ['pos', `Чеки (${detailData.openChecks}/${detailData.posSales.length})`],
+                    ['pos', `Чеки (${detailData.openChecks})`],
                     ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
                     ['pay', `Оплаты (${detailData.pays.length + detailData.checkPays.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
@@ -1289,49 +1302,22 @@ export default function DebtsModule({
                 )}
 
                 {detailTab === 'pos' && (
-                  !detailData.posSales.length ? (
-                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                      Нет чеков кассы в долг
-                    </div>
-                  ) : (
+                  (() => {
+                    const rows = detailData.posSales.filter(s => (detailData.saleStatus[s.id]?.remain || 0) > 0.001)
+                    if (!rows.length) {
+                      return (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                          {detailData.posSales.length ? 'Все чеки погашены' : 'Нет чеков кассы в долг'}
+                        </div>
+                      )
+                    }
+                    return (
                     <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          К оплате: <b style={{ color: 'var(--blue)' }}>{detailData.openChecks}</b>
-                          {' · '}всего {detailData.posSales.length}
-                          {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
-                        </div>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          {([
-                            ['open', 'К оплате'],
-                            ['all', 'Все'],
-                          ] as [PosViewFilter, string][]).map(([id, label]) => (
-                        <button
-                              key={id}
-                          type="button"
-                              className={`k-subtab ${posView === id ? 'active' : ''}`}
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => setPosView(id)}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                        К оплате: <b style={{ color: 'var(--blue)' }}>{detailData.openChecks}</b>
+                        {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
                       </div>
-                      {(() => {
-                        const rows = detailData.posSales.filter(s => {
-                          if (posView === 'all') return true
-                          return (detailData.saleStatus[s.id]?.remain || 0) > 0.001
-                        })
-                        if (!rows.length) {
-                          return (
-                            <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                              {posView === 'open' ? 'Все чеки погашены' : 'Нет чеков'}
-                            </div>
-                          )
-                        }
-                        return (
-                          <div className="k-debts-table-wrap">
+                      <div className="k-debts-table-wrap">
                             <table className="k-debts-table">
                               <thead>
                                 <tr>
@@ -1412,11 +1398,10 @@ export default function DebtsModule({
                                 })}
                               </tbody>
                             </table>
-                          </div>
-                        )
-                      })()}
+                      </div>
                     </>
-                  )
+                    )
+                  })()
                 )}
 
                 {detailTab === 'cash' && (

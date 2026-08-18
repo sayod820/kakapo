@@ -1164,7 +1164,6 @@ export default function CashierModule({
   const [histTab, setHistTab] = useState<'history' | 'pos' | 'cash' | 'pay'>('history')
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
   const [histTick, setHistTick] = useState(0)
-  const [posView, setPosView] = useState<'open' | 'all'>('open')
   const [payPickOpen, setPayPickOpen] = useState(false)
   const [creditNoteOpen, setCreditNoteOpen] = useState(false)
   const [creditNoteBuf, setCreditNoteBuf] = useState('')
@@ -2520,12 +2519,14 @@ export default function CashierModule({
     })
 
     const feedSrc: { key: string; ts: number; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; saleId?: string }[] = [
-      ...creditSales.map(s => ({
+      ...creditSales
+        .filter(s => s.remain > 0.001)
+        .map(s => ({
         key: `p-${s.id}`,
         ts: s.ts,
         when: s.when,
         kind: 'pos' as const,
-        desc: `${s.label}${s.status === 'paid' ? ' · погашен' : s.status === 'partial' ? ` · остаток ${fmtMoney(s.remain)}` : ` · к оплате ${fmtMoney(s.remain)}`}${s.items ? ` · ${s.items}` : ''}`,
+        desc: `${s.label}${s.status === 'partial' ? ` · остаток ${fmtMoney(s.remain)}` : ` · к оплате ${fmtMoney(s.remain)}`}${s.items ? ` · ${s.items}` : ''}`,
         amount: s.debtAdded,
         saleId: s.id,
       })),
@@ -2537,7 +2538,14 @@ export default function CashierModule({
         desc: `${r.desc || 'Ручное начисление'}${r.overdue ? ' · просрочен' : r.dueDate ? ` · до ${r.dueDate}` : ''}`,
         amount: Math.abs(Number(r.amount) || 0),
       })),
-      ...payRows.map(r => {
+      ...payRows
+        .filter(r => {
+          const sid = String(r.orderId || '').replace(/^sale-/, '')
+          if (!sid) return true
+          const sale = creditSales.find(s => debtOrderIdsMatch(s.id, sid) || debtOrderIdsMatch(s.id, r.orderId))
+          return !sale || sale.remain > 0.001
+        })
+        .map(r => {
         const isReturn = /возврат/i.test(String(r.desc || ''))
         return {
           key: `pay-${r.id}`,
@@ -9710,7 +9718,7 @@ export default function CashierModule({
             <div className="cashier-debts-subtabs" role="tablist">
               {([
                 ['history', 'История'],
-                ['pos', `Чеки (${cashierDebtPanel.openChecks}/${cashierDebtPanel.totalChecks})`],
+                ['pos', `Чеки (${cashierDebtPanel.openChecks})`],
                 ['cash', `Нал. (${cashierDebtPanel.cashRows.length + (cashierDebtPanel.residualCash > 0.005 ? 1 : 0)})`],
                 ['pay', `Оплаты (${cashierDebtPanel.payRows.length})`],
               ] as const).map(([id, label]) => (
@@ -9810,32 +9818,21 @@ export default function CashierModule({
 
               {histTab === 'pos' && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <div style={{ fontSize: 12, color: 'var(--t3)' }}>
-                      К оплате: <b style={{ color: 'var(--blue)' }}>{cashierDebtPanel.openChecks}</b>
-                      {' · '}всего {cashierDebtPanel.totalChecks}
-                      {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(cashierDebtPanel.posRemain)}</b>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {(['open', 'all'] as const).map(id => (
-                  <button
-                          key={id}
-                    type="button"
-                          className={`cashier-debts-subtab ${posView === id ? 'on' : ''}`}
-                          style={{ padding: '4px 10px', fontSize: 11 }}
-                          onClick={() => setPosView(id)}
-                        >
-                          {id === 'open' ? 'К оплате' : 'Все'}
-                  </button>
-                      ))}
-                </div>
-                    </div>
                   {(() => {
-                    const rows = cashierDebtPanel.creditSales.filter(s => posView === 'all' || s.remain > 0.001)
+                    const rows = cashierDebtPanel.creditSales.filter(s => s.remain > 0.001)
                     if (!rows.length) {
-                      return <div className="hist-empty">{posView === 'open' ? 'Все чеки погашены' : 'Нет чеков'}</div>
+                      return (
+                        <div className="hist-empty">
+                          {cashierDebtPanel.totalChecks ? 'Все чеки погашены' : 'Нет чеков'}
+                        </div>
+                      )
                     }
                     return (
+                      <>
+                        <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 8 }}>
+                          К оплате: <b style={{ color: 'var(--blue)' }}>{cashierDebtPanel.openChecks}</b>
+                          {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(cashierDebtPanel.posRemain)}</b>
+                        </div>
                       <div className="cashier-debts-table-wrap">
                         <table className="cashier-debts-table">
                           <thead>
@@ -9903,6 +9900,7 @@ export default function CashierModule({
                           </tbody>
                         </table>
                       </div>
+                      </>
                     )
                   })()}
                 </>
