@@ -84,11 +84,28 @@ export function mergeAppendById<T extends { id?: string | number; clientRef?: st
   return [...map.values()].filter(row => !isUnlinkedLocalGhost(row, map))
 }
 
+/** Пока GET ещё без свежей записи — не выкидывать только что ушедший на сервер id. */
+const INBOUND_KEEP_RECENT_MS = 3 * 60_000
+
+function isRecentLocalRow(row: { createdAtIso?: string; updatedAtIso?: string; createdAt?: string }): boolean {
+  const ts = Date.parse(String(row.createdAtIso || row.updatedAtIso || row.createdAt || ''))
+  if (!Number.isFinite(ts)) return false
+  const age = Date.now() - ts
+  return age >= 0 && age < INBOUND_KEEP_RECENT_MS
+}
+
 /**
  * Входящий синк: серверные id — как на сервере (удалённые пропадают),
  * локальные off-* остаются, пока не склеены по clientRef.
+ * Свежий remap (off-* → FIN-*) не должен исчезнуть, если GET ещё старый.
  */
-export function mergeInboundById<T extends { id?: string | number; clientRef?: string }>(
+export function mergeInboundById<T extends {
+  id?: string | number
+  clientRef?: string
+  createdAtIso?: string
+  updatedAtIso?: string
+  createdAt?: string
+}>(
   localList: T[],
   remoteList: T[],
 ): T[] {
@@ -98,7 +115,8 @@ export function mergeInboundById<T extends { id?: string | number; clientRef?: s
     const id = String(row?.id ?? '')
     if (!id) return false
     if (id.startsWith('off-')) return true
-    return remoteIds.has(id)
+    if (remoteIds.has(id)) return true
+    return isRecentLocalRow(row)
   })
 }
 

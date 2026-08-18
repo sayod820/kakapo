@@ -125,16 +125,23 @@ export function ymdLocal(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
+function startOfLocalDay(d: Date, dayOffset = 0) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset).getTime()
+}
+
+function endOfLocalDay(d: Date, dayOffset = 0) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset, 23, 59, 59, 999).getTime()
+}
+
 export function periodRange(
   period: ReportPeriod,
   customFrom?: string,
   customTo?: string,
 ): { from: number | null; to: number | null } {
   const now = new Date()
-  const end = now.getTime()
   if (period === 'custom') {
     const from = customFrom ? new Date(`${customFrom}T00:00:00`).getTime() : null
-    const to = customTo ? new Date(`${customTo}T23:59:59.999`).getTime() : end
+    const to = customTo ? new Date(`${customTo}T23:59:59.999`).getTime() : endOfLocalDay(now)
     return {
       from: from != null && !Number.isNaN(from) ? from : null,
       to: to != null && !Number.isNaN(to) ? to : null,
@@ -142,20 +149,18 @@ export function periodRange(
   }
   if (period === 'all') return { from: null, to: null }
   if (period === 'today') {
-    return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), to: end }
+    return { from: startOfLocalDay(now), to: endOfLocalDay(now) }
   }
   if (period === 'yesterday') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
-    const endY = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - 1
-    return { from: start, to: endY }
+    return { from: startOfLocalDay(now, -1), to: endOfLocalDay(now, -1) }
   }
   if (period === 'month') {
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), to: end }
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), to: endOfLocalDay(now) }
   }
   const days = period === '7d' ? 7 : 30
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime(),
-    to: end,
+    from: startOfLocalDay(now, -(days - 1)),
+    to: endOfLocalDay(now),
   }
 }
 

@@ -93,6 +93,16 @@ export function runSyncSelfCheck(): SelfCheckResult {
     detail: JSON.stringify(inbound.map(s => s.id)),
   })
 
+  const fresh = mergeInboundById(
+    [{ id: 'FIN-fresh', clientRef: 'ref-c', amount: 80, createdAtIso: new Date().toISOString() }],
+    [{ id: 'FIN-old', amount: 1, createdAtIso: '2026-01-01T00:00:00.000Z' }],
+  )
+  checks.push({
+    name: 'mergeInboundById: свежий серверный id не пропадает, пока GET догоняет',
+    ok: fresh.some(s => s.id === 'FIN-fresh') && fresh.some(s => s.id === 'FIN-old'),
+    detail: JSON.stringify(fresh.map(s => s.id)),
+  })
+
   const ok = checks.every(c => c.ok)
   return { ok, checks }
 }
