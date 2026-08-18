@@ -59,7 +59,7 @@ import OfflineNotice from './OfflineNotice'
 type EnrichedClient = AdminClient & { lastLabel?: string }
 type ListFilter = 'all' | 'with_debt' | 'cleared'
 type SortMode = 'debt' | 'name'
-type DetailTab = 'history' | 'pos' | 'cash' | 'pay'
+type DetailTab = 'checks' | 'cash' | 'pay' | 'all'
 
 type PayMethod = 'cash' | 'card'
 type SaleRepayState = { amount: string; saving: boolean; method: PayMethod }
@@ -111,17 +111,19 @@ type PosDebtSale = {
   id: string
   number?: number
   orderId?: string
+  status?: string
   dateIso: string
   total: number
   paidCash: number
   paidCard: number
   debtAdded: number
+  currentDebt: number
   paymentMethod: string
   itemsCount: number
   note?: string
   partial: boolean
   cashierName?: string
-  items: { name: string; qty: number; unit?: string; price: number; lineTotal: number }[]
+  items: { name: string; qty: number; returnedQty: number; unit?: string; price: number; lineTotal: number }[]
 }
 
 type DebtClientRow = EnrichedClient & {
@@ -214,28 +216,30 @@ function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
 function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[] {
   return salesFor(client, sales)
     .map(s => {
-      const remain = saleOpenCreditAmount(s)
-      const orig = remain > 0.001
-        ? remain
+      const currentDebt = saleOpenCreditAmount(s)
+      const orig = currentDebt > 0.001
+        ? currentDebt
         : (saleWasOnCredit(s)
           ? Math.max(
-            remain,
+            currentDebt,
             Number((s as { originalTotal?: number }).originalTotal) || 0,
             Number(s.lastReturnTotal) || 0,
           )
           : 0)
       const paidCash = Number(s.paidCash) || 0
       const paidCard = Number(s.paidCard) || 0
-      const partial = remain > 0 && (paidCash > 0 || paidCard > 0)
+      const partial = currentDebt > 0 && (paidCash > 0 || paidCard > 0)
       return {
         id: s.id,
         number: s.number,
         orderId: s.orderId,
+        status: s.status,
         dateIso: s.createdAtIso,
         total: Number(s.total) || 0,
         paidCash,
         paidCard,
         debtAdded: orig,
+        currentDebt,
         paymentMethod: s.paymentMethod,
         itemsCount: s.items?.length || 0,
         note: s.note,
@@ -244,6 +248,7 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
         items: (s.items || []).map(it => ({
           name: it.productName || `#${it.productId}`,
           qty: Number(it.qty) || 0,
+          returnedQty: Number(it.returnedQty) || 0,
           unit: it.unit,
           price: Number(it.price) || 0,
           lineTotal: Number(it.lineTotal) || 0,
@@ -316,6 +321,20 @@ function kindMeta(kind: FeedRow['kind'], title?: string) {
   if (kind === 'cash') return { label: 'Наличные', color: 'var(--gold)', icon: '💵' }
   if (/возврат/i.test(String(title || ''))) return { label: 'Возврат товара', color: 'var(--blue)', icon: '↩️' }
   return { label: 'Оплата', color: 'var(--green)', icon: '✅' }
+}
+
+function saleRowStatus(s: PosDebtSale, st?: SaleDebtStatus) {
+  const returnedAll = s.items.length > 0 && s.items.every(i => i.returnedQty >= i.qty - 0.001)
+  if (s.status === 'returned' || returnedAll) {
+    return { label: 'Возврат', color: 'var(--red)', icon: '↩️' }
+  }
+  if ((st?.remain || 0) <= 0.001) {
+    return { label: 'Погашен', color: 'var(--green)', icon: '✅' }
+  }
+  if ((st?.paid || 0) > 0.001) {
+    return { label: 'Частично', color: 'var(--gold)', icon: '◐' }
+  }
+  return { label: 'К оплате', color: 'var(--blue)', icon: '🧾' }
 }
 
 function buildFeed(
@@ -423,7 +442,7 @@ export default function DebtsModule({
   const [sort, setSort] = useState<SortMode>('debt')
   const [filter, setFilter] = useState<ListFilter>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<DetailTab>('history')
+  const [detailTab, setDetailTab] = useState<DetailTab>('checks')
   const [histAdd, setHistAdd] = useState<HistAddState>(emptyHistAdd)
   const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
@@ -580,7 +599,7 @@ export default function DebtsModule({
 
   function selectClient(id: string) {
     setDetailId(id)
-    setDetailTab('history')
+    setDetailTab('checks')
     setHistAdd(emptyHistAdd())
     setHistMsg('')
     setHistEdit(null)
@@ -1211,10 +1230,10 @@ export default function DebtsModule({
               <div style={{ padding: '6px 8px 0', flexShrink: 0 }}>
                 <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
                   {([
-                    ['history', 'История'],
-                    ['pos', `Чеки (${detailData.openChecks})`],
+                    ['checks', `Чеки в долг (${detailData.posSales.length})`],
                     ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
                     ['pay', `Оплаты (${detailData.pays.length + detailData.checkPays.length})`],
+                    ['all', `Вся история (${detailData.historyFeed.length})`],
                   ] as [DetailTab, string][]).map(([id, label]) => (
                     <button
                       key={id}
@@ -1245,7 +1264,7 @@ export default function DebtsModule({
               </div>
 
               <div className="k-debts-detail-b">
-              {detailTab === 'history' && (
+              {detailTab === 'all' && (
                   !detailData.historyFeed.length ? (
                     <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
                       Пока нет движений
@@ -1301,9 +1320,9 @@ export default function DebtsModule({
                   )
                 )}
 
-                {detailTab === 'pos' && (
+                {detailTab === 'checks' && (
                   (() => {
-                    const rows = detailData.posSales.filter(s => (detailData.saleStatus[s.id]?.remain || 0) > 0.001)
+                    const rows = detailData.posSales
                     if (!rows.length) {
                       return (
                         <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
@@ -1315,7 +1334,7 @@ export default function DebtsModule({
                     <>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
                         К оплате: <b style={{ color: 'var(--blue)' }}>{detailData.openChecks}</b>
-                        {' · '}остаток <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
+                        {' · '}Товары долг: <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
                       </div>
                       <div className="k-debts-table-wrap">
                             <table className="k-debts-table">
@@ -1335,16 +1354,7 @@ export default function DebtsModule({
                                     paid: 0,
                                     remain: s.debtAdded,
                                   }
-                                  const statusLabel = st.status === 'paid'
-                                    ? 'Погашен'
-                                    : st.status === 'partial'
-                                      ? 'Частично'
-                                      : 'К оплате'
-                                  const statusColor = st.status === 'paid'
-                                    ? 'var(--green)'
-                                    : st.status === 'partial'
-                                      ? 'var(--gold)'
-                                      : 'var(--blue)'
+                                  const statusMeta = saleRowStatus(s, st)
                                   const items = s.items.length
                                     ? s.items.slice(0, 2).map(i => i.name).join(', ') + (s.items.length > 2 ? '…' : '')
                                     : ''
@@ -1361,10 +1371,10 @@ export default function DebtsModule({
                                       <td>
                                         <span style={{
                                           display: 'inline-flex', alignItems: 'center', gap: 6,
-                                          fontWeight: 700, color: statusColor, fontSize: 12,
+                                          fontWeight: 700, color: statusMeta.color, fontSize: 12,
                                         }}>
-                                          <span>{st.status === 'paid' ? '✅' : st.status === 'partial' ? '◐' : '🧾'}</span>
-                                          {statusLabel}
+                                          <span>{statusMeta.icon}</span>
+                                          {statusMeta.label}
                                 </span>
                                       </td>
                                       <td style={{ fontSize: 13 }}>
@@ -1389,9 +1399,9 @@ export default function DebtsModule({
                                       </td>
                                       <td style={{
                                         textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
-                                        color: statusColor,
+                                        color: statusMeta.color,
                                       }}>
-                                        {st.status === 'paid' ? '—' : fmtMoney(st.remain)}
+                                        {statusMeta.label === 'Возврат' ? '0' : (st.status === 'paid' ? '—' : fmtMoney(st.remain))}
                                       </td>
                                     </tr>
                                   )
@@ -1611,13 +1621,21 @@ export default function DebtsModule({
                 {!s.items.length ? (
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Позиции не сохранены</div>
                 ) : (
-                  <div style={{ display: 'grid', gap: 4, marginBottom: 12, maxHeight: 220, overflowY: 'auto' }}>
+                  <div style={{ display: 'grid', gap: 4, marginBottom: 12, maxHeight: 260, overflowY: 'auto' }}>
                     {s.items.map((it, i) => (
+                      (() => {
+                        const returned = Math.max(0, Number(it.returnedQty) || 0)
+                        const left = Math.max(0, (Number(it.qty) || 0) - returned)
+                        const fullReturned = left <= 0.001
+                        return (
                       <div
                         key={`${it.name}-${i}`}
                         style={{
                           display: 'flex', justifyContent: 'space-between', gap: 8,
-                          padding: '7px 8px', borderRadius: 8, background: 'var(--card2)', border: '1px solid var(--border)',
+                          padding: '7px 8px',
+                          borderRadius: 8,
+                          background: fullReturned ? 'rgba(220,68,87,.10)' : 'var(--card2)',
+                          border: `1px solid ${fullReturned ? 'rgba(220,68,87,.35)' : 'var(--border)'}`,
                           fontSize: 12,
                         }}
                       >
@@ -1625,10 +1643,20 @@ export default function DebtsModule({
                           <div style={{ fontWeight: 700 }}>{it.name}</div>
                           <div style={{ color: 'var(--muted)', marginTop: 1 }}>
                             {it.qty}{it.unit ? ` ${it.unit}` : ''} × {fmtMoney(it.price)}
+                            {returned > 0 && (
+                              <span style={{ color: 'var(--red)' }}>
+                                {' · '}возврат: {returned}{it.unit ? ` ${it.unit}` : ''}
+                              </span>
+                            )}
+                            <span>
+                              {' · '}осталось: {left}{it.unit ? ` ${it.unit}` : ''}
+                            </span>
           </div>
                         </div>
                         <div style={{ fontWeight: 800, flexShrink: 0 }}>{fmtMoney(it.lineTotal)}</div>
                       </div>
+                        )
+                      })()
                     ))}
         </div>
       )}

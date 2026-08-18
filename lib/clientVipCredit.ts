@@ -380,8 +380,55 @@ export function buildSaleDebtStatuses(
   const posRemain = Math.round(
     Object.values(saleStatus).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
   ) / 100
-  const cashOnCard = Math.max(0, Math.round((debt - posRemain) * 100) / 100)
+
+  // Ledger-first: cashOnCard из истории, а не из разницы debt - posRemain
+  const hasLedger = history.some(h => h.type === 'debt')
+  let cashOnCard: number
+  if (hasLedger) {
+    const ledger = computeDebtFromLedger(history)
+    cashOnCard = ledger.cash
+  } else {
+    cashOnCard = Math.max(0, Math.round((debt - posRemain) * 100) / 100)
+  }
   return { saleStatus, posOriginal, posRemain, cashOnCard }
+}
+
+/**
+ * Ledger-first расчёт долга: группирует remaining по source.
+ * goods = pos + order + backfill; cash = manual + cashier (без orderId).
+ */
+export function computeDebtFromLedger(
+  history: DebtHistoryEntry[],
+): { goods: number; cash: number; total: number } {
+  let goods = 0
+  let cash = 0
+  for (const row of history) {
+    if (row.type !== 'debt') continue
+    const amt = Math.abs(Number(row.amount) || 0)
+    if (amt < 0.005) continue
+    const src = row.source || ''
+    if (src === 'pos' || src === 'order' || row.orderId) {
+      goods += amt
+    } else {
+      cash += amt
+    }
+  }
+  let goodsPaid = 0
+  let cashPaid = 0
+  for (const row of history) {
+    if (row.type !== 'pay') continue
+    const amt = Math.abs(Number(row.amount) || 0)
+    if (amt < 0.005) continue
+    const src = row.source || ''
+    if (src === 'pos' || src === 'order' || row.orderId) {
+      goodsPaid += amt
+    } else {
+      cashPaid += amt
+    }
+  }
+  const g = Math.max(0, Math.round((goods - goodsPaid) * 100) / 100)
+  const c = Math.max(0, Math.round((cash - cashPaid) * 100) / 100)
+  return { goods: g, cash: c, total: Math.round((g + c) * 100) / 100 }
 }
 
 export function splitDebtHistoryBySettlement(
@@ -581,7 +628,8 @@ function mapLedgerSource(source?: string): DebtHistoryEntry['source'] {
   if (s === 'pos') return 'pos'
   if (s === 'order' || s === 'store') return 'order'
   if (s === 'cashier') return 'cashier'
-  if (s === 'manual' || s === 'admin' || s === 'backfill') return 'manual'
+  if (s === 'backfill') return 'pos'
+  if (s === 'manual' || s === 'admin') return 'manual'
   return 'cashier'
 }
 

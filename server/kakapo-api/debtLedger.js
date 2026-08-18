@@ -267,6 +267,26 @@ function reconcileDebtLedger(client) {
       overdueStrikeApplied: false,
     })
     client.debtLedger = client.debtLedger.slice(0, 120)
+  } else if (gap < -0.001) {
+    // debt уменьшился (возврат) — гасим backfill-записи чтобы ledger = debt
+    let excess = round2(-gap)
+    const backfills = client.debtLedger
+      .filter(e => e.source === 'backfill' && round2(e.remaining) > 0)
+      .sort((a, b) => (parseIso(a.createdAtIso) || 0) - (parseIso(b.createdAtIso) || 0))
+    for (const entry of backfills) {
+      if (excess <= 0.001) break
+      const rem = round2(entry.remaining)
+      const cut = Math.min(rem, excess)
+      entry.remaining = round2(rem - cut)
+      excess = round2(excess - cut)
+    }
+  }
+  // Sync debt field back from ledger to eliminate drift
+  const newLedgerSum = round2(
+    (client.debtLedger || []).reduce((s, e) => s + round2(e.remaining), 0),
+  )
+  if (Math.abs(round2(client.debt) - newLedgerSum) > 0.001) {
+    client.debt = newLedgerSum
   }
 }
 
