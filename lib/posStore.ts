@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { api } from './api'
 import { USE_API } from './config'
+import { mergeInboundById } from './syncConflict'
 import type {
   CashVault,
   FinanceMove,
@@ -150,10 +151,10 @@ export const usePosStore = create<PosStore>((set) => ({
         financeSummary,
         report,
       }
+      const local = usePosStore.getState()
       try {
         const { getPending } = await import('./offline')
         const pending = await getPending()
-        const local = usePosStore.getState()
         const pendingSupplierIds = new Set(
           pending
             .filter(r => !r.failed && r.kind === 'supplier_upsert')
@@ -203,6 +204,13 @@ export const usePosStore = create<PosStore>((set) => ({
           }
         }
       } catch { /* очередь недоступна */ }
+      snapshot.sales = mergeInboundById(local.sales, snapshot.sales)
+      snapshot.shifts = mergeInboundById(local.shifts, snapshot.shifts)
+      snapshot.receipts = mergeInboundById(local.receipts, snapshot.receipts)
+      snapshot.writeoffs = mergeInboundById(local.writeoffs, snapshot.writeoffs)
+      snapshot.revisions = mergeInboundById(local.revisions, snapshot.revisions)
+      snapshot.expenses = mergeInboundById(local.expenses, snapshot.expenses)
+      snapshot.financeMoves = mergeInboundById(local.financeMoves, snapshot.financeMoves)
       set({ ...snapshot, apiReady: true, apiSyncing: false, apiError: '' })
       try {
         const { notePosOpSeqFromSales, notePosOpSeqFromPoints } = await import('./posOpSeq')
@@ -268,7 +276,7 @@ export async function softSyncPosAfterSale() {
       api.getPosShifts(),
     ])
 
-    const { getPending, isLocalId } = await import('./offline')
+    const { getPending } = await import('./offline')
     const pending = await getPending()
     const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
 
@@ -295,16 +303,11 @@ export async function softSyncPosAfterSale() {
       }
       return s
     })
-    const serverSaleIds = new Set(enrichedServer.map(s => String(s.id)))
-    const localOnlySales = localSales.filter(s => {
-      const id = String(s.id)
-      if (serverSaleIds.has(id)) return false
-      return isLocalId(id) || !!(s as { _offline?: boolean })._offline
-    })
-    const mergedSales = localOnlySales.length ? [...localOnlySales, ...enrichedServer] : enrichedServer
+    const mergedSales = mergeInboundById(localSales, enrichedServer)
 
     const prevIds = new Set(localSales.map(s => String(s.id)))
     const hasNewFromServer = enrichedServer.some(s => !prevIds.has(String(s.id)))
+    const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
 
     const localShifts = usePosStore.getState().shifts
     const enrichedShifts = (shifts || []).map(sh => {
@@ -331,10 +334,13 @@ export async function softSyncPosAfterSale() {
       // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
       usePosStore.setState({ sales: mergedSales })
     } else {
-      usePosStore.setState({ sales: mergedSales, shifts: enrichedShifts })
+      usePosStore.setState({
+        sales: mergedSales,
+        shifts: mergeInboundById(localShifts, enrichedShifts),
+      })
     }
 
-    if (hasNewFromServer || localOnlySales.length || mergedSales.length !== localSales.length) {
+    if (hasNewFromServer || keptLocal || mergedSales.length !== localSales.length) {
       try {
         const { cacheData } = await import('./offline')
         const cur = usePosStore.getState()
@@ -359,25 +365,36 @@ export async function softSyncPosAfterSale() {
   } catch { /* нет связи — локальный чек уже на экране */ }
 }
 
-/**
- * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
- * Без sales/finance/reconcile — чтобы слабый интернет не «замораживал» раздел.
- * Локальные (off-*) записи НЕ затираются сервером.
- */
-function mergeLocalDocs<T extends { id?: string }>(local: T[], server: T[]): T[] {
-  const serverIds = new Set(server.map(s => String(s.id || '')))
-  const localOnly = local.filter(s => {
-    const id = String(s.id || '')
-    if (!id || serverIds.has(id)) return false
-    return id.startsWith('off-') || !!(s as { _offline?: boolean })._offline
-  })
-  return localOnly.length ? [...localOnly, ...server] : server
+async function persistSoftPosSnapshot() {
+  try {
+    const { cacheData } = await import('./offline')
+    const snap = usePosStore.getState()
+    void cacheData('pos_snapshot', {
+      cashiers: snap.cashiers,
+      posPoints: snap.posPoints,
+      shifts: snap.shifts,
+      sales: snap.sales,
+      receipts: snap.receipts,
+      writeoffs: snap.writeoffs,
+      revisions: snap.revisions,
+      suppliers: snap.suppliers,
+      expenses: snap.expenses,
+      financeMoves: snap.financeMoves,
+      cashVault: snap.cashVault,
+      expiry: snap.expiry,
+      financeSummary: snap.financeSummary,
+      report: snap.report,
+    })
+  } catch { /* ignore */ }
 }
 
+/**
+ * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
+ * Локальные off-* не затираются и склеиваются с сервером по clientRef.
+ */
 let warehouseSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
-  // Не гоняем параллельно несколько тяжёлых pull — склад «замирает»
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
   warehouseSoftSyncInFlight = (async () => {
     try {
@@ -392,36 +409,16 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
 
       const cur = usePosStore.getState()
       usePosStore.setState({
-        receipts: mergeLocalDocs(cur.receipts, receipts),
-        writeoffs: mergeLocalDocs(cur.writeoffs, writeoffs),
-        revisions: mergeLocalDocs(cur.revisions, revisions),
-        suppliers: mergeLocalDocs(cur.suppliers as { id?: string }[], suppliers as { id?: string }[]) as typeof cur.suppliers,
+        receipts: mergeInboundById(cur.receipts, receipts),
+        writeoffs: mergeInboundById(cur.writeoffs, writeoffs),
+        revisions: mergeInboundById(cur.revisions, revisions),
+        suppliers: mergeInboundById(cur.suppliers, suppliers) as typeof cur.suppliers,
         expiry,
         apiReady: true,
         apiError: '',
       })
-      try {
-        const { cacheData } = await import('./offline')
-        const snap = usePosStore.getState()
-        void cacheData('pos_snapshot', {
-          cashiers: snap.cashiers,
-          posPoints: snap.posPoints,
-          shifts: snap.shifts,
-          sales: snap.sales,
-          receipts: snap.receipts,
-          writeoffs: snap.writeoffs,
-          revisions: snap.revisions,
-          suppliers: snap.suppliers,
-          expenses: snap.expenses,
-          financeMoves: snap.financeMoves,
-          cashVault: snap.cashVault,
-          expiry: snap.expiry,
-          financeSummary: snap.financeSummary,
-          report: snap.report,
-        })
-      } catch { /* ignore */ }
+      await persistSoftPosSnapshot()
 
-      // Партии + остатки на кассе (приход с телефона → сразу видно)
       try {
         const { pullStockLayersFromServer } = await import('./stockLayersLocal')
         await pullStockLayersFromServer({ bumpProducts: true })
@@ -432,4 +429,35 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
     }
   })()
   return warehouseSoftSyncInFlight
+}
+
+/** Вклады / расходы / ящик с другого аппарата — без полного POS-снимка. */
+let financeSoftSyncInFlight: Promise<void> | null = null
+
+export async function softSyncFinance() {
+  if (financeSoftSyncInFlight) return financeSoftSyncInFlight
+  financeSoftSyncInFlight = (async () => {
+    try {
+      const [financeMoves, expenses, cashVault] = await Promise.all([
+        api.getFinanceMoves(),
+        api.getExpenses(),
+        api.getCashVault().catch(() => null),
+      ])
+      const cur = usePosStore.getState()
+      usePosStore.setState({
+        financeMoves: mergeInboundById(cur.financeMoves, financeMoves),
+        expenses: mergeInboundById(cur.expenses, expenses),
+        ...(cashVault
+          ? { cashVault: mergeCashVault(cur.cashVault, cashVault) }
+          : {}),
+        apiReady: true,
+        apiError: '',
+      })
+      await persistSoftPosSnapshot()
+    } catch { /* нет связи */ }
+    finally {
+      financeSoftSyncInFlight = null
+    }
+  })()
+  return financeSoftSyncInFlight
 }

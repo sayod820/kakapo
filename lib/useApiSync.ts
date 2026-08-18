@@ -7,7 +7,7 @@ import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
 import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
-import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
+import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
@@ -32,7 +32,7 @@ function wsRoleForMode(mode: SyncMode) {
   return 'admin' as const
 }
 
-type PullKind = 'crm' | 'pos' | 'posSoft' | 'posWarehouse' | 'products'
+type PullKind = 'crm' | 'pos' | 'posSoft' | 'posWarehouse' | 'posFinance' | 'products'
 
 function createDebouncedPullers() {
   const timers: Partial<Record<PullKind, ReturnType<typeof setTimeout>>> = {}
@@ -67,9 +67,12 @@ function createDebouncedPullers() {
       void softSyncPosAfterSale()
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
-      // Поиск не блокирует: приход с телефона должен сразу обновить кассу
       if (isCashierPaymentCritical()) return
       void softSyncWarehouse()
+    }),
+    posFinance: () => schedule('posFinance', () => {
+      if (isCashierPaymentCritical()) return
+      void softSyncFinance()
     }),
     flushAll: () => {
       for (const t of Object.values(timers)) if (t) clearTimeout(t)
@@ -184,17 +187,26 @@ export function useApiSync(mode: SyncMode = 'all') {
         pull.posSoft()
         return
       }
-      // Склад / поставщики / финансы — лёгкий warehouse sync, без 13 эндпоинтов
+      // Склад / поставщики
       if (
         kind.includes('stock')
         || kind.includes('receipt')
         || kind.includes('writeoff')
         || kind.includes('revision')
         || kind.includes('supplier')
-        || kind.includes('expense')
-        || kind.includes('finance')
       ) {
         pull.posWarehouse()
+        return
+      }
+      // Вклады / расходы / ящик
+      if (
+        kind.includes('expense')
+        || kind.includes('finance')
+        || kind.includes('vault')
+        || kind === 'client-cash-topup'
+      ) {
+        pull.posFinance()
+        if (kind === 'client-cash-topup') pull.posSoft()
         return
       }
       // Неизвестный kind — мягко, не полный снимок
@@ -245,6 +257,7 @@ export function useApiSync(mode: SyncMode = 'all') {
           const tasks: Promise<unknown>[] = [
             softSyncPosAfterSale(),
             softSyncWarehouse(),
+            softSyncFinance(),
           ]
           if (searchBusy) {
             await Promise.allSettled(tasks)
@@ -302,6 +315,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       salesId = setInterval(() => {
         if (isCashierPaymentCritical()) return
         void softSyncPosAfterSale()
+        void softSyncFinance()
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

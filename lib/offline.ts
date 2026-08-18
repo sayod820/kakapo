@@ -529,6 +529,31 @@ export async function findDuplicateDebtRepay(payload: {
   }) || null
 }
 
+const CASHIER_DOUBLE_TAP_MS = 2500
+
+function sameCashierOpFingerprint(kind: QueueKind, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (Math.abs((Number(a.amount) || 0) - (Number(b.amount) || 0)) > 0.009) return false
+  if (String(a.shiftId || '') !== String(b.shiftId || '')) return false
+  if (String(a.note || '').trim() !== String(b.note || '').trim()) return false
+  if (kind === 'finance_move' && String(a.type || '') !== String(b.type || '')) return false
+  if (kind === 'expense_create' && String(a.category || '') !== String(b.category || '')) return false
+  if (kind === 'card_topup' && String(a.num || '') !== String(b.num || '')) return false
+  return true
+}
+
+async function findDuplicateCashierOp(kind: QueueKind, payload: Record<string, unknown>): Promise<PendingOp | null> {
+  const clientRef = String(payload.clientRef || '').trim()
+  const now = Date.now()
+  const pending = (await getPending()).filter(r => !r.failed && r.kind === kind)
+  return pending.find(r => {
+    const p = (r.payload || {}) as Record<string, unknown>
+    if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
+    if (!sameCashierOpFingerprint(kind, p, payload)) return false
+    const ts = Date.parse(r.createdAtIso) || 0
+    return ts > 0 && Math.abs(now - ts) < CASHIER_DOUBLE_TAP_MS
+  }) || null
+}
+
 /** Кладёт операцию в локальную очередь на отправку */
 export async function enqueueOp<P>(
   kind: QueueKind,
@@ -542,6 +567,10 @@ export async function enqueueOp<P>(
 
   if (kind === 'debt_repay') {
     const dup = await findDuplicateDebtRepay(payload as any)
+    if (dup) return dup as PendingOp<P>
+  }
+  if (kind === 'finance_move' || kind === 'expense_create' || kind === 'card_topup') {
+    const dup = await findDuplicateCashierOp(kind, payload as any)
     if (dup) return dup as PendingOp<P>
   }
 
@@ -588,6 +617,17 @@ async function rememberId(localId: string, serverId: string): Promise<void> {
   await kvSet(KEY_IDMAP, map)
 }
 
+function collapseRemappedIds<T extends { id?: string }>(list: T[], serverId: string): T[] {
+  const map = new Map<string, T>()
+  for (const row of list) {
+    const id = String(row?.id ?? '')
+    if (!id) continue
+    const prev = map.get(id)
+    map.set(id, prev && id === serverId ? { ...prev, ...row, id: serverId } : row)
+  }
+  return [...map.values()]
+}
+
 /** После flush: подменить локальные id на серверные в сторах и кэшах */
 async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: string): Promise<void> {
   if (!localId || !serverId || localId === serverId) return
@@ -617,6 +657,24 @@ async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: str
       usePosStore.setState(s => ({
         shifts: s.shifts.map(sh => (sh.id === localId ? { ...sh, id: serverId } : sh)),
         sales: s.sales.map(sale => (sale.shiftId === localId ? { ...sale, shiftId: serverId } : sale)),
+      }))
+      void persistPosSnapshot()
+    } else if (kind === 'finance_move' || kind === 'card_topup') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        financeMoves: collapseRemappedIds(
+          s.financeMoves.map(m => (m.id === localId ? { ...m, id: serverId } : m)),
+          serverId,
+        ),
+      }))
+      void persistPosSnapshot()
+    } else if (kind === 'expense_create') {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        expenses: collapseRemappedIds(
+          s.expenses.map(e => (e.id === localId ? { ...e, id: serverId } : e)),
+          serverId,
+        ),
       }))
       void persistPosSnapshot()
     }
@@ -802,7 +860,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'card_topup': {
       const p = await resolveRefs(row.payload, ['shiftId'])
-      await api.cashTopupCard(String(p.num), {
+      const res = await api.cashTopupCard(String(p.num), {
         clientRef: p.clientRef,
         cash: Number(p.cash) || 0,
         credit: Number(p.credit) || 0,
@@ -811,12 +869,13 @@ async function sendOp(row: PendingOp): Promise<string> {
         cashierName: p.cashierName,
         shiftId: p.shiftId,
         posId: p.posId,
+        createdAtIso: p.createdAtIso,
         appliedLocal: true,
         skipBalances: true,
         bonusAfter: p.bonusAfter,
         posCashBonusAfter: p.posCashBonusAfter,
       } as any)
-      return ''
+      return String((res as any)?.financeMove?.id || '')
     }
     case 'debt_repay': {
       const p = await resolveRefs(row.payload, ['shiftId'])
@@ -849,6 +908,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         posId: p.posId,
         supplierId: p.supplierId,
         reason: p.reason,
+        createdAtIso: p.createdAtIso,
       } as any)
       return String((move as any)?.id || '')
     }
@@ -1132,24 +1192,35 @@ async function sendOp(row: PendingOp): Promise<string> {
         createdBy: p.createdBy,
         shiftId: p.shiftId,
         clientRef: p.clientRef,
+        createdAtIso: p.createdAtIso,
       } as any)
       return String((exp as any)?.id || '')
     }
     case 'expense_delete': {
-      const p = await resolveRefs(row.payload, ['id'])
-      const id = String(p.id || '')
-      if (id && !isLocalId(id)) {
-        await api.deleteExpense(id, { clientRef: p.clientRef })
+      const rawId = String((row.payload as any)?.id || '')
+      const mapped = isLocalId(rawId) ? await resolveLocalId(rawId) : rawId
+      if (!mapped || isLocalId(mapped)) return rawId
+      try {
+        await api.deleteExpense(mapped, { clientRef: (row.payload as any)?.clientRef })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/не найден/i.test(msg)) return mapped
+        throw e
       }
-      return id
+      return mapped
     }
     case 'finance_move_delete': {
-      const p = await resolveRefs(row.payload, ['id'])
-      const id = String(p.id || '')
-      if (id && !isLocalId(id)) {
-        await api.deleteFinanceMove(id, { clientRef: p.clientRef })
+      const rawId = String((row.payload as any)?.id || '')
+      const mapped = isLocalId(rawId) ? await resolveLocalId(rawId) : rawId
+      if (!mapped || isLocalId(mapped)) return rawId
+      try {
+        await api.deleteFinanceMove(mapped, { clientRef: (row.payload as any)?.clientRef })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/не найден/i.test(msg)) return mapped
+        throw e
       }
-      return id
+      return mapped
     }
     case 'category_upsert': {
       const p = row.payload || {}

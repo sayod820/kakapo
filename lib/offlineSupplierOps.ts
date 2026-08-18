@@ -196,6 +196,7 @@ export async function createSupplierPaymentSafe(
       amount,
       paidAtIso,
       note: input.note,
+      clientRef,
     }
     await useOfflineSync.getState().queueOp('supplier_payment_create', payload, {
       localId,

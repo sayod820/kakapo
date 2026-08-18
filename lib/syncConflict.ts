@@ -81,7 +81,55 @@ export function mergeAppendById<T extends { id?: string | number; clientRef?: st
     if (!id) continue
     map.set(id, remote)
   }
-  return [...map.values()]
+  return [...map.values()].filter(row => !isUnlinkedLocalGhost(row, map))
+}
+
+/**
+ * Входящий синк: серверные id — как на сервере (удалённые пропадают),
+ * локальные off-* остаются, пока не склеены по clientRef.
+ */
+export function mergeInboundById<T extends { id?: string | number; clientRef?: string }>(
+  localList: T[],
+  remoteList: T[],
+): T[] {
+  const merged = mergeAppendById(localList, remoteList)
+  const remoteIds = new Set((remoteList || []).map(r => String(r?.id ?? '')).filter(Boolean))
+  return merged.filter(row => {
+    const id = String(row?.id ?? '')
+    if (!id) return false
+    if (id.startsWith('off-')) return true
+    return remoteIds.has(id)
+  })
+}
+
+function isLocalEntityId(id: unknown): boolean {
+  return typeof id === 'string' && id.startsWith('off-')
+}
+
+/**
+ * Старый локальный off-id без clientRef: после синка рядом лежит серверная копия.
+ * Новые операции всегда пишут clientRef — их не трогаем.
+ */
+function isUnlinkedLocalGhost<T extends { id?: string | number; clientRef?: string; amount?: number; type?: string; createdAtIso?: string; shiftId?: string }>(
+  row: T,
+  map: Map<string, T>,
+): boolean {
+  const id = String(row?.id ?? '')
+  if (!isLocalEntityId(id)) return false
+  if (String(row.clientRef || '').trim()) return false
+  const kind = String(row.type || '')
+  if (kind !== 'deposit' && kind !== 'withdraw') return false
+  const others = [...map.values()].filter(x => String(x?.id ?? '') !== id && !isLocalEntityId(x?.id))
+  const ts = Date.parse(String(row.createdAtIso || ''))
+  const twins = others.filter(o => {
+    if (row.type && o.type && row.type !== o.type) return false
+    if (Math.abs((Number(row.amount) || 0) - (Number(o.amount) || 0)) > 0.009) return false
+    if (row.shiftId && o.shiftId && String(row.shiftId) !== String(o.shiftId)) return false
+    const ot = Date.parse(String(o.createdAtIso || ''))
+    if (Number.isFinite(ts) && Number.isFinite(ot) && Math.abs(ts - ot) > 20_000) return false
+    return true
+  })
+  return twins.length >= 1
 }
 
 export async function appendConflictLog(entry: Omit<ConflictEntry, 'at'> & { at?: string }): Promise<void> {

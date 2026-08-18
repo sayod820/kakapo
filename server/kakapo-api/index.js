@@ -4641,6 +4641,7 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       shiftId: req.body?.shiftId,
       posId: req.body?.posId,
       clientRef,
+      createdAtIso: req.body?.createdAtIso,
     })
 
     const addToBonus = Math.round((cash + bonusEarned) * 100) / 100

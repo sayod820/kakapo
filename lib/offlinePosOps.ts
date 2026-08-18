@@ -3,7 +3,7 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { findDuplicateDebtRepay, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData } from './offline'
+import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, recordStoreDebtRepayment } from './clientVipCredit'
@@ -410,6 +410,8 @@ export async function vaultCashToCardSafe(input: {
 
 // ── Движение по кассе ──
 
+const financeMoveInflight = new Map<string, Promise<OfflineResult<FinanceMove | null>>>()
+
 export async function financeMoveSafe(input: {
   type: 'deposit' | 'withdraw'
   amount: number
@@ -439,71 +441,93 @@ export async function financeMoveSafe(input: {
   }
 
   const clientRef = newClientRef()
+  const createdAtIso = new Date().toISOString()
   const payload = {
     ...input,
     clientRef,
     amount,
     shiftId,
     posId,
+    createdAtIso,
     createdBy: input.createdBy || input.cashierName || open?.cashierName,
     cashierId: input.cashierId || open?.cashierId,
     cashierName: input.cashierName || open?.cashierName,
   }
 
-  // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
-  if (input.supplierId && !isTradeLocalFirst()) {
-    try {
-      const move = await api.createFinanceMove(payload)
-      return { offline: false, data: move }
-    } catch (e) {
-      if (!isNetworkError(e)) throw e
-      throw new Error('Оплата поставщику недоступна без связи')
-    }
-  }
+  const inflightKey = ['fin', payload.type, amount, String(shiftId || ''), String(payload.note || '').trim()].join('|')
+  const existing = financeMoveInflight.get(inflightKey)
+  if (existing) return existing
 
-  const applyLocal = async () => {
-    const localId = newLocalId('fin')
-    await useOfflineSync.getState().queueOp('finance_move', payload, { localId })
-    const move: FinanceMove = {
-      id: localId,
-      type: payload.type,
-      amount: payload.amount,
-      note: payload.note,
-      createdBy: payload.createdBy,
-      createdAtIso: new Date().toISOString(),
-      shiftId: payload.shiftId,
-      posId: payload.posId,
-      supplierId: payload.supplierId,
-    }
-    usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
-    shadowMirrorPut('finance_move', move.id, move)
-    if (payload.shiftId) {
-      const shift = shiftById(payload.shiftId)
-      if (shift) {
-        patchShift(payload.shiftId, payload.type === 'withdraw'
-          ? { expenseTotal: round2((shift.expenseTotal || 0) + payload.amount) }
-          : { cashInTotal: round2((shift.cashInTotal || 0) + payload.amount) })
+  const run = (async (): Promise<OfflineResult<FinanceMove | null>> => {
+    // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
+    if (input.supplierId && !isTradeLocalFirst()) {
+      try {
+        const move = await api.createFinanceMove(payload)
+        return { offline: false, data: move }
+      } catch (e) {
+        if (!isNetworkError(e)) throw e
+        throw new Error('Оплата поставщику недоступна без связи')
       }
     }
-    if (payload.supplierId && payload.type === 'withdraw') {
-      usePosStore.setState(s => ({
-        suppliers: s.suppliers.map(sup => {
-          if (sup.id !== payload.supplierId) return sup
-          const totalPaid = round2((Number(sup.totalPaid) || 0) + payload.amount)
-          const totalSupplied = Number(sup.totalSupplied) || 0
-          return {
-            ...sup,
-            totalPaid,
-            payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
-          }
-        }),
-      }))
-    }
-    void persistPosSnapshot()
-    return move
-  }
 
-  return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
+    const applyLocal = async () => {
+      const localId = newLocalId('fin')
+      const queued = await useOfflineSync.getState().queueOp('finance_move', payload, { localId, clientRef })
+      const already = queued.clientRef !== clientRef || queued.localId !== localId
+      if (already) {
+        const existing = usePosStore.getState().financeMoves.find(m =>
+          m.clientRef === queued.clientRef || m.id === queued.localId,
+        )
+        if (existing) return existing
+      }
+      const move: FinanceMove = {
+        id: localId,
+        type: payload.type,
+        amount: payload.amount,
+        note: payload.note,
+        createdBy: payload.createdBy,
+        createdAtIso,
+        shiftId: payload.shiftId,
+        posId: payload.posId,
+        supplierId: payload.supplierId,
+        clientRef,
+      }
+      usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
+      shadowMirrorPut('finance_move', move.id, move)
+      if (payload.shiftId) {
+        const shift = shiftById(payload.shiftId)
+        if (shift) {
+          patchShift(payload.shiftId, payload.type === 'withdraw'
+            ? { expenseTotal: round2((shift.expenseTotal || 0) + payload.amount) }
+            : { cashInTotal: round2((shift.cashInTotal || 0) + payload.amount) })
+        }
+      }
+      if (payload.supplierId && payload.type === 'withdraw') {
+        usePosStore.setState(s => ({
+          suppliers: s.suppliers.map(sup => {
+            if (sup.id !== payload.supplierId) return sup
+            const totalPaid = round2((Number(sup.totalPaid) || 0) + payload.amount)
+            const totalSupplied = Number(sup.totalSupplied) || 0
+            return {
+              ...sup,
+              totalPaid,
+              payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+            }
+          }),
+        }))
+      }
+      void persistPosSnapshot()
+      return move
+    }
+
+    return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
+  })()
+  financeMoveInflight.set(inflightKey, run)
+  try {
+    return await run
+  } finally {
+    financeMoveInflight.delete(inflightKey)
+  }
 }
 
 /** Выдать нал из открытой смены и записать долг на карту. Без смены / без наличных в ящике — ошибка. */
@@ -566,29 +590,31 @@ export async function cardTopupSafe(
   },
 ): Promise<OfflineResult<null>> {
   const clientRef = newClientRef()
-  const payload = { ...input, clientRef, cash: round2(input.cash), credit: round2(input.credit), num }
+  const createdAtIso = new Date().toISOString()
+  const payload = { ...input, clientRef, createdAtIso, cash: round2(input.cash), credit: round2(input.credit), num }
 
   const applyLocal = async () => {
     const { useCardStore } = await import('./cardStore')
     const card = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
     const nextBonus = round2((Number(card?.bonus) || 0) + payload.credit)
     const nextPos = round2((Number(card?.posCashBonus) || 0) + payload.credit)
+    const finLocalId = newLocalId('fin')
     await useOfflineSync.getState().queueOp('card_topup', {
       ...payload,
       bonusAfter: nextBonus,
       posCashBonusAfter: nextPos,
-    })
+    }, { localId: finLocalId, clientRef })
     const shift = input.shiftId ? shiftById(input.shiftId) : undefined
     if (shift) {
       patchShift(shift.id, { cashInTotal: round2((shift.cashInTotal || 0) + payload.cash) })
       usePosStore.setState(s => ({
         financeMoves: [{
-          id: newLocalId('fin'),
+          id: finLocalId,
           type: 'deposit',
           amount: payload.cash,
           note: input.note,
           createdBy: input.cashierName,
-          createdAtIso: new Date().toISOString(),
+          createdAtIso,
           shiftId: shift.id,
           posId: input.posId,
           clientRef,
@@ -616,6 +642,7 @@ export async function cardTopupSafe(
         cashierName: input.cashierName,
         shiftId: input.shiftId,
         posId: input.posId,
+        createdAtIso,
       })
       return null
     },
@@ -1273,11 +1300,13 @@ export async function expenseCreateSafe(input: {
       }
     }
   }
+  const createdAtIso = new Date().toISOString()
   const payload = {
     ...input,
     shiftId,
     posId: input.posId || open?.posId,
     clientRef,
+    createdAtIso,
     amount,
     category: String(input.category || 'Прочее').trim() || 'Прочее',
   }
@@ -1297,15 +1326,22 @@ export async function expenseCreateSafe(input: {
 
   const applyLocal = async () => {
     const localId = newLocalId('exp')
-    await useOfflineSync.getState().queueOp('expense_create', payload, { localId, clientRef })
+    const queued = await useOfflineSync.getState().queueOp('expense_create', payload, { localId, clientRef })
+    if (queued.clientRef !== clientRef || queued.localId !== localId) {
+      const existing = usePosStore.getState().expenses.find(e =>
+        e.clientRef === queued.clientRef || e.id === queued.localId,
+      )
+      if (existing) return existing
+    }
     const exp: PosExpense = {
       id: localId,
       category: payload.category,
       amount: payload.amount,
       note: payload.note,
       createdBy: payload.createdBy,
-      createdAtIso: new Date().toISOString(),
+      createdAtIso: payload.createdAtIso,
       shiftId: payload.shiftId,
+      clientRef,
     }
     usePosStore.setState(s => ({ expenses: [exp, ...s.expenses] }))
     applyExpenseToShift(payload.shiftId, payload.amount, 1)
@@ -1362,12 +1398,24 @@ export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id:
 
 // ── Удаление движения (Offline V2) ──
 
-function reverseFinanceMoveLocal(id: string) {
-  const move = usePosStore.getState().financeMoves.find(m => m.id === id)
-  if (!move) {
-    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
-    return
-  }
+function sameFinanceFingerprint(a: Partial<FinanceMove>, b: Partial<FinanceMove>): boolean {
+  if (a.type && b.type && a.type !== b.type) return false
+  if (Math.abs((Number(a.amount) || 0) - (Number(b.amount) || 0)) > 0.009) return false
+  if (a.shiftId && b.shiftId && String(a.shiftId) !== String(b.shiftId)) return false
+  const ta = Date.parse(String(a.createdAtIso || ''))
+  const tb = Date.parse(String(b.createdAtIso || ''))
+  if (Number.isFinite(ta) && Number.isFinite(tb) && Math.abs(ta - tb) > 20_000) return false
+  return true
+}
+
+function isFinanceTwin(a: FinanceMove, b: FinanceMove): boolean {
+  const ra = String(a.clientRef || '').trim()
+  const rb = String(b.clientRef || '').trim()
+  if (ra && rb) return ra === rb
+  return sameFinanceFingerprint(a, b)
+}
+
+function applyFinanceCashReverse(move: FinanceMove) {
   const amount = round2(Number(move.amount) || 0)
   if (move.shiftId && amount > 0) {
     const shift = shiftById(move.shiftId)
@@ -1397,37 +1445,86 @@ function reverseFinanceMoveLocal(id: string) {
       }),
     }))
   }
-  usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+}
+
+function reverseFinanceMoveLocal(id: string) {
+  const moves = usePosStore.getState().financeMoves
+  const target = moves.find(m => m.id === id)
+  if (!target) {
+    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+    return
+  }
+  const ghosts = moves.filter(m => m.id !== id && isLocalId(m.id) && isFinanceTwin(m, target))
+  const drop = new Set([id, ...ghosts.map(g => g.id)])
+  const serverTwin = isLocalId(id)
+    ? moves.find(m => !isLocalId(m.id) && isFinanceTwin(m, target))
+    : undefined
+  if (!serverTwin) applyFinanceCashReverse(target)
+  usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => !drop.has(m.id)) }))
+}
+
+async function dropPendingFinanceCreates(target: FinanceMove | undefined, localIds: string[]) {
+  const pending = await getPending()
+  const refs = new Set(localIds.filter(Boolean))
+  const moveRef = String(target?.clientRef || '').trim()
+  for (const row of pending) {
+    if (row.kind === 'finance_move' || row.kind === 'card_topup') {
+      if (row.localId && refs.has(row.localId)) {
+        await dropPending(row.clientRef)
+        continue
+      }
+      if (moveRef && row.clientRef === moveRef && row.kind === 'finance_move') {
+        await dropPending(row.clientRef)
+      }
+    }
+  }
 }
 
 export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
-  const clientRef = newClientRef()
+  const deleteRef = newClientRef()
+  const mapped = isLocalId(id) ? await resolveLocalId(id) : id
+  const target = usePosStore.getState().financeMoves.find(m => m.id === id)
+  const localIds = [
+    id,
+    ...usePosStore.getState().financeMoves
+      .filter(m => m.id !== id && isLocalId(m.id) && target && isFinanceTwin(m, target))
+      .map(m => m.id),
+  ].filter(isLocalId)
+  const serverTwin = target
+    ? usePosStore.getState().financeMoves.find(m => !isLocalId(m.id) && m.id !== id && isFinanceTwin(m, target))
+    : undefined
+  const queueServerId = !isLocalId(id)
+    ? id
+    : (serverTwin ? '' : (mapped && !isLocalId(mapped) ? mapped : ''))
 
   if (!isTradeLocalFirst()) {
-    await api.deleteFinanceMove(id)
+    await api.deleteFinanceMove(queueServerId || id)
     reverseFinanceMoveLocal(id)
     void persistPosSnapshot()
     return { offline: false, data: { id } }
   }
 
   const applyLocal = async () => {
-    await useOfflineSync.getState().queueOp('finance_move_delete', { clientRef, id }, { clientRef })
+    await dropPendingFinanceCreates(target, localIds)
     reverseFinanceMoveLocal(id)
+    if (queueServerId) {
+      await useOfflineSync.getState().queueOp('finance_move_delete', { clientRef: deleteRef, id: queueServerId }, { clientRef: deleteRef })
+    }
     void persistPosSnapshot()
-    return { id }
+    return { id: queueServerId || id }
   }
 
-  if (isLocalId(id)) {
+  if (!queueServerId) {
     const data = await applyLocal()
     void useOfflineSync.getState().syncNow()
     return { offline: true, data }
   }
 
   return raceCashierOp(async () => {
-    await api.deleteFinanceMove(id)
+    await api.deleteFinanceMove(queueServerId)
     reverseFinanceMoveLocal(id)
     void persistPosSnapshot()
-    return { id }
+    return { id: queueServerId }
   }, applyLocal)
 }
 

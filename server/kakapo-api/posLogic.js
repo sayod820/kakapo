@@ -1497,7 +1497,8 @@ export function createExpense(db, data = {}) {
     note: String(data.note || '').trim(),
     createdBy: String(data.createdBy || '').trim(),
     shiftId: shift?.id || undefined,
-    createdAtIso: nowIso(),
+    createdAtIso: stampFromClient(data, 'createdAtIso'),
+    clientRef: data.clientRef || undefined,
   }
   db.expenses.unshift(row)
   if (shift) {
@@ -1593,7 +1594,7 @@ export function createFinanceMove(db, data = {}) {
     amount,
     note,
     createdBy: cashierName,
-    createdAtIso: nowIso(),
+    createdAtIso: stampFromClient(data, 'createdAtIso'),
     shiftId: shift?.id || undefined,
     posId: shift?.posId || data.posId || '',
     supplierId: supplier?.id,

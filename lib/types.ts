@@ -393,6 +393,7 @@ export interface SupplierPayment {
   amount: number
   paidAtIso: string
   note?: string
+  clientRef?: string
 }
 
 export interface PosExpense {
@@ -403,6 +404,7 @@ export interface PosExpense {
   createdBy?: string
   createdAtIso: string
   shiftId?: string
+  clientRef?: string
 }
 
 export interface StockReceiptItem {

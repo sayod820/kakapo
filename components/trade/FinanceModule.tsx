@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { FinanceTruthBundle, MoneyLedgerEntry } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
+import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe, vaultCardToCashSafe, vaultCashToCardSafe } from '@/lib/offlinePosOps'
@@ -80,6 +80,7 @@ export default function FinanceModule() {
   const [tab, setTab] = useState<FinanceTab>('cashbook')
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState(false)
+  const savingRef = useRef(false)
   const [msg, setMsg] = useState('')
   const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
   const [truthError, setTruthError] = useState('')
@@ -234,6 +235,7 @@ export default function FinanceModule() {
           await Promise.allSettled([
             softSyncPosAfterSale(),
             softSyncWarehouse(),
+            softSyncFinance(),
             syncClientsFromApi(),
           ])
         }
@@ -273,7 +275,9 @@ export default function FinanceModule() {
   }
 
   async function submitExpense() {
+    if (savingRef.current || busy) return
     if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
+    savingRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -293,12 +297,15 @@ export default function FinanceModule() {
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
+      savingRef.current = false
       setBusy(false)
     }
   }
 
   async function submitDeposit() {
+    if (savingRef.current || busy) return
     if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
+    savingRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -334,12 +341,15 @@ export default function FinanceModule() {
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
+      savingRef.current = false
       setBusy(false)
     }
   }
 
   async function submitConvert() {
+    if (savingRef.current || busy) return
     if (!isTradeLocalFirst() && !guardMutation(setMsg)) return
+    savingRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -361,6 +371,7 @@ export default function FinanceModule() {
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
+      savingRef.current = false
       setBusy(false)
     }
   }
