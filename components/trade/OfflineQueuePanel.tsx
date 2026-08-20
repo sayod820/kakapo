@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useOfflineSync } from '@/lib/offlineSync'
 import { QUEUE_KIND_LABEL, type PendingOp } from '@/lib/offline'
+import { productBarcodes } from '@/lib/productBarcodes'
+import { useProducts } from '@/lib/store'
 
 const CSS = `
   .k-queue-back{
@@ -25,7 +27,7 @@ const CSS = `
   .k-queue-row .k{font-weight:800}
   .k-queue-row .m{font-size:12px;color:var(--muted);margin-top:2px}
   .k-queue-row .d{font-size:12px;margin-top:4px;line-height:1.35}
-  .k-queue-row .e{font-size:12px;color:var(--red);margin-top:4px}
+  .k-queue-row .e{font-size:12px;color:var(--red);margin-top:4px;line-height:1.45;white-space:pre-wrap;word-break:break-word;user-select:text}
   .k-queue-row .a{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .k-queue-foot{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
   .k-queue-empty{padding:36px 16px;text-align:center;color:var(--muted);font-weight:700}
@@ -77,6 +79,63 @@ function detailOf(row: PendingOp): string {
   return p.name || p.title || p.comment || ''
 }
 
+function parseMoneyToken(raw: string): number {
+  const n = Number(String(raw || '').replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN
+}
+
+/** Старые ошибки «по цене X» — дополняем артикулом / названием / штрихкодом из чека */
+function enrichQueueError(row: PendingOp, catalog: { id: number; name?: string; barcode?: string; barcodes?: string[] }[]): string {
+  const err = String(row.lastError || '').trim()
+  if (!err) return ''
+  if (/арт\.\s*\d+/i.test(err) || /штрих\s+\S+/i.test(err) || /«[^»]+»/.test(err)) return err
+
+  const priceMatch = err.match(/по цене\s+([\d.,]+)/i)
+  if (!priceMatch) return err
+  const price = parseMoneyToken(priceMatch[1])
+  if (!Number.isFinite(price)) return err
+
+  const items = Array.isArray((row.payload as any)?.items) ? (row.payload as any).items as any[] : []
+  if (!items.length) return err
+
+  const needMatch = err.match(/нужно\s+([\d.,]+)/i)
+  const need = needMatch ? parseMoneyToken(needMatch[1]) : NaN
+
+  const hits = items.filter(it => {
+    const layerPrice = it.preferRetailPrice != null ? Number(it.preferRetailPrice) : NaN
+    const linePrice = Number(it.price)
+    const matchLayer = Number.isFinite(layerPrice) && Math.abs(layerPrice - price) < 0.005
+    const matchLine = Number.isFinite(linePrice) && Math.abs(linePrice - price) < 0.005
+    return matchLayer || matchLine
+  })
+  if (!hits.length) return err
+
+  let hit = hits[0]
+  if (Number.isFinite(need) && hits.length > 1) {
+    const byQty = hits.find(it => Math.abs(Number(it.qty) - need) < 0.005)
+    if (byQty) hit = byQty
+  }
+
+  const pid = Number(hit.productId)
+  const fromCatalog = Number.isFinite(pid) && pid > 0
+    ? catalog.find(p => Number(p.id) === pid)
+    : undefined
+  const name = String(hit.productName || fromCatalog?.name || '').trim() || (pid ? `#${pid}` : 'товар')
+  const barcode = String(
+    hit.barcode
+    || (Array.isArray(hit.barcodes) && hit.barcodes[0])
+    || (fromCatalog ? productBarcodes(fromCatalog)[0] : '')
+    || '',
+  ).trim()
+
+  const parts = [
+    Number.isFinite(pid) && pid > 0 ? `арт. ${pid}` : '',
+    `«${name}»`,
+    barcode ? `штрих ${barcode}` : '',
+  ].filter(Boolean)
+  return `${parts.join(' · ')}: ${err}`
+}
+
 export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) {
   const items = useOfflineSync(s => s.items)
   const syncing = useOfflineSync(s => s.syncing)
@@ -84,6 +143,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   const lastError = useOfflineSync(s => s.lastError)
   const forceSync = useOfflineSync(s => s.forceSync)
   const refresh = useOfflineSync(s => s.refresh)
+  const products = useProducts(s => s.products)
   const [busyRef, setBusyRef] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   /** Не закрывать по клику на фон в том же жесте, что открыл окно */
@@ -129,6 +189,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   function renderRow(row: PendingOp) {
     const amt = amountOf(row.payload)
     const detail = detailOf(row)
+    const errText = row.failed ? enrichQueueError(row, products) : ''
     const isBusy = syncing || busyRef === row.clientRef || busyRef === '__all__'
     return (
       <div className="k-queue-row" key={row.clientRef} data-failed={row.failed ? '1' : '0'}>
@@ -145,7 +206,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           {row.attempts > 0 ? ` · попыток: ${row.attempts}` : ''}
         </div>
         {!!detail && <div className="d">{detail}</div>}
-        {row.failed && !!row.lastError && <div className="e">{row.lastError}</div>}
+        {!!errText && <div className="e">{errText}</div>}
         <div className="a">
           <button
             type="button"

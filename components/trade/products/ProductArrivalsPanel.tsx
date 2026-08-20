@@ -295,7 +295,7 @@ export default function ProductArrivalsPanel({
     sellType: product.sellType || 'piece',
     bulkPricing: serializeBulkPricing(bulkPricing),
   })
-  const tableColSpan = 11
+  const tableColSpan = 10
 
   return (
     <div className="k-modal-bg k-modal-fs-bg k-arrivals-modal" onClick={requestClose}>
@@ -375,7 +375,7 @@ export default function ProductArrivalsPanel({
             <div className="k-empty">Загрузка партий…</div>
           ) : !layers.length && !showAdd ? (
             <div className="k-empty">
-              Нет партий. Добавьте первый приход — у каждой партии свои количество, розница и опт.
+              Нет партий. Добавьте первый приход — у каждой партии свои остаток, розница и опт.
             </div>
           ) : (
             <div className="k-arrivals-tbl-wrap">
@@ -385,7 +385,6 @@ export default function ProductArrivalsPanel({
                     <th style={{ width: 44 }}>#</th>
                     <th>Статус</th>
                     <th>Поставщик</th>
-                    <th className="num">Количество</th>
                     <th className="num">Остаток</th>
                     <th className="num">Закуп</th>
                     <th className="num">Розница</th>
@@ -397,7 +396,7 @@ export default function ProductArrivalsPanel({
                 </thead>
                 <tbody>
                   {layers.map((layer, i) => (
-                    <Fragment key={layer.receiptId}>
+                    <Fragment key={`${layer.receiptId}:${layer.costPrice}:${layer.retailPrice}:${i}`}>
                       <tr className={editId === layer.receiptId ? 'is-editing' : ''}>
                         <td className="a-idx" data-l="#">{i + 1}</td>
                         <td className="a-status" data-l="Статус">
@@ -409,7 +408,6 @@ export default function ProductArrivalsPanel({
                           </span>
                         </td>
                         <td className="a-sup" data-l="Поставщик" style={{ fontWeight: 700 }}>{layer.supplierName || 'Ручной приход'}</td>
-                        <td className="num a-qty" data-l="Кол-во" style={{ fontWeight: 800 }}>{layer.qty}</td>
                         <td className="num a-rem" data-l="Остаток" style={{ fontWeight: 800 }}>{layer.remainingQty}</td>
                         <td className="num a-cost" data-l="Закуп" style={{ color: 'var(--red)', fontWeight: 800 }}>{money(layer.costPrice)}</td>
                         <td className="num a-retail" data-l="Розница" style={{ color: 'var(--green)', fontWeight: 800 }}>{money(layer.retailPrice)}</td>
@@ -448,8 +446,8 @@ export default function ProductArrivalsPanel({
                             <div className="k-arrivals-edit">
                               <div className="k-grid2 k-arrivals-edit-grid">
                                 <div className="k-field">
-                                  <label>Количество</label>
-                                  <input className="k-inp" type="text" value={String(layer.qty)} readOnly disabled />
+                                  <label>Остаток</label>
+                                  <input className="k-inp" type="text" value={String(layer.remainingQty)} readOnly disabled />
                                 </div>
                                 <div className="k-field">
                                   <label>Розничная</label>

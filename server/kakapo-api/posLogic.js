@@ -475,6 +475,29 @@ function getProduct(db, productId) {
   return product
 }
 
+/** Короткая подпись товара для ошибок склада: артикул · название · штрихкод */
+function productStockHint(productOrId, db) {
+  const product = productOrId && typeof productOrId === 'object'
+    ? productOrId
+    : (db?.products || []).find(p => Number(p.id) === Number(productOrId))
+  if (!product) {
+    const id = Number(productOrId)
+    return Number.isFinite(id) && id > 0 ? `арт. ${id}` : 'товар'
+  }
+  const id = Number(product.id)
+  const name = String(product.name || '').trim() || 'без названия'
+  const barcode = String(
+    product.barcode
+    || (Array.isArray(product.barcodes) && product.barcodes[0])
+    || '',
+  ).trim()
+  const parts = []
+  if (Number.isFinite(id) && id > 0) parts.push(`арт. ${id}`)
+  parts.push(`«${name}»`)
+  if (barcode) parts.push(`штрих ${barcode}`)
+  return parts.join(' · ')
+}
+
 function getClientById(db, clientId) {
   return (db.clients || []).find(c => String(c.id) === String(clientId)) || null
 }
@@ -872,49 +895,81 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', prefer
   const retailKey = preferRetailPrice != null && Number.isFinite(Number(preferRetailPrice))
     ? round2(preferRetailPrice)
     : null
+  const hint = productStockHint(productId, db)
+  const pid = Number(productId)
+
+  function itemMatchesRetail(item) {
+    if (Number(item.productId) !== pid) return false
+    if (!(Number(item.remainingQty) > 0)) return false
+    if (retailKey == null) return true
+    return round2(item.retailPrice) === retailKey
+  }
+
+  /** Сумма остатка по всем строкам (не find — в одном приходе может быть несколько строк товара) */
+  function sumMatchingRemaining(receiptList, { retailOnly = true } = {}) {
+    return round2(receiptList.reduce((s, r) => {
+      for (const item of r.items || []) {
+        if (Number(item.productId) !== pid) continue
+        if (!(Number(item.remainingQty) > 0)) continue
+        if (retailOnly && retailKey != null && round2(item.retailPrice) !== retailKey) continue
+        s += Number(item.remainingQty) || 0
+      }
+      return s
+    }, 0))
+  }
 
   const receipts = (db.stockReceipts || [])
-    .filter(r => Array.isArray(r.items) && r.items.some(i => {
-      if (Number(i.productId) !== Number(productId)) return false
-      if (!(Number(i.remainingQty) > 0)) return false
-      if (retailKey == null) return true
-      return round2(i.retailPrice) === retailKey
-    }))
+    .filter(r => Array.isArray(r.items) && r.items.some(itemMatchesRetail))
     .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
 
   if (preferReceiptId && retailKey == null) {
     const target = (db.stockReceipts || []).find(r => r.id === preferReceiptId)
-    if (!target) throw new Error('Выбранная партия не найдена')
-    const item = (target.items || []).find(i => Number(i.productId) === Number(productId))
-    const rem = round2(item?.remainingQty)
+    if (!target) throw new Error(`Выбранная партия не найдена · ${hint}`)
+    const rem = sumMatchingRemaining([target], { retailOnly: false })
     if (!(rem >= left)) {
-      throw new Error(`В выбранной партии осталось ${rem || 0} — нужно ${left}`)
+      throw new Error(`${hint}: в выбранной партии осталось ${rem || 0} — нужно ${left}`)
     }
   }
 
-  if (retailKey != null) {
-    const pool = round2(receipts.reduce((s, r) => {
-      const item = (r.items || []).find(i => Number(i.productId) === Number(productId))
-      return s + (Number(item?.remainingQty) || 0)
-    }, 0))
+  // Сначала партии с выбранной розницей; если не хватает — FIFO по всем партиям товара
+  let useRetailFilter = retailKey != null
+  if (useRetailFilter) {
+    const pool = sumMatchingRemaining(receipts, { retailOnly: true })
     if (!(pool >= left)) {
-      throw new Error(`По цене ${retailKey.toFixed(2)} осталось ${pool} — нужно ${left}`)
+      const allPool = sumMatchingRemaining(db.stockReceipts || [], { retailOnly: false })
+      if (allPool >= left) {
+        // Вторая/следующая партия есть, но цена в строке другая или дубликат в приходе —
+        // не блокируем чек: списываем FIFO по дате.
+        useRetailFilter = false
+      } else {
+        throw new Error(
+          `${hint}: по цене ${retailKey.toFixed(2)} осталось ${pool} — нужно ${left}`,
+        )
+      }
     }
   }
+
+  const sourceReceipts = useRetailFilter
+    ? receipts
+    : [...(db.stockReceipts || [])]
+      .filter(r => Array.isArray(r.items) && r.items.some(i =>
+        Number(i.productId) === pid && Number(i.remainingQty) > 0,
+      ))
+      .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
 
   const ordered = preferReceiptId && retailKey == null
     ? [
-        ...receipts.filter(r => r.id === preferReceiptId),
-        ...receipts.filter(r => r.id !== preferReceiptId),
+        ...sourceReceipts.filter(r => r.id === preferReceiptId),
+        ...sourceReceipts.filter(r => r.id !== preferReceiptId),
       ]
-    : receipts
+    : sourceReceipts
 
   for (const receipt of ordered) {
     for (const item of receipt.items || []) {
-      if (Number(item.productId) !== Number(productId)) continue
+      if (Number(item.productId) !== pid) continue
       if (left <= 0) break
       if (preferReceiptId && retailKey == null && receipt.id !== preferReceiptId) continue
-      if (retailKey != null && round2(item.retailPrice) !== retailKey) continue
+      if (useRetailFilter && retailKey != null && round2(item.retailPrice) !== retailKey) continue
       const take = Math.min(Number(item.remainingQty) || 0, left)
       if (!(take > 0)) continue
       const unitCost = Number(item.costPrice) || 0
@@ -924,12 +979,12 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', prefer
     }
   }
   if ((preferReceiptId || retailKey != null) && left > 0.0001) {
-    throw new Error(retailKey != null
-      ? 'Недостаточно остатка по выбранной цене'
-      : 'Недостаточно остатка в выбранной партии')
+    throw new Error(useRetailFilter
+      ? `${hint}: недостаточно остатка по выбранной цене`
+      : `${hint}: недостаточно остатка по партиям`)
   }
   if (left > 0.0001) {
-    throw new Error('Недостаточно остатка по партиям')
+    throw new Error(`${hint}: недостаточно остатка по партиям`)
   }
   syncProductPricingFromActiveLayer(db, productId)
   return cogs
@@ -984,10 +1039,12 @@ function consumeStock(db, items) {
   const normalized = items.map(raw => {
     const product = getProduct(db, raw.productId)
     const qty = round2(raw.qty)
-    if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
+    if (!(qty > 0)) throw new Error(`Некорректное количество для ${productStockHint(product)}`)
     const alreadyPlanned = planned.get(product.id) || 0
     const available = round2(sumProductLayers(db, product.id) - alreadyPlanned)
-    if (available < qty) throw new Error(`Недостаточно остатка: ${product.name} (есть ${available})`)
+    if (available < qty) {
+      throw new Error(`Недостаточно остатка: ${productStockHint(product)} (есть ${available})`)
+    }
     planned.set(product.id, round2(alreadyPlanned + qty))
     const receiptId = String(raw.receiptId || '').trim()
     const preferRetailPrice = raw.preferRetailPrice != null && Number.isFinite(Number(raw.preferRetailPrice))

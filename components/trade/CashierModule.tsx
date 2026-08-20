@@ -5701,6 +5701,10 @@ export default function CashierModule({
           unit: cartLineUnit(l),
           receiptId: l.receiptId || undefined,
           preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
+          barcode: (() => {
+            const p = products.find(x => x.id === l.productId)
+            return p ? (productBarcodes(p)[0] || undefined) : undefined
+          })(),
         })),
       }
 
