@@ -413,6 +413,8 @@ export interface StockReceiptItem {
   qty: number
   remainingQty: number
   costPrice: number
+  /** Сумма закупа по строке (как в накладной). Если нет — qty × costPrice. */
+  purchaseTotal?: number
   retailPrice?: number
   bulkPricing?: BulkPriceTier[]
   expiryDate?: string | null
@@ -440,6 +442,7 @@ export interface StockReceipt {
   supplierId?: string | null
   supplierName?: string
   createdAtIso: string
+  updatedAtIso?: string
   createdBy?: string
   totalCost: number
   paidNow: number

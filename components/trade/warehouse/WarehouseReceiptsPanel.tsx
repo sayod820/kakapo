@@ -2,6 +2,7 @@
 
 import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
+import { resolveLocalId } from '@/lib/offline'
 import { useBackClose } from '@/lib/hardwareBack'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
 import {
@@ -85,7 +86,27 @@ function fillLineFromProduct(line: ReceiptDraftLine, product: Product): ReceiptD
     retailPrice,
     markupPct,
     qty: line.qty || '1',
+    purchaseTotal: (Number(line.qty) || 1) > 0 && costNum > 0
+      ? String(roundMoney((Number(line.qty) || 1) * costNum))
+      : '',
     bulkPricing: (product.bulkPricing || []).map(t => ({ minQty: String(t.minQty), price: String(t.price) })),
+  }
+}
+
+function stubProduct(id: number, extra?: Partial<Product>): Product {
+  return {
+    id,
+    art: '',
+    e: '📦',
+    name: extra?.name || `Товар #${id}`,
+    price: Number(extra?.price) || 0,
+    costPrice: extra?.costPrice ?? null,
+    cat: extra?.cat || '',
+    catId: extra?.catId || '',
+    unit: extra?.unit || 'шт',
+    stock: Number(extra?.stock) || 0,
+    hot: false,
+    barcode: extra?.barcode,
   }
 }
 
@@ -366,7 +387,7 @@ export default function WarehouseReceiptsPanel({
   onRefresh: () => Promise<void>
 }) {
   const fetchProducts = useProducts(s => s.fetchProducts)
-  const hydrated = useRef(false)
+  const [hydrated, setHydrated] = useState(false)
   const scrollRestored = useRef(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -394,18 +415,17 @@ export default function WarehouseReceiptsPanel({
   const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
 
   useEffect(() => {
-    if (hydrated.current) return
-    hydrated.current = true
     setDraft(loadReceiptDraft())
+    setHydrated(true)
   }, [])
 
   useEffect(() => {
-    if (!hydrated.current) return
+    if (!hydrated) return
     saveReceiptDraft(draft)
-  }, [draft])
+  }, [draft, hydrated])
 
   useEffect(() => {
-    if (!open || !hydrated.current || scrollRestored.current) return
+    if (!open || !hydrated || scrollRestored.current) return
     scrollRestored.current = true
     requestAnimationFrame(() => {
       const body = bodyRef.current
@@ -416,11 +436,24 @@ export default function WarehouseReceiptsPanel({
   }, [open, draft.scrollTop, draft.activeLineKey])
 
   useEffect(() => {
+    const eid = draft.editingId
+    if (!eid || !hydrated) return
+    if (receipts.some(r => r.id === eid)) return
+    let cancelled = false
+    void resolveLocalId(eid).then(mapped => {
+      if (cancelled || !mapped || mapped === eid) return
+      if (!receipts.some(r => r.id === mapped)) return
+      setDraft(prev => prev.editingId === eid ? { ...prev, editingId: mapped } : prev)
+    })
+    return () => { cancelled = true }
+  }, [receipts, draft.editingId, hydrated])
+
+  useEffect(() => {
     if (!open) scrollRestored.current = false
   }, [open])
 
   useEffect(() => {
-    if (!open || !hydrated.current) return
+    if (!open || !hydrated) return
     setDraft(prev => {
       if (prev.lines.some(l => !l.productId)) return prev
       return { ...prev, lines: [...prev.lines, emptyReceiptLine()] }
@@ -721,20 +754,35 @@ export default function WarehouseReceiptsPanel({
     const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
     const paid = Number(paidNow) || 0
     const debt = Math.max(0, roundMoney(costTotal - paid))
-    return { costTotal, retailTotal, markup, count, withProduct: lines.filter(l => l.productId).length, qtyTotal, paid, debt }
+    return {
+      costTotal: roundMoney(costTotal),
+      retailTotal: roundMoney(retailTotal),
+      markup,
+      count,
+      withProduct: lines.filter(l => l.productId).length,
+      qtyTotal,
+      paid,
+      debt,
+    }
   }, [lines, paidNow])
 
   async function submit() {
     const items = lines
       .filter(l => l.productId && Number(l.qty) > 0)
-      .map(l => ({
-        productId: l.productId!,
-        qty: Number(l.qty),
-        costPrice: Number(l.costPrice) || 0,
-        retailPrice: Number(l.retailPrice) || undefined,
-        bulkPricing: serializeBulkPricing(l.bulkPricing),
-        expiryDate: l.expiryDate || null,
-      }))
+      .map(l => {
+        const qty = Number(l.qty)
+        const purchaseTotal = roundMoney(linePurchaseSum(l))
+        const costPrice = Number(l.costPrice) || (qty > 0 ? costFromPurchaseTotal(qty, purchaseTotal) : 0)
+        return {
+          productId: l.productId!,
+          qty,
+          costPrice,
+          purchaseTotal,
+          retailPrice: Number(l.retailPrice) || undefined,
+          bulkPricing: serializeBulkPricing(l.bulkPricing),
+          expiryDate: l.expiryDate || null,
+        }
+      })
     if (!items.length) {
       setMsg('Добавьте товар и укажите количество')
       return
@@ -816,7 +864,7 @@ export default function WarehouseReceiptsPanel({
       debtTotal += Number(r.debtAdded) || 0
     }
     const markup = costTotal > 0 ? ((retailTotal - costTotal) / costTotal) * 100 : 0
-    return { costTotal, retailTotal, paidTotal, debtTotal, markup }
+    return { costTotal: roundMoney(costTotal), retailTotal: roundMoney(retailTotal), paidTotal: roundMoney(paidTotal), debtTotal: roundMoney(debtTotal), markup }
   }, [filteredReceipts])
 
   return (
@@ -1061,8 +1109,10 @@ export default function WarehouseReceiptsPanel({
                           <tbody>
                             {r.items.map((it, i) => {
                               const qty = Number(it.qty) || 0
-                              const itemCostTotal = qty * (Number(it.costPrice) || 0)
-                              const itemRetailTotal = it.retailPrice != null ? qty * Number(it.retailPrice) : 0
+                              const itemCostTotal = Number(it.purchaseTotal) > 0
+                                ? Number(it.purchaseTotal)
+                                : roundMoney(qty * (Number(it.costPrice) || 0))
+                              const itemRetailTotal = it.retailPrice != null ? roundMoney(qty * Number(it.retailPrice)) : 0
                               return (
                                 <tr key={i}>
                                   <td style={{ fontWeight: 700 }}>{it.productName}</td>
@@ -1271,8 +1321,7 @@ export default function WarehouseReceiptsPanel({
                         <span />
                       </div>
                       {filledLines.map((line, idx) => {
-                        const product = productsById.get(line.productId!) || null
-                        if (!product) return null
+                        const product = productsById.get(line.productId!) || stubProduct(line.productId!)
                         return (
                           <ReceiptTableRow
                             key={line.key}
@@ -1281,11 +1330,14 @@ export default function WarehouseReceiptsPanel({
                             product={product}
                             onEdit={() => setActiveLine(line.key)}
                             onDuplicate={() => openDuplicateProduct(product)}
-                            onRemove={() => setDraft(prev => ({
-                              ...prev,
-                              lines: prev.lines.filter(l => l.key !== line.key),
-                              activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
-                            }))}
+                            onRemove={() => setDraft(prev => {
+                              const nextLines = prev.lines.filter(l => l.key !== line.key)
+                              return {
+                                ...prev,
+                                lines: ensureTrailingEmptyLine(nextLines),
+                                activeLineKey: prev.activeLineKey === line.key ? null : prev.activeLineKey,
+                              }
+                            })}
                             cardRef={el => { lineRefs.current[line.key] = el }}
                           />
                         )
@@ -1364,7 +1416,7 @@ export default function WarehouseReceiptsPanel({
           {(() => {
             const editLine = activeLineKey ? lines.find(l => l.key === activeLineKey) : null
             const editProduct = editLine?.productId
-              ? productsById.get(editLine.productId) || null
+              ? productsById.get(editLine.productId) || stubProduct(editLine.productId)
               : null
             if (!editLine || !editProduct || showAdd) return null
             return (

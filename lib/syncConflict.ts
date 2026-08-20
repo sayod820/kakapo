@@ -72,13 +72,21 @@ export function mergeAppendById<T extends { id?: string | number; clientRef?: st
     const ref = remote.clientRef ? String(remote.clientRef) : ''
     if (ref && byRef.has(ref)) {
       const localId = byRef.get(ref)!
+      const local = map.get(localId)
       map.delete(localId)
-      map.set(String(remote.id), remote)
-      byRef.set(ref, String(remote.id))
+      const remoteId = String(remote.id)
+      if (local && !shouldTakeRemoteLww(local, remote)) {
+        map.set(remoteId, { ...local, id: remote.id as T['id'] })
+      } else {
+        map.set(remoteId, remote)
+      }
+      byRef.set(ref, remoteId)
       continue
     }
     const id = String(remote?.id ?? '')
     if (!id) continue
+    const local = map.get(id)
+    if (local && !shouldTakeRemoteLww(local, remote)) continue
     map.set(id, remote)
   }
   return [...map.values()].filter(row => !isUnlinkedLocalGhost(row, map))

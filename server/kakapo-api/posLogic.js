@@ -1827,12 +1827,16 @@ function buildStockReceipt(db, data = {}, meta = {}) {
   const items = rawItems.map(raw => {
     const product = getProduct(db, raw.productId)
     const qty = round2(raw.qty)
-    const costPrice = round2(raw.costPrice)
+    const purchaseTotal = round2(raw.purchaseTotal)
+    const costPrice = purchaseTotal > 0 && qty > 0
+      ? round2(purchaseTotal / qty)
+      : round2(raw.costPrice)
     if (!(qty > 0)) throw new Error(`Некорректное количество для ${product.name}`)
     return {
       product,
       qty,
       costPrice,
+      purchaseTotal: purchaseTotal > 0 ? purchaseTotal : round2(qty * costPrice),
       retailPrice: round2(raw.retailPrice ?? product.price),
       bulkPricing: normalizeBulkPricing(raw.bulkPricing),
       expiryDate: raw.expiryDate || null,
@@ -1841,7 +1845,7 @@ function buildStockReceipt(db, data = {}, meta = {}) {
   let totalCost = 0
   for (const row of items) {
     if (row.costPrice > 0) row.product.costPrice = row.costPrice
-    totalCost = round2(totalCost + row.qty * row.costPrice)
+    totalCost = round2(totalCost + (row.purchaseTotal || row.qty * row.costPrice))
   }
   const paidNow = round2(data.paidNow)
   const supplier = updateSupplierDebt(db, data.supplierId || '', totalCost, paidNow)
@@ -1861,6 +1865,7 @@ function buildStockReceipt(db, data = {}, meta = {}) {
       qty: row.qty,
       remainingQty: row.qty,
       costPrice: row.costPrice,
+      purchaseTotal: row.purchaseTotal,
       retailPrice: row.retailPrice,
       bulkPricing: row.bulkPricing.length ? row.bulkPricing : undefined,
       expiryDate: row.expiryDate,

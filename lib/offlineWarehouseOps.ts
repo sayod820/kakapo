@@ -3,7 +3,7 @@
 // Локально сразу + очередь, как чеки на кассе
 // ════════════════════════════════════════════════
 import { api } from './api'
-import { isLocalId, newClientRef, newLocalId } from './offline'
+import { isLocalId, newClientRef, newLocalId, resolveLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { applyPurchasePayToOpenShift } from './offlinePosOps'
 import { shadowMirrorPut } from './offlineV2'
@@ -21,6 +21,8 @@ export type ReceiptItemInput = {
   productId: number
   qty: number
   costPrice?: number
+  /** Сумма закупа по строке — источник правды для итога прихода */
+  purchaseTotal?: number
   retailPrice?: number
   bulkPricing?: { minQty: number; price: number }[]
   expiryDate?: string | null
@@ -75,13 +77,41 @@ function patchSupplierDebt(supplierId: string | undefined, debtDelta: number) {
   }))
 }
 
+function findReceipt(id: string): StockReceipt | undefined {
+  const list = usePosStore.getState().receipts
+  return list.find(r => r.id === id)
+}
+
+function linePurchaseTotal(it: ReceiptItemInput, qty: number, costPrice: number) {
+  const explicit = round2(it.purchaseTotal || 0)
+  if (explicit > 0) return explicit
+  return round2(qty * costPrice)
+}
+
+function withPreservedRemaining(
+  old: StockReceipt | undefined,
+  items: StockReceipt['items'],
+): StockReceipt['items'] {
+  if (!old?.items?.length) return items
+  return items.map(it => {
+    const prev = old.items.find(p => p.productId === it.productId)
+    if (!prev) return it
+    const consumed = round2(Math.max(0, (Number(prev.qty) || 0) - (Number(prev.remainingQty) || 0)))
+    const remainingQty = round2(Math.max(0, (Number(it.qty) || 0) - consumed))
+    return { ...it, remainingQty }
+  })
+}
+
 function buildLocalReceipt(
   payload: ReceiptPayload,
-  opts: { id: string; clientRef: string; createdAtIso?: string },
+  opts: { id: string; clientRef: string; createdAtIso?: string; updatedAtIso?: string },
 ): StockReceipt {
   const items = payload.items.map(it => {
     const qty = round2(it.qty)
-    const costPrice = round2(it.costPrice || 0)
+    const purchaseTotal = linePurchaseTotal(it, qty, round2(it.costPrice || 0))
+    const costPrice = qty > 0 && purchaseTotal > 0
+      ? round2(purchaseTotal / qty)
+      : round2(it.costPrice || 0)
     const retailPrice = round2(it.retailPrice || 0)
     return {
       productId: it.productId,
@@ -89,13 +119,14 @@ function buildLocalReceipt(
       qty,
       remainingQty: qty,
       costPrice,
+      purchaseTotal,
       retailPrice: retailPrice > 0 ? retailPrice : undefined,
       bulkPricing: it.bulkPricing,
       expiryDate: it.expiryDate ?? null,
     }
   })
 
-  const totalCost = round2(items.reduce((s, it) => s + it.qty * it.costPrice, 0))
+  const totalCost = round2(items.reduce((s, it) => s + (Number(it.purchaseTotal) || it.qty * it.costPrice), 0))
   const paidNow = round2(payload.paidNow || 0)
   const supplier = payload.supplierId
     ? usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)
@@ -107,6 +138,7 @@ function buildLocalReceipt(
     supplierId: payload.supplierId || null,
     supplierName: supplier?.name || '',
     createdAtIso: opts.createdAtIso || new Date().toISOString(),
+    updatedAtIso: opts.updatedAtIso || new Date().toISOString(),
     createdBy: payload.createdBy,
     totalCost,
     paidNow,
@@ -134,7 +166,7 @@ async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
   for (const it of receipt.items) {
     const pid = Number(it.productId)
     const prev = bumps.get(pid) || { delta: 0 }
-    prev.delta += sign * (Number(it.qty) || 0)
+    prev.delta += sign * (Number(sign < 0 ? (it.remainingQty ?? it.qty) : (it.remainingQty ?? it.qty)) || 0)
     if (sign > 0) {
       prev.prices = { costPrice: it.costPrice, retailPrice: it.retailPrice }
     }
@@ -189,49 +221,27 @@ export async function updateStockReceiptSafe(
   id: string,
   payload: ReceiptPayload,
 ): Promise<OfflineResult<StockReceipt>> {
+  const mapped = isLocalId(id) ? await resolveLocalId(id) : id
+  const persistId = mapped || id
   const clientRef = newClientRef()
-  const body = { ...payload, clientRef, id, paidNow: round2(payload.paidNow || 0) }
-
-  if (isLocalId(id)) {
-    // Ещё не на сервере — правим локально и обновляем очередь create
-    const old = usePosStore.getState().receipts.find(r => r.id === id)
-    if (old) {
-      const oldPaid = round2(old.paidNow || 0)
-      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
-      await applyReceiptStock(old, -1)
-    }
-    let receipt = buildLocalReceipt(payload, {
-      id,
-      clientRef: old?.clientRef || clientRef,
-      createdAtIso: old?.createdAtIso,
-    })
-    receipt = await enrichReceiptNames(receipt)
-    const paid = round2(receipt.paidNow || 0)
-    if (paid > 0.001) {
-      const shiftId = applyPurchasePayToOpenShift(paid, 1)
-      if (shiftId) receipt = { ...receipt, shiftId }
-    }
-    await applyReceiptStock(receipt, 1)
-    usePosStore.setState(s => ({
-      receipts: s.receipts.map(r => (r.id === id ? receipt : r)),
-    }))
-    await useOfflineSync.getState().queueOp('stock_receipt_update', { ...body, id })
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data: receipt }
-  }
+  const body = { ...payload, clientRef, id: persistId, paidNow: round2(payload.paidNow || 0) }
+  const nowIso = new Date().toISOString()
 
   const applyLocal = async () => {
-    const old = usePosStore.getState().receipts.find(r => r.id === id)
+    const old = findReceipt(id) || findReceipt(persistId)
     if (old) {
       const oldPaid = round2(old.paidNow || 0)
       if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
       await applyReceiptStock(old, -1)
     }
+    const liveId = old?.id || persistId
     let receipt = buildLocalReceipt(payload, {
-      id,
-      clientRef,
+      id: liveId,
+      clientRef: old?.clientRef || clientRef,
       createdAtIso: old?.createdAtIso,
+      updatedAtIso: nowIso,
     })
+    receipt = { ...receipt, items: withPreservedRemaining(old, receipt.items) }
     receipt = await enrichReceiptNames(receipt)
     const paid = round2(receipt.paidNow || 0)
     if (paid > 0.001) {
@@ -239,40 +249,50 @@ export async function updateStockReceiptSafe(
       if (shiftId) receipt = { ...receipt, shiftId }
     }
     await applyReceiptStock(receipt, 1)
-    await useOfflineSync.getState().queueOp('stock_receipt_update', body)
+    await useOfflineSync.getState().queueOp('stock_receipt_update', { ...body, id: liveId })
     usePosStore.setState(s => ({
-      receipts: s.receipts.map(r => (r.id === id ? receipt : r)),
+      receipts: s.receipts.map(r => (r.id === id || r.id === persistId || r.id === liveId ? receipt : r)),
     }))
     return receipt
   }
 
-  return raceWarehouseOp(() => api.updateStockReceipt(id, body), applyLocal)
+  if (isLocalId(id) && (!mapped || isLocalId(mapped))) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+
+  return raceWarehouseOp(() => api.updateStockReceipt(persistId, { ...body, id: persistId }), applyLocal)
 }
 
 export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const mapped = isLocalId(id) ? await resolveLocalId(id) : id
+  const persistId = mapped || id
   const clientRef = newClientRef()
-  const body = { clientRef, id }
+  const body = { clientRef, id: persistId }
 
   const applyLocal = async () => {
-    const old = usePosStore.getState().receipts.find(r => r.id === id)
+    const old = findReceipt(id) || findReceipt(persistId)
     if (old) {
       const oldPaid = round2(old.paidNow || 0)
       if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
       await applyReceiptStock(old, -1)
     }
     await useOfflineSync.getState().queueOp('stock_receipt_delete', body)
-    usePosStore.setState(s => ({ receipts: s.receipts.filter(r => r.id !== id) }))
-    return { id }
+    usePosStore.setState(s => ({
+      receipts: s.receipts.filter(r => r.id !== id && r.id !== persistId && r.id !== old?.id),
+    }))
+    return { id: persistId }
   }
 
-  if (isLocalId(id)) {
+  if (isLocalId(id) && (!mapped || isLocalId(mapped))) {
     const data = await applyLocal()
     void useOfflineSync.getState().syncNow()
     return { offline: true, data }
   }
 
   return raceWarehouseOp(
-    () => api.deleteStockReceipt(id, { clientRef }),
+    () => api.deleteStockReceipt(persistId, { clientRef }),
     applyLocal,
   )
 }
