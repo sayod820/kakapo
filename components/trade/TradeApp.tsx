@@ -749,6 +749,9 @@ const CSS = `
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-top-back{flex-shrink:0;white-space:nowrap}
+  .k-top-title{flex:1;min-width:0;font-weight:800;color:var(--text)}
+  .k-top-title-main{font-size:16px;font-weight:900;line-height:1.2;color:var(--text)}
+  .k-top-title-sub{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
   .k-top-subtabs{display:flex;gap:6px;flex-shrink:0;align-items:center}
   .k-top-subtabs .k-subtab{padding:7px 12px;font-size:12px;margin:0}
   .k-top-search-wrap{flex:1;display:flex;justify-content:center;min-width:0}
@@ -1411,14 +1414,34 @@ const CSS = `
       cursor:pointer;font-size:20px;flex-shrink:0
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    .k-top{padding:10px 12px;gap:8px;flex-wrap:wrap}
+    /* Камера/вырез по центру: отступ сверху + заголовок отдельной строкой под кнопками */
+    .k-top{
+      padding:calc(6px + env(safe-area-inset-top,0px)) 10px 8px;
+      gap:6px;flex-wrap:wrap;align-items:center
+    }
+    .k-mob-menu-btn{order:1;width:36px;height:36px;font-size:18px;border-radius:10px}
+    .k-top-end{
+      order:2;gap:6px;margin-left:auto;align-items:center
+    }
+    .k-top-end .k-top-net{order:1}
+    .k-top-end .k-theme-toggle{order:2}
+    .k-top-end .k-user{order:3}
+    .k-top-title{
+      order:10;flex:1 1 100%;min-width:0;padding:2px 2px 0;
+      font-size:15px;line-height:1.2
+    }
+    .k-top-title-main{font-size:15px;font-weight:900;letter-spacing:-.01em}
+    .k-top-title-sub{font-size:10px;margin-top:1px}
+    .k-theme-toggle{padding:2px;border-radius:10px;gap:1px}
+    .k-theme-mode{width:30px;height:28px;border-radius:8px}
+    .k-user{padding:2px;border-radius:10px}
+    .k-user .av{width:30px;height:30px;border-radius:9px;font-size:11px}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .k-top-subtabs::-webkit-scrollbar{display:none}
     .k-top-subtabs.k-seg-tabs{
       order:3;flex:1 1 100%;width:100%;overflow:visible;min-width:0
     }
     .k-top-back{order:2;padding:8px 10px;font-size:12px}
-    .k-top-end{order:2;gap:8px;margin-left:auto}
     .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch}
     .k-top-search-wrap .k-search{max-width:none}
     .k-search{max-width:none;min-width:0;flex:1 1 100%}
@@ -1448,16 +1471,14 @@ const CSS = `
     .k-body{padding:10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
-      max-height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px))
+      height:auto!important;max-height:none!important
     }
     .k-trade.pos-fs .k-body-pos{
       height:100dvh!important;max-height:100dvh!important
     }
     .k-body-debts{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
-      max-height:calc(100dvh - 56px - 56px - env(safe-area-inset-bottom,0px));
+      height:auto!important;max-height:none!important;
       padding:12px;display:flex;flex-direction:column
     }
     .k-page-h h1{font-size:18px}
@@ -2278,9 +2299,13 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
-  /* Android: нижнее меню чуть выше края (~3 мм), не на системной полоске */
+  /* Android: StatusBar overlays WebView — минимум под вырез/камеру */
   html.kakapo-android{
-    --k-android-nav-lift:12px
+    --k-android-nav-lift:12px;
+    --k-android-top-inset:max(env(safe-area-inset-top,0px),28px)
+  }
+  html.kakapo-android .k-top{
+    padding-top:calc(6px + var(--k-android-top-inset))
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
@@ -2346,8 +2371,7 @@ const CSS = `
   @media (max-width:600px){
     .k-kpis{grid-template-columns:1fr 1fr}
     .k-receipt-summary{gap:8px}
-    .k-theme-toggle{order:2}
-    .k-user{padding:4px}
+    .k-user{padding:2px}
   }
 
   @media (max-width:480px){
@@ -3053,17 +3077,17 @@ function TradeAppInner({
             ) : current === 'products' ? (
               <div className="k-top-search-wrap" aria-hidden />
             ) : (
-              <div style={{ flex: 1, fontWeight: 800, color: 'var(--text)', minWidth: 0 }}>
+              <div className="k-top-title">
                 {current === 'debts' ? (
                   <div>
-                    <div style={{ fontSize: 16, fontWeight: 900, lineHeight: 1.2 }}>💳 Долги клиентов</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>
+                    <div className="k-top-title-main">💳 Долги клиентов</div>
+                    <div className="k-top-title-sub">
                       Товары (чеки) и наличные (ручные)
                     </div>
                   </div>
                 ) : (
-                  <span style={{ color: 'var(--text)', fontSize: 16, fontWeight: 900 }}>
-                {NAV.find(n => n.id === current)?.label}
+                  <span className="k-top-title-main">
+                    {NAV.find(n => n.id === current)?.label}
                   </span>
                 )}
               </div>
@@ -3072,33 +3096,33 @@ function TradeAppInner({
               <div className="k-top-net">
                 <NetworkStatus compact />
               </div>
-            <div className="k-theme-toggle" role="group" aria-label="Тема">
-              <button
-                type="button"
-                className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
-                title="Тёмная тема"
-                onClick={() => applyTheme('dark')}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                </svg>
+              <div className="k-theme-toggle" role="group" aria-label="Тема">
+                <button
+                  type="button"
+                  className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
+                  title="Тёмная тема"
+                  onClick={() => applyTheme('dark')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
+                  title="Светлая тема"
+                  onClick={() => applyTheme('light')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+              <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
+                <div className="av">{initials(session.name)}</div>
+                <div className="who"><b>{session.name}</b><span>Выйти</span></div>
               </button>
-              <button
-                type="button"
-                className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
-                title="Светлая тема"
-                onClick={() => applyTheme('light')}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-            <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
-              <div className="av">{initials(session.name)}</div>
-              <div className="who"><b>{session.name}</b><span>Выйти</span></div>
-            </button>
             </div>
           </header>
         )}

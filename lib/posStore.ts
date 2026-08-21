@@ -324,100 +324,115 @@ const SHIFT_PENDING_KINDS = new Set([
   'vault_cash_to_card',
 ])
 
-export async function softSyncPosAfterSale() {
-  try {
-    const [sales, shifts] = await Promise.all([
-      api.getPosSales(),
-      api.getPosShifts(),
-    ])
+/** Сигнатура списка — чтобы не дергать React setState без реальных изменений */
+function softListSig(rows: { id?: string | number; status?: string; total?: number; updatedAtIso?: string; createdAtIso?: string; closedAtIso?: string }[] | undefined) {
+  const list = rows || []
+  const n = list.length
+  if (!n) return '0'
+  const a = list[0]
+  const c = list[n - 1]
+  return `${n}:${a?.id}:${a?.status || ''}:${a?.total ?? ''}:${a?.updatedAtIso || a?.createdAtIso || ''}:${c?.id}:${c?.closedAtIso || c?.updatedAtIso || c?.createdAtIso || ''}`
+}
 
-    const { getPending } = await import('./offline')
-    const pending = await getPending()
-    const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
+let posSoftSyncInFlight: Promise<void> | null = null
+let posSoftSyncLastAt = 0
+/** Таймеры не долбят чаще 4с; force=true — WS / после чека / syncNow */
+const POS_SOFT_MIN_GAP_MS = 4000
 
-    // Состояние читаем после await — иначе потеряем чеки, пробитые во время запроса
-    const localSales = usePosStore.getState().sales
+export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
+  if (posSoftSyncInFlight) return posSoftSyncInFlight
+  if (!opts?.force && Date.now() - posSoftSyncLastAt < POS_SOFT_MIN_GAP_MS) return
 
-    // Серверные чеки + локальные ещё не ушедшие; имя кассира не затираем пустым «Кассир»
-    const localById = new Map(localSales.map(s => [String(s.id), s]))
-    const localByRef = new Map(
-      localSales
-        .filter(s => (s as { clientRef?: string }).clientRef)
-        .map(s => [String((s as { clientRef?: string }).clientRef), s]),
-    )
-    const isGenericCashier = (n?: string) => {
-      const t = String(n || '').trim()
-      return !t || /^кассир$/i.test(t)
-    }
-    const enrichedServer = sales.map(s => {
-      const local = localById.get(String(s.id))
-        || (s.clientRef ? localByRef.get(String(s.clientRef)) : undefined)
-      if (!local) return s
-      if (isGenericCashier(s.cashierName) && !isGenericCashier(local.cashierName)) {
-        return { ...s, cashierName: local.cashierName, cashierId: s.cashierId || local.cashierId }
+  posSoftSyncInFlight = (async () => {
+    try {
+      const [sales, shifts] = await Promise.all([
+        api.getPosSales(),
+        api.getPosShifts(),
+      ])
+
+      const { getPending } = await import('./offline')
+      const pending = await getPending()
+      const protectShifts = pending.some(r => !r.failed && SHIFT_PENDING_KINDS.has(r.kind))
+
+      // Состояние читаем после await — иначе потеряем чеки, пробитые во время запроса
+      const localSales = usePosStore.getState().sales
+
+      // Серверные чеки + локальные ещё не ушедшие; имя кассира не затираем пустым «Кассир»
+      const localById = new Map(localSales.map(s => [String(s.id), s]))
+      const localByRef = new Map(
+        localSales
+          .filter(s => (s as { clientRef?: string }).clientRef)
+          .map(s => [String((s as { clientRef?: string }).clientRef), s]),
+      )
+      const isGenericCashier = (n?: string) => {
+        const t = String(n || '').trim()
+        return !t || /^кассир$/i.test(t)
       }
-      return s
-    })
-    const mergedSales = mergeInboundById(localSales, enrichedServer)
-
-    const prevIds = new Set(localSales.map(s => String(s.id)))
-    const hasNewFromServer = enrichedServer.some(s => !prevIds.has(String(s.id)))
-    const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
-
-    const localShifts = usePosStore.getState().shifts
-    const enrichedShifts = (shifts || []).map(sh => {
-      const local = localShifts.find(x => String(x.id) === String(sh.id))
-        || (sh.clientRef
-          ? localShifts.find(x => String(x.clientRef || '') === String(sh.clientRef))
-          : undefined)
-      if (!local) return sh
-      let next = sh
-      if (isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
-        next = { ...next, cashierName: local.cashierName }
-      }
-      if (local.openedAtIso && (!sh.openedAtIso || local.openedAtIso < sh.openedAtIso)) {
-        next = { ...next, openedAtIso: local.openedAtIso }
-      }
-      if (local.closedAtIso && (!sh.closedAtIso || String(local.closedAtIso) < String(sh.closedAtIso))) {
-        next = { ...next, closedAtIso: local.closedAtIso }
-      }
-      if (local.clientRef && !next.clientRef) next = { ...next, clientRef: local.clientRef }
-      return next
-    })
-
-    if (protectShifts) {
-      // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
-      usePosStore.setState({ sales: mergedSales })
-    } else {
-      usePosStore.setState({
-        sales: mergedSales,
-        shifts: mergeInboundById(localShifts, enrichedShifts),
+      const enrichedServer = sales.map(s => {
+        const local = localById.get(String(s.id))
+          || (s.clientRef ? localByRef.get(String(s.clientRef)) : undefined)
+        if (!local) return s
+        if (isGenericCashier(s.cashierName) && !isGenericCashier(local.cashierName)) {
+          return { ...s, cashierName: local.cashierName, cashierId: s.cashierId || local.cashierId }
+        }
+        return s
       })
-    }
+      const mergedSales = mergeInboundById(localSales, enrichedServer)
 
-    if (hasNewFromServer || keptLocal || mergedSales.length !== localSales.length) {
-      try {
-        const { cacheData } = await import('./offline')
-        const cur = usePosStore.getState()
-        void cacheData('pos_snapshot', {
-          cashiers: cur.cashiers,
-          posPoints: cur.posPoints,
-          shifts: cur.shifts,
-          sales: cur.sales,
-          receipts: cur.receipts,
-          writeoffs: cur.writeoffs,
-          revisions: cur.revisions,
-          suppliers: cur.suppliers,
-          expenses: cur.expenses,
-          financeMoves: cur.financeMoves,
-          cashVault: cur.cashVault,
-          expiry: cur.expiry,
-          financeSummary: cur.financeSummary,
-          report: cur.report,
-        })
-      } catch { /* ignore */ }
+      const prevIds = new Set(localSales.map(s => String(s.id)))
+      const hasNewFromServer = enrichedServer.some(s => !prevIds.has(String(s.id)))
+      const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
+
+      const localShifts = usePosStore.getState().shifts
+      const enrichedShifts = (shifts || []).map(sh => {
+        const local = localShifts.find(x => String(x.id) === String(sh.id))
+          || (sh.clientRef
+            ? localShifts.find(x => String(x.clientRef || '') === String(sh.clientRef))
+            : undefined)
+        if (!local) return sh
+        let next = sh
+        if (isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
+          next = { ...next, cashierName: local.cashierName }
+        }
+        if (local.openedAtIso && (!sh.openedAtIso || local.openedAtIso < sh.openedAtIso)) {
+          next = { ...next, openedAtIso: local.openedAtIso }
+        }
+        if (local.closedAtIso && (!sh.closedAtIso || String(local.closedAtIso) < String(sh.closedAtIso))) {
+          next = { ...next, closedAtIso: local.closedAtIso }
+        }
+        if (local.clientRef && !next.clientRef) next = { ...next, clientRef: local.clientRef }
+        return next
+      })
+      const mergedShifts = protectShifts ? localShifts : mergeInboundById(localShifts, enrichedShifts)
+
+      const salesChanged = softListSig(mergedSales) !== softListSig(localSales)
+        || hasNewFromServer
+        || keptLocal
+        || mergedSales.length !== localSales.length
+      const shiftsChanged = !protectShifts && softListSig(mergedShifts) !== softListSig(localShifts)
+
+      if (salesChanged || shiftsChanged) {
+        if (protectShifts) {
+          // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
+          if (salesChanged) usePosStore.setState({ sales: mergedSales })
+        } else {
+          usePosStore.setState({
+            ...(salesChanged ? { sales: mergedSales } : {}),
+            ...(shiftsChanged ? { shifts: mergedShifts } : {}),
+          })
+        }
+      }
+
+      if (salesChanged && (hasNewFromServer || keptLocal || mergedSales.length !== localSales.length)) {
+        await persistSoftPosSnapshot()
+      }
+    } catch { /* нет связи — локальный чек уже на экране */ }
+    finally {
+      posSoftSyncLastAt = Date.now()
+      posSoftSyncInFlight = null
     }
-  } catch { /* нет связи — локальный чек уже на экране */ }
+  })()
+  return posSoftSyncInFlight
 }
 
 async function persistSoftPosSnapshot() {

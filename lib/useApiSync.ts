@@ -64,7 +64,7 @@ function createDebouncedPullers() {
     posSoft: () => schedule('posSoft', () => {
       // Поиск кассы НЕ блокирует: иначе чек с браузера не доходит, пока курсор в поиске
       if (isCashierPaymentCritical()) return
-      void softSyncPosAfterSale()
+      void softSyncPosAfterSale({ force: true })
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
       if (isCashierPaymentCritical()) return
@@ -253,24 +253,22 @@ export function useApiSync(mode: SyncMode = 'all') {
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
         if (mode === 'pos') {
           const searchBusy = isCashierCritical() && !isCashierPaymentCritical()
-          // Всегда тянем продажи и партии — иначе чек/приход с телефона не видны на ПК
-          const tasks: Promise<unknown>[] = [
-            softSyncPosAfterSale(),
-            softSyncWarehouse(),
-            softSyncFinance(),
-          ]
+          // Во время поиска — только лёгкие продажи (mutex внутри), без склада/финансов/каталога
           if (searchBusy) {
-            await Promise.allSettled(tasks)
+            await softSyncPosAfterSale()
             return
           }
           // Торговля: локально уже есть данные; фон — лёгкий sync
           posTickRef.current += 1
           const tick = posTickRef.current
-          tasks.push(
+          const tasks: Promise<unknown>[] = [
+            softSyncPosAfterSale(),
+            softSyncWarehouse(),
+            softSyncFinance(),
             syncLoyaltyStatusConfigFromApi(),
             syncClientsFromApi(),
             syncCardsFromApi(),
-          )
+          ]
           // Каталог товаров — не каждый тик (тяжело на слабом интернете)
           if (tick === 1 || tick % 3 === 0) {
             tasks.push(useProducts.getState().fetchProducts())
@@ -312,10 +310,10 @@ export function useApiSync(mode: SyncMode = 'all') {
     // Отдельный частый inbound продаж (браузер → ПК), не ждёт 45с
     let salesId: ReturnType<typeof setInterval> | null = null
     if (mode === 'pos') {
+      // Только продажи — финансы уже в 45с тике / WS; иначе один синк долбится 3 раза
       salesId = setInterval(() => {
         if (isCashierPaymentCritical()) return
         void softSyncPosAfterSale()
-        void softSyncFinance()
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

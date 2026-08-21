@@ -74,7 +74,7 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
-import { beginCashierCritical, endCashierCritical, isCashierCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
+import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
   buildDemoReceiptSale,
@@ -466,7 +466,14 @@ function Keypad({ onDigit, onBack }: { onDigit: (k: string) => void; onBack: () 
   return (
     <div className="keypad">
       {keys.map(k => (
-        <button key={k} type="button" className={k === '⌫' ? 'kp-clear' : undefined} onClick={() => (k === '⌫' ? onBack() : onDigit(k))}>
+        <button
+          key={k}
+          type="button"
+          className={k === '⌫' ? 'kp-clear' : undefined}
+          // Не забирать фокус у поля суммы — иначе физ. клавиатура перестаёт печатать
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => (k === '⌫' ? onBack() : onDigit(k))}
+        >
           {k}
         </button>
       ))}
@@ -1191,6 +1198,20 @@ export default function CashierModule({
   const printChoiceLockedRef = useRef(false)
   const printingSaleIdsRef = useRef(new Set<string>())
   const [printingSaleId, setPrintingSaleId] = useState<string | null>(null)
+  /** Подтверждение возврата — без window.confirm/prompt (Electron иначе блокирует ввод) */
+  const [returnConfirm, setReturnConfirm] = useState<{
+    saleId: string
+    mode: 'selected' | 'all'
+    title: string
+    body: string
+    total: number
+    payloadItems?: { index: number; qty: number }[]
+    needAdmin: boolean
+    step: 'confirm' | 'admin'
+    adminCode: string
+  } | null>(null)
+  const returnConfirmRef = useRef(returnConfirm)
+  returnConfirmRef.current = returnConfirm
   const [deskPrinters, setDeskPrinters] = useState<DesktopPrinter[]>([])
   const [deskPrinterName, setDeskPrinterName] = useState('')
   const [deskPaperMm, setDeskPaperMm] = useState<58 | 80>(XP58C_RECEIPT_MM)
@@ -1263,6 +1284,7 @@ export default function CashierModule({
       if (cashierMenuOpen) { setCashierMenuOpen(false); return true }
       if (queueOpen) { setQueueOpen(false); return true }
       if (receiptTemplateOpen) { setReceiptTemplateOpen(false); return true }
+      if (returnConfirmRef.current) { setReturnConfirm(null); return true }
       if (clearCartConfirm) { setClearCartConfirm(false); return true }
       if (showFav) { setShowFav(false); return true }
       return false
@@ -1379,24 +1401,22 @@ export default function CashierModule({
     return () => window.clearTimeout(t)
   }, [busy])
 
-  /** Автообновление статуса кассы (смена открыта/закрыта, продажи) */
+  /** Очередь офлайна — без дубля softSync (его уже тянет useApiSync / WS) */
   useEffect(() => {
     if (!USE_API || !active) return
     let cancelled = false
-    const softSync = () => {
+    const kickQueue = () => {
       if (cancelled || document.visibilityState === 'hidden') return
-      if (isCashierCritical()) return
-      // Не смотрим на navigator.onLine — в Electron после reconnect он часто врёт.
-      void softSyncPosAfterSale()
+      if (isCashierPaymentCritical()) return
       const net = useOfflineSync.getState()
       if (!net.online || net.pending > 0 || net.failed > 0) {
         void net.syncNow()
       }
     }
-    softSync()
-    const id = window.setInterval(softSync, 20000)
+    kickQueue()
+    const id = window.setInterval(kickQueue, 25000)
     const onVisible = () => {
-      if (document.visibilityState === 'visible') softSync()
+      if (document.visibilityState === 'visible') kickQueue()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -1470,7 +1490,7 @@ export default function CashierModule({
 
   useEffect(() => {
     const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen || !!tillMoveKind
-    if (!open || amountPad) return
+    if (!open) return
     const t = window.setTimeout(() => {
       const el = amountInputRef.current
       if (!el) return
@@ -1479,6 +1499,57 @@ export default function CashierModule({
     }, 40)
     return () => window.clearTimeout(t)
   }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, chargeOpen, tillMoveKind, amountPad])
+
+  /** Пока открыто окно суммы: цифры с физ. клавиатуры всегда в поле, даже после клика по кнопкам */
+  useEffect(() => {
+    const open = discOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen || !!tillMoveKind
+    if (!open) return
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const el = amountInputRef.current
+      if (!el) return
+      const active = document.activeElement as HTMLElement | null
+      if (active === el) return
+      if (active && (active.tagName === 'TEXTAREA' || active.isContentEditable)) return
+      // Другое текстовое поле (не сумма) — не перехватываем
+      if (active?.tagName === 'INPUT' && active !== el) {
+        const type = (active as HTMLInputElement).type || 'text'
+        if (type === 'text' || type === 'search' || type === 'tel' || type === 'number' || type === '') return
+      }
+
+      const isDigit = e.key.length === 1 && /[0-9.,]/.test(e.key)
+      const isEdit = e.key === 'Backspace' || e.key === 'Delete'
+      if (!isDigit && !isEdit) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      el.focus()
+
+      if (discOpen) {
+        if (isEdit) {
+          setDiscBuf(b => b.slice(0, -1))
+          return
+        }
+        typeDiscDigit(e.key === ',' ? '.' : e.key)
+        return
+      }
+
+      const apply = (setter: (fn: (b: string) => string) => void) => {
+        if (isEdit) setter(b => b.slice(0, -1))
+        else setter(b => appendDigit(b, e.key === ',' ? '.' : e.key))
+      }
+      if (cashOpen) apply(setCashBuf)
+      else if (splitCardOpen) apply(setSplitCardBuf)
+      else if (topupOpen) apply(setTopupBuf)
+      else if (repayOpen) apply(setRepayBuf)
+      else if (chargeOpen) apply(setChargeBuf)
+      else if (tillMoveKind) apply(setTillAmountBuf)
+    }
+
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [discOpen, cashOpen, splitCardOpen, topupOpen, repayOpen, chargeOpen, tillMoveKind])
 
   useEffect(() => {
     if (!clientScanOpen) return
@@ -1558,7 +1629,9 @@ export default function CashierModule({
     || !!cashierScreen
     || catModalOpen || clientOpen || clientScanOpen || camScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen
+    || !!tillMoveKind || layerPickOpen
     || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
+    || !!returnConfirm
     || !!dashMenuPosId
     || !!scanBlockAlert
     || !!barcodePick
@@ -4265,7 +4338,8 @@ export default function CashierModule({
 
     let payloadItems: { index: number; qty: number }[] | undefined
     let confirmTotal = 0
-    let confirmLabel = ''
+    let title = ''
+    let body = ''
 
     if (mode === 'all') {
       const all = (sale.items || []).map((line, index) => ({ index, qty: saleLineLeft(line) })).filter(x => x.qty > 0)
@@ -4275,7 +4349,8 @@ export default function CashierModule({
       }
       payloadItems = undefined
       confirmTotal = Number(sale.total) || 0
-      confirmLabel = `Вернуть весь чек на ${fmtMoney(confirmTotal)}?\nВсе оставшиеся товары вернутся на склад.`
+      title = 'Вернуть весь чек?'
+      body = `Сумма ${fmtMoney(confirmTotal)}. Все оставшиеся товары вернутся на склад.`
     } else {
       const selected = receiptReturnPreview.items
       if (!selected.length) {
@@ -4284,38 +4359,60 @@ export default function CashierModule({
       }
       payloadItems = selected
       confirmTotal = receiptReturnPreview.total
-      confirmLabel = `Вернуть ${selected.length} позиц. на ${fmtMoney(confirmTotal)}?\nТовары вернутся на склад.`
+      title = `Вернуть ${selected.length} позиц.?`
+      body = `Сумма ${fmtMoney(confirmTotal)}. Товары вернутся на склад.`
     }
 
-    if (!window.confirm(confirmLabel)) return
-    if (needsAdminReturnConfirm(sale)) {
-      const code = window.prompt(
-        'Этот чек из другой или закрытой смены.\nДля возврата введите код администратора: АДМИН',
-      )
-      if (String(code || '').trim().toUpperCase() !== 'АДМИН') {
+    setReturnConfirm({
+      saleId,
+      mode,
+      title,
+      body,
+      total: confirmTotal,
+      payloadItems,
+      needAdmin: needsAdminReturnConfirm(sale),
+      step: 'confirm',
+      adminCode: '',
+    })
+  }
+
+  async function executeReturnConfirm() {
+    const pending = returnConfirm
+    if (!pending || busy) return
+    if (pending.step === 'confirm' && pending.needAdmin) {
+      setReturnConfirm({ ...pending, step: 'admin', adminCode: '' })
+      return
+    }
+    if (pending.step === 'admin') {
+      if (String(pending.adminCode || '').trim().toUpperCase() !== 'АДМИН') {
         showToast('Нужен код админа', 'Возврат из чужой смены отменён')
         return
       }
     }
+    const sale = sales.find(s => s.id === pending.saleId)
+    if (!sale) {
+      setReturnConfirm(null)
+      return
+    }
+    setReturnConfirm(null)
     setBusy(true)
     setMsg('')
     try {
       const debtBefore = Number(sale.debtAdded) || 0
       const res = await returnSaleSafe(sale, {
-        note: mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
+        note: pending.mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
         cashierId: settings.cashierId || activeShift?.cashierId,
-        ...(payloadItems ? { items: payloadItems } : {}),
+        ...(pending.payloadItems ? { items: pending.payloadItems } : {}),
       })
       const updated = res.data
       const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
       if (!res.offline) {
-        // Не блокируем кассира полной перезагрузкой — обновим в фоне
         void Promise.allSettled([refresh(), fetchProducts()])
       } else {
         void useOfflineSync.getState().syncNow()
       }
       setReturnQtyByIdx({})
-      const retTotal = Number(updated.lastReturnTotal) || confirmTotal
+      const retTotal = Number(updated.lastReturnTotal) || pending.total
       showToast(
         updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
         `${fmtMoney(retTotal)} · товары на складе`
@@ -5785,7 +5882,7 @@ export default function CashierModule({
         } catch { /* ignore */ }
       }
       // Исходящая очередь + входящие чеки с сервера (браузер → ПК)
-      void softSyncPosAfterSale()
+      void softSyncPosAfterSale({ force: true })
       useOfflineSync.getState().scheduleSyncDebounced()
       if (!created._offline) {
         void syncClientsFromApi()
@@ -8420,6 +8517,63 @@ export default function CashierModule({
         </div>
       )}
 
+      {returnConfirm && (
+        <div className="overlay" onClick={() => !busy && setReturnConfirm(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
+            {returnConfirm.step === 'confirm' ? (
+              <>
+                <h3>{returnConfirm.title}</h3>
+                <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
+                  {returnConfirm.body}
+                  {returnConfirm.needAdmin && (
+                    <div style={{ marginTop: 8, color: 'var(--org)' }}>
+                      Чек из другой или закрытой смены — потребуется код админа.
+                    </div>
+                  )}
+                </div>
+                <div className="modal-card-actions" style={{ gap: 8 }}>
+                  <button type="button" className="btn-cancel" disabled={busy} onClick={() => setReturnConfirm(null)}>
+                    Отмена
+                  </button>
+                  <button type="button" className="btn-confirm" disabled={busy} onClick={() => void executeReturnConfirm()}>
+                    Вернуть
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>Код администратора</h3>
+                <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 12 }}>
+                  Чек из другой или закрытой смены. Введите код: <b>АДМИН</b>
+                </div>
+                <input
+                  className="cash-recv-field"
+                  autoFocus
+                  value={returnConfirm.adminCode}
+                  onChange={e => setReturnConfirm(prev => prev ? { ...prev, adminCode: e.target.value } : prev)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void executeReturnConfirm()
+                    }
+                  }}
+                  placeholder="АДМИН"
+                  style={{ marginBottom: 16 }}
+                />
+                <div className="modal-card-actions" style={{ gap: 8 }}>
+                  <button type="button" className="btn-cancel" disabled={busy} onClick={() => setReturnConfirm(null)}>
+                    Отмена
+                  </button>
+                  <button type="button" className="btn-confirm" disabled={busy} onClick={() => void executeReturnConfirm()}>
+                    {busy ? 'Возврат…' : 'Подтвердить'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {closeTicketConfirmId && (() => {
         const t = tickets.find(x => x.id === closeTicketConfirmId)
         const idx = tickets.findIndex(x => x.id === closeTicketConfirmId)
@@ -9047,7 +9201,15 @@ export default function CashierModule({
               </div>
 
               <div className="cash-bills">
-                <button type="button" className="cash-bill exact" onClick={() => setCashBuf(String(Math.round(collectTotal * 100) / 100))}>
+                <button
+                  type="button"
+                  className="cash-bill exact"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => {
+                    setCashBuf(String(Math.round(collectTotal * 100) / 100))
+                    window.setTimeout(() => amountInputRef.current?.focus(), 0)
+                  }}
+                >
                   Без сдачи
                 </button>
                 {[10, 20, 50, 100, 200, 500].map(v => (
@@ -9055,7 +9217,11 @@ export default function CashierModule({
                     key={v}
                     type="button"
                     className={cashReceived === v ? 'on' : ''}
-                    onClick={() => setCashBuf(String(v))}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setCashBuf(String(v))
+                      window.setTimeout(() => amountInputRef.current?.focus(), 0)
+                    }}
                   >
                     {v}
                   </button>
@@ -9075,7 +9241,11 @@ export default function CashierModule({
               <button
                 type="button"
                 className={`cash-pad-toggle ${amountPad ? 'on' : ''}`}
-                onClick={() => setAmountPad(v => !v)}
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => {
+                  setAmountPad(v => !v)
+                  window.setTimeout(() => amountInputRef.current?.focus(), 0)
+                }}
               >
                 ⌨ {amountPad ? 'Скрыть клавиатуру' : 'Клавиатура'}
               </button>

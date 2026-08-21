@@ -397,7 +397,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
           await Promise.race([
-            softSyncPosAfterSale(),
+            softSyncPosAfterSale({ force: true }),
             new Promise(resolve => setTimeout(resolve, 8000)),
           ])
         } catch { /* ignore */ }
@@ -414,7 +414,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         if (alive && !isCashierPaymentCritical()) {
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
-            void softSyncPosAfterSale()
+            void softSyncPosAfterSale({ force: true })
           } catch { /* ignore */ }
         }
       } else if (alive && !searchBusy) {
@@ -505,7 +505,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
             await Promise.race([
-              softSyncPosAfterSale(),
+              softSyncPosAfterSale({ force: true }),
               new Promise(resolve => setTimeout(resolve, 3500)),
             ])
           } catch { /* ignore */ }
