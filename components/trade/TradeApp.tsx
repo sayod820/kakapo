@@ -1464,26 +1464,6 @@ const CSS = `
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
-    /* Вкладки Товар/Категория/Этикетки — отдельный блок над фильтрами */
-    .k-products-subs.k-seg-tabs{
-      display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:4px;padding:4px;margin:0 0 8px;overflow:visible;flex-wrap:nowrap;
-      background:var(--card);border:1px solid var(--border);border-radius:12px
-    }
-    .k-products-subs .k-subtab{
-      display:flex;flex-direction:row;align-items:center;justify-content:center;
-      gap:5px;width:100%;min-width:0;min-height:38px!important;padding:6px 6px!important;
-      border:none;border-radius:9px;font-size:12px;font-weight:800;line-height:1.1;
-      background:transparent;color:var(--muted)
-    }
-    .k-products-subs .k-subtab .ic{font-size:15px;line-height:1;flex-shrink:0}
-    .k-products-subs .k-subtab .lbl{
-      display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center
-    }
-    .k-products-subs .k-subtab.active{
-      background:var(--green-d);color:var(--green);
-      box-shadow:inset 0 0 0 1px rgba(31,215,96,.35)
-    }
     .k-catalog-bar{flex-wrap:wrap;gap:4px;align-items:center}
     .k-catalog-meta{gap:4px}
     .k-catalog-meta b{font-size:14px}
@@ -1597,6 +1577,32 @@ const CSS = `
       box-shadow:inset 0 0 0 1px rgba(31,215,96,.3)
     }
     .k-seg-tabs .k-subtab:active{transform:scale(.97)}
+    /* Шапка: вкладки товаров НЕ в topbar — только отдельный блок ниже */
+    .k-top > .k-top-subtabs,
+    .k-top-subtabs.k-seg-tabs.k-hide-mob{
+      display:none!important;width:0!important;height:0!important;overflow:hidden!important;
+      margin:0!important;padding:0!important;border:none!important;flex:0!important;order:unset!important
+    }
+    .k-products-mod > .k-products-subs.k-seg-tabs{
+      display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:4px;padding:4px;margin:0 0 8px;overflow:visible;flex-wrap:nowrap;width:100%;
+      background:var(--card);border:1px solid var(--border);border-radius:12px
+    }
+    .k-products-mod > .k-products-subs .k-subtab{
+      display:flex!important;flex-direction:row!important;align-items:center;justify-content:center;
+      gap:5px;width:100%;min-width:0;min-height:38px!important;padding:6px 6px!important;
+      border:none;border-radius:9px;font-size:12px!important;font-weight:800;line-height:1.1;
+      background:transparent;color:var(--muted)
+    }
+    .k-products-mod > .k-products-subs .k-subtab .ic{font-size:15px;line-height:1;flex-shrink:0}
+    .k-products-mod > .k-products-subs .k-subtab .lbl{
+      display:block!important;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;
+      font-size:12px!important
+    }
+    .k-products-mod > .k-products-subs .k-subtab.active{
+      background:var(--green-d);color:var(--green);
+      box-shadow:inset 0 0 0 1px rgba(31,215,96,.35)
+    }
     .k-wh-head{gap:4px;margin-bottom:6px}
     .k-wh-head .k-seg-tabs{margin-top:2px}
     .k-wh-head .k-catalog-meta{gap:6px}

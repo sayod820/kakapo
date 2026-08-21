@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-android",
-  "version": "1.2.130",
+  "version": "1.2.131",
   "private": true,
   "description": "KAKAPO Trade — Android (локальный UI в APK, API kakappo.shop)",
   "scripts": {
