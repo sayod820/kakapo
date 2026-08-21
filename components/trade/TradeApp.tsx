@@ -749,9 +749,13 @@ const CSS = `
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-top-back{flex-shrink:0;white-space:nowrap}
-  .k-top-title{flex:1;min-width:0;font-weight:800;color:var(--text)}
-  .k-top-title-main{font-size:16px;font-weight:900;line-height:1.2;color:var(--text)}
-  .k-top-title-sub{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
+  .k-top-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;font-weight:800;color:var(--text)}
+  .k-top-title-main{font-size:16px;font-weight:900;line-height:1.15;color:var(--text)}
+  .k-top-title-sub{font-size:11px;color:var(--muted);font-weight:600;line-height:1.2}
+  .k-top-title-net{display:none;line-height:1}
+  .k-top-title-net .k-online-chip{
+    padding:0;border:none;background:transparent;min-height:0;font-size:11px;gap:5px;box-shadow:none
+  }
   .k-top-subtabs{display:flex;gap:6px;flex-shrink:0;align-items:center}
   .k-top-subtabs .k-subtab{padding:7px 12px;font-size:12px;margin:0}
   .k-top-search-wrap{flex:1;display:flex;justify-content:center;min-width:0}
@@ -1414,24 +1418,24 @@ const CSS = `
       cursor:pointer;font-size:20px;flex-shrink:0
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    /* Камера/вырез по центру: отступ сверху + заголовок отдельной строкой под кнопками */
+    /* Как было: меню | заголовок | тема/гс; надпись чуть выше, «Онлайн» под ней */
     .k-top{
       padding:calc(6px + env(safe-area-inset-top,0px)) 10px 8px;
-      gap:6px;flex-wrap:wrap;align-items:center
+      gap:8px;flex-wrap:wrap;align-items:center
     }
-    .k-mob-menu-btn{order:1;width:36px;height:36px;font-size:18px;border-radius:10px}
-    .k-top-end{
-      order:2;gap:6px;margin-left:auto;align-items:center
-    }
-    .k-top-end .k-top-net{order:1}
-    .k-top-end .k-theme-toggle{order:2}
-    .k-top-end .k-user{order:3}
+    .k-mob-menu-btn{width:36px;height:36px;font-size:18px;border-radius:10px;align-self:center}
     .k-top-title{
-      order:10;flex:1 1 100%;min-width:0;padding:2px 2px 0;
-      font-size:15px;line-height:1.2
+      flex:1 1 auto;min-width:0;max-width:none;
+      align-self:center;justify-content:center;gap:1px;
+      padding-top:0;margin-top:-3px
     }
-    .k-top-title-main{font-size:15px;font-weight:900;letter-spacing:-.01em}
-    .k-top-title-sub{font-size:10px;margin-top:1px}
+    .k-top-title-main{font-size:15px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
+    .k-top-title-sub{font-size:10px}
+    .k-top-title-net{display:flex!important;align-items:center}
+    .k-top:has(.k-top-title-net) .k-top-end .k-top-net{display:none!important}
+    .k-top-end{gap:6px;margin-left:auto;align-items:center}
+    .k-top-end .k-theme-toggle{order:1}
+    .k-top-end .k-user{order:2}
     .k-theme-toggle{padding:2px;border-radius:10px;gap:1px}
     .k-theme-mode{width:30px;height:28px;border-radius:8px}
     .k-user{padding:2px;border-radius:10px}
@@ -2299,13 +2303,16 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
-  /* Android: StatusBar overlays WebView — минимум под вырез/камеру */
+  /* Android: StatusBar overlays WebView — отступ под вырез */
   html.kakapo-android{
     --k-android-nav-lift:12px;
-    --k-android-top-inset:max(env(safe-area-inset-top,0px),28px)
+    --k-android-top-inset:max(env(safe-area-inset-top,0px),22px)
   }
   html.kakapo-android .k-top{
-    padding-top:calc(6px + var(--k-android-top-inset))
+    padding-top:calc(4px + var(--k-android-top-inset))
+  }
+  html.kakapo-android .k-top-title{
+    margin-top:-5px
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
@@ -3079,23 +3086,28 @@ function TradeAppInner({
             ) : (
               <div className="k-top-title">
                 {current === 'debts' ? (
-                  <div>
+                  <>
                     <div className="k-top-title-main">💳 Долги клиентов</div>
                     <div className="k-top-title-sub">
                       Товары (чеки) и наличные (ручные)
                     </div>
-                  </div>
+                  </>
                 ) : (
                   <span className="k-top-title-main">
                     {NAV.find(n => n.id === current)?.label}
                   </span>
                 )}
+                <div className="k-top-title-net">
+                  <NetworkStatus compact />
+                </div>
               </div>
             )}
             <div className="k-top-end">
-              <div className="k-top-net">
-                <NetworkStatus compact />
-              </div>
+              {current === 'products' || (current !== 'sales' && showSearch) ? (
+                <div className="k-top-net">
+                  <NetworkStatus compact />
+                </div>
+              ) : null}
               <div className="k-theme-toggle" role="group" aria-label="Тема">
                 <button
                   type="button"
