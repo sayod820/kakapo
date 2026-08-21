@@ -576,12 +576,8 @@ export interface PosSale {
   orderId?: string
   /** Сумма товаров до скидки/бонусов */
   orderGoodsTotal?: number
-  /** Сумма скидки (на товары + на весь чек) */
+  /** Сумма скидки */
   discountAmount?: number
-  /** Скидка только на весь чек (без построчных) */
-  checkDiscountAmount?: number
-  /** % скидки на весь чек (без построчных) */
-  discountPct?: number
   /** Списано бонусов */
   bonusSpent?: number
   /** Начислено бонусов */

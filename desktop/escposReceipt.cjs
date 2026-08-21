@@ -125,106 +125,51 @@ function nameAmountLines(name, amount, width, currency) {
 }
 
 /**
- * Позиция 58 мм / Font A:
- *   название
- *   объём/фасовка (если есть)
- *     кол-во ед. x цена
- *   было XXX.XX                 (до скидки)
- *   сейчас YYY.YY (−N%)         (после скидки)
- * без скидки — сумма справа от qty x price
+ * Позиция 58 мм (как на чеке):
+ *   Канди Сафед
+ *     1 x 12.00              12.00 9.60
+ *   без скидки — справа только сумма
+ *   со скидкой — старая сумма + новая (старую зачёркиваем при печати)
  */
-function itemReceiptLines(name, qty, price, amount, opts = {}) {
+function itemReceiptParts(name, qty, price, amount, opts = {}) {
   const width = 32
   const unit = String(opts.unit || '').trim()
   const pack = String(opts.pack || '').trim()
   const discPct = Math.max(0, Number(opts.discPct) || 0)
+  const discAmount = Math.max(0, Number(opts.discAmount) || 0)
   const titleLines = wrapName(name, width)
-  const out = [...titleLines]
-  if (pack) {
-    for (const line of wrapName(pack, width)) out.push(line)
-  }
+  const packLines = pack ? wrapName(pack, width) : []
   const qtyPart = unit ? `${qtyText(qty)} ${unit}` : qtyText(qty)
   const gross = Math.round((Number(price) * Number(qty) || 0) * 100) / 100
-  const net = Math.round((Number(amount) || gross) * 100) / 100
-  const hasDisc = net < gross - 0.009
-
-  if (hasDisc) {
-    out.push(`  ${qtyPart} x ${money(price)}`)
-    out.push(padLine('  было', money(gross), width))
-    const pctLabel = discPct > 0.001 ? ` (-${Math.round(discPct * 10) / 10}%)` : ''
-    out.push(padLine(`  сейчас${pctLabel}`, money(net), width))
-  } else {
-    const right = money(net)
-    const rawLeft = `  ${qtyPart} x ${money(price)}`
-    const maxLeft = Math.max(1, width - right.length - 1)
-    const left = rawLeft.length <= maxLeft
-      ? rawLeft
-      : `${rawLeft.slice(0, Math.max(1, maxLeft - 1))}.`
-    out.push(padLine(left, right, width))
-  }
-  return out
+  let net = Math.round((Number(amount) || 0) * 100) / 100
+  if (!(net > 0) && discAmount > 0.001) net = Math.round(Math.max(0, gross - discAmount) * 100) / 100
+  if (!(net > 0)) net = gross
+  const hasDisc = discPct > 0.001 || discAmount > 0.001 || net < gross - 0.009
+  const qtyLeft = `  ${qtyPart} x ${money(price)}`
+  return { width, titleLines, packLines, qtyLeft, hasDisc, gross, net }
 }
 
-/** Скидка на строку + доля скидки на весь чек → итоговая сумма позиции для печати. */
-function resolveReceiptItemAmounts(items, sale) {
-  const rows = (items || []).map(it => {
-    const qty = Number(it.qty) || 0
-    const price = Number(it.price) || 0
-    const gross = Math.round(price * qty * 100) / 100
-    const discPct = Math.max(0, Number(it.discPct) || 0)
-    let discAmount = Math.max(0, Number(it.discAmount) || 0)
-    if (discAmount < 0.001 && discPct > 0.001) {
-      discAmount = Math.round(gross * discPct) / 100
-    }
-    const lt = Number(it.lineTotal)
-    let net = Number.isFinite(lt) && lt >= 0
-      ? Math.round(lt * 100) / 100
-      : Math.round(Math.max(0, gross - discAmount) * 100) / 100
-    if (discPct < 0.001 && discAmount < 0.001 && gross - net > 0.009) {
-      discAmount = Math.round((gross - net) * 100) / 100
-    }
-    return { it, qty, price, gross, net, discPct, discAmount }
-  })
-
-  const itemDiscTotal = Math.round(rows.reduce((s, r) => s + Math.max(0, r.gross - r.net), 0) * 100) / 100
-  const goods = Number(sale.orderGoodsTotal)
-  const grossSum = Math.round(rows.reduce((s, r) => s + r.gross, 0) * 100) / 100
-  const subtotalGross = Number.isFinite(goods) && goods > 0 ? goods : grossSum
-  const total = Number(sale.total) || 0
-  const bonusSpent = Math.max(0, Number(sale.bonusSpent) || 0)
-  const discountTotal = Math.max(0, Number(sale.discountAmount) || 0)
-    || Math.max(0, Math.round((subtotalGross - total - bonusSpent) * 100) / 100)
-  const checkRaw = Number(sale.checkDiscountAmount)
-  const checkDisc = Math.max(0, Number.isFinite(checkRaw) && checkRaw >= 0
-    ? Math.round(checkRaw * 100) / 100
-    : Math.round(Math.max(0, discountTotal - itemDiscTotal) * 100) / 100)
-
-  const base = grossSum > 0.001 ? grossSum : 1
-  let allocated = 0
-  return rows.map((r, idx) => {
-    let share = 0
-    if (checkDisc > 0.001) {
-      if (idx === rows.length - 1) share = Math.round((checkDisc - allocated) * 100) / 100
-      else {
-        share = Math.round((checkDisc * (r.gross / base)) * 100) / 100
-        allocated = Math.round((allocated + share) * 100) / 100
-      }
-    }
-    const displayNet = Math.round(Math.max(0, r.net - share) * 100) / 100
-    const off = Math.round(Math.max(0, r.gross - displayNet) * 100) / 100
-    const pct = r.gross > 0.001 && off > 0.009
-      ? (r.discPct > 0.001
-        ? r.discPct
-        : Math.round((off / r.gross) * 1000) / 10)
-      : 0
+/** Строка суммы: со скидкой «12.00 9.60», без — только сумма. */
+function itemAmountLine(parts) {
+  const { width, qtyLeft, hasDisc, gross, net } = parts
+  if (hasDisc) {
+    const right = `${money(gross)} ${money(net)}`
+    const maxLeft = Math.max(1, width - right.length - 1)
+    const left = qtyLeft.length <= maxLeft
+      ? qtyLeft
+      : `${qtyLeft.slice(0, Math.max(1, maxLeft - 1))}.`
     return {
-      ...r,
-      displayNet,
-      discPct: pct,
-      discAmount: off,
-      hasDisc: off > 0.009,
+      line: padLine(left, right, width),
+      strikeStart: Math.max(0, width - right.length),
+      strikeLen: money(gross).length,
     }
-  })
+  }
+  const right = money(net)
+  const maxLeft = Math.max(1, width - right.length - 1)
+  const left = qtyLeft.length <= maxLeft
+    ? qtyLeft
+    : `${qtyLeft.slice(0, Math.max(1, maxLeft - 1))}.`
+  return { line: padLine(left, right, width), strikeStart: -1, strikeLen: 0 }
 }
 
 /** «Шампунь Head&Shoulders 400мл» → имя + отдельная строка объёма (как на макете). */
@@ -320,13 +265,9 @@ function buildEscPosReceipt(sale, opts = {}) {
   const bonusEarned = Math.max(0, Number(sale.bonusEarned) || 0)
   const discount = Math.max(0, Number(sale.discountAmount) || 0)
     || Math.max(0, Math.round((subtotal - total - bonusSpent) * 100) / 100)
-  const storedPct = Math.max(0, Number(sale.discountPct) || 0)
-  const discountPct = storedPct > 0.001
-    ? Math.round(storedPct * 10) / 10
-    : (subtotal > 0.001 && discount > 0.001
-      ? Math.round((discount / subtotal) * 1000) / 10
-      : 0)
-  const resolvedItems = resolveReceiptItemAmounts(items, sale)
+  const discountPct = subtotal > 0.001 && discount > 0.001
+    ? Math.round((discount / subtotal) * 100)
+    : 0
 
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
@@ -430,20 +371,40 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   if (tpl.showItems) {
     // Для позиций всегда Font A / 32 символа: так название и расчёт не разъезжаются.
-    resolvedItems.forEach((row, idx) => {
+    items.forEach((it, idx) => {
       setStyle({ size: 'normal', bold: tpl.boldItems })
-      const it = row.it
+      const qty = Number(it.qty) || 0
+      const price = Number(it.price) || 0
+      const lt = Number(it.lineTotal)
+      const sum = Number.isFinite(lt) && lt >= 0
+        ? Math.round(lt * 100) / 100
+        : Math.round(price * qty * 100) / 100
       const fullName = String(it.productName || `#${it.productId}`).trim()
       const split = splitNameDetail(fullName)
       const unit = String(it.unit || '').trim()
       const pack = String(it.pack || split.detail || '').trim()
-      lines(itemReceiptLines(split.name || fullName, row.qty, row.price, row.displayNet, {
+      const discPct = Math.max(0, Number(it.discPct) || 0)
+      const discAmount = Math.max(0, Number(it.discAmount) || 0)
+        || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
+      const parts = itemReceiptParts(split.name || fullName, qty, price, sum, {
         unit,
         pack,
-        discPct: row.discPct,
-        discAmount: row.discAmount,
-      }))
-      if (idx < resolvedItems.length - 1) itemSep()
+        discPct,
+        discAmount,
+      })
+      lines(parts.titleLines)
+      if (parts.packLines.length) lines(parts.packLines)
+      const amt = itemAmountLine(parts)
+      if (amt.strikeStart >= 0 && amt.strikeLen > 0) {
+        // Одна строка как на чеке: старая сумма зачёркнута, рядом новая
+        chunks.push(encodeCp866(amt.line))
+        chunks.push(Buffer.from([0x0d])) // CR — поверх старой суммы
+        chunks.push(encodeCp866(`${' '.repeat(amt.strikeStart)}${'-'.repeat(amt.strikeLen)}`))
+        chunks.push(Buffer.from([0x0a]))
+      } else {
+        txt(amt.line)
+      }
+      if (idx < items.length - 1) itemSep()
     })
   }
 
