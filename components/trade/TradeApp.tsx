@@ -891,7 +891,7 @@ const CSS = `
   .k-tbl{width:100%;border-collapse:collapse}
   .k-tbl th{text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:9px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
   .k-tbl td{padding:9px 10px;border-bottom:1px solid var(--tbl-line);font-size:13px}
-  .k-tbl tbody tr.k-prodrow{cursor:pointer}
+  .k-prodrow-sub{font-size:10px;color:var(--muted);line-height:1.25;margin-top:1px}
   .k-tbl tbody tr:hover{background:var(--hover)}
   .k-tbl .num{text-align:right;font-variant-numeric:tabular-nums}
   .k-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:800}
@@ -1352,6 +1352,7 @@ const CSS = `
   .k-top-net{display:none}
   /* Не задаём display на desktop — иначе ломает grid/flex (KPI, actions) */
   .k-hide-desk{display:none!important}
+  .k-products-subs{display:none}
 
   .k-cli-kpis{
     display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px
@@ -1463,6 +1464,77 @@ const CSS = `
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
+    /* Вкладки Товар/Категория/Этикетки — отдельный блок над фильтрами */
+    .k-products-subs.k-seg-tabs{
+      display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:4px;padding:4px;margin:0 0 8px;overflow:visible;flex-wrap:nowrap;
+      background:var(--card);border:1px solid var(--border);border-radius:12px
+    }
+    .k-products-subs .k-subtab{
+      display:flex;flex-direction:row;align-items:center;justify-content:center;
+      gap:5px;width:100%;min-width:0;min-height:38px!important;padding:6px 6px!important;
+      border:none;border-radius:9px;font-size:12px;font-weight:800;line-height:1.1;
+      background:transparent;color:var(--muted)
+    }
+    .k-products-subs .k-subtab .ic{font-size:15px;line-height:1;flex-shrink:0}
+    .k-products-subs .k-subtab .lbl{
+      display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center
+    }
+    .k-products-subs .k-subtab.active{
+      background:var(--green-d);color:var(--green);
+      box-shadow:inset 0 0 0 1px rgba(31,215,96,.35)
+    }
+    .k-catalog-bar{flex-wrap:wrap;gap:4px;align-items:center}
+    .k-catalog-meta{gap:4px}
+    .k-catalog-meta b{font-size:14px}
+    .k-catalog-meta span{font-size:11px}
+    .k-catalog-filters{flex:1 1 100%;order:3;gap:4px}
+    .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 4px);padding:5px 6px;border-radius:10px}
+    .k-filter-chip-l{font-size:10px}
+    .k-filter-chip-v{font-size:12px}
+    .k-catalog-add{margin-left:auto}
+    .k-catalog-head{gap:5px;margin-bottom:6px}
+    .k-cats-compact{min-height:30px;gap:4px;padding:0 0 2px}
+    .k-cats-compact .k-cat{padding:5px 8px;font-size:11px;min-height:30px;border-radius:9px}
+    /* Список товаров — компактные карточки без горизонтального скролла */
+    .k-catalog-body .k-card{border:none;background:transparent;box-shadow:none}
+    .k-catalog-body .k-card-b{padding:0!important}
+    .k-catalog-body .k-tbl-scroll{overflow:visible}
+    .k-catalog-body .k-tbl-scroll .k-tbl{min-width:0!important;width:100%}
+    .k-catalog-body .k-tbl thead{display:none}
+    .k-catalog-body .k-tbl tbody{display:flex;flex-direction:column;gap:6px}
+    .k-catalog-body .k-tbl tr.k-prodrow{
+      display:grid;
+      grid-template-columns:22px minmax(0,1fr) auto;
+      grid-template-areas:
+        "chk prod price"
+        "chk meta stock";
+      gap:3px 8px;align-items:start;
+      padding:8px;margin:0;border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
+    .k-catalog-body .k-tbl td{display:block;padding:0;border:none;min-width:0}
+    .k-catalog-body .k-tbl td:nth-child(1){grid-area:chk;padding-top:6px}
+    .k-catalog-body .k-tbl td:nth-child(2){display:none}
+    .k-catalog-body .k-tbl td:nth-child(3){grid-area:prod}
+    .k-catalog-body .k-tbl td:nth-child(3) .k-prodrow-main{gap:6px}
+    .k-catalog-body .k-tbl td:nth-child(3) .k-prodrow-name{font-size:12px!important;font-weight:800;line-height:1.2}
+    .k-catalog-body .k-tbl td:nth-child(3) .k-prodrow-sub{font-size:10px;color:var(--muted);line-height:1.25;margin-top:1px}
+    .k-catalog-body .k-tbl td:nth-child(4){grid-area:meta}
+    .k-catalog-body .k-tbl td:nth-child(4) .k-badge-cat{
+      font-size:9px;padding:2px 6px;border-radius:999px;line-height:1.25;max-width:100%;
+      white-space:normal;display:inline-block
+    }
+    .k-catalog-body .k-tbl td:nth-child(5){
+      grid-area:price;justify-self:end;text-align:right;
+      font-size:13px!important;font-weight:900;color:var(--green);line-height:1.2
+    }
+    .k-catalog-body .k-tbl td:nth-child(8){
+      grid-area:stock;justify-self:end;text-align:right;font-size:11px;font-weight:800
+    }
+    .k-catalog-body .k-tbl td:nth-child(6),
+    .k-catalog-body .k-tbl td:nth-child(7),
+    .k-catalog-body .k-tbl td:nth-child(9),
+    .k-catalog-body .k-tbl td:nth-child(10){display:none}
     .k-body-warehouse{padding:4px 8px 6px;overflow:visible;flex:none;height:auto}
     .k-body-warehouse > .k-wh-shell,
     .k-wh-shell > .k-wh-body,
@@ -1476,10 +1548,6 @@ const CSS = `
     .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:none}
-    .k-catalog-bar{flex-wrap:wrap;gap:6px}
-    .k-catalog-filters{flex:1 1 100%;order:3}
-    .k-filter-chip{flex:1 1 auto;min-width:calc(33.33% - 6px);padding:7px 8px}
-    .k-catalog-add{margin-left:auto}
     .k-user .who{display:none}
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
     .k-body{padding:10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
@@ -3031,7 +3099,7 @@ function TradeAppInner({
               </button>
             ) : null}
             {current === 'products' && !catalogBack ? (
-              <div className="k-top-subtabs k-seg-tabs" role="tablist" aria-label="Разделы товаров">
+              <div className="k-top-subtabs k-seg-tabs k-hide-mob" role="tablist" aria-label="Разделы товаров">
                 {PRODUCTS_SUBS.map(item => (
                   <button
                     key={item.id}
@@ -3092,8 +3160,6 @@ function TradeAppInner({
                   </button>
               </div>
               </div>
-            ) : current === 'products' ? (
-              <div className="k-top-search-wrap" aria-hidden />
             ) : (
               <div className="k-top-title">
                 {current === 'debts' ? (

@@ -489,15 +489,14 @@ export default function ProductTab({
                         </td>
                         <td><span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 800 }}>{p.art}</span></td>
                         <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="k-prodrow-main" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <ProductImage product={p} preferThumb getPhoto={getPhoto} size={32} radius={8} plate="theme" />
                             <div>
-                              <div style={{ fontWeight: 800, fontSize: 13, lineHeight: 1.2 }}>{p.name}</div>
-                              {codes.length > 0 && (
-                                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                                  ШК: {codes[0]}{codes.length > 1 ? ` +${codes.length - 1}` : ''}
-                                </div>
-                              )}
+                              <div className="k-prodrow-name" style={{ fontWeight: 800, fontSize: 13, lineHeight: 1.2 }}>{p.name}</div>
+                              <div className="k-prodrow-sub">
+                                арт. {p.art}
+                                {codes.length > 0 ? ` · ШК: ${codes[0]}${codes.length > 1 ? ` +${codes.length - 1}` : ''}` : ''}
+                              </div>
                               {bulkHint && <div style={{ fontSize: 10, color: 'var(--gold)' }}>{bulkHint}</div>}
                             </div>
                           </div>

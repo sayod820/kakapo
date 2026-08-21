@@ -21,10 +21,10 @@ import {
 
 export type ProductsSubPage = 'product' | 'category' | 'labels'
 
-const SUB_PAGES: { id: ProductsSubPage; label: string }[] = [
-  { id: 'product', label: 'Товар' },
-  { id: 'category', label: 'Категория' },
-  { id: 'labels', label: 'Этикетки' },
+const SUB_PAGES: { id: ProductsSubPage; label: string; icon: string }[] = [
+  { id: 'product', label: 'Товар', icon: '📦' },
+  { id: 'category', label: 'Категория', icon: '🗂' },
+  { id: 'labels', label: 'Этикетки', icon: '🏷' },
 ]
 
 export default function ProductsModule({
@@ -242,6 +242,23 @@ export default function ProductsModule({
               onClick={() => setSub(item.id)}
             >
               {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {hideSubtabs && (
+        <div className="k-products-subs k-seg-tabs k-hide-desk" role="tablist" aria-label="Разделы товаров">
+          {SUB_PAGES.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={sub === item.id}
+              className={`k-subtab ${sub === item.id ? 'active' : ''}`}
+              onClick={() => setSub(item.id)}
+            >
+              <span className="ic">{item.icon}</span>
+              <span className="lbl">{item.label}</span>
             </button>
           ))}
         </div>
