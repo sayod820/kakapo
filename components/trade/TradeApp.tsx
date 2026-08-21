@@ -749,13 +749,10 @@ const CSS = `
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
   .k-top-back{flex-shrink:0;white-space:nowrap}
-  .k-top-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;font-weight:800;color:var(--text)}
+  .k-top-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;font-weight:800;color:var(--text)}
   .k-top-title-main{font-size:16px;font-weight:900;line-height:1.15;color:var(--text)}
   .k-top-title-sub{font-size:11px;color:var(--muted);font-weight:600;line-height:1.2}
   .k-top-title-net{display:none;line-height:1}
-  .k-top-title-net .k-online-chip{
-    padding:0;border:none;background:transparent;min-height:0;font-size:11px;gap:5px;box-shadow:none
-  }
   .k-top-subtabs{display:flex;gap:6px;flex-shrink:0;align-items:center}
   .k-top-subtabs .k-subtab{padding:7px 12px;font-size:12px;margin:0}
   .k-top-search-wrap{flex:1;display:flex;justify-content:center;min-width:0}
@@ -1418,28 +1415,41 @@ const CSS = `
       cursor:pointer;font-size:20px;flex-shrink:0
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    /* Как было: меню | заголовок | тема/гс; надпись чуть выше, «Онлайн» под ней */
+    /* Компактная шапка: меню | заголовок+онлайн-капсула | тема | профиль */
     .k-top{
-      padding:calc(6px + env(safe-area-inset-top,0px)) 10px 8px;
-      gap:8px;flex-wrap:wrap;align-items:center
+      padding:calc(2px + env(safe-area-inset-top,0px)) 8px 4px;
+      gap:6px;flex-wrap:nowrap;align-items:center;min-height:0
     }
-    .k-mob-menu-btn{width:36px;height:36px;font-size:18px;border-radius:10px;align-self:center}
+    .k-mob-menu-btn{
+      width:34px;height:34px;font-size:17px;border-radius:10px;align-self:center;flex-shrink:0
+    }
     .k-top-title{
       flex:1 1 auto;min-width:0;max-width:none;
-      align-self:center;justify-content:center;gap:1px;
-      padding-top:0;margin-top:-3px
+      align-self:center;justify-content:center;gap:3px;
+      padding:0;margin:0
     }
-    .k-top-title-main{font-size:15px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
-    .k-top-title-sub{font-size:10px}
+    .k-top-title-main{font-size:14px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
+    .k-top-title-sub{font-size:9px;line-height:1.15}
     .k-top-title-net{display:flex!important;align-items:center}
+    .k-top-title-net .k-online-chip{
+      display:inline-flex!important;
+      border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px;gap:4px;
+      border:1px solid var(--border);background:var(--card)
+    }
+    .k-top-title-net .k-online-chip .d{width:6px;height:6px}
+    .k-top-title-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
     .k-top:has(.k-top-title-net) .k-top-end .k-top-net{display:none!important}
-    .k-top-end{gap:6px;margin-left:auto;align-items:center}
+    .k-top-end{gap:5px;margin-left:auto;align-items:center;flex-shrink:0}
     .k-top-end .k-theme-toggle{order:1}
     .k-top-end .k-user{order:2}
+    .k-top-end .k-online-chip{
+      display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px
+    }
     .k-theme-toggle{padding:2px;border-radius:10px;gap:1px}
-    .k-theme-mode{width:30px;height:28px;border-radius:8px}
+    .k-theme-mode{width:28px;height:26px;border-radius:8px}
+    .k-theme-mode svg{width:13px;height:13px}
     .k-user{padding:2px;border-radius:10px}
-    .k-user .av{width:30px;height:30px;border-radius:9px;font-size:11px}
+    .k-user .av{width:28px;height:28px;border-radius:8px;font-size:10px}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .k-top-subtabs::-webkit-scrollbar{display:none}
     .k-top-subtabs.k-seg-tabs{
@@ -2303,16 +2313,17 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
-  /* Android: StatusBar overlays WebView — отступ под вырез */
+  /* Android: StatusBar overlays WebView — шапка на ~4мм выше, компактно */
   html.kakapo-android{
     --k-android-nav-lift:12px;
-    --k-android-top-inset:max(env(safe-area-inset-top,0px),22px)
+    --k-android-top-inset:max(env(safe-area-inset-top,0px),18px);
+    --k-android-top-lift:15px
   }
   html.kakapo-android .k-top{
-    padding-top:calc(4px + var(--k-android-top-inset))
-  }
-  html.kakapo-android .k-top-title{
-    margin-top:-5px
+    padding-top:max(2px, calc(var(--k-android-top-inset) - var(--k-android-top-lift)));
+    padding-bottom:3px;
+    padding-left:8px;
+    padding-right:8px
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
