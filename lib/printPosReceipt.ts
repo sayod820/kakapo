@@ -447,13 +447,17 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     const rawName = String(it.productName || `#${it.productId}`).trim()
     const unit = itemUnitLabel(it)
     const pack = String((it as { pack?: string }).pack || '').trim()
-    const discPct = Math.max(0, Number((it as { discPct?: number }).discPct) || 0)
-    const discAmount = Math.max(0, Number((it as { discAmount?: number }).discAmount) || 0)
-      || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
+    const discPctIn = Math.max(0, Number((it as { discPct?: number }).discPct) || 0)
+    const discAmountIn = Math.max(0, Number((it as { discAmount?: number }).discAmount) || 0)
+      || (discPctIn > 0.001 ? Math.round(price * qty * discPctIn) / 100 : 0)
     const gross = Math.round(price * qty * 100) / 100
-    const net = Math.round((sum >= 0 ? sum : Math.max(0, gross - discAmount)) * 100) / 100
-    const hasDisc = discPct > 0.001 || discAmount > 0.001 || net < gross - 0.009
-    const rightLen = (hasDisc ? `${m(gross)} ${m(net)}` : m(net)).length
+    const net = Math.round((sum >= 0 ? sum : Math.max(0, gross - discAmountIn)) * 100) / 100
+    const off = Math.round(Math.max(0, gross - net) * 100) / 100
+    const hasDisc = discPctIn > 0.001 || discAmountIn > 0.001 || off > 0.009
+    const pct = discPctIn > 0.001
+      ? discPctIn
+      : (gross > 0.001 && off > 0.009 ? Math.round((off / gross) * 10000) / 100 : 0)
+    const rightLen = m(net).length
     const maxLeft = Math.max(8, 32 - rightLen - 1)
     const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
     let name = rawName
@@ -466,18 +470,19 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
       detail = vol[2].trim()
     }
     const sep = idx < items.length - 1 ? '<div class="item-sep">--------------------------------</div>' : ''
-    const amountCell = hasDisc
-      ? `<span><span class="strike">${m(gross)}</span> ${m(net)}</span>`
-      : `<span>${m(net)}</span>`
+    const priceBlock = hasDisc
+      ? `<div class="item-qty">${shortMoney(price)} x ${esc(qtyText(qty))} = ${shortMoney(net)}</div>
+    <div class="item-qty item-disc">Скидка: ${pct > 0.001 ? `${(Math.round(pct * 100) / 100).toFixed(2)}%` : ''} = ${shortMoney(off > 0.009 ? off : discAmountIn)}</div>`
+      : `<div class="item-row">
+      <span class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</span>
+      <span>${m(net)}</span>
+    </div>`
     return `<div class="item">
     <div class="item-row">
       <span class="item-name">${esc(name)}</span>
     </div>
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
-    <div class="item-row">
-      <span class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</span>
-      ${amountCell}
-    </div>
+    ${priceBlock}
   </div>${sep}`
   }).join('\n') : ''
 
@@ -562,7 +567,7 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .item-name{flex:1;word-break:break-word}
   .item-qty{color:#000;font-size:12px}
   .item-qty-unit{font-weight:800;font-size:13px}
-  .strike{text-decoration:line-through;text-decoration-thickness:1.5px}
+  .item-disc{font-size:11px;font-weight:700;padding-left:2px}
   .totals .row{margin:3px 0}
   .grand-total{font-size:17px;font-weight:800;margin:6px 0;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0}
   .footer{margin-top:10px}
