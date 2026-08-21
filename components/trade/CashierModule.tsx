@@ -355,6 +355,20 @@ function cartLineUnit(line: Pick<CartLine, 'unit' | 'weightKg'>): string {
   return u || 'шт'
 }
 
+/** Фасовка из карточки (400 мл / 500 гр), если это не сама единица продажи */
+function cartLinePack(line: Pick<CartLine, 'unit' | 'weightKg'>, productUnit?: string): string | undefined {
+  if (line.weightKg != null) return undefined
+  const pack = String(productUnit || '').trim()
+  if (!pack) return undefined
+  const sell = cartLineUnit(line).toLowerCase().replace(/\s+/g, '')
+  const norm = pack.toLowerCase().replace(/\s+/g, '')
+  if (!norm || norm === sell) return undefined
+  // «шт» продаём, а в карточке «400 мл» / «10 кг» — это объём упаковки
+  if (sell === 'шт' || sell === 'pcs') return pack
+  if (norm !== sell && /\d/.test(pack)) return pack
+  return undefined
+}
+
 function saleNumber(s: { number?: number }) {
   const n = Number(s.number)
   return n > 0 ? n : 0
@@ -5789,19 +5803,30 @@ export default function CashierModule({
         orderGoodsTotal: Math.round(subtotalGross * 100) / 100,
         discountAmount: discountTotal > 0.001 ? discountTotal : undefined,
         note: note || undefined,
-        items: cart.map(l => ({
-          productId: l.productId,
-          productName: l.name,
-          qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
-          price: l.price,
-          unit: cartLineUnit(l),
-          receiptId: l.receiptId || undefined,
-          preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
-          barcode: (() => {
-            const p = products.find(x => x.id === l.productId)
-            return p ? (productBarcodes(p)[0] || undefined) : undefined
-          })(),
-        })),
+        items: cart.map(l => {
+          const p = products.find(x => x.id === l.productId)
+          const qty = l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty
+          const gross = Math.round(lineGross(l) * 100) / 100
+          const net = Math.round(lineNet(l) * 100) / 100
+          const discPct = Math.min(90, Math.max(0, Number(l.discPct) || 0))
+          const discAmount = Math.round(Math.max(0, gross - net) * 100) / 100
+          const unit = cartLineUnit(l)
+          const pack = cartLinePack(l, p?.unit)
+          return {
+            productId: l.productId,
+            productName: l.name,
+            qty,
+            price: l.price,
+            lineTotal: net,
+            unit,
+            pack: pack || undefined,
+            discPct: discPct > 0.001 ? discPct : undefined,
+            discAmount: discAmount > 0.001 ? discAmount : undefined,
+            receiptId: l.receiptId || undefined,
+            preferRetailPrice: l.preferRetailPrice != null ? l.preferRetailPrice : undefined,
+            barcode: p ? (productBarcodes(p)[0] || undefined) : undefined,
+          }
+        }),
       }
 
       // Всё local-first (нал / карта / долг / кошелёк) — сервер из очереди в фоне.

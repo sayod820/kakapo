@@ -504,6 +504,12 @@ export interface PosSaleItem {
   lineTotal: number
   /** Единица продажи: кг, шт, л, гр… */
   unit?: string
+  /** Фасовка/объём из карточки (напр. «400 мл»), если отличается от unit */
+  pack?: string
+  /** Скидка на позицию, % */
+  discPct?: number
+  /** Сумма скидки на позицию */
+  discAmount?: number
   /** Партия прихода, с которой списали (если кассир выбрал вручную) */
   receiptId?: string
   unitCost?: number

@@ -443,23 +443,38 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
     const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
     const rawName = String(it.productName || `#${it.productId}`).trim()
     const unit = itemUnitLabel(it)
-    const rightLen = m(sum).length
+    const pack = String((it as { pack?: string }).pack || '').trim()
+    const discPct = Math.max(0, Number((it as { discPct?: number }).discPct) || 0)
+    const discAmount = Math.max(0, Number((it as { discAmount?: number }).discAmount) || 0)
+      || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
+    const gross = Math.round(price * qty * 100) / 100
+    const net = Math.round((sum > 0 ? sum : Math.max(0, gross - discAmount)) * 100) / 100
+    const hasDisc = discPct > 0.001 || discAmount > 0.001
+    const rightLen = m(net).length
     const maxLeft = Math.max(8, 32 - rightLen - 1)
     const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
     let name = rawName
-    let detail = ''
-    if (rawName.length > maxLeft && vol && vol[1].trim().length >= 8 && vol[1].trim().length <= maxLeft) {
+    let detail = pack
+    if (!detail && rawName.length > maxLeft && vol && vol[1].trim().length >= 8 && vol[1].trim().length <= maxLeft) {
+      name = vol[1].trim()
+      detail = vol[2].trim()
+    } else if (!detail && vol && vol[1].trim().length >= 3) {
       name = vol[1].trim()
       detail = vol[2].trim()
     }
     const sep = idx < items.length - 1 ? '<div class="item-sep">--------------------------------</div>' : ''
+    const priceBlock = hasDisc
+      ? `<div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>
+    <div class="item-row item-was"><span>было</span><span class="strike">${m(gross)}</span></div>
+    <div class="item-row item-now"><span>сейчас${discPct > 0.001 ? ` −${Math.round(discPct * 10) / 10}%` : ''}</span><span>${m(net)}</span></div>`
+      : `<div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>`
     return `<div class="item">
     <div class="item-row">
       <span class="item-name">${esc(name)}</span>
-      <span>${m(sum)}</span>
+      ${hasDisc ? '' : `<span>${m(net)}</span>`}
     </div>
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
-    <div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>
+    ${priceBlock}
   </div>${sep}`
   }).join('\n') : ''
 
@@ -544,6 +559,9 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   .item-name{flex:1;word-break:break-word}
   .item-qty{color:#000;font-size:12px}
   .item-qty-unit{font-weight:800;font-size:13px}
+  .item-was{font-size:12px;color:#000}
+  .item-was .strike{text-decoration:line-through;text-decoration-thickness:1.5px}
+  .item-now{font-size:12px;font-weight:800}
   .totals .row{margin:3px 0}
   .grand-total{font-size:17px;font-weight:800;margin:6px 0;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0}
   .footer{margin-top:10px}

@@ -2263,13 +2263,31 @@ export function createPosSale(db, data = {}) {
       || (sellType === 'weight' || sellType === 'weighted' ? 'кг' : '')
       || productUnit
       || 'шт'
+    const discPct = Math.min(90, Math.max(0, Number(raw.discPct) || 0))
+    const gross = round2(price * row.qty)
+    const discAmountRaw = Number(raw.discAmount)
+    const discAmount = discPct > 0
+      ? round2(Number.isFinite(discAmountRaw) && discAmountRaw > 0
+        ? discAmountRaw
+        : gross * (discPct / 100))
+      : 0
+    const lineTotalRaw = Number(raw.lineTotal)
+    const lineTotal = Number.isFinite(lineTotalRaw) && lineTotalRaw >= 0
+      ? round2(lineTotalRaw)
+      : round2(Math.max(0, gross - discAmount))
+    const packRaw = String(raw.pack || '').trim()
+    const pack = packRaw
+      || (unit !== productUnit && productUnit && /\d/.test(productUnit) ? productUnit : '')
     return {
       productId: row.product.id,
       productName: row.product.name,
       qty: row.qty,
       price,
-      lineTotal: round2(price * row.qty),
+      lineTotal,
       unit,
+      pack: pack || undefined,
+      discPct: discPct > 0.001 ? discPct : undefined,
+      discAmount: discAmount > 0.001 ? discAmount : undefined,
       unitCost,
       lineCost,
       receiptId: row.receiptId || undefined,

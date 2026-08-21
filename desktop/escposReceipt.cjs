@@ -126,20 +126,44 @@ function nameAmountLines(name, amount, width, currency) {
 
 /**
  * Позиция 58 мм / Font A:
- *   название (1+ строк по словам)
- *     кол-во x цена             сумма
- * Расчёт и сумма всегда остаются одной компактной строкой.
+ *   название
+ *   объём/фасовка (если есть)
+ *     кол-во ед. x цена
+ *   было XXX.XX                 (до скидки)
+ *   сейчас YYY.YY (−N%)         (после скидки)
+ * без скидки — сумма справа от qty x price
  */
-function itemReceiptLines(name, qty, price, amount) {
+function itemReceiptLines(name, qty, price, amount, opts = {}) {
   const width = 32
+  const unit = String(opts.unit || '').trim()
+  const pack = String(opts.pack || '').trim()
+  const discPct = Math.max(0, Number(opts.discPct) || 0)
+  const discAmount = Math.max(0, Number(opts.discAmount) || 0)
   const titleLines = wrapName(name, width)
-  const right = money(amount)
-  const rawLeft = `  ${qtyText(qty)} x ${money(price)}`
-  const maxLeft = Math.max(1, width - right.length - 1)
-  const left = rawLeft.length <= maxLeft
-    ? rawLeft
-    : `${rawLeft.slice(0, Math.max(1, maxLeft - 1))}.`
-  return [...titleLines, padLine(left, right, width)]
+  const out = [...titleLines]
+  if (pack) {
+    for (const line of wrapName(pack, width)) out.push(line)
+  }
+  const qtyPart = unit ? `${qtyText(qty)} ${unit}` : qtyText(qty)
+  const hasDisc = discPct > 0.001 || discAmount > 0.001
+  const gross = Math.round((Number(price) * Number(qty) || 0) * 100) / 100
+  const net = Math.round((Number(amount) || Math.max(0, gross - discAmount)) * 100) / 100
+
+  if (hasDisc) {
+    out.push(`  ${qtyPart} x ${money(price)}`)
+    out.push(padLine('  было', money(gross), width))
+    const pctLabel = discPct > 0.001 ? ` (−${Math.round(discPct * 10) / 10}%)` : ''
+    out.push(padLine(`  сейчас${pctLabel}`, money(net), width))
+  } else {
+    const right = money(net)
+    const rawLeft = `  ${qtyPart} x ${money(price)}`
+    const maxLeft = Math.max(1, width - right.length - 1)
+    const left = rawLeft.length <= maxLeft
+      ? rawLeft
+      : `${rawLeft.slice(0, Math.max(1, maxLeft - 1))}.`
+    out.push(padLine(left, right, width))
+  }
+  return out
 }
 
 /** «Шампунь Head&Shoulders 400мл» → имя + отдельная строка объёма (как на макете). */
@@ -347,7 +371,18 @@ function buildEscPosReceipt(sale, opts = {}) {
       const price = Number(it.price) || 0
       const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
       const fullName = String(it.productName || `#${it.productId}`).trim()
-      lines(itemReceiptLines(fullName, qty, price, sum))
+      const split = splitNameDetail(fullName)
+      const unit = String(it.unit || '').trim()
+      const pack = String(it.pack || split.detail || '').trim()
+      const discPct = Math.max(0, Number(it.discPct) || 0)
+      const discAmount = Math.max(0, Number(it.discAmount) || 0)
+        || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
+      lines(itemReceiptLines(split.name || fullName, qty, price, sum, {
+        unit,
+        pack,
+        discPct,
+        discAmount,
+      }))
       if (idx < items.length - 1) itemSep()
     })
   }
