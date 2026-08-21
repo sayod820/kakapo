@@ -5119,10 +5119,9 @@ export default function CashierModule({
   }
 
   function currentPayDebtAmt() {
-    if (clientDebt <= 0) return 0
-    const fromBuf = payDebtOn
-      ? Math.min(clientDebt, Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100)
-      : 0
+    // Без явного «Погасить долг» сдача остаётся сдачей — долг не трогаем
+    if (!payDebtOn || clientDebt <= 0) return 0
+    const fromBuf = Math.min(clientDebt, Math.round(Math.max(0, Number(payDebtBuf) || 0) * 100) / 100)
     const given = Math.round(Math.max(0, Number(payGivenBuf || cashBuf) || 0) * 100) / 100
     const auto = given > 0.001 ? debtAmtFromGiven(given) : 0
     return Math.max(fromBuf, auto)
