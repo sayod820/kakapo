@@ -138,21 +138,20 @@ function itemReceiptLines(name, qty, price, amount, opts = {}) {
   const unit = String(opts.unit || '').trim()
   const pack = String(opts.pack || '').trim()
   const discPct = Math.max(0, Number(opts.discPct) || 0)
-  const discAmount = Math.max(0, Number(opts.discAmount) || 0)
   const titleLines = wrapName(name, width)
   const out = [...titleLines]
   if (pack) {
     for (const line of wrapName(pack, width)) out.push(line)
   }
   const qtyPart = unit ? `${qtyText(qty)} ${unit}` : qtyText(qty)
-  const hasDisc = discPct > 0.001 || discAmount > 0.001
   const gross = Math.round((Number(price) * Number(qty) || 0) * 100) / 100
-  const net = Math.round((Number(amount) || Math.max(0, gross - discAmount)) * 100) / 100
+  const net = Math.round((Number(amount) || gross) * 100) / 100
+  const hasDisc = net < gross - 0.009
 
   if (hasDisc) {
     out.push(`  ${qtyPart} x ${money(price)}`)
     out.push(padLine('  было', money(gross), width))
-    const pctLabel = discPct > 0.001 ? ` (−${Math.round(discPct * 10) / 10}%)` : ''
+    const pctLabel = discPct > 0.001 ? ` (-${Math.round(discPct * 10) / 10}%)` : ''
     out.push(padLine(`  сейчас${pctLabel}`, money(net), width))
   } else {
     const right = money(net)
@@ -164,6 +163,68 @@ function itemReceiptLines(name, qty, price, amount, opts = {}) {
     out.push(padLine(left, right, width))
   }
   return out
+}
+
+/** Скидка на строку + доля скидки на весь чек → итоговая сумма позиции для печати. */
+function resolveReceiptItemAmounts(items, sale) {
+  const rows = (items || []).map(it => {
+    const qty = Number(it.qty) || 0
+    const price = Number(it.price) || 0
+    const gross = Math.round(price * qty * 100) / 100
+    const discPct = Math.max(0, Number(it.discPct) || 0)
+    let discAmount = Math.max(0, Number(it.discAmount) || 0)
+    if (discAmount < 0.001 && discPct > 0.001) {
+      discAmount = Math.round(gross * discPct) / 100
+    }
+    const lt = Number(it.lineTotal)
+    let net = Number.isFinite(lt) && lt >= 0
+      ? Math.round(lt * 100) / 100
+      : Math.round(Math.max(0, gross - discAmount) * 100) / 100
+    if (discPct < 0.001 && discAmount < 0.001 && gross - net > 0.009) {
+      discAmount = Math.round((gross - net) * 100) / 100
+    }
+    return { it, qty, price, gross, net, discPct, discAmount }
+  })
+
+  const itemDiscTotal = Math.round(rows.reduce((s, r) => s + Math.max(0, r.gross - r.net), 0) * 100) / 100
+  const goods = Number(sale.orderGoodsTotal)
+  const grossSum = Math.round(rows.reduce((s, r) => s + r.gross, 0) * 100) / 100
+  const subtotalGross = Number.isFinite(goods) && goods > 0 ? goods : grossSum
+  const total = Number(sale.total) || 0
+  const bonusSpent = Math.max(0, Number(sale.bonusSpent) || 0)
+  const discountTotal = Math.max(0, Number(sale.discountAmount) || 0)
+    || Math.max(0, Math.round((subtotalGross - total - bonusSpent) * 100) / 100)
+  const checkRaw = Number(sale.checkDiscountAmount)
+  const checkDisc = Math.max(0, Number.isFinite(checkRaw) && checkRaw >= 0
+    ? Math.round(checkRaw * 100) / 100
+    : Math.round(Math.max(0, discountTotal - itemDiscTotal) * 100) / 100)
+
+  const base = grossSum > 0.001 ? grossSum : 1
+  let allocated = 0
+  return rows.map((r, idx) => {
+    let share = 0
+    if (checkDisc > 0.001) {
+      if (idx === rows.length - 1) share = Math.round((checkDisc - allocated) * 100) / 100
+      else {
+        share = Math.round((checkDisc * (r.gross / base)) * 100) / 100
+        allocated = Math.round((allocated + share) * 100) / 100
+      }
+    }
+    const displayNet = Math.round(Math.max(0, r.net - share) * 100) / 100
+    const off = Math.round(Math.max(0, r.gross - displayNet) * 100) / 100
+    const pct = r.gross > 0.001 && off > 0.009
+      ? (r.discPct > 0.001
+        ? r.discPct
+        : Math.round((off / r.gross) * 1000) / 10)
+      : 0
+    return {
+      ...r,
+      displayNet,
+      discPct: pct,
+      discAmount: off,
+      hasDisc: off > 0.009,
+    }
+  })
 }
 
 /** «Шампунь Head&Shoulders 400мл» → имя + отдельная строка объёма (как на макете). */
@@ -259,9 +320,13 @@ function buildEscPosReceipt(sale, opts = {}) {
   const bonusEarned = Math.max(0, Number(sale.bonusEarned) || 0)
   const discount = Math.max(0, Number(sale.discountAmount) || 0)
     || Math.max(0, Math.round((subtotal - total - bonusSpent) * 100) / 100)
-  const discountPct = subtotal > 0.001 && discount > 0.001
-    ? Math.round((discount / subtotal) * 100)
-    : 0
+  const storedPct = Math.max(0, Number(sale.discountPct) || 0)
+  const discountPct = storedPct > 0.001
+    ? Math.round(storedPct * 10) / 10
+    : (subtotal > 0.001 && discount > 0.001
+      ? Math.round((discount / subtotal) * 1000) / 10
+      : 0)
+  const resolvedItems = resolveReceiptItemAmounts(items, sale)
 
   const chunks = []
   const cmd = (...b) => chunks.push(Buffer.from(b))
@@ -365,25 +430,20 @@ function buildEscPosReceipt(sale, opts = {}) {
 
   if (tpl.showItems) {
     // Для позиций всегда Font A / 32 символа: так название и расчёт не разъезжаются.
-    items.forEach((it, idx) => {
+    resolvedItems.forEach((row, idx) => {
       setStyle({ size: 'normal', bold: tpl.boldItems })
-      const qty = Number(it.qty) || 0
-      const price = Number(it.price) || 0
-      const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
+      const it = row.it
       const fullName = String(it.productName || `#${it.productId}`).trim()
       const split = splitNameDetail(fullName)
       const unit = String(it.unit || '').trim()
       const pack = String(it.pack || split.detail || '').trim()
-      const discPct = Math.max(0, Number(it.discPct) || 0)
-      const discAmount = Math.max(0, Number(it.discAmount) || 0)
-        || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
-      lines(itemReceiptLines(split.name || fullName, qty, price, sum, {
+      lines(itemReceiptLines(split.name || fullName, row.qty, row.price, row.displayNet, {
         unit,
         pack,
-        discPct,
-        discAmount,
+        discPct: row.discPct,
+        discAmount: row.discAmount,
       }))
-      if (idx < items.length - 1) itemSep()
+      if (idx < resolvedItems.length - 1) itemSep()
     })
   }
 

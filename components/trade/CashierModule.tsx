@@ -5445,10 +5445,24 @@ export default function CashierModule({
       pct = Math.min(90, Math.max(0, Number(discBuf) || 0))
     }
     if (discMode === 'line' && discLineKey) {
-      setCart(prev => prev.map(l => l.key === discLineKey ? { ...l, discPct: pct || undefined } : l))
-      setSelectedLineKey(discLineKey)
+      const key = discLineKey
+      const nextPct = pct > 0.001 ? pct : undefined
+      // Сразу в ref — иначе быстрый «Пробить» может взять чек без discPct
+      ticketsRef.current = ticketsRef.current.map(t => {
+        if (t.id !== activeTicketIdRef.current) return t
+        return {
+          ...t,
+          cart: t.cart.map(l => (l.key === key ? { ...l, discPct: nextPct } : l)),
+        }
+      })
+      setCart(prev => prev.map(l => (l.key === key ? { ...l, discPct: nextPct } : l)))
+      setSelectedLineKey(key)
     } else {
-      setDiscountPct(pct)
+      const next = Math.max(0, pct)
+      ticketsRef.current = ticketsRef.current.map(t => (
+        t.id !== activeTicketIdRef.current ? t : { ...t, discountPct: next }
+      ))
+      setDiscountPct(next)
     }
     setDiscOpen(false)
     setDiscLineKey(null)
@@ -5802,6 +5816,9 @@ export default function CashierModule({
         bonusBalanceAfter,
         orderGoodsTotal: Math.round(subtotalGross * 100) / 100,
         discountAmount: discountTotal > 0.001 ? discountTotal : undefined,
+        /** Только скидка на весь чек (без скидок по строкам) — для печати «было/сейчас» */
+        checkDiscountAmount: discAmount > 0.001 ? Math.round(discAmount * 100) / 100 : undefined,
+        discountPct: checkDiscPct > 0.001 ? checkDiscPct : undefined,
         note: note || undefined,
         items: cart.map(l => {
           const p = products.find(x => x.id === l.productId)
@@ -6006,11 +6023,16 @@ export default function CashierModule({
         ...created,
         orderGoodsTotal: created.orderGoodsTotal ?? Math.round(subtotalGross * 100) / 100,
         discountAmount: created.discountAmount ?? (discountTotal > 0.001 ? discountTotal : undefined),
+        checkDiscountAmount: (created as PosSale).checkDiscountAmount
+          ?? (discAmount > 0.001 ? Math.round(discAmount * 100) / 100 : undefined),
+        discountPct: (created as PosSale).discountPct
+          ?? (checkDiscPct > 0.001 ? checkDiscPct : undefined),
         bonusSpent: created.bonusSpent ?? (spend > 0 ? spend : undefined),
         bonusEarned: created.bonusEarned ?? (earnedBonusPreview > 0 ? earnedBonusPreview : undefined),
         bonusBalanceBefore: created.bonusBalanceBefore ?? bonusBalanceBefore,
         bonusBalanceAfter: created.bonusBalanceAfter ?? bonusBalanceAfter,
         total: created.total ?? total,
+        items: created.items?.length ? created.items : salePayload.items as PosSale['items'],
       }
       afterSaleTicketReset(ticketId)
       if (opts?.shouldPrint) {

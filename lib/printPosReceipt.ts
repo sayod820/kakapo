@@ -276,6 +276,68 @@ function itemUnitLabel(it: { qty?: number; unit?: string; productName?: string }
   return 'шт'
 }
 
+/** Скидка на строку + доля скидки на весь чек → сумма позиции для печати. */
+function resolveReceiptItemAmounts(items: PosSale['items'] | undefined, sale: PosSale) {
+  const rows = (items || []).map(it => {
+    const qty = Number(it.qty) || 0
+    const price = Number(it.price) || 0
+    const gross = Math.round(price * qty * 100) / 100
+    const discPct = Math.max(0, Number(it.discPct) || 0)
+    let discAmount = Math.max(0, Number(it.discAmount) || 0)
+    if (discAmount < 0.001 && discPct > 0.001) {
+      discAmount = Math.round(gross * discPct) / 100
+    }
+    const lt = Number(it.lineTotal)
+    let net = Number.isFinite(lt) && lt >= 0
+      ? Math.round(lt * 100) / 100
+      : Math.round(Math.max(0, gross - discAmount) * 100) / 100
+    if (discPct < 0.001 && discAmount < 0.001 && gross - net > 0.009) {
+      discAmount = Math.round((gross - net) * 100) / 100
+    }
+    return { it, qty, price, gross, net, discPct, discAmount }
+  })
+
+  const itemDiscTotal = Math.round(rows.reduce((s, r) => s + Math.max(0, r.gross - r.net), 0) * 100) / 100
+  const goods = Number(sale.orderGoodsTotal)
+  const grossSum = Math.round(rows.reduce((s, r) => s + r.gross, 0) * 100) / 100
+  const subtotalGross = Number.isFinite(goods) && goods > 0 ? goods : grossSum
+  const total = Number(sale.total) || 0
+  const bonusSpent = Math.max(0, Number(sale.bonusSpent) || 0)
+  const discountTotal = Math.max(0, Number(sale.discountAmount) || 0)
+    || Math.max(0, Math.round((subtotalGross - total - bonusSpent) * 100) / 100)
+  const checkRaw = Number(sale.checkDiscountAmount)
+  const checkDisc = Math.max(0, Number.isFinite(checkRaw) && checkRaw >= 0
+    ? Math.round(checkRaw * 100) / 100
+    : Math.round(Math.max(0, discountTotal - itemDiscTotal) * 100) / 100)
+
+  const base = grossSum > 0.001 ? grossSum : 1
+  let allocated = 0
+  return rows.map((r, idx) => {
+    let share = 0
+    if (checkDisc > 0.001) {
+      if (idx === rows.length - 1) share = Math.round((checkDisc - allocated) * 100) / 100
+      else {
+        share = Math.round((checkDisc * (r.gross / base)) * 100) / 100
+        allocated = Math.round((allocated + share) * 100) / 100
+      }
+    }
+    const displayNet = Math.round(Math.max(0, r.net - share) * 100) / 100
+    const off = Math.round(Math.max(0, r.gross - displayNet) * 100) / 100
+    const pct = r.gross > 0.001 && off > 0.009
+      ? (r.discPct > 0.001
+        ? r.discPct
+        : Math.round((off / r.gross) * 1000) / 10)
+      : 0
+    return {
+      ...r,
+      displayNet,
+      discPct: pct,
+      discAmount: off,
+      hasDisc: off > 0.009,
+    }
+  })
+}
+
 function payLabel(sale: PosSale) {
   if (sale.paymentMethod === 'credit') return 'В долг'
   if (sale.paymentMethod === 'mixed') return 'Смешанная'
@@ -433,24 +495,20 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
   const bonusEarned = Math.max(0, Number(sale.bonusEarned) || 0)
   const discount = Math.max(0, Number(sale.discountAmount) || 0)
     || Math.max(0, Math.round((subtotal - total - bonusSpent) * 100) / 100)
-  const discountPct = subtotal > 0.001 && discount > 0.001
-    ? Math.round((discount / subtotal) * 100)
-    : 0
+  const storedPct = Math.max(0, Number(sale.discountPct) || 0)
+  const discountPct = storedPct > 0.001
+    ? Math.round(storedPct * 10) / 10
+    : (subtotal > 0.001 && discount > 0.001
+      ? Math.round((discount / subtotal) * 1000) / 10
+      : 0)
 
-  const itemHtml = tpl.showItems ? items.map((it, idx) => {
-    const qty = Number(it.qty) || 0
-    const price = Number(it.price) || 0
-    const sum = Number(it.lineTotal) || Math.round(price * qty * 100) / 100
+  const resolvedItems = resolveReceiptItemAmounts(items, sale)
+  const itemHtml = tpl.showItems ? resolvedItems.map((row, idx) => {
+    const { it, qty, price, gross, displayNet, discPct, hasDisc } = row
     const rawName = String(it.productName || `#${it.productId}`).trim()
     const unit = itemUnitLabel(it)
     const pack = String((it as { pack?: string }).pack || '').trim()
-    const discPct = Math.max(0, Number((it as { discPct?: number }).discPct) || 0)
-    const discAmount = Math.max(0, Number((it as { discAmount?: number }).discAmount) || 0)
-      || (discPct > 0.001 ? Math.round(price * qty * discPct) / 100 : 0)
-    const gross = Math.round(price * qty * 100) / 100
-    const net = Math.round((sum > 0 ? sum : Math.max(0, gross - discAmount)) * 100) / 100
-    const hasDisc = discPct > 0.001 || discAmount > 0.001
-    const rightLen = m(net).length
+    const rightLen = m(displayNet).length
     const maxLeft = Math.max(8, 32 - rightLen - 1)
     const vol = rawName.match(/^(.*?)\s+(\d+(?:[.,]\d+)?\s*(?:мл|мл\.|г|гр|кг|л|шт\.?))$/i)
     let name = rawName
@@ -462,16 +520,16 @@ export function buildPosReceiptHtml(sale: PosSale, opts?: PosReceiptPrintOpts): 
       name = vol[1].trim()
       detail = vol[2].trim()
     }
-    const sep = idx < items.length - 1 ? '<div class="item-sep">--------------------------------</div>' : ''
+    const sep = idx < resolvedItems.length - 1 ? '<div class="item-sep">--------------------------------</div>' : ''
     const priceBlock = hasDisc
       ? `<div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>
     <div class="item-row item-was"><span>было</span><span class="strike">${m(gross)}</span></div>
-    <div class="item-row item-now"><span>сейчас${discPct > 0.001 ? ` −${Math.round(discPct * 10) / 10}%` : ''}</span><span>${m(net)}</span></div>`
+    <div class="item-row item-now"><span>сейчас${discPct > 0.001 ? ` −${Math.round(discPct * 10) / 10}%` : ''}</span><span>${m(displayNet)}</span></div>`
       : `<div class="item-qty"><span class="item-qty-unit">${esc(qtyText(qty))} ${esc(unit)}</span> x ${shortMoney(price)}</div>`
     return `<div class="item">
     <div class="item-row">
       <span class="item-name">${esc(name)}</span>
-      ${hasDisc ? '' : `<span>${m(net)}</span>`}
+      ${hasDisc ? '' : `<span>${m(displayNet)}</span>`}
     </div>
     ${detail ? `<div class="item-qty">${esc(detail)}</div>` : ''}
     ${priceBlock}
