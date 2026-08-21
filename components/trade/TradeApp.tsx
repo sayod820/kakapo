@@ -2313,11 +2313,11 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
-  /* Android: StatusBar overlays WebView — шапка на ~4мм выше, компактно */
+  /* Android: StatusBar overlays WebView — шапка чуть выше выреза, компактно */
   html.kakapo-android{
     --k-android-nav-lift:12px;
     --k-android-top-inset:max(env(safe-area-inset-top,0px),18px);
-    --k-android-top-lift:15px
+    --k-android-top-lift:7px
   }
   html.kakapo-android .k-top{
     padding-top:max(2px, calc(var(--k-android-top-inset) - var(--k-android-top-lift)));
