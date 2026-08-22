@@ -1416,10 +1416,13 @@ const CSS = `
       cursor:pointer;font-size:20px;flex-shrink:0
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    /* Компактная шапка: меню | заголовок+онлайн-капсула | тема | профиль */
+    /* Шапка как карточки товаров: те же боковые поля, не прижата к верху */
     .k-top{
-      padding:calc(2px + env(safe-area-inset-top,0px)) 8px 4px;
-      gap:6px;flex-wrap:nowrap;align-items:center;min-height:0
+      margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
+      padding:8px 10px;
+      gap:6px;flex-wrap:nowrap;align-items:center;min-height:0;
+      border:1px solid var(--border);border-radius:12px;background:var(--card);
+      border-bottom:1px solid var(--border)
     }
     .k-mob-menu-btn{
       width:34px;height:34px;font-size:17px;border-radius:10px;align-self:center;flex-shrink:0
@@ -1460,7 +1463,7 @@ const CSS = `
     .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch}
     .k-top-search-wrap .k-search{max-width:none}
     .k-search{max-width:none;min-width:0;flex:1 1 100%}
-    .k-body-products{padding:4px 10px 8px;overflow:visible;flex:none;height:auto}
+    .k-body-products{padding:0 10px 8px;overflow:visible;flex:none;height:auto}
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
@@ -1515,7 +1518,7 @@ const CSS = `
     .k-catalog-body .k-tbl td:nth-child(7),
     .k-catalog-body .k-tbl td:nth-child(9),
     .k-catalog-body .k-tbl td:nth-child(10){display:none}
-    .k-body-warehouse{padding:4px 8px 6px;overflow:visible;flex:none;height:auto}
+    .k-body-warehouse{padding:0 10px 6px;overflow:visible;flex:none;height:auto}
     .k-body-warehouse > .k-wh-shell,
     .k-wh-shell > .k-wh-body,
     .k-wh-shell > .k-wh-body > .k-wh-stock,
@@ -1530,7 +1533,7 @@ const CSS = `
     .k-wh-writeoffs .k-wh-cta-spacer{display:none}
     .k-user .who{display:none}
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
-    .k-body{padding:10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
+    .k-body{padding:0 10px 10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important
@@ -1541,7 +1544,7 @@ const CSS = `
     .k-body-debts{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;
-      padding:12px;display:flex;flex-direction:column
+      padding:0 10px 8px;display:flex;flex-direction:column
     }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
@@ -1609,17 +1612,27 @@ const CSS = `
     .k-wh-head .k-catalog-meta b{font-size:14px}
     .k-wh-head .k-catalog-meta span{display:none}
     .k-wh-head .k-btn{min-height:32px!important;padding:5px 8px!important;font-size:11px}
+    .k-debts-list{
+      background:transparent;border:none;border-radius:0
+    }
+    .k-debts-list > div:first-child{
+      padding:8px!important;margin-bottom:8px;border:1px solid var(--border)!important;
+      border-radius:12px;background:var(--card);border-bottom:1px solid var(--border)!important
+    }
     .k-debts-list > div:first-child .k-subtabs{
       display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
-      overflow:visible;flex-wrap:nowrap;padding:0;margin-bottom:8px
+      overflow:visible;flex-wrap:nowrap;padding:4px;margin-bottom:8px;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px
     }
     .k-debts-list > div:first-child .k-subtabs .k-subtab{
-      width:100%;justify-content:center;text-align:center;min-height:40px;padding:8px 4px;font-size:11px
+      width:100%;justify-content:center;text-align:center;min-height:38px;padding:8px 4px;font-size:11px;
+      border:none;border-radius:8px
     }
     .k-debts-layout{grid-template-columns:1fr;min-height:0;flex:1;gap:10px}
     .k-debts-layout.detail-open .k-debts-list{display:none}
     .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
     .k-debts-list,.k-debts-detail{min-height:0;height:100%;max-height:100%}
+    .k-debts-list-b{padding:0}
     .k-debts-metrics{grid-template-columns:1fr 1fr;gap:8px}
     .k-debts-metric:last-child{grid-column:1/-1}
     .k-debts-metric{padding:8px 10px}
@@ -2387,17 +2400,16 @@ const CSS = `
     .k-bottom-nav button:active{transform:scale(.97)}
   }
 
-  /* Android: StatusBar overlays WebView — шапка чуть выше выреза, компактно */
+  /* Android: StatusBar overlays WebView — шапка на одном уровне с карточками */
   html.kakapo-android{
     --k-android-nav-lift:12px;
-    --k-android-top-inset:max(env(safe-area-inset-top,0px),18px);
-    --k-android-top-lift:7px
+    --k-android-top-inset:max(env(safe-area-inset-top,0px),18px)
   }
   html.kakapo-android .k-top{
-    padding-top:max(2px, calc(var(--k-android-top-inset) - var(--k-android-top-lift)));
-    padding-bottom:3px;
-    padding-left:8px;
-    padding-right:8px
+    margin-top:var(--k-android-top-inset);
+    margin-left:10px;
+    margin-right:10px;
+    padding:8px 10px
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
