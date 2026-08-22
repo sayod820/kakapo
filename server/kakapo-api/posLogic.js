@@ -2667,13 +2667,9 @@ export function returnPosSale(db, saleId, meta = {}) {
       : round2(Number(item.price) || 0)
     const lineReturn = round2(unit * p.qty)
     item.returnedQty = round2((Number(item.returnedQty) || 0) + p.qty)
-    // Чек не трогал склад, или касса уже вернула остаток локально (очередь)
-    const skipStockRestore = !!(
-      sale.stockSkipped
-      || meta.appliedLocal
-      || meta.queuedOffline
-      || meta.skipStock
-    )
+    // Не возвращаем на склад только если продажа его не трогала.
+    // appliedLocal / skipStock из очереди игнорируем — иначе остаток на сервере не растёт.
+    const skipStockRestore = !!sale.stockSkipped
     if (!skipStockRestore) {
       restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
     }

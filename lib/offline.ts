@@ -584,7 +584,6 @@ export async function enqueueOp<P>(
       ...(kind === 'sale' && queuedOffline ? { queuedOffline: true } : {}),
       ...((kind === 'sale' || kind === 'sale_return' || kind === 'debt_repay' || kind === 'card_topup')
         ? { appliedLocal: true, skipBalances: true } : {}),
-      ...((kind === 'sale_return') ? { skipStock: true } : {}),
     },
     createdAtIso,
     seq: await nextSeq(),
@@ -850,7 +849,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         cashierId: p.cashierId,
         items: p.items,
         appliedLocal: true,
-        skipStock: true,
+        // Остаток возвращает сервер (как при продаже списывает). Локально уже вернули партии для UI.
         skipBalances: true,
         queuedOffline: !!p.queuedOffline,
         clientDebtAfter: p.clientDebtAfter,

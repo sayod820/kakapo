@@ -359,3 +359,112 @@ export async function consumeLocalLayersFifoBatch(
   await cacheStockLayers(list)
   return list
 }
+
+function round3(n: number) {
+  return Math.round((Number(n) || 0) * 1000) / 1000
+}
+
+/**
+ * Вернуть qty в партии (зеркально серверному restoreReceiptBalances):
+ * 1) предпочитаем receiptId из чека
+ * 2) иначе LIFO в ранее списанные партии (qty − remaining)
+ * 3) остаток — слой-корректировка off-ret-*
+ */
+function applyRestoreOnList(
+  list: ProductStockLayer[],
+  productId: number,
+  qty: number,
+  opts?: {
+    receiptId?: string
+    productName?: string
+    costPrice?: number
+    retailPrice?: number
+  },
+): ProductStockLayer[] {
+  let left = round3(qty)
+  if (!(left > 0)) return list
+  const pid = Number(productId)
+  const next = list.map(l => ({ ...l }))
+
+  const preferId = String(opts?.receiptId || '').trim()
+  if (preferId) {
+    const hit = next.find(l => l.receiptId === preferId && Number(l.productId) === pid)
+    if (hit) {
+      hit.remainingQty = round3((Number(hit.remainingQty) || 0) + left)
+      hit.qty = Math.max(Number(hit.qty) || 0, Number(hit.remainingQty) || 0)
+      return next.filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+    }
+  }
+
+  const mine = next
+    .filter(l => Number(l.productId) === pid)
+    .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+      || (b.queueIndex - a.queueIndex))
+
+  for (const layer of mine) {
+    if (!(left > 0)) break
+    const orig = Number(layer.qty) || 0
+    const rem = Number(layer.remainingQty) || 0
+    const room = Math.max(0, round3(orig - rem))
+    if (!(room > 0)) continue
+    const add = Math.min(room, left)
+    layer.remainingQty = round3(rem + add)
+    left = round3(left - add)
+  }
+
+  // Нет «дыры» в старых партиях — дописываем в новейшую (без off-ret, чтобы sync не дублировал)
+  if (left > 0.0001 && mine.length) {
+    const top = mine[0]
+    top.remainingQty = round3((Number(top.remainingQty) || 0) + left)
+    top.qty = Math.max(Number(top.qty) || 0, Number(top.remainingQty) || 0)
+    left = 0
+  }
+
+  if (left > 0.0001) {
+    const stamp = new Date().toISOString()
+    next.unshift({
+      receiptId: `off-ret-${Date.now()}-${pid}`,
+      productId: pid,
+      productName: String(opts?.productName || `#${pid}`),
+      qty: left,
+      remainingQty: left,
+      costPrice: Number(opts?.costPrice) || 0,
+      retailPrice: Number(opts?.retailPrice) || 0,
+      bulkPricing: [],
+      expiryDate: null,
+      createdAtIso: stamp,
+      supplierName: 'Возврат товара',
+      queueIndex: 0,
+      isActive: true,
+    })
+  }
+
+  return next.filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+}
+
+/** Вернуть товары возврата в локальные партии склада. */
+export async function restoreLocalLayersFifoBatch(
+  lines: Array<{
+    productId: number
+    qty: number
+    receiptId?: string
+    productName?: string
+    costPrice?: number
+    retailPrice?: number
+  }>,
+): Promise<ProductStockLayer[]> {
+  let list = await readCachedStockLayers()
+  for (const line of lines) {
+    const qty = Number(line.qty) || 0
+    if (!(qty > 0)) continue
+    list = applyRestoreOnList(list, line.productId, qty, {
+      receiptId: line.receiptId,
+      productName: line.productName,
+      costPrice: line.costPrice,
+      retailPrice: line.retailPrice,
+    })
+  }
+  await cacheStockLayers(list)
+  await bumpProductStockFromLayers(list)
+  return list
+}

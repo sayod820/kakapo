@@ -940,6 +940,14 @@ function applyLocalReturn(
 ): PosSale {
   const lines = Array.isArray(sale.items) ? sale.items : []
   const backByProduct = new Map<number, number>()
+  const restoreLines: Array<{
+    productId: number
+    qty: number
+    receiptId?: string
+    productName?: string
+    costPrice?: number
+    retailPrice?: number
+  }> = []
 
   const nextItems = lines.map((line, idx) => {
     const already = Number(line.returnedQty) || 0
@@ -950,6 +958,14 @@ function applyLocalReturn(
     const back = Math.min(left, round2(asked))
     if (back > 0) {
       backByProduct.set(line.productId, round2((backByProduct.get(line.productId) || 0) + back))
+      restoreLines.push({
+        productId: line.productId,
+        qty: back,
+        receiptId: line.receiptId || undefined,
+        productName: line.productName,
+        costPrice: Number(line.unitCost) || undefined,
+        retailPrice: Number(line.price) || undefined,
+      })
     }
     return back > 0 ? { ...line, returnedQty: round2(already + back) } : line
   })
@@ -1000,15 +1016,24 @@ function applyLocalReturn(
 
   applyReturnClientMoneySync(sale, cuts)
 
-  void (async () => {
-    const { useProducts } = await import('./store')
-    const ps = useProducts.getState()
-    for (const [productId, qty] of backByProduct) {
-      const p = ps.products.find(x => x.id === productId)
-      if (!p) continue
-      ps.updateProduct(productId, { stock: round2((Number(p.stock) || 0) + qty) })
-    }
-  })()
+  // Склад: партии + product.stock (раньше только stock — склад по партиям не рос)
+  if (!(sale as { stockSkipped?: boolean }).stockSkipped && restoreLines.length) {
+    void import('./stockLayersLocal')
+      .then(m => m.restoreLocalLayersFifoBatch(restoreLines))
+      .catch(() => {
+        void (async () => {
+          try {
+            const { useProducts } = await import('./store')
+            const ps = useProducts.getState()
+            for (const [productId, qty] of backByProduct) {
+              const p = ps.products.find(x => x.id === productId)
+              if (!p) continue
+              ps.updateProduct(productId, { stock: round2((Number(p.stock) || 0) + qty) })
+            }
+          } catch { /* ignore */ }
+        })()
+      })
+  }
 
   return updated
 }
