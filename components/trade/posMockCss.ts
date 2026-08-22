@@ -737,6 +737,18 @@ export const POS_MOCK_CSS = `
   .cashier-screen-actions button{flex:1;padding:14px;border-radius:14px;font-weight:800;font-size:13px;}
   .cashier-screen .gate-input{margin-bottom:10px;}
   .cashier-screen .gate-label{margin-bottom:8px;}
+  .shift-reconcile-hint{font-size:12px;color:var(--t2);font-weight:700;line-height:1.45;margin:0 0 14px;}
+  .shift-reconcile-hint b{color:var(--text);}
+  .shift-reconcile-open{width:100%;margin-bottom:4px;}
+  .shift-reconcile-overlay{z-index:120;}
+  .shift-reconcile-card{width:min(420px,100%);max-height:min(92vh,720px);overflow:auto;}
+  .shift-reconcile-card h3{margin:0 0 6px;font-family:'Unbounded',sans-serif;font-size:17px;}
+  .shift-reconcile-sub{font-size:12px;color:var(--t2);font-weight:700;margin:0 0 16px;line-height:1.4;}
+  .shift-reconcile-block{margin-bottom:16px;}
+  .shift-reconcile-expected{font-size:11px;color:var(--t2);font-weight:700;margin:-4px 0 8px;}
+  .shift-reconcile-status{font-size:12px;font-weight:800;padding:8px 10px;border-radius:10px;margin-bottom:4px;}
+  .shift-reconcile-status.ok{background:rgba(31,215,96,.12);color:var(--accent);}
+  .shift-reconcile-status.warn{background:rgba(255,160,60,.14);color:var(--org);}
 
   .products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column;}
   .cat-nav{flex-shrink:0;padding:12px 20px 4px;display:flex;flex-direction:column;gap:8px;}

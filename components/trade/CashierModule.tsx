@@ -418,6 +418,16 @@ function expectedTillCash(shift: {
   ) * 100) / 100
 }
 
+function shiftReconcileHint(actualStr: string, expected: number): { ok: boolean; text: string } {
+  if (actualStr.trim() === '') return { ok: false, text: 'Укажите сумму' }
+  const actual = Number(actualStr)
+  if (!Number.isFinite(actual) || actual < 0) return { ok: false, text: 'Неверная сумма' }
+  const diff = Math.round((actual - expected) * 100) / 100
+  if (Math.abs(diff) < 0.009) return { ok: true, text: 'Совпадает с чеками' }
+  if (diff > 0) return { ok: false, text: `Излишек +${diff.toFixed(2)} сом` }
+  return { ok: false, text: `Недостача ${diff.toFixed(2)} сом` }
+}
+
 function loadSettings(): PosSettings {
   const empName = (() => {
     try { return String(loadTradeEmployeeSession()?.name || '').trim() } catch { return '' }
@@ -1150,6 +1160,8 @@ export default function CashierModule({
   /** index позиции → qty к возврату (0 = не выбрано) */
   const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
+  const [closingCard, setClosingCard] = useState('')
+  const [shiftReconcileOpen, setShiftReconcileOpen] = useState(false)
   const [tillMoveKind, setTillMoveKind] = useState<null | 'in' | 'out'>(null)
   const [tillAmountBuf, setTillAmountBuf] = useState('')
   const [tillNote, setTillNote] = useState('')
@@ -3608,21 +3620,32 @@ export default function CashierModule({
     setMsg('')
     try {
       const cash = Number(closingCash)
+      const card = Number(closingCard)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
-      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash })
+      if (!(card >= 0) || closingCard === '') throw new Error('Укажите сумму по карте / переводам')
+      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash, closingCard: card })
       if (!closed.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
+      setShiftReconcileOpen(false)
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setPosSurface('dashboard')
       setCart([])
       setClient(null)
       setGateCash(String(cash.toFixed(2)))
+      const expCash = expectedTillCash(activeShift)
+      const expCard = Number(activeShift.salesCard) || 0
+      const cashDiff = Math.round((cash - expCash) * 100) / 100
+      const cardDiff = Math.round((card - expCard) * 100) / 100
+      const diffNote = [
+        Math.abs(cashDiff) >= 0.01 ? `нал ${cashDiff > 0 ? '+' : ''}${cashDiff.toFixed(2)}` : '',
+        Math.abs(cardDiff) >= 0.01 ? `карта ${cardDiff > 0 ? '+' : ''}${cardDiff.toFixed(2)}` : '',
+      ].filter(Boolean).join(' · ')
       showToast(
         'Смена закрыта',
         closed.offline
-          ? `${fmtMoney(cash)} сдано в основной · отправится в фоне`
-          : `${fmtMoney(cash)} сдано в основной ящик`,
+          ? `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · в ящик${diffNote ? ` · ${diffNote}` : ''}`
+          : `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · основной ящик${diffNote ? ` · ${diffNote}` : ''}`,
       )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')
@@ -3642,8 +3665,10 @@ export default function CashierModule({
     setMsg('')
     try {
       const cash = Number(closingCash)
+      const card = Number(closingCard)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
-      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash })
+      if (!(card >= 0) || closingCard === '') throw new Error('Укажите сумму по карте / переводам')
+      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash, closingCard: card })
       const cashier = await ensureCashier(next.name, next.id)
       const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(s)
@@ -3656,6 +3681,7 @@ export default function CashierModule({
       })
       if (!closed.offline && !opened.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
+      setShiftReconcileOpen(false)
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setCart([])
@@ -3690,7 +3716,10 @@ export default function CashierModule({
       return
     }
     const expected = activeShift ? expectedTillCash(activeShift) : 0
+    const expectedCard = activeShift ? (Number(activeShift.salesCard) || 0) : 0
     setClosingCash(expected > 0 ? expected.toFixed(2) : '0.00')
+    setClosingCard(expectedCard > 0 ? expectedCard.toFixed(2) : '0.00')
+    setShiftReconcileOpen(false)
     setSwitchCashierId(settings.cashierId || pickedCashierId || cashierOptions[0]?.id || '')
     setCashierScreen(kind)
   }
@@ -10809,34 +10838,110 @@ export default function CashierModule({
               </div>
             )}
 
-            <label className="gate-label">Наличные сейчас в кассе</label>
-            <input
-              className="gate-input"
-              value={closingCash}
-              onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))}
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-            <div className="kp-quick" style={{ marginBottom: 16 }}>
-              {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
-                >
-                  {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Ожид.' : String(v)}
-                </button>
-              ))}
-            </div>
-            {msg && <div className="pos-err">{msg}</div>}
+            <label className="gate-label">Перед закрытием — сверка наличных и карты</label>
+            <p className="shift-reconcile-hint">
+              Нал по чекам: <b>{fmtMoney(activeShift.salesCash)}</b>
+              {' · '}
+              Карта по чекам: <b>{fmtMoney(activeShift.salesCard)}</b>
+              {' · '}
+              Ожид. в кассе: <b>{fmtMoney(expectedTillCash(activeShift))}</b>
+            </p>
+            <button
+              type="button"
+              className="btn-confirm shift-reconcile-open"
+              disabled={busy}
+              onClick={() => { setMsg(''); setShiftReconcileOpen(true) }}
+            >
+              Сверка нал и карта
+            </button>
+            {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
             <div className="cashier-screen-actions">
               <button
                 type="button"
                 className="btn-cancel"
                 disabled={busy}
-                onClick={() => { setCashierScreen(null); setMsg('') }}
+                onClick={() => { setCashierScreen(null); setMsg(''); setShiftReconcileOpen(false) }}
               >
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shiftReconcileOpen && cashierScreen && cashierScreen !== 'receipts' && activeShift && (
+        <div className="overlay shift-reconcile-overlay" onClick={() => { if (!busy) { setShiftReconcileOpen(false); setMsg('') } }}>
+          <div className="modal-card shift-reconcile-card" onClick={e => e.stopPropagation()}>
+            <h3>Сверка нал и карта</h3>
+            <p className="shift-reconcile-sub">
+              {settings.cashierName} · пересчитайте кассу и сверьте терминал / переводы на телефон
+            </p>
+
+            <div className="shift-reconcile-block">
+              <label className="gate-label">Наличные в кассе</label>
+              <div className="shift-reconcile-expected">По чекам ожид.: {fmtMoney(expectedTillCash(activeShift))}</div>
+              <input
+                className="gate-input"
+                value={closingCash}
+                onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))}
+                inputMode="decimal"
+                placeholder="0.00"
+                autoFocus
+              />
+              <div className="kp-quick" style={{ marginBottom: 8 }}>
+                {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                  <button
+                    key={`cash-${v}`}
+                    type="button"
+                    onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
+                  >
+                    {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Ожид.' : String(v)}
+                  </button>
+                ))}
+              </div>
+              {(() => {
+                const h = shiftReconcileHint(closingCash, expectedTillCash(activeShift))
+                return <div className={`shift-reconcile-status ${h.ok ? 'ok' : 'warn'}`}>{h.text}</div>
+              })()}
+            </div>
+
+            <div className="shift-reconcile-block">
+              <label className="gate-label">Карта / переводы на телефон</label>
+              <div className="shift-reconcile-expected">По чекам ожид.: {fmtMoney(activeShift.salesCard)}</div>
+              <input
+                className="gate-input"
+                value={closingCard}
+                onChange={e => setClosingCard(sanitizeDecimalInput(e.target.value))}
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+              <div className="kp-quick" style={{ marginBottom: 8 }}>
+                {[0, Number(activeShift.salesCard) || 0].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                  <button
+                    key={`card-${v}`}
+                    type="button"
+                    onClick={() => setClosingCard(v === 0 ? '0.00' : Number(v).toFixed(2))}
+                  >
+                    {v === 0 ? '0' : 'Ожид.'}
+                  </button>
+                ))}
+              </div>
+              {(() => {
+                const h = shiftReconcileHint(closingCard, Number(activeShift.salesCard) || 0)
+                return <div className={`shift-reconcile-status ${h.ok ? 'ok' : 'warn'}`}>{h.text}</div>
+              })()}
+            </div>
+
+            {msg && <div className="pos-err">{msg}</div>}
+
+            <div className="modal-card-actions">
+              <button
+                type="button"
+                className="btn-cancel"
+                disabled={busy}
+                onClick={() => { setShiftReconcileOpen(false); setMsg('') }}
+              >
+                Назад
               </button>
               {cashierScreen === 'close' ? (
                 <button type="button" className="btn-confirm" disabled={busy} onClick={() => void closeShift()}>

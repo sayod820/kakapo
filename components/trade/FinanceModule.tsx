@@ -813,7 +813,10 @@ export default function FinanceModule() {
                     <div className="k-fin-row-txt">
                       <b>{r.day || '—'} · {r.cashierName || '—'}</b>
                       <small>
-                        {posLabel(r.posId)} · ожид. {fmtMoney(r.expectedCash)} · факт {fmtMoney(r.actualCash)}
+                        {posLabel(r.posId)} · нал {fmtMoney(r.expectedCash)}→{fmtMoney(r.actualCash)}
+                        {(r as { expectedCard?: number; actualCard?: number }).expectedCard != null
+                          ? ` · карта ${fmtMoney((r as { expectedCard?: number }).expectedCard)}→${fmtMoney((r as { actualCard?: number }).actualCard)}`
+                          : ''}
                       </small>
                     </div>
                     <b className="k-fin-amt" style={{ color: diffColor(r.cashDiff) }}>

@@ -1192,15 +1192,34 @@ export function closePosShift(db, id, data = {}) {
     + (Number(row.cashInTotal) || 0)
     - (Number(row.expenseTotal) || 0),
   )
+  const expectedCard = round2(Number(row.salesCard) || 0)
   const actualCash = round2(data.closingCash)
   const cashDiff = round2(actualCash - expectedCash)
+  const actualCard = data.closingCard != null && data.closingCard !== ''
+    ? round2(data.closingCard)
+    : expectedCard
+  const cardDiff = round2(actualCard - expectedCard)
   row.status = 'closed'
   row.closedAtIso = stampFromClient(data, 'closedAtIso')
   row.closingCash = actualCash
   row.expectedCash = expectedCash
   row.actualCash = actualCash
   row.cashDiff = cashDiff
+  row.expectedCard = expectedCard
+  row.actualCard = actualCard
+  row.closingCard = actualCard
+  row.cardDiff = cardDiff
   row.note = String(data.note || row.note || '').trim()
+  const cashReason = Math.abs(cashDiff) < 0.009
+    ? 'нал · без расхождения'
+    : cashDiff < 0
+      ? `нал · недостача ${Math.abs(cashDiff).toFixed(2)}`
+      : `нал · излишек ${cashDiff.toFixed(2)}`
+  const cardReason = Math.abs(cardDiff) < 0.009
+    ? 'карта · без расхождения'
+    : cardDiff < 0
+      ? `карта · недостача ${Math.abs(cardDiff).toFixed(2)}`
+      : `карта · излишек ${cardDiff.toFixed(2)}`
   appendMoneyLedger(db, {
     type: 'shift_close',
     amount: Math.abs(cashDiff),
@@ -1213,13 +1232,9 @@ export function closePosShift(db, id, data = {}) {
     cashierName: row.cashierName,
     refType: 'shift',
     refId: row.id,
-    reason: Math.abs(cashDiff) < 0.009
-      ? 'Сверка кассы · без расхождения'
-      : cashDiff < 0
-        ? `Недостача ${Math.abs(cashDiff).toFixed(2)} сом`
-        : `Излишек ${cashDiff.toFixed(2)} сом`,
+    reason: `Сверка смены · ${cashReason} · ${cardReason}`,
     note: row.note,
-    meta: { expectedCash, actualCash, cashDiff },
+    meta: { expectedCash, actualCash, cashDiff, expectedCard, actualCard, cardDiff },
     createdAtIso: row.closedAtIso,
   })
   transferClosedShiftToVault(db, row)
@@ -1237,7 +1252,10 @@ export function transferClosedShiftToVault(db, shift) {
   const cashAmount = round2(
     shift.actualCash != null ? shift.actualCash : (shift.closingCash != null ? shift.closingCash : 0),
   )
-  const cardAmount = round2(Number(shift.salesCard) || 0)
+  const cardAmount = round2(
+    shift.actualCard != null ? Number(shift.actualCard)
+      : (shift.closingCard != null ? Number(shift.closingCard) : (Number(shift.salesCard) || 0)),
+  )
   const transfer = {
     id: nextId('VTR'),
     shiftId,

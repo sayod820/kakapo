@@ -214,6 +214,13 @@ export interface PosShift {
   actualCash?: number | null
   /** fact − expected */
   cashDiff?: number | null
+  /** Ожидаемая карта по чекам (salesCard) */
+  expectedCard?: number | null
+  /** Факт по терминалу / переводам при закрытии */
+  actualCard?: number | null
+  closingCard?: number | null
+  /** fact − expected (карта) */
+  cardDiff?: number | null
   salesCash: number
   salesCard: number
   salesCredit: number

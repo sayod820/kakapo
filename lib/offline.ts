@@ -836,6 +836,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       const shift = await api.closePosShift(String(p.shiftId), {
         clientRef: p.clientRef,
         closingCash: Number(p.closingCash) || 0,
+        closingCard: p.closingCard != null ? Number(p.closingCard) : undefined,
         note: p.note,
         closedAtIso: closedAtIso || undefined,
       } as any)

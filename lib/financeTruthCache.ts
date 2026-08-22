@@ -347,6 +347,10 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
     const expectedCash = round2(openingCash + salesCash + cashIn - expenseTotal)
     const actualCash = s.closingCash != null ? (Number(s.closingCash) || 0) : expectedCash
     const cashDiff = round2(actualCash - expectedCash)
+    const expectedCard = s.expectedCard != null ? round2(Number(s.expectedCard)) : round2(Number(s.salesCard) || 0)
+    const actualCard = s.actualCard != null ? round2(Number(s.actualCard))
+      : (s.closingCard != null ? round2(Number(s.closingCard)) : expectedCard)
+    const cardDiff = s.cardDiff != null ? round2(Number(s.cardDiff)) : round2(actualCard - expectedCard)
     return {
       shiftId: s.id,
       posId: s.posId || '',
@@ -356,11 +360,15 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
       closedAtIso: s.closedAtIso,
       openingCash,
       salesCash,
+      salesCard: Number(s.salesCard) || 0,
       expenseTotal,
       expectedCash,
       actualCash,
       cashDiff,
-      alert: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM,
+      expectedCard,
+      actualCard,
+      cardDiff,
+      alert: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM,
       day: ymd(s.closedAtIso || s.openedAtIso),
     }
   }).sort((a, b) => String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')))

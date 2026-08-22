@@ -155,6 +155,10 @@ export function getExpectedVsActual(db, q = {}) {
     const expected = s.expectedCash != null ? round2(s.expectedCash) : shiftExpectedCash(s)
     const actual = s.actualCash != null ? round2(s.actualCash) : round2(s.closingCash)
     const diff = s.cashDiff != null ? round2(s.cashDiff) : round2(actual - expected)
+    const expectedCard = s.expectedCard != null ? round2(s.expectedCard) : round2(Number(s.salesCard) || 0)
+    const actualCard = s.actualCard != null ? round2(s.actualCard)
+      : (s.closingCard != null ? round2(s.closingCard) : expectedCard)
+    const cardDiff = s.cardDiff != null ? round2(s.cardDiff) : round2(actualCard - expectedCard)
     return {
       shiftId: s.id,
       posId: s.posId || '',
@@ -164,12 +168,16 @@ export function getExpectedVsActual(db, q = {}) {
       closedAtIso: s.closedAtIso,
       openingCash: round2(s.openingCash),
       salesCash: round2(s.salesCash),
+      salesCard: round2(s.salesCard),
       cashInTotal: round2(s.cashInTotal),
       expenseTotal: round2(s.expenseTotal),
       expectedCash: expected,
       actualCash: actual,
       cashDiff: diff,
-      alert: Math.abs(diff) >= CASH_DIFF_ALERT_SOM,
+      expectedCard,
+      actualCard,
+      cardDiff,
+      alert: Math.abs(diff) >= CASH_DIFF_ALERT_SOM || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM,
       day: ymd(s.closedAtIso || s.openedAtIso),
     }
   }).sort((a, b) => String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')))

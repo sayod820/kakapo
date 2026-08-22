@@ -173,55 +173,51 @@ export async function openShiftSafe(input: {
 
 export async function closeShiftSafe(
   shiftId: string,
-  input: { closingCash: number; note?: string },
+  input: { closingCash: number; closingCard?: number; note?: string },
 ): Promise<OfflineResult<PosShift | null>> {
   const clientRef = newClientRef()
-  const payload = { clientRef, shiftId, closingCash: round2(input.closingCash), note: input.note }
+  const payload = {
+    clientRef,
+    shiftId,
+    closingCash: round2(input.closingCash),
+    closingCard: input.closingCard != null ? round2(input.closingCard) : undefined,
+    note: input.note,
+  }
 
   const applyLocal = async () => {
     const current = shiftById(shiftId)
     const expected = current
       ? round2((current.openingCash || 0) + (current.salesCash || 0) + (current.cashInTotal || 0) - (current.expenseTotal || 0))
       : payload.closingCash
+    const expectedCard = current ? round2(Number(current.salesCard) || 0) : 0
+    const actualCard = payload.closingCard != null ? payload.closingCard : expectedCard
     const closedAtIso = new Date().toISOString()
     await useOfflineSync.getState().queueOp('shift_close', { ...payload, closedAtIso })
-    patchShift(shiftId, {
-      status: 'closed',
+    const patch = {
+      status: 'closed' as const,
       closedAtIso,
       closingCash: payload.closingCash,
       actualCash: payload.closingCash,
       expectedCash: expected,
       cashDiff: round2(payload.closingCash - expected),
-    })
+      expectedCard,
+      actualCard,
+      closingCard: actualCard,
+      cardDiff: round2(actualCard - expectedCard),
+    }
+    patchShift(shiftId, patch)
     if (current) {
-      applyLocalVaultTransfer({
-        ...current,
-        status: 'closed',
-        closedAtIso,
-        closingCash: payload.closingCash,
-        actualCash: payload.closingCash,
-        expectedCash: expected,
-        cashDiff: round2(payload.closingCash - expected),
-      })
+      applyLocalVaultTransfer({ ...current, ...patch })
     }
     void persistPosSnapshot()
-    return current
-      ? {
-          ...current,
-          status: 'closed' as const,
-          closedAtIso,
-          closingCash: payload.closingCash,
-          actualCash: payload.closingCash,
-          expectedCash: expected,
-          cashDiff: round2(payload.closingCash - expected),
-        }
-      : null
+    return current ? { ...current, ...patch } : null
   }
 
   const res = await raceCashierOp(
     () => api.closePosShift(shiftId, {
       clientRef,
       closingCash: payload.closingCash,
+      closingCard: payload.closingCard,
       note: input.note,
     }),
     applyLocal,
@@ -245,7 +241,10 @@ export function applyLocalVaultTransfer(shift: PosShift) {
   const cashAmount = round2(
     shift.actualCash != null ? Number(shift.actualCash) : (Number(shift.closingCash) || 0),
   )
-  const cardAmount = round2(Number(shift.salesCard) || 0)
+  const cardAmount = round2(
+    shift.actualCard != null ? Number(shift.actualCard)
+      : (shift.closingCard != null ? Number(shift.closingCard) : (Number(shift.salesCard) || 0)),
+  )
   const transfer = {
     id: newLocalId('vtr'),
     shiftId: shift.id,
