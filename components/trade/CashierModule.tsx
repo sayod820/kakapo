@@ -5601,7 +5601,8 @@ export default function CashierModule({
     if (!creditPending) return
     const note = creditNoteBuf.trim()
     const { paidCash, method, paidCard, debtAmt } = creditPending
-    const preview = Math.max(0, afterDisc - Math.floor(usedBonus)) + Math.max(0, Number(debtAmt) || 0)
+    // Сумма чека — не чек + долг: долг уже часть этой суммы (нал + карта + долг = total)
+    const preview = Math.max(0, afterDisc - Math.floor(usedBonus))
     askSaleConfirm({
       paidCash,
       method,
