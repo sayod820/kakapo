@@ -1420,7 +1420,7 @@ const CSS = `
     .k-top{
       margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
       padding:8px 10px;
-      gap:6px;flex-wrap:nowrap;align-items:center;min-height:0;
+      gap:8px;flex-wrap:nowrap;align-items:center;min-height:0;
       border:1px solid var(--border);border-radius:12px;background:var(--card);
       border-bottom:1px solid var(--border)
     }
@@ -1429,10 +1429,10 @@ const CSS = `
     }
     .k-top-title{
       flex:1 1 auto;min-width:0;max-width:none;
-      align-self:center;justify-content:center;gap:4px;
-      padding:0;margin:0;flex-direction:row;flex-wrap:wrap;align-items:center
+      align-self:center;justify-content:center;gap:3px;
+      padding:0;margin:0;flex-direction:column;flex-wrap:nowrap;align-items:flex-start
     }
-    .k-top-title-main{font-size:14px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
+    .k-top-title-main{font-size:14px;font-weight:900;letter-spacing:-.01em;line-height:1.15;white-space:nowrap}
     .k-top-title-sub{display:none}
     .k-top-title-net{display:flex!important;align-items:center}
     .k-top-title-net .k-online-chip{
