@@ -1429,11 +1429,11 @@ const CSS = `
     }
     .k-top-title{
       flex:1 1 auto;min-width:0;max-width:none;
-      align-self:center;justify-content:center;gap:3px;
-      padding:0;margin:0
+      align-self:center;justify-content:center;gap:4px;
+      padding:0;margin:0;flex-direction:row;flex-wrap:wrap;align-items:center
     }
     .k-top-title-main{font-size:14px;font-weight:900;letter-spacing:-.01em;line-height:1.1}
-    .k-top-title-sub{font-size:9px;line-height:1.15}
+    .k-top-title-sub{display:none}
     .k-top-title-net{display:flex!important;align-items:center}
     .k-top-title-net .k-online-chip{
       display:inline-flex!important;
@@ -3180,18 +3180,9 @@ function TradeAppInner({
               </div>
             ) : (
               <div className="k-top-title">
-                {current === 'debts' ? (
-                  <>
-                    <div className="k-top-title-main">💳 Долги клиентов</div>
-                    <div className="k-top-title-sub">
-                      Товары (чеки) и наличные (ручные)
-                    </div>
-                  </>
-                ) : (
-                  <span className="k-top-title-main">
-                    {NAV.find(n => n.id === current)?.label}
-                  </span>
-                )}
+                <span className="k-top-title-main">
+                  {NAV.find(n => n.id === current)?.label}
+                </span>
                 <div className="k-top-title-net">
                   <NetworkStatus compact />
                 </div>
