@@ -747,7 +747,7 @@ const CSS = `
   }
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-  .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
+  .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
   .k-top-back{flex-shrink:0;white-space:nowrap}
   .k-top-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;font-weight:800;color:var(--text)}
   .k-top-title-main{font-size:16px;font-weight:900;line-height:1.15;color:var(--text)}
@@ -1417,16 +1417,18 @@ const CSS = `
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
     /* Шапка как карточки товаров: те же боковые поля, не прижата к верху */
-    /* Как «Точка продаж»: одна строка — меню | заголовок | Онлайн | тема | профиль */
+    /* Как «Точка продаж»: кнопки ВНУТРИ белой карточки, не поверх тонкой полоски */
     .k-top{
+      flex:0 0 auto;flex-shrink:0;
       margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
-      padding:6px 10px;
-      gap:8px;flex-wrap:nowrap;align-items:center;min-height:0;
+      padding:8px 10px;
+      gap:8px;flex-wrap:nowrap;align-items:center;
+      min-height:50px;box-sizing:border-box;
       border:1px solid var(--border);border-radius:12px;background:var(--card);
       border-bottom:1px solid var(--border)
     }
     .k-mob-menu-btn{
-      width:34px;height:34px;font-size:17px;border-radius:10px;align-self:center;flex-shrink:0
+      width:32px;height:32px;font-size:16px;border-radius:10px;align-self:center;flex-shrink:0
     }
     .k-top-title{
       flex:0 1 auto;min-width:0;max-width:none;
@@ -1444,16 +1446,16 @@ const CSS = `
     .k-top-title-net .k-online-chip .d{width:6px;height:6px}
     .k-top-title-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
     .k-top:has(.k-top-title-net) .k-top-end .k-top-net{display:none!important}
-    .k-top-end{gap:5px;margin-left:auto;align-items:center;flex-shrink:0}
+    .k-top-end{gap:6px;margin-left:auto;align-items:center;flex-shrink:0}
     .k-top-end .k-theme-toggle{order:1}
     .k-top-end .k-user{order:2}
     .k-top-end .k-online-chip{
       display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px
     }
-    .k-theme-toggle{padding:2px;border-radius:10px;gap:1px}
-    .k-theme-mode{width:28px;height:26px;border-radius:8px}
+    .k-theme-toggle{padding:2px;border-radius:10px;gap:1px;flex-shrink:0}
+    .k-theme-mode{width:28px;height:28px;border-radius:8px}
     .k-theme-mode svg{width:13px;height:13px}
-    .k-user{padding:2px;border-radius:10px}
+    .k-user{padding:2px;border-radius:10px;flex-shrink:0}
     .k-user .av{width:28px;height:28px;border-radius:8px;font-size:10px}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .k-top-subtabs::-webkit-scrollbar{display:none}
@@ -2407,10 +2409,12 @@ const CSS = `
     --k-android-top-inset:max(env(safe-area-inset-top,0px),18px)
   }
   html.kakapo-android .k-top{
+    flex:0 0 auto;flex-shrink:0;
     margin-top:var(--k-android-top-inset);
     margin-left:10px;
     margin-right:10px;
-    padding:6px 10px
+    padding:8px 10px;
+    min-height:50px
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
