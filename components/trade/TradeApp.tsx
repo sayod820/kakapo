@@ -1417,9 +1417,10 @@ const CSS = `
     }
     .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
     /* Шапка как карточки товаров: те же боковые поля, не прижата к верху */
+    /* Как «Точка продаж»: одна строка — меню | заголовок | Онлайн | тема | профиль */
     .k-top{
       margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
-      padding:8px 10px;
+      padding:6px 10px;
       gap:8px;flex-wrap:nowrap;align-items:center;min-height:0;
       border:1px solid var(--border);border-radius:12px;background:var(--card);
       border-bottom:1px solid var(--border)
@@ -1428,13 +1429,13 @@ const CSS = `
       width:34px;height:34px;font-size:17px;border-radius:10px;align-self:center;flex-shrink:0
     }
     .k-top-title{
-      flex:1 1 auto;min-width:0;max-width:none;
-      align-self:center;justify-content:center;gap:3px;
-      padding:0;margin:0;flex-direction:column;flex-wrap:nowrap;align-items:flex-start
+      flex:0 1 auto;min-width:0;max-width:none;
+      align-self:center;justify-content:center;gap:0;
+      padding:0;margin:0;flex-direction:row;flex-wrap:nowrap;align-items:center
     }
     .k-top-title-main{font-size:14px;font-weight:900;letter-spacing:-.01em;line-height:1.15;white-space:nowrap}
     .k-top-title-sub{display:none}
-    .k-top-title-net{display:flex!important;align-items:center}
+    .k-top-title-net{display:flex!important;align-items:center;flex:0 0 auto;align-self:center}
     .k-top-title-net .k-online-chip{
       display:inline-flex!important;
       border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px;gap:4px;
@@ -2409,7 +2410,7 @@ const CSS = `
     margin-top:var(--k-android-top-inset);
     margin-left:10px;
     margin-right:10px;
-    padding:8px 10px
+    padding:6px 10px
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
@@ -3179,14 +3180,16 @@ function TradeAppInner({
               </div>
               </div>
             ) : (
-              <div className="k-top-title">
-                <span className="k-top-title-main">
-                  {NAV.find(n => n.id === current)?.label}
-                </span>
+              <>
+                <div className="k-top-title">
+                  <span className="k-top-title-main">
+                    {NAV.find(n => n.id === current)?.label}
+                  </span>
+                </div>
                 <div className="k-top-title-net">
                   <NetworkStatus compact />
                 </div>
-              </div>
+              </>
             )}
             <div className="k-top-end">
               {current === 'products' || (current !== 'sales' && showSearch) ? (
