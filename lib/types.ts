@@ -156,7 +156,42 @@ export interface PosBoundDevice {
   name: string
   boundAtIso: string
   lastSeenAtIso?: string
+  /**
+   * Дефолт из админки: участвует ли устройство в ожидании очереди при ревизии.
+   * false = сервер не ждёт это устройство (сломано / не используется).
+   * Пока только храним — логика ревизии подключится позже.
+   */
+  revisionParticipationDefault?: boolean
 }
+
+/** Устройство, чью офлайн-очередь сервер ждёт перед применением ревизии */
+export interface RevisionWaitDevice {
+  posId: string
+  deviceId: string
+  /** Подпись для UI (точка · имя аппарата) */
+  label?: string
+}
+
+/** Срез ленты операций на момент пересчёта (защита от поздних офлайн-чеков) */
+export interface RevisionPosCut {
+  posId: string
+  /** Если есть — срез по конкретному аппарату (posId::deviceId) */
+  deviceId?: string
+  lastSeq: number
+}
+
+/**
+ * Статус ревизии на сервере (координатор).
+ * Старые клиенты могут не слать поле — тогда как «сразу применена».
+ */
+export type StockRevisionStatus =
+  | 'draft'           // черновик на кассе
+  | 'pending_queues'  // ждём пустые очереди выбранных устройств
+  | 'pending_older'   // ждём более раннюю ревизию (по времени пересчёта)
+  | 'applying'        // считаем ±
+  | 'done'            // готово
+  | 'failed'          // ошибка
+  | 'cancelled'       // отменена админом
 
 export interface PosPoint {
   id: string
@@ -503,12 +538,23 @@ export interface StockRevisionItem {
 export interface StockRevision {
   id: string
   clientRef?: string
+  /** Время пересчёта на кассе (порядок очереди ревизий на сервере) */
   createdAtIso: string
+  /** Когда ревизия ушла на сервер (может быть позже createdAtIso при офлайне) */
+  submittedAtIso?: string
   createdBy?: string
   note?: string
   items: StockRevisionItem[]
-  /** Срез номеров операций по кассам на момент проведения */
-  posCuts?: { posId: string; lastSeq: number }[]
+  /** Срез номеров операций по кассам/устройствам на момент проведения */
+  posCuts?: RevisionPosCut[]
+  /** Статус координатора; без поля — старое поведение (сразу done) */
+  status?: StockRevisionStatus
+  /** Аппарат, с которого провели ревизию */
+  sourceDeviceId?: string
+  /** Кого сервер ждёт перед ± (фиксируется при создании) */
+  waitDevices?: RevisionWaitDevice[]
+  /** Порядок при одинаковом createdAtIso */
+  revisionSeq?: number
 }
 
 export interface PosSaleItem {

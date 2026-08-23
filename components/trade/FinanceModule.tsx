@@ -29,6 +29,7 @@ import {
   ymdLocal,
 } from './reportsHelpers'
 import { resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
+import { getBoundPosIdSync } from '@/lib/tradeDevice'
 
 const EXPENSE_CATS = ['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Реклама', 'Хозтовары', 'Прочее']
 
@@ -100,7 +101,13 @@ export default function FinanceModule() {
   const [convAmount, setConvAmount] = useState('')
   const [convNote, setConvNote] = useState('')
 
-  const openShifts = useMemo(() => shifts.filter(s => s.status === 'open'), [shifts])
+  const openShifts = useMemo(() => {
+    const opens = shifts.filter(s => s.status === 'open')
+    const boundPosId = getBoundPosIdSync()
+    if (!boundPosId) return opens
+    const onPoint = opens.filter(s => String(s.posId || '') === boundPosId)
+    return onPoint.length ? onPoint : opens
+  }, [shifts])
 
   useBackClose(expOpen, () => { if (!busy) setExpOpen(false) })
   useBackClose(depOpen, () => { if (!busy) setDepOpen(false) })
@@ -245,6 +252,7 @@ export default function FinanceModule() {
         category: expCat.trim() || 'Прочее',
         amount,
         note: expNote.trim() || undefined,
+        posId: getBoundPosIdSync() || undefined,
       })
       await afterFinanceMutation(!!res.offline)
       setExpOpen(false)
@@ -269,9 +277,10 @@ export default function FinanceModule() {
       const amount = Number(depAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму')
       if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
+      const boundPosId = getBoundPosIdSync() || undefined
       const open = depShiftId
         ? shifts.find(s => s.id === depShiftId && s.status === 'open')
-        : resolveOpenShift()
+        : resolveOpenShift(boundPosId)
       if (!open && openShifts.length > 0) throw new Error('Выберите открытую смену')
       if (!open) throw new Error('Нет открытой смены — откройте смену на кассе')
       if (depType === 'withdraw') {
