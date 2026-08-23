@@ -1037,31 +1037,29 @@ async function sendOp(row: PendingOp): Promise<string> {
     case 'stock_revision_create': {
       const p = row.payload || {}
       const items = await remapProductIdsInItems(p.items || [])
+      const { revisionApiFieldsFromPayload } = await import('./revisionMeta')
       const rev = await api.createStockRevision({
-        clientRef: p.clientRef,
-        createdBy: p.createdBy,
-        note: p.note,
+        ...revisionApiFieldsFromPayload(p as Record<string, unknown>),
         items: items.map((it: any) => ({
           productId: it.productId,
           countedStock: Number(it.countedStock),
           ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: Number(it.systemStock) } : {}),
         })),
-      } as any)
+      })
       return String((rev as any)?.id || '')
     }
     case 'stock_revision_update': {
       const p = await resolveRefs(row.payload, ['id'])
       const items = await remapProductIdsInItems(p.items || [])
+      const { revisionApiFieldsFromPayload } = await import('./revisionMeta')
       const rev = await api.updateStockRevision(String(p.id), {
-        clientRef: p.clientRef,
-        createdBy: p.createdBy,
-        note: p.note,
+        ...revisionApiFieldsFromPayload(p as Record<string, unknown>),
         items: items.map((it: any) => ({
           productId: it.productId,
           countedStock: Number(it.countedStock),
           ...(Number.isFinite(Number(it.systemStock)) ? { systemStock: Number(it.systemStock) } : {}),
         })),
-      } as any)
+      })
       return String((rev as any)?.id || '')
     }
     case 'stock_revision_delete': {

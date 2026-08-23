@@ -140,5 +140,11 @@ export function allocPosOpSeq(posId: string, deviceId?: string): number {
   return next
 }
 
+/** Снимок лент opSeq для heartbeat / ревизии */
+export function getPosOpSeqSnapshot(): Record<string, number> {
+  const map = current()
+  return { ...map }
+}
+
 // Лента нужна уже к первому чеку — греем сразу при загрузке модуля
 if (typeof window !== 'undefined') void ensurePosOpSeqReady()

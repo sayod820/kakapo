@@ -5,6 +5,11 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { PosBoundDevice, PosPoint } from '@/lib/types'
 
+/** По умолчанию устройство участвует в ожидании ревизии */
+function deviceParticipatesInRevision(device: PosBoundDevice): boolean {
+  return device.revisionParticipationDefault !== false
+}
+
 export default function PosPointsAdminPage() {
   const [rows, setRows] = useState<PosPoint[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,6 +88,19 @@ export default function PosPointsAdminPage() {
     }
   }
 
+  async function toggleRevisionParticipation(row: PosPoint, device: PosBoundDevice) {
+    const next = !deviceParticipatesInRevision(device)
+    setBusy(true)
+    try {
+      await api.updatePosDevice(row.id, device.id, { revisionParticipationDefault: next })
+      await load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const leftSec = pair ? Math.max(0, Math.round((Date.parse(pair.expiresAtIso) - Date.now()) / 1000)) : 0
 
   return (
@@ -91,6 +109,7 @@ export default function PosPointsAdminPage() {
         Точка — это касса в магазине. У каждой свой номер.
         Новое устройство (ПК или телефон) не войдёт в Торговлю, пока не введёт код.
         На одну точку можно несколько устройств.
+        Галочка «ревизия» — ждать ли это устройство при инвентаризации (если сломано — снимите).
       </div>
 
       {err && (
@@ -143,6 +162,26 @@ export default function PosPointsAdminPage() {
                   ) : (row.devices || []).map(d => (
                     <div key={d.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 800 }}>{d.name}</span>
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 12,
+                          color: deviceParticipatesInRevision(d) ? 'var(--green)' : 'var(--muted)',
+                          cursor: busy ? 'default' : 'pointer',
+                          userSelect: 'none',
+                        }}
+                        title="Ждать это устройство при ревизии (офлайн-очередь)"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={deviceParticipatesInRevision(d)}
+                          disabled={busy}
+                          onChange={() => void toggleRevisionParticipation(row, d)}
+                        />
+                        ревизия
+                      </label>
                       <button type="button" className="ab" style={{ padding: '2px 8px' }} onClick={() => void renameDevice(row, d)}>
                         имя
                       </button>

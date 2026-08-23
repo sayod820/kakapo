@@ -294,6 +294,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
             await pullStockLayersFromServer({ bumpProducts: true })
           } catch { /* ignore */ }
           try { await markLocalSyncAt() } catch { /* ignore */ }
+          try {
+            const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+            void sendDeviceHeartbeat({ force: true })
+          } catch { /* ignore */ }
         }
       }
       if (get().pending > 0 || get().failed > 0) {
@@ -431,6 +435,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           ])
         } catch { /* ignore */ }
         try { await markLocalSyncAt() } catch { /* ignore */ }
+        try {
+          const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+          void sendDeviceHeartbeat()
+        } catch { /* ignore */ }
       }
 
       if (get().pending > 0 || get().failed > 0 || !get().online) {
@@ -638,8 +646,16 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } else {
             set({ online: true })
           }
+          try {
+            const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+            void sendDeviceHeartbeat()
+          } catch { /* ignore */ }
           return
         }
+        try {
+          const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+          void sendDeviceHeartbeat({ syncing: get().syncing })
+        } catch { /* ignore */ }
         await get().syncNow()
       })()
     }, POLL_BUSY_MS)

@@ -21,6 +21,10 @@ import type {
   StockWriteoff,
   StockRevision,
   PosSale,
+  TradeDeviceHeartbeatPayload,
+  TradeDeviceLiveStatus,
+  RevisionPosCut,
+  RevisionWaitDevice,
 } from './types'
 import type { PickupPoint } from './pickups'
 import type { PricingConfig } from './courierData'
@@ -1017,6 +1021,15 @@ export const api = {
       `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
       { method: 'PATCH', body: JSON.stringify({ name }) },
     ),
+  updatePosDevice: (
+    posId: string,
+    deviceId: string,
+    data: { name?: string; revisionParticipationDefault?: boolean },
+  ) =>
+    request<PosPoint>(
+      `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    ),
   bindPosDevice: (data: { code: string; deviceId: string; deviceName?: string }) =>
     request<{
       point: PosPoint
@@ -1026,6 +1039,10 @@ export const api = {
     request<{ ok: boolean; point?: PosPoint; device?: { id: string; name: string } }>(
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,
     ),
+  sendDeviceHeartbeat: (data: TradeDeviceHeartbeatPayload) =>
+    request<{ ok: boolean }>('/pos/devices/heartbeat', { method: 'POST', body: JSON.stringify(data) }),
+  getPosDeviceStatuses: () =>
+    request<TradeDeviceLiveStatus[]>('/pos/devices/status'),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
   openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string; cashierName?: string; openedAtIso?: string }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
@@ -1137,13 +1154,25 @@ export const api = {
     }),
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
   createStockRevision: (data: {
+    clientRef?: string
+    createdAtIso?: string
+    submittedAtIso?: string
     createdBy?: string
     note?: string
+    sourceDeviceId?: string
+    waitDevices?: RevisionWaitDevice[]
+    posCuts?: RevisionPosCut[]
     items: { productId: number; countedStock: number; systemStock?: number }[]
   }) => request<StockRevision>('/stock/revisions', { method: 'POST', body: JSON.stringify(data) }),
   updateStockRevision: (id: string, data: {
+    clientRef?: string
+    createdAtIso?: string
+    submittedAtIso?: string
     createdBy?: string
     note?: string
+    sourceDeviceId?: string
+    waitDevices?: RevisionWaitDevice[]
+    posCuts?: RevisionPosCut[]
     items: { productId: number; countedStock: number; systemStock?: number }[]
   }) => request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteStockRevision: (id: string, data?: { clientRef?: string }) =>

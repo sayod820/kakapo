@@ -10,6 +10,12 @@ import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff } from './types'
+import {
+  buildRevisionPosCuts,
+  buildRevisionSubmitMeta,
+  buildRevisionWaitDevices,
+} from './revisionMeta'
+import { getTradeDeviceIdSync } from './tradeDevice'
 
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
@@ -475,25 +481,10 @@ async function buildLocalRevision(
       stockBefore: liveNow,
     }
   })
-  // Локальный срез: что уже известно этой копии (серверные чеки + точки). Офлайн-очередь кассы
-  // сюда не входит — именно её поздний синхрон и должен попасть под skip на сервере.
-  let posCuts: { posId: string; lastSeq: number }[] = []
-  try {
-    const { usePosStore } = await import('./posStore')
-    const last: Record<string, number> = {}
-    for (const p of usePosStore.getState().posPoints || []) {
-      const id = String(p.id || '')
-      if (!id) continue
-      last[id] = Math.max(0, Number(p.opSeq) || 0)
-    }
-    for (const s of usePosStore.getState().sales || []) {
-      const id = String(s.posId || '')
-      if (!id) continue
-      const seq = Number(s.opSeq) || 0
-      if (seq > (last[id] || 0)) last[id] = seq
-    }
-    posCuts = Object.keys(last).map(posId => ({ posId, lastSeq: last[posId] }))
-  } catch { /* ignore */ }
+  // Срез opSeq по точкам/аппаратам + список устройств для ожидания на сервере
+  const posCuts = buildRevisionPosCuts()
+  const waitDevices = buildRevisionWaitDevices()
+  const sourceDeviceId = getTradeDeviceIdSync()
   return {
     id: opts.id,
     clientRef: opts.clientRef,
@@ -502,6 +493,8 @@ async function buildLocalRevision(
     note: payload.note,
     items,
     posCuts,
+    sourceDeviceId: sourceDeviceId || undefined,
+    waitDevices: waitDevices.length ? waitDevices : undefined,
   }
 }
 
@@ -510,10 +503,15 @@ export async function createStockRevisionSafe(
 ): Promise<OfflineResult<StockRevision>> {
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
+  const meta = buildRevisionSubmitMeta()
   const body = {
     ...payload,
     clientRef,
     createdAtIso,
+    submittedAtIso: meta.submittedAtIso,
+    sourceDeviceId: meta.sourceDeviceId,
+    waitDevices: meta.waitDevices,
+    posCuts: meta.posCuts,
     items: payload.items.map(it => ({
       productId: it.productId,
       countedStock: round2(it.countedStock),
@@ -541,10 +539,17 @@ export async function updateStockRevisionSafe(
   payload: RevisionPayload,
 ): Promise<OfflineResult<StockRevision>> {
   const clientRef = newClientRef()
+  const old = usePosStore.getState().revisions.find(r => r.id === id)
+  const meta = buildRevisionSubmitMeta()
   const body = {
     ...payload,
     clientRef,
     id,
+    createdAtIso: old?.createdAtIso,
+    submittedAtIso: meta.submittedAtIso,
+    sourceDeviceId: meta.sourceDeviceId,
+    waitDevices: meta.waitDevices,
+    posCuts: meta.posCuts,
     items: payload.items.map(it => ({
       productId: it.productId,
       countedStock: round2(it.countedStock),

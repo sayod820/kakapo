@@ -164,6 +164,35 @@ export interface PosBoundDevice {
   revisionParticipationDefault?: boolean
 }
 
+/** Пакет «я жив» от аппарата — для координатора ревизий на сервере */
+export interface TradeDeviceHeartbeatPayload {
+  deviceId: string
+  posId: string
+  deviceName?: string
+  /** Сколько операций ещё в очереди (без failed) */
+  queueLen: number
+  /** Сколько операций с ошибкой отправки */
+  queueFailed?: number
+  /** true = очередь пуста и сейчас не идёт flush */
+  queueFlushed: boolean
+  /** posId или posId::deviceId → последний opSeq на этом аппарате */
+  lastOpSeqByKey: Record<string, number>
+  sentAtIso: string
+}
+
+/** Сводка по устройству на сервере (для админки / ревизии — позже) */
+export interface TradeDeviceLiveStatus {
+  deviceId: string
+  posId: string
+  deviceName?: string
+  online?: boolean
+  queueLen?: number
+  queueFlushed?: boolean
+  lastHeartbeatAtIso?: string
+  lastOpSeqByKey?: Record<string, number>
+  revisionParticipationDefault?: boolean
+}
+
 /** Устройство, чью офлайн-очередь сервер ждёт перед применением ревизии */
 export interface RevisionWaitDevice {
   posId: string
