@@ -448,7 +448,7 @@ export default function FinanceModule() {
     }
     if (tab === 'till') {
       downloadCsv(`kakapo-finance-till-${stamp}.csv`,
-        ['День', 'Кассир', 'Точка', 'Ожид.', 'Факт', 'Разница'],
+        ['День', 'Кассир', 'Точка', 'Нал долж', 'Нал факт', 'Δ нал', 'Карта долж', 'Карта факт', 'Δ карта', 'Долг', 'Сверка'],
         (vs?.rows || []).map(r => [
           r.day || '',
           r.cashierName || '',
@@ -456,6 +456,11 @@ export default function FinanceModule() {
           r.expectedCash,
           r.actualCash,
           r.cashDiff,
+          r.expectedCard ?? '',
+          r.actualCard ?? '',
+          r.cardDiff ?? '',
+          r.salesCredit ?? '',
+          r.note || '',
         ]))
       return
     }
@@ -808,23 +813,31 @@ export default function FinanceModule() {
               <div className="k-empty">Нет закрытых смен за период</div>
             ) : (
               <div className="k-fin-list">
-                {vs.rows.map(r => (
+                {vs.rows.map(r => {
+                  const cardDiff = Number(r.cardDiff) || 0
+                  const net = Math.round(((Number(r.cashDiff) || 0) + cardDiff) * 100) / 100
+                  return (
                   <div key={r.shiftId} className={`k-fin-row${r.alert ? ' is-warn' : ''}`}>
                     <div className="k-fin-row-txt">
                       <b>{r.day || '—'} · {r.cashierName || '—'}</b>
                       <small>
-                        {posLabel(r.posId)} · нал {fmtMoney(r.expectedCash)}→{fmtMoney(r.actualCash)}
-                        {(r as { expectedCard?: number; actualCard?: number }).expectedCard != null
-                          ? ` · карта ${fmtMoney((r as { expectedCard?: number }).expectedCard)}→${fmtMoney((r as { actualCard?: number }).actualCard)}`
-                          : ''}
+                        {posLabel(r.posId)}
+                        {r.note ? ` · ${r.note}` : ''}
+                      </small>
+                      <small>
+                        Нал {fmtMoney(r.expectedCash)}→{fmtMoney(r.actualCash)}
+                        {' · '}
+                        Карта {fmtMoney(r.expectedCard ?? 0)}→{fmtMoney(r.actualCard ?? 0)}
+                        {r.salesCredit != null && Number(r.salesCredit) > 0.009 ? ` · долг ${fmtMoney(r.salesCredit)}` : ''}
                       </small>
                     </div>
-                    <b className="k-fin-amt" style={{ color: diffColor(r.cashDiff) }}>
-                      {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}
+                    <b className="k-fin-amt" style={{ color: diffColor(net) }}>
+                      {net > 0 ? '+' : ''}{fmtMoney(net)}
                       {r.alert ? ' ⚠' : ''}
                     </b>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

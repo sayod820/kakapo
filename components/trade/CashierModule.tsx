@@ -3783,7 +3783,17 @@ export default function CashierModule({
       const card = Number(closingCard)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
       if (!(card >= 0) || closingCard === '') throw new Error('Укажите сумму по карте / переводам')
-      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash, closingCard: card })
+      const rec = analyzeShiftReconcile(
+        closingCash,
+        closingCard,
+        expectedTillCash(activeShift),
+        Number(activeShift.salesCard) || 0,
+      )
+      const closed = await closeShiftSafe(activeShift.id, {
+        closingCash: cash,
+        closingCard: card,
+        note: rec.move?.text || rec.summary.text,
+      })
       if (!closed.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       setShiftReconcileOpen(false)
@@ -3794,14 +3804,7 @@ export default function CashierModule({
       setCart([])
       setClient(null)
       setGateCash(String(cash.toFixed(2)))
-      const expCash = expectedTillCash(activeShift)
-      const expCard = Number(activeShift.salesCard) || 0
-      const cashDiff = Math.round((cash - expCash) * 100) / 100
-      const cardDiff = Math.round((card - expCard) * 100) / 100
-      const diffNote = [
-        Math.abs(cashDiff) >= 0.01 ? `нал ${cashDiff > 0 ? '+' : ''}${cashDiff.toFixed(2)}` : '',
-        Math.abs(cardDiff) >= 0.01 ? `карта ${cardDiff > 0 ? '+' : ''}${cardDiff.toFixed(2)}` : '',
-      ].filter(Boolean).join(' · ')
+      const diffNote = rec.move?.text || rec.summary.text
       showToast(
         'Смена закрыта',
         closed.offline
@@ -3847,7 +3850,17 @@ export default function CashierModule({
       const card = Number(closingCard)
       if (!(cash >= 0) || closingCash === '') throw new Error('Укажите сумму наличных в кассе')
       if (!(card >= 0) || closingCard === '') throw new Error('Укажите сумму по карте / переводам')
-      const closed = await closeShiftSafe(activeShift.id, { closingCash: cash, closingCard: card })
+      const rec = analyzeShiftReconcile(
+        closingCash,
+        closingCard,
+        expectedTillCash(activeShift),
+        Number(activeShift.salesCard) || 0,
+      )
+      const closed = await closeShiftSafe(activeShift.id, {
+        closingCash: cash,
+        closingCard: card,
+        note: rec.move?.text || rec.summary.text,
+      })
       const cashier = await ensureCashier(next.name, next.id)
       const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(s)

@@ -489,26 +489,47 @@ export default function ReportsModule() {
     if (tab === 'shifts') {
       downloadCsv(
         `kakapo-shifts-${periodLabel}.csv`,
-        ['Статус', 'Кассир', 'Точка', 'Открыта', 'Закрыта', 'Продаж', 'Нал', 'Карта', 'Долг', 'Старт'],
-        shiftRows.map(s => [
-          s.status === 'open' ? 'Открыта' : 'Закрыта',
-          s.cashierName || '',
-          posName(posPoints, s.posId || defPos),
-          s.openedAtIso ? fmtDateTime(s.openedAtIso) : '',
-          s.closedAtIso ? fmtDateTime(s.closedAtIso) : '',
-          s.salesCount || 0,
-          Number(s.salesCash) || 0,
-          Number(s.salesCard) || 0,
-          Number(s.salesCredit) || 0,
-          Number(s.openingCash) || 0,
-        ]),
+        ['Статус', 'Кассир', 'Точка', 'Открыта', 'Закрыта', 'Продаж', 'Нал продаж', 'Карта продаж', 'Долг', 'Старт', 'Нал долж', 'Нал факт', 'Δ нал', 'Карта долж', 'Карта факт', 'Δ карта', 'Сверка'],
+        shiftRows.map(s => {
+          const expected = s.expectedCash != null
+            ? Number(s.expectedCash)
+            : round2((Number(s.openingCash) || 0) + (Number(s.salesCash) || 0) + (Number(s.cashInTotal) || 0) - (Number(s.expenseTotal) || 0))
+          const actual = s.actualCash != null ? Number(s.actualCash) : (s.closingCash != null ? Number(s.closingCash) : '')
+          const diff = s.cashDiff != null
+            ? Number(s.cashDiff)
+            : (actual !== '' ? round2(Number(actual) - expected) : '')
+          const expCard = s.expectedCard != null ? Number(s.expectedCard) : (Number(s.salesCard) || 0)
+          const actCard = s.actualCard != null ? Number(s.actualCard) : (s.closingCard != null ? Number(s.closingCard) : '')
+          const cardDiff = s.cardDiff != null
+            ? Number(s.cardDiff)
+            : (actCard !== '' ? round2(Number(actCard) - expCard) : '')
+          return [
+            s.status === 'open' ? 'Открыта' : 'Закрыта',
+            s.cashierName || '',
+            posName(posPoints, s.posId || defPos),
+            s.openedAtIso ? fmtDateTime(s.openedAtIso) : '',
+            s.closedAtIso ? fmtDateTime(s.closedAtIso) : '',
+            s.salesCount || 0,
+            Number(s.salesCash) || 0,
+            Number(s.salesCard) || 0,
+            Number(s.salesCredit) || 0,
+            Number(s.openingCash) || 0,
+            s.status === 'closed' ? expected : '',
+            actual,
+            diff,
+            s.status === 'closed' ? expCard : '',
+            actCard,
+            cardDiff,
+            String(s.reconcileNote || s.note || ''),
+          ]
+        }),
       )
       return
     }
     if (tab === 'till') {
       downloadCsv(
         `kakapo-till-${periodLabel}.csv`,
-        ['День', 'Кассир', 'Точка', 'Ожидалось', 'Факт', 'Разница', 'Алерт'],
+        ['День', 'Кассир', 'Точка', 'Нал долж', 'Нал факт', 'Δ нал', 'Карта долж', 'Карта факт', 'Δ карта', 'Долг', 'Сверка', 'Алерт'],
         (dbTill?.rows || []).map(r => [
           r.day,
           r.cashierName || '',
@@ -516,6 +537,11 @@ export default function ReportsModule() {
           r.expectedCash,
           r.actualCash,
           r.cashDiff,
+          r.expectedCard ?? '',
+          r.actualCard ?? '',
+          r.cardDiff ?? '',
+          r.salesCredit ?? '',
+          r.note || '',
           r.alert ? 'да' : '',
         ]),
       )
@@ -1145,7 +1171,13 @@ ${root.innerHTML}
                   const diff = s.cashDiff != null
                     ? Number(s.cashDiff)
                     : actual != null ? round2(actual - expected) : null
+                  const expCard = s.expectedCard != null ? Number(s.expectedCard) : (Number(s.salesCard) || 0)
+                  const actCard = s.actualCard != null ? Number(s.actualCard) : (s.closingCard != null ? Number(s.closingCard) : null)
+                  const cardDiff = s.cardDiff != null
+                    ? Number(s.cardDiff)
+                    : actCard != null ? round2(actCard - expCard) : null
                   const open = s.status === 'open'
+                  const recNote = String(s.reconcileNote || s.note || '').trim()
                   return (
                     <div key={s.id} className="k-rep-row k-rep-row-rich">
                       <div className="k-rep-row-txt">
@@ -1157,21 +1189,31 @@ ${root.innerHTML}
                           {' · '}
                           {s.openedAtIso ? fmtDateTime(s.openedAtIso) : '—'}
                           {s.closedAtIso ? ` → ${fmtDateTime(s.closedAtIso)}` : ''}
+                          {recNote && !open ? ` · ${recNote}` : ''}
                         </small>
                       </div>
                       <b className="k-rep-amt">{s.salesCount || 0} пр.</b>
                       <div className="k-rep-row-metrics">
-                        <div><span>Нал</span><b>{fmtMoney(s.salesCash)}</b></div>
-                        <div><span>Карта</span><b>{fmtMoney(s.salesCard)}</b></div>
+                        <div><span>Нал продаж</span><b>{fmtMoney(s.salesCash)}</b></div>
+                        <div><span>Карта продаж</span><b>{fmtMoney(s.salesCard)}</b></div>
                         <div><span>Долг</span><b>{fmtMoney(s.salesCredit)}</b></div>
                         <div><span>Старт</span><b>{fmtMoney(s.openingCash)}</b></div>
-                        <div><span>Ожид.</span><b>{s.status === 'closed' ? fmtMoney(expected) : '—'}</b></div>
+                        <div><span>Нал долж/факт</span><b>{s.status === 'closed' ? `${fmtMoney(expected)} → ${actual != null ? fmtMoney(actual) : '—'}` : '—'}</b></div>
+                        <div><span>Карта долж/факт</span><b>{s.status === 'closed' ? `${fmtMoney(expCard)} → ${actCard != null ? fmtMoney(actCard) : '—'}` : '—'}</b></div>
                         <div>
-                          <span>Δ</span>
+                          <span>Δ нал</span>
                           <b style={{
                             color: diff == null || Math.abs(diff) < 0.009 ? 'var(--muted)' : diff < 0 ? 'var(--red)' : 'var(--green)',
                           }}>
                             {diff == null ? '—' : `${diff > 0 ? '+' : ''}${fmtMoney(diff)}`}
+                          </b>
+                        </div>
+                        <div>
+                          <span>Δ карта</span>
+                          <b style={{
+                            color: cardDiff == null || Math.abs(cardDiff) < 0.009 ? 'var(--muted)' : cardDiff < 0 ? 'var(--red)' : 'var(--green)',
+                          }}>
+                            {cardDiff == null ? '—' : `${cardDiff > 0 ? '+' : ''}${fmtMoney(cardDiff)}`}
                           </b>
                         </div>
                       </div>
@@ -1198,29 +1240,51 @@ ${root.innerHTML}
               <div className="k-empty">Нет закрытых смен за период</div>
             ) : (
               <div className="k-rep-list">
-                {dbTill.rows.map(r => (
+                {dbTill.rows.map(r => {
+                  const cardDiff = Number(r.cardDiff) || 0
+                  const net = round2((Number(r.cashDiff) || 0) + cardDiff)
+                  return (
                   <div
                     key={r.shiftId}
                     className={`k-rep-row k-rep-row-rich${r.alert ? ' is-warn' : ''}`}
                   >
                     <div className="k-rep-row-txt">
                       <b>{r.day} · {r.cashierName || '—'}</b>
-                      <small>{posName(posPoints, r.posId || defPos)}</small>
+                      <small>
+                        {posName(posPoints, r.posId || defPos)}
+                        {r.note ? ` · ${r.note}` : ''}
+                        {r.salesCredit != null ? ` · долг ${fmtMoney(r.salesCredit)}` : ''}
+                      </small>
                     </div>
                     <b
                       className="k-rep-amt"
                       style={{
-                        color: Math.abs(r.cashDiff) < 0.009 ? 'var(--muted)' : r.cashDiff < 0 ? 'var(--red)' : 'var(--green)',
+                        color: Math.abs(net) < 0.009 ? 'var(--muted)' : net < 0 ? 'var(--red)' : 'var(--green)',
                       }}
                     >
-                      {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}{r.alert ? ' ⚠' : ''}
+                      {net > 0 ? '+' : ''}{fmtMoney(net)}{r.alert ? ' ⚠' : ''}
                     </b>
                     <div className="k-rep-row-metrics k-rep-row-metrics-2">
-                      <div><span>Ожидалось</span><b>{fmtMoney(r.expectedCash)}</b></div>
-                      <div><span>Факт</span><b>{fmtMoney(r.actualCash)}</b></div>
+                      <div><span>Нал долж</span><b>{fmtMoney(r.expectedCash)}</b></div>
+                      <div><span>Нал факт</span><b>{fmtMoney(r.actualCash)}</b></div>
+                      <div><span>Карта долж</span><b>{fmtMoney(r.expectedCard ?? 0)}</b></div>
+                      <div><span>Карта факт</span><b>{fmtMoney(r.actualCard ?? 0)}</b></div>
+                      <div>
+                        <span>Δ нал</span>
+                        <b style={{ color: Math.abs(r.cashDiff) < 0.009 ? 'var(--muted)' : r.cashDiff < 0 ? 'var(--red)' : 'var(--green)' }}>
+                          {r.cashDiff > 0 ? '+' : ''}{fmtMoney(r.cashDiff)}
+                        </b>
+                      </div>
+                      <div>
+                        <span>Δ карта</span>
+                        <b style={{ color: Math.abs(cardDiff) < 0.009 ? 'var(--muted)' : cardDiff < 0 ? 'var(--red)' : 'var(--green)' }}>
+                          {cardDiff > 0 ? '+' : ''}{fmtMoney(cardDiff)}
+                        </b>
+                      </div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

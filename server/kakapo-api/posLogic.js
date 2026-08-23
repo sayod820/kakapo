@@ -1220,6 +1220,17 @@ export function closePosShift(db, id, data = {}) {
     : cardDiff < 0
       ? `карта · недостача ${Math.abs(cardDiff).toFixed(2)}`
       : `карта · излишек ${cardDiff.toFixed(2)}`
+  const net = round2(cashDiff + cardDiff)
+  const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
+    && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
+  row.reconcileNote = moved
+    ? (cashDiff < 0
+      ? `Переместили ${Math.abs(cashDiff).toFixed(2)} сом с нал → карта`
+      : `Переместили ${Math.abs(cardDiff).toFixed(2)} сом с карта → нал`)
+    : (Math.abs(cashDiff) < 0.009 && Math.abs(cardDiff) < 0.009
+      ? 'Всё совпало'
+      : [cashReason, cardReason].join(' · '))
+  if (!row.note && row.reconcileNote) row.note = row.reconcileNote
   appendMoneyLedger(db, {
     type: 'shift_close',
     amount: Math.abs(cashDiff),
@@ -1232,9 +1243,9 @@ export function closePosShift(db, id, data = {}) {
     cashierName: row.cashierName,
     refType: 'shift',
     refId: row.id,
-    reason: `Сверка смены · ${cashReason} · ${cardReason}`,
+    reason: `Сверка смены · ${row.reconcileNote}`,
     note: row.note,
-    meta: { expectedCash, actualCash, cashDiff, expectedCard, actualCard, cardDiff },
+    meta: { expectedCash, actualCash, cashDiff, expectedCard, actualCard, cardDiff, reconcileNote: row.reconcileNote },
     createdAtIso: row.closedAtIso,
   })
   transferClosedShiftToVault(db, row)

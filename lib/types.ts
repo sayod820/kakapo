@@ -230,6 +230,8 @@ export interface PosShift {
   cashInTotal?: number
   status: 'open' | 'closed'
   note?: string
+  /** Итог сверки при закрытии (излишек / недостача / перемещение) */
+  reconcileNote?: string
   clientRef?: string
 }
 
@@ -327,10 +329,16 @@ export interface FinanceTruthBundle {
       closedAtIso?: string
       openingCash: number
       salesCash: number
+      salesCard?: number
+      salesCredit?: number
       expenseTotal: number
       expectedCash: number
       actualCash: number
       cashDiff: number
+      expectedCard?: number
+      actualCard?: number
+      cardDiff?: number
+      note?: string
       alert: boolean
       day: string
     }[]

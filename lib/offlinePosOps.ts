@@ -191,19 +191,37 @@ export async function closeShiftSafe(
       : payload.closingCash
     const expectedCard = current ? round2(Number(current.salesCard) || 0) : 0
     const actualCard = payload.closingCard != null ? payload.closingCard : expectedCard
+    const cashDiff = round2(payload.closingCash - expected)
+    const cardDiff = round2(actualCard - expectedCard)
+    const net = round2(cashDiff + cardDiff)
+    const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
+      && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
+    const reconcileNote = moved
+      ? (cashDiff < 0
+        ? `Переместили ${Math.abs(cashDiff).toFixed(2)} сом с нал → карта`
+        : `Переместили ${Math.abs(cardDiff).toFixed(2)} сом с карта → нал`)
+      : (Math.abs(cashDiff) < 0.009 && Math.abs(cardDiff) < 0.009
+        ? 'Всё совпало'
+        : [
+            Math.abs(cashDiff) < 0.009 ? 'нал · без расхождения' : (cashDiff > 0 ? `нал · излишек ${cashDiff.toFixed(2)}` : `нал · недостача ${Math.abs(cashDiff).toFixed(2)}`),
+            Math.abs(cardDiff) < 0.009 ? 'карта · без расхождения' : (cardDiff > 0 ? `карта · излишек ${cardDiff.toFixed(2)}` : `карта · недостача ${Math.abs(cardDiff).toFixed(2)}`),
+          ].join(' · '))
     const closedAtIso = new Date().toISOString()
-    await useOfflineSync.getState().queueOp('shift_close', { ...payload, closedAtIso })
+    const note = String(payload.note || reconcileNote || '').trim()
+    await useOfflineSync.getState().queueOp('shift_close', { ...payload, note, closedAtIso })
     const patch = {
       status: 'closed' as const,
       closedAtIso,
       closingCash: payload.closingCash,
       actualCash: payload.closingCash,
       expectedCash: expected,
-      cashDiff: round2(payload.closingCash - expected),
+      cashDiff,
       expectedCard,
       actualCard,
       closingCard: actualCard,
-      cardDiff: round2(actualCard - expectedCard),
+      cardDiff,
+      reconcileNote,
+      note,
     }
     patchShift(shiftId, patch)
     if (current) {

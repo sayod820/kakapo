@@ -344,9 +344,13 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
     const salesCash = Number(s.salesCash) || 0
     const cashIn = Number(s.cashInTotal) || 0
     const expenseTotal = Number(s.expenseTotal) || 0
-    const expectedCash = round2(openingCash + salesCash + cashIn - expenseTotal)
-    const actualCash = s.closingCash != null ? (Number(s.closingCash) || 0) : expectedCash
-    const cashDiff = round2(actualCash - expectedCash)
+    const expectedCash = s.expectedCash != null
+      ? round2(Number(s.expectedCash))
+      : round2(openingCash + salesCash + cashIn - expenseTotal)
+    const actualCash = s.actualCash != null
+      ? round2(Number(s.actualCash))
+      : (s.closingCash != null ? (Number(s.closingCash) || 0) : expectedCash)
+    const cashDiff = s.cashDiff != null ? round2(Number(s.cashDiff)) : round2(actualCash - expectedCash)
     const expectedCard = s.expectedCard != null ? round2(Number(s.expectedCard)) : round2(Number(s.salesCard) || 0)
     const actualCard = s.actualCard != null ? round2(Number(s.actualCard))
       : (s.closingCard != null ? round2(Number(s.closingCard)) : expectedCard)
@@ -361,6 +365,7 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
       openingCash,
       salesCash,
       salesCard: Number(s.salesCard) || 0,
+      salesCredit: Number(s.salesCredit) || 0,
       expenseTotal,
       expectedCash,
       actualCash,
@@ -368,6 +373,7 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
       expectedCard,
       actualCard,
       cardDiff,
+      note: String(s.reconcileNote || s.note || ''),
       alert: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM,
       day: ymd(s.closedAtIso || s.openedAtIso),
     }
@@ -577,15 +583,47 @@ export function buildLocalFinanceTruth(input: LocalFinanceTruthInput): FinanceTr
     .slice(0, 100)
 
   const withAlert = rows.filter(r => r.alert).length
-  const alerts: FinanceTruthBundle['alerts']['alerts'] = rows.filter(r => r.alert).map(r => ({
-    id: `shift-diff-${r.shiftId}`,
-    kind: 'cash_diff',
-    severity: Math.abs(r.cashDiff) >= CASH_DIFF_ALERT_SOM * 2 ? 'high' : 'medium',
-    title: r.cashDiff < 0 ? 'Недостача в кассе' : 'Излишек в кассе',
-    message: `${r.cashierName || 'Кассир'} · ожид. ${r.expectedCash} / факт ${r.actualCash}`,
-    amount: r.cashDiff,
-    atIso: r.closedAtIso || r.openedAtIso,
-  }))
+  const alerts: FinanceTruthBundle['alerts']['alerts'] = rows.filter(r => r.alert).map(r => {
+    const cardDiff = Number(r.cardDiff) || 0
+    const cashDiff = Number(r.cashDiff) || 0
+    const net = round2(cashDiff + cardDiff)
+    const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
+      && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
+    if (moved) {
+      const amount = Math.abs(cashDiff)
+      const text = cashDiff < 0
+        ? `Переместили ${amount.toFixed(2)} сом с нал → карта`
+        : `Переместили ${amount.toFixed(2)} сом с карта → нал`
+      return {
+        id: `shift-diff-${r.shiftId}`,
+        kind: 'cash_diff',
+        severity: 'medium' as const,
+        title: 'Перемещение нал ↔ карта',
+        message: `${r.cashierName || 'Кассир'} · ${text}`,
+        amount: 0,
+        atIso: r.closedAtIso || r.openedAtIso,
+      }
+    }
+    const parts = [
+      Math.abs(cashDiff) >= 0.009
+        ? `нал ${r.expectedCash}→${r.actualCash} (${cashDiff > 0 ? '+' : ''}${cashDiff.toFixed(2)})`
+        : '',
+      Math.abs(cardDiff) >= 0.009
+        ? `карта ${r.expectedCard}→${r.actualCard} (${cardDiff > 0 ? '+' : ''}${cardDiff.toFixed(2)})`
+        : '',
+    ].filter(Boolean)
+    return {
+      id: `shift-diff-${r.shiftId}`,
+      kind: 'cash_diff',
+      severity: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM * 2 || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM * 2
+        ? 'high' as const
+        : 'medium' as const,
+      title: cashDiff < 0 || cardDiff < 0 ? 'Недостача при сверке' : 'Излишек при сверке',
+      message: `${r.cashierName || 'Кассир'} · ${parts.join(' · ') || r.note || ''}`,
+      amount: cashDiff,
+      atIso: r.closedAtIso || r.openedAtIso,
+    }
+  })
 
   // Долгие открытые смены
   const now = Date.now()

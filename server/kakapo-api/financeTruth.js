@@ -169,6 +169,7 @@ export function getExpectedVsActual(db, q = {}) {
       openingCash: round2(s.openingCash),
       salesCash: round2(s.salesCash),
       salesCard: round2(s.salesCard),
+      salesCredit: round2(s.salesCredit),
       cashInTotal: round2(s.cashInTotal),
       expenseTotal: round2(s.expenseTotal),
       expectedCash: expected,
@@ -177,6 +178,7 @@ export function getExpectedVsActual(db, q = {}) {
       expectedCard,
       actualCard,
       cardDiff,
+      note: String(s.reconcileNote || s.note || ''),
       alert: Math.abs(diff) >= CASH_DIFF_ALERT_SOM || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM,
       day: ymd(s.closedAtIso || s.openedAtIso),
     }
@@ -282,13 +284,34 @@ export function getFinanceAlerts(db, q = {}) {
   const alerts = []
   for (const r of vs.rows) {
     if (!r.alert) continue
+    const cardDiff = Number(r.cardDiff) || 0
+    const cashDiff = Number(r.cashDiff) || 0
+    const net = round2(cashDiff + cardDiff)
+    const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
+      && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
+    if (moved) {
+      const amount = Math.abs(cashDiff)
+      alerts.push({
+        id: `cashdiff-${r.shiftId}`,
+        kind: 'cash_diff',
+        severity: 'warn',
+        title: 'Перемещение нал ↔ карта',
+        message: `${r.cashierName || 'Кассир'}: ${cashDiff < 0 ? `${amount.toFixed(2)} нал→карта` : `${amount.toFixed(2)} карта→нал`}`,
+        amount: 0,
+        atIso: r.closedAtIso,
+        posId: r.posId,
+        shiftId: r.shiftId,
+        cashierName: r.cashierName,
+      })
+      continue
+    }
     alerts.push({
       id: `cashdiff-${r.shiftId}`,
       kind: 'cash_diff',
-      severity: Math.abs(r.cashDiff) >= CASH_DIFF_ALERT_SOM * 2 ? 'high' : 'warn',
-      title: r.cashDiff < 0 ? 'Недостача в кассе' : 'Излишек в кассе',
-      message: `${r.cashierName || 'Кассир'}: ожидалось ${r.expectedCash.toFixed(2)}, факт ${r.actualCash.toFixed(2)}, разница ${r.cashDiff.toFixed(2)} сом`,
-      amount: r.cashDiff,
+      severity: Math.abs(cashDiff) >= CASH_DIFF_ALERT_SOM * 2 || Math.abs(cardDiff) >= CASH_DIFF_ALERT_SOM * 2 ? 'high' : 'warn',
+      title: cashDiff < 0 || cardDiff < 0 ? 'Недостача при сверке' : 'Излишек при сверке',
+      message: `${r.cashierName || 'Кассир'}: нал ${Number(r.expectedCash).toFixed(2)}→${Number(r.actualCash).toFixed(2)}, карта ${Number(r.expectedCard || 0).toFixed(2)}→${Number(r.actualCard || 0).toFixed(2)}`,
+      amount: cashDiff,
       atIso: r.closedAtIso,
       posId: r.posId,
       shiftId: r.shiftId,
