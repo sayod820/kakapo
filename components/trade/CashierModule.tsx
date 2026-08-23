@@ -424,6 +424,12 @@ function roundMoney2(n: number) {
 
 type ShiftReconcileLine = { ok: boolean; text: string; diff: number }
 
+function reconcileDiffLabel(diff: number): ShiftReconcileLine {
+  if (Math.abs(diff) < 0.009) return { ok: true, text: 'Совпадает', diff: 0 }
+  if (diff > 0) return { ok: false, text: `Излишек +${diff.toFixed(2)} сом`, diff }
+  return { ok: false, text: `Недостача ${Math.abs(diff).toFixed(2)} сом`, diff }
+}
+
 /** Сверка нал+карта: минус/плюс, либо перемещение если суммы взаимно закрылись */
 function analyzeShiftReconcile(
   cashStr: string,
@@ -435,9 +441,13 @@ function analyzeShiftReconcile(
   err?: string
   cash: ShiftReconcileLine
   card: ShiftReconcileLine
+  cashActual: number
+  cardActual: number
+  expectedCash: number
+  expectedCard: number
   /** Взаимный перенос нал↔карта без общей недостачи/излишка */
   move?: { amount: number; from: 'cash' | 'card'; to: 'cash' | 'card'; text: string }
-  summary: { ok: boolean; text: string }
+  summary: { ok: boolean; text: string; detail: string }
 } {
   if (cashStr.trim() === '' || cardStr.trim() === '') {
     return {
@@ -445,7 +455,11 @@ function analyzeShiftReconcile(
       err: 'Укажите обе суммы',
       cash: { ok: false, text: 'Укажите сумму', diff: 0 },
       card: { ok: false, text: 'Укажите сумму', diff: 0 },
-      summary: { ok: false, text: 'Укажите нал и карту' },
+      cashActual: 0,
+      cardActual: 0,
+      expectedCash,
+      expectedCard,
+      summary: { ok: false, text: 'Укажите нал и карту', detail: '' },
     }
   }
   const cashActual = Number(cashStr)
@@ -456,21 +470,17 @@ function analyzeShiftReconcile(
       err: 'Неверная сумма',
       cash: { ok: false, text: 'Неверная сумма', diff: 0 },
       card: { ok: false, text: 'Неверная сумма', diff: 0 },
-      summary: { ok: false, text: 'Неверная сумма' },
+      cashActual: 0,
+      cardActual: 0,
+      expectedCash,
+      expectedCard,
+      summary: { ok: false, text: 'Неверная сумма', detail: '' },
     }
   }
   const cashDiff = roundMoney2(cashActual - expectedCash)
   const cardDiff = roundMoney2(cardActual - expectedCard)
-  const cashLine = ((): ShiftReconcileLine => {
-    if (Math.abs(cashDiff) < 0.009) return { ok: true, text: 'Ровно', diff: 0 }
-    if (cashDiff > 0) return { ok: false, text: `+${cashDiff.toFixed(2)}`, diff: cashDiff }
-    return { ok: false, text: `${cashDiff.toFixed(2)}`, diff: cashDiff }
-  })()
-  const cardLine = ((): ShiftReconcileLine => {
-    if (Math.abs(cardDiff) < 0.009) return { ok: true, text: 'Ровно', diff: 0 }
-    if (cardDiff > 0) return { ok: false, text: `+${cardDiff.toFixed(2)}`, diff: cardDiff }
-    return { ok: false, text: `${cardDiff.toFixed(2)}`, diff: cardDiff }
-  })()
+  const cashLine = reconcileDiffLabel(cashDiff)
+  const cardLine = reconcileDiffLabel(cardDiff)
 
   const net = roundMoney2(cashDiff + cardDiff)
   const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009 && Math.abs(net) < 0.009
@@ -481,14 +491,22 @@ function analyzeShiftReconcile(
     const from: 'cash' | 'card' = cashDiff < 0 ? 'cash' : 'card'
     const to: 'cash' | 'card' = from === 'cash' ? 'card' : 'cash'
     const text = from === 'cash'
-      ? `Переместили ${amount.toFixed(2)} сом: нал → карта`
-      : `Переместили ${amount.toFixed(2)} сом: карта → нал`
+      ? `Переместили ${amount.toFixed(2)} сом с наличных на карту`
+      : `Переместили ${amount.toFixed(2)} сом с карты на наличные`
     return {
       ready: true,
       cash: cashLine,
       card: cardLine,
+      cashActual,
+      cardActual,
+      expectedCash,
+      expectedCard,
       move: { amount, from, to, text },
-      summary: { ok: true, text },
+      summary: {
+        ok: true,
+        text,
+        detail: 'Общая сумма совпала — это не недостача и не излишек',
+      },
     }
   }
 
@@ -497,23 +515,71 @@ function analyzeShiftReconcile(
       ready: true,
       cash: cashLine,
       card: cardLine,
-      summary: { ok: true, text: 'Совпадает с чеками' },
+      cashActual,
+      cardActual,
+      expectedCash,
+      expectedCard,
+      summary: {
+        ok: true,
+        text: 'Всё совпало',
+        detail: 'Нал и карта как по чекам',
+      },
     }
   }
 
   const parts: string[] = []
-  if (Math.abs(cashDiff) >= 0.009) {
-    parts.push(cashDiff > 0 ? `нал +${cashDiff.toFixed(2)}` : `нал ${cashDiff.toFixed(2)}`)
-  }
-  if (Math.abs(cardDiff) >= 0.009) {
-    parts.push(cardDiff > 0 ? `карта +${cardDiff.toFixed(2)}` : `карта ${cardDiff.toFixed(2)}`)
-  }
+  if (Math.abs(cashDiff) >= 0.009) parts.push(`Нал: ${cashLine.text}`)
+  if (Math.abs(cardDiff) >= 0.009) parts.push(`Карта: ${cardLine.text}`)
+  const netLabel = Math.abs(net) < 0.009
+    ? 'По сумме всё ровно'
+    : net > 0
+      ? `Общий излишек +${net.toFixed(2)} сом`
+      : `Общая недостача ${Math.abs(net).toFixed(2)} сом`
   return {
     ready: true,
     cash: cashLine,
     card: cardLine,
-    summary: { ok: false, text: parts.join(' · ') || 'Расхождение' },
+    cashActual,
+    cardActual,
+    expectedCash,
+    expectedCard,
+    summary: { ok: false, text: netLabel, detail: parts.join(' · ') },
   }
+}
+
+function ShiftReconcileReport({ a }: { a: ReturnType<typeof analyzeShiftReconcile> }) {
+  if (!a.ready) return null
+  return (
+    <div className="shift-rec-box">
+      <div className="shift-rec-cols">
+        <div className="shift-rec-col">
+          <div className="shift-rec-col-h">Должно быть</div>
+          <div className="shift-rec-line"><span>Нал</span><b>{fmtMoney(a.expectedCash)}</b></div>
+          <div className="shift-rec-line"><span>Карта</span><b>{fmtMoney(a.expectedCard)}</b></div>
+        </div>
+        <div className="shift-rec-arrow" aria-hidden>→</div>
+        <div className="shift-rec-col">
+          <div className="shift-rec-col-h">Вы посчитали</div>
+          <div className="shift-rec-line"><span>Нал</span><b>{fmtMoney(a.cashActual)}</b></div>
+          <div className="shift-rec-line"><span>Карта</span><b>{fmtMoney(a.cardActual)}</b></div>
+        </div>
+      </div>
+      <div className="shift-rec-checks">
+        <div className={`shift-rec-check ${a.cash.ok ? 'ok' : 'warn'}`}>
+          <span>Наличные</span>
+          <b>{a.cash.text}</b>
+        </div>
+        <div className={`shift-rec-check ${a.card.ok ? 'ok' : 'warn'}`}>
+          <span>Карта</span>
+          <b>{a.card.text}</b>
+        </div>
+      </div>
+      <div className={`shift-rec-total ${a.summary.ok ? 'ok' : 'warn'}`}>
+        <b>{a.move ? a.move.text : a.summary.text}</b>
+        {a.summary.detail ? <small>{a.summary.detail}</small> : null}
+      </div>
+    </div>
+  )
 }
 
 function loadSettings(): PosSettings {
@@ -10955,11 +11021,7 @@ export default function CashierModule({
 
             <label className="gate-label">Сверка наличных и карты</label>
             <p className="shift-reconcile-hint">
-              Нал по чекам: <b>{fmtMoney(activeShift.salesCash)}</b>
-              {' · '}
-              Карта по чекам: <b>{fmtMoney(activeShift.salesCard)}</b>
-              {' · '}
-              Ожид. в кассе: <b>{fmtMoney(expectedTillCash(activeShift))}</b>
+              Сначала нажмите «Сверка», введите сколько реально нал и карта, потом смотрите итог.
             </p>
             <button
               type="button"
@@ -10969,28 +11031,16 @@ export default function CashierModule({
             >
               {shiftReconciled ? 'Изменить сверку' : 'Сверка'}
             </button>
-            {shiftReconciled && (() => {
-              const expCash = expectedTillCash(activeShift)
-              const expCard = Number(activeShift.salesCard) || 0
-              const a = analyzeShiftReconcile(closingCash, closingCard, expCash, expCard)
-              return (
-                <div className="shift-reconcile-result">
-                  <div className="shift-reconcile-result-row">
-                    <span>Нал факт</span>
-                    <b>{fmtMoney(Number(closingCash) || 0)}</b>
-                    <span className={`shift-reconcile-status ${a.cash.ok ? 'ok' : 'warn'}`}>{a.cash.text}</span>
-                  </div>
-                  <div className="shift-reconcile-result-row">
-                    <span>Карта факт</span>
-                    <b>{fmtMoney(Number(closingCard) || 0)}</b>
-                    <span className={`shift-reconcile-status ${a.card.ok ? 'ok' : 'warn'}`}>{a.card.text}</span>
-                  </div>
-                  <div className={`shift-reconcile-summary ${a.summary.ok ? 'ok' : 'warn'}`}>
-                    {a.move ? a.move.text : a.summary.text}
-                  </div>
-                </div>
-              )
-            })()}
+            {shiftReconciled && (
+              <ShiftReconcileReport
+                a={analyzeShiftReconcile(
+                  closingCash,
+                  closingCard,
+                  expectedTillCash(activeShift),
+                  Number(activeShift.salesCard) || 0,
+                )}
+              />
+            )}
             {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
             <div className="cashier-screen-actions">
               <button
@@ -11024,8 +11074,8 @@ export default function CashierModule({
             </p>
 
             <div className="shift-reconcile-block">
-              <label className="gate-label">Наличные в кассе</label>
-              <div className="shift-reconcile-expected">По чекам ожид.: {fmtMoney(expectedTillCash(activeShift))}</div>
+              <label className="gate-label">Наличные в кассе (факт)</label>
+              <div className="shift-reconcile-expected">Должно быть: {fmtMoney(expectedTillCash(activeShift))}</div>
               <input
                 className="gate-input"
                 value={closingCash}
@@ -11041,15 +11091,15 @@ export default function CashierModule({
                     type="button"
                     onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
                   >
-                    {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Ожид.' : String(v)}
+                    {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Как должно' : String(v)}
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="shift-reconcile-block">
-              <label className="gate-label">Карта / переводы на телефон</label>
-              <div className="shift-reconcile-expected">По чекам ожид.: {fmtMoney(activeShift.salesCard)}</div>
+              <label className="gate-label">Карта / переводы (факт)</label>
+              <div className="shift-reconcile-expected">Должно быть: {fmtMoney(activeShift.salesCard)}</div>
               <input
                 className="gate-input"
                 value={closingCard}
@@ -11064,7 +11114,7 @@ export default function CashierModule({
                     type="button"
                     onClick={() => setClosingCard(v === 0 ? '0.00' : Number(v).toFixed(2))}
                   >
-                    {v === 0 ? '0' : 'Ожид.'}
+                    {v === 0 ? '0' : 'Как должно'}
                   </button>
                 ))}
               </div>
@@ -11077,15 +11127,9 @@ export default function CashierModule({
                 expectedTillCash(activeShift),
                 Number(activeShift.salesCard) || 0,
               )
-              return (
-                <div className="shift-reconcile-live">
-                  <div className={`shift-reconcile-status ${a.cash.ok ? 'ok' : 'warn'}`}>Нал: {a.cash.text}</div>
-                  <div className={`shift-reconcile-status ${a.card.ok ? 'ok' : 'warn'}`}>Карта: {a.card.text}</div>
-                  {a.ready && (
-                    <div className={`shift-reconcile-summary ${a.summary.ok ? 'ok' : 'warn'}`}>
-                      {a.move ? a.move.text : a.summary.text}
-                    </div>
-                  )}
+              return a.ready ? <ShiftReconcileReport a={a} /> : (
+                <div className="shift-reconcile-hint" style={{ marginBottom: 12 }}>
+                  Введите обе суммы — сразу покажем итог
                 </div>
               )
             })()}
