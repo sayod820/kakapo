@@ -20,6 +20,13 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+/** Любое изменение денег смены — чтобы синк на других устройствах не залипал на старом нале */
+function touchShift(shift) {
+  if (!shift) return shift
+  shift.updatedAtIso = nowIso()
+  return shift
+}
+
 /** Время события с кассы: если ушло из офлайна — не подменять временем сервера. */
 function stampFromClient(data, field) {
   const raw = data && data[field]
@@ -1359,6 +1366,7 @@ export function convertVaultCardToCash(db, data = {}) {
     const take = Math.min(left, have)
     s.salesCard = round2(have - take)
     s.cashInTotal = round2((Number(s.cashInTotal) || 0) + take)
+    touchShift(s)
     fromShifts.push({ shiftId: s.id, posId: s.posId || '', amount: take })
     left = round2(left - take)
   }
@@ -1432,6 +1440,7 @@ export function convertVaultCashToCard(db, data = {}) {
       s.openingCash = round2(Math.max(0, (Number(s.openingCash) || 0) - rest))
     }
     s.salesCard = round2((Number(s.salesCard) || 0) + take)
+    touchShift(s)
     fromShifts.push({ shiftId: s.id, posId: s.posId || '', amount: take })
     left = round2(left - take)
   }
@@ -1589,6 +1598,7 @@ export function createExpense(db, data = {}) {
   db.expenses.unshift(row)
   if (shift) {
     shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+    touchShift(shift)
   }
   appendMoneyLedger(db, {
     type: 'expense',
@@ -1618,6 +1628,7 @@ export function deleteExpense(db, id) {
     const shift = db.posShifts.find(s => s.id === row.shiftId)
     if (shift) {
       shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+      touchShift(shift)
     }
   }
   db.moneyLedger = (db.moneyLedger || []).filter(
@@ -1695,6 +1706,7 @@ export function createFinanceMove(db, data = {}) {
     } else {
       shift.cashInTotal = round2((Number(shift.cashInTotal) || 0) + amount)
     }
+    touchShift(shift)
   }
 
   if (supplier) {
@@ -1757,7 +1769,7 @@ export function applyDebtRepayToShift(db, data = {}) {
 
   if (method === 'cash' && shift) {
     shift.salesCash = round2((Number(shift.salesCash) || 0) + amount)
-    shift.updatedAtIso = nowIso()
+    touchShift(shift)
   }
 
   appendMoneyLedger(db, {
@@ -1808,6 +1820,7 @@ export function deleteFinanceMove(db, id) {
       } else {
         shift.cashInTotal = round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount))
       }
+      touchShift(shift)
     }
   }
 
@@ -1890,6 +1903,7 @@ function reverseStockReceipt(db, receipt) {
         const shift = db.posShifts.find(s => s.id === e.shiftId)
         if (shift) {
           shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - paid))
+          touchShift(shift)
         }
       }
     }
@@ -1982,6 +1996,7 @@ export function createStockReceipt(db, data = {}) {
         throw new Error(`В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`)
       }
       shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + receipt.paidNow)
+      touchShift(shift)
       receipt.shiftId = shift.id
       receipt.posId = shift.posId || ''
     }
@@ -2038,6 +2053,7 @@ export function updateStockReceipt(db, id, data = {}) {
     if (!shift) shift = findOpenShift(db, data.posId)
     if (shift) {
       shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + next.paidNow)
+      touchShift(shift)
       next.shiftId = shift.id
       next.posId = shift.posId || ''
     }
@@ -2416,7 +2432,7 @@ export function createPosSale(db, data = {}) {
     shift.salesCard = round2((Number(shift.salesCard) || 0) + paidCard)
     shift.salesCredit = round2((Number(shift.salesCredit) || 0) + debtAdded)
     if (paidWallet > 0) shift.salesWallet = round2((Number(shift.salesWallet) || 0) + paidWallet)
-    shift.updatedAtIso = nowIso()
+    touchShift(shift)
   }
   // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.
   // На наличку кассы НЕ влияет: деньги уже были внесены при пополнении.
@@ -2846,7 +2862,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))
     shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - cutDebt))
     if (cutWallet > 0) shift.salesWallet = Math.max(0, round2((Number(shift.salesWallet) || 0) - cutWallet))
-    shift.updatedAtIso = nowIso()
+    touchShift(shift)
   }
 
   if (!Array.isArray(sale.returns)) sale.returns = []

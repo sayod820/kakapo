@@ -443,6 +443,10 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
               salesCash: Number(sh.salesCash) || 0,
               salesCard: Number(sh.salesCard) || 0,
               salesCredit: Number(sh.salesCredit) || 0,
+              expenseTotal: Number(sh.expenseTotal) || 0,
+              cashInTotal: Number(sh.cashInTotal) || 0,
+              openingCash: Number(sh.openingCash) || 0,
+              updatedAtIso: sh.updatedAtIso || next.updatedAtIso,
             }
           } else {
             next = {
@@ -451,6 +455,8 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
               salesCash: Math.max(Number(sh.salesCash) || 0, Number(local.salesCash) || 0),
               salesCard: Math.max(Number(sh.salesCard) || 0, Number(local.salesCard) || 0),
               salesCredit: Math.max(Number(sh.salesCredit) || 0, Number(local.salesCredit) || 0),
+              expenseTotal: Math.max(Number(sh.expenseTotal) || 0, Number(local.expenseTotal) || 0),
+              cashInTotal: Math.max(Number(sh.cashInTotal) || 0, Number(local.cashInTotal) || 0),
             }
           }
         }
