@@ -1162,6 +1162,8 @@ export default function CashierModule({
   const [closingCash, setClosingCash] = useState('')
   const [closingCard, setClosingCard] = useState('')
   const [shiftReconcileOpen, setShiftReconcileOpen] = useState(false)
+  /** Сверка подтверждена «ОК» — смена ещё открыта, видны +/− */
+  const [shiftReconciled, setShiftReconciled] = useState(false)
   const [tillMoveKind, setTillMoveKind] = useState<null | 'in' | 'out'>(null)
   const [tillAmountBuf, setTillAmountBuf] = useState('')
   const [tillNote, setTillNote] = useState('')
@@ -3616,6 +3618,10 @@ export default function CashierModule({
 
   async function closeShift() {
     if (!activeShift) return
+    if (!shiftReconciled) {
+      setMsg('Сначала сделайте сверку нал и карта')
+      return
+    }
     setBusy(true)
     setMsg('')
     try {
@@ -3627,6 +3633,7 @@ export default function CashierModule({
       if (!closed.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       setShiftReconcileOpen(false)
+      setShiftReconciled(false)
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setPosSurface('dashboard')
@@ -3654,11 +3661,29 @@ export default function CashierModule({
     }
   }
 
+  function applyShiftReconcile() {
+    setMsg('')
+    if (closingCash === '' || !(Number(closingCash) >= 0)) {
+      setMsg('Укажите сумму наличных')
+      return
+    }
+    if (closingCard === '' || !(Number(closingCard) >= 0)) {
+      setMsg('Укажите сумму по карте / переводам')
+      return
+    }
+    setShiftReconciled(true)
+    setShiftReconcileOpen(false)
+  }
+
   async function switchCashier() {
     if (!activeShift) return
     const next = cashierOptions.find(c => c.id === switchCashierId)
     if (!next) {
       setMsg('Выберите кассира')
+      return
+    }
+    if (!shiftReconciled) {
+      setMsg('Сначала сделайте сверку нал и карта')
       return
     }
     setBusy(true)
@@ -3682,6 +3707,7 @@ export default function CashierModule({
       if (!closed.offline && !opened.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       setShiftReconcileOpen(false)
+      setShiftReconciled(false)
       setCashierScreen(null)
       setCashierMenuOpen(false)
       setCart([])
@@ -3720,6 +3746,7 @@ export default function CashierModule({
     setClosingCash(expected > 0 ? expected.toFixed(2) : '0.00')
     setClosingCard(expectedCard > 0 ? expectedCard.toFixed(2) : '0.00')
     setShiftReconcileOpen(false)
+    setShiftReconciled(false)
     setSwitchCashierId(settings.cashierId || pickedCashierId || cashierOptions[0]?.id || '')
     setCashierScreen(kind)
   }
@@ -10838,7 +10865,7 @@ export default function CashierModule({
               </div>
             )}
 
-            <label className="gate-label">Перед закрытием — сверка наличных и карты</label>
+            <label className="gate-label">Сверка наличных и карты</label>
             <p className="shift-reconcile-hint">
               Нал по чекам: <b>{fmtMoney(activeShift.salesCash)}</b>
               {' · '}
@@ -10852,18 +10879,47 @@ export default function CashierModule({
               disabled={busy}
               onClick={() => { setMsg(''); setShiftReconcileOpen(true) }}
             >
-              Сверка нал и карта
+              {shiftReconciled ? 'Изменить сверку' : 'Сверка'}
             </button>
+            {shiftReconciled && (() => {
+              const expCash = expectedTillCash(activeShift)
+              const expCard = Number(activeShift.salesCard) || 0
+              const cashH = shiftReconcileHint(closingCash, expCash)
+              const cardH = shiftReconcileHint(closingCard, expCard)
+              return (
+                <div className="shift-reconcile-result">
+                  <div className="shift-reconcile-result-row">
+                    <span>Нал факт</span>
+                    <b>{fmtMoney(Number(closingCash) || 0)}</b>
+                    <span className={`shift-reconcile-status ${cashH.ok ? 'ok' : 'warn'}`}>{cashH.text}</span>
+                  </div>
+                  <div className="shift-reconcile-result-row">
+                    <span>Карта факт</span>
+                    <b>{fmtMoney(Number(closingCard) || 0)}</b>
+                    <span className={`shift-reconcile-status ${cardH.ok ? 'ok' : 'warn'}`}>{cardH.text}</span>
+                  </div>
+                </div>
+              )
+            })()}
             {msg && <div className="pos-err" style={{ marginTop: 12 }}>{msg}</div>}
             <div className="cashier-screen-actions">
               <button
                 type="button"
                 className="btn-cancel"
                 disabled={busy}
-                onClick={() => { setCashierScreen(null); setMsg(''); setShiftReconcileOpen(false) }}
+                onClick={() => { setCashierScreen(null); setMsg(''); setShiftReconcileOpen(false); setShiftReconciled(false) }}
               >
                 Отмена
               </button>
+              {cashierScreen === 'close' ? (
+                <button type="button" className="btn-confirm" disabled={busy || !shiftReconciled} onClick={() => void closeShift()}>
+                  {busy ? 'Закрываем…' : 'Закрыть смену'}
+                </button>
+              ) : (
+                <button type="button" className="btn-confirm" disabled={busy || !shiftReconciled} onClick={() => void switchCashier()}>
+                  {busy ? 'Меняем…' : 'Сменить и открыть'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -10872,9 +10928,9 @@ export default function CashierModule({
       {shiftReconcileOpen && cashierScreen && cashierScreen !== 'receipts' && activeShift && (
         <div className="overlay shift-reconcile-overlay" onClick={() => { if (!busy) { setShiftReconcileOpen(false); setMsg('') } }}>
           <div className="modal-card shift-reconcile-card" onClick={e => e.stopPropagation()}>
-            <h3>Сверка нал и карта</h3>
+            <h3>Сверка</h3>
             <p className="shift-reconcile-sub">
-              {settings.cashierName} · пересчитайте кассу и сверьте терминал / переводы на телефон
+              Введите факт по кассе и карте / переводам. Смена не закроется — только сверка.
             </p>
 
             <div className="shift-reconcile-block">
@@ -10943,15 +10999,9 @@ export default function CashierModule({
               >
                 Назад
               </button>
-              {cashierScreen === 'close' ? (
-                <button type="button" className="btn-confirm" disabled={busy} onClick={() => void closeShift()}>
-                  {busy ? 'Закрываем…' : 'Закрыть смену'}
-                </button>
-              ) : (
-                <button type="button" className="btn-confirm" disabled={busy} onClick={() => void switchCashier()}>
-                  {busy ? 'Меняем…' : 'Сменить и открыть'}
-                </button>
-              )}
+              <button type="button" className="btn-confirm" disabled={busy} onClick={applyShiftReconcile}>
+                ОК
+              </button>
             </div>
           </div>
         </div>
