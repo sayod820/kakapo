@@ -757,6 +757,12 @@ export const POS_MOCK_CSS = `
   .shift-reconcile-result-row > span:first-child{font-size:12px;font-weight:800;color:var(--t2);}
   .shift-reconcile-result-row > b{font-size:15px;font-weight:900;}
   .shift-reconcile-result-row .shift-reconcile-status{margin:0;padding:6px 8px;font-size:11px;text-align:center;}
+  .shift-reconcile-live{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+  .shift-reconcile-summary{
+    font-size:13px;font-weight:900;padding:10px 12px;border-radius:12px;line-height:1.35;
+  }
+  .shift-reconcile-summary.ok{background:rgba(31,215,96,.12);color:var(--accent);}
+  .shift-reconcile-summary.warn{background:rgba(255,160,60,.14);color:var(--org);}
 
   .products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column;}
   .cat-nav{flex-shrink:0;padding:12px 20px 4px;display:flex;flex-direction:column;gap:8px;}
