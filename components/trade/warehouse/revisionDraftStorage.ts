@@ -1,5 +1,9 @@
 export const REVISION_DRAFT_KEY = 'kakapo-revision-draft-v1'
 
+import { revisionWaitDeviceKey } from '@/lib/revisionMeta'
+
+export { revisionWaitDeviceKey }
+
 export type RevisionMode = 'categories' | 'walk'
 
 export type RevisionDraftLine = {
@@ -18,6 +22,8 @@ export type RevisionDraft = {
   lines: RevisionDraftLine[]
   activeLineKey: string | null
   scrollTop: number
+  /** posId::deviceId — кого ждать перед ± на сервере; null = дефолт из админки */
+  waitDeviceKeys?: string[] | null
 }
 
 export function emptyRevisionLine(): RevisionDraftLine {
@@ -48,6 +54,7 @@ export function loadRevisionDraft(): RevisionDraft {
       mode,
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
+      waitDeviceKeys: Array.isArray(parsed.waitDeviceKeys) ? parsed.waitDeviceKeys.map(String) : null,
       lines: Array.isArray(parsed.lines) && parsed.lines.length
         ? parsed.lines.map(l => ({ ...emptyRevisionLine(), ...l }))
         : [emptyRevisionLine()],
@@ -72,6 +79,7 @@ export function revisionToDraft(revision: import('@/lib/types').StockRevision): 
     open: true,
     mode: 'categories',
     note: revision.note || '',
+    waitDeviceKeys: (revision.waitDevices || []).map(w => revisionWaitDeviceKey(w.posId, w.deviceId)),
     lines: [
       ...revision.items.map(it => ({
         key: `edit-${it.productId}-${Math.random()}`,

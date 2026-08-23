@@ -9,11 +9,11 @@ import { applyPurchasePayToOpenShift } from './offlinePosOps'
 import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
-import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff } from './types'
+import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff, RevisionWaitDevice } from './types'
 import {
   buildRevisionPosCuts,
   buildRevisionSubmitMeta,
-  buildRevisionWaitDevices,
+  resolveRevisionWaitDevices,
 } from './revisionMeta'
 import { getTradeDeviceIdSync } from './tradeDevice'
 
@@ -429,6 +429,8 @@ export type RevisionPayload = {
   note?: string
   createdBy?: string
   items: { productId: number; countedStock: number; systemStock?: number }[]
+  /** Кого сервер ждёт перед ±; из формы ревизии */
+  waitDevices?: RevisionWaitDevice[]
 }
 
 async function setProductStockExact(productId: number, stock: number) {
@@ -483,7 +485,9 @@ async function buildLocalRevision(
   })
   // Срез opSeq по точкам/аппаратам + список устройств для ожидания на сервере
   const posCuts = buildRevisionPosCuts()
-  const waitDevices = buildRevisionWaitDevices()
+  const waitDevices = payload.waitDevices?.length
+    ? payload.waitDevices
+    : resolveRevisionWaitDevices(null)
   const sourceDeviceId = getTradeDeviceIdSync()
   return {
     id: opts.id,
@@ -503,7 +507,10 @@ export async function createStockRevisionSafe(
 ): Promise<OfflineResult<StockRevision>> {
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
-  const meta = buildRevisionSubmitMeta()
+  const waitDevices = payload.waitDevices?.length
+    ? payload.waitDevices
+    : resolveRevisionWaitDevices(null)
+  const meta = buildRevisionSubmitMeta({ waitDevices })
   const body = {
     ...payload,
     clientRef,
@@ -540,7 +547,10 @@ export async function updateStockRevisionSafe(
 ): Promise<OfflineResult<StockRevision>> {
   const clientRef = newClientRef()
   const old = usePosStore.getState().revisions.find(r => r.id === id)
-  const meta = buildRevisionSubmitMeta()
+  const waitDevices = payload.waitDevices?.length
+    ? payload.waitDevices
+    : resolveRevisionWaitDevices(null)
+  const meta = buildRevisionSubmitMeta({ waitDevices })
   const body = {
     ...payload,
     clientRef,

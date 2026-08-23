@@ -7,6 +7,20 @@ import { usePosStore } from './posStore'
 import { getTradeDeviceBindSync, getTradeDeviceIdSync } from './tradeDevice'
 import type { RevisionPosCut, RevisionWaitDevice } from './types'
 
+export function revisionWaitDeviceKey(posId: string, deviceId: string): string {
+  return `${String(posId || '').trim()}::${String(deviceId || '').trim()}`
+}
+
+export type RevisionDeviceOption = {
+  key: string
+  posId: string
+  deviceId: string
+  label: string
+  /** Дефолт из админки (галочка «ревизия») */
+  adminDefault: boolean
+  isCurrentDevice: boolean
+}
+
 export function deviceParticipatesInRevision(device: { revisionParticipationDefault?: boolean }): boolean {
   return device.revisionParticipationDefault !== false
 }
@@ -44,38 +58,68 @@ export function buildRevisionPosCuts(): RevisionPosCut[] {
   return [...byKey.values()]
 }
 
-export function buildRevisionWaitDevices(): RevisionWaitDevice[] {
-  const out: RevisionWaitDevice[] = []
+export function listRevisionDeviceOptions(): RevisionDeviceOption[] {
+  const currentId = getTradeDeviceIdSync()
+  const out: RevisionDeviceOption[] = []
   try {
     for (const point of usePosStore.getState().posPoints || []) {
       const posId = String(point.id || '').trim()
       if (!posId) continue
       for (const device of point.devices || []) {
         const deviceId = String(device.id || '').trim()
-        if (!deviceId || !deviceParticipatesInRevision(device)) continue
+        if (!deviceId) continue
         out.push({
+          key: revisionWaitDeviceKey(posId, deviceId),
           posId,
           deviceId,
           label: `${point.name || posId} · ${device.name || deviceId}`,
+          adminDefault: deviceParticipatesInRevision(device),
+          isCurrentDevice: deviceId === currentId,
         })
       }
     }
   } catch { /* ignore */ }
 
-  if (out.length === 0) {
+  if (!out.length) {
     const bind = getTradeDeviceBindSync()
     const deviceId = getTradeDeviceIdSync()
     const posId = String(bind?.posId || '').trim()
     if (posId && deviceId) {
       out.push({
+        key: revisionWaitDeviceKey(posId, deviceId),
         posId,
         deviceId,
         label: `${bind?.posName || posId} · ${bind?.deviceName || deviceId}`,
+        adminDefault: true,
+        isCurrentDevice: true,
       })
     }
   }
 
   return out
+}
+
+export function defaultRevisionWaitDeviceKeys(): string[] {
+  return listRevisionDeviceOptions()
+    .filter(o => o.adminDefault)
+    .map(o => o.key)
+}
+
+export function resolveRevisionWaitDevices(keys: string[] | undefined | null): RevisionWaitDevice[] {
+  const options = listRevisionDeviceOptions()
+  const byKey = new Map(options.map(o => [o.key, o]))
+  const useKeys = keys?.length ? keys : defaultRevisionWaitDeviceKeys()
+  const out: RevisionWaitDevice[] = []
+  for (const key of useKeys) {
+    const opt = byKey.get(key)
+    if (!opt) continue
+    out.push({ posId: opt.posId, deviceId: opt.deviceId, label: opt.label })
+  }
+  return out
+}
+
+export function buildRevisionWaitDevices(): RevisionWaitDevice[] {
+  return resolveRevisionWaitDevices(null)
 }
 
 export type RevisionSubmitMeta = {
@@ -85,10 +129,13 @@ export type RevisionSubmitMeta = {
   submittedAtIso: string
 }
 
-export function buildRevisionSubmitMeta(): RevisionSubmitMeta {
+export function buildRevisionSubmitMeta(opts?: { waitDevices?: RevisionWaitDevice[] }): RevisionSubmitMeta {
+  const waitDevices = opts?.waitDevices?.length
+    ? opts.waitDevices
+    : buildRevisionWaitDevices()
   return {
     sourceDeviceId: getTradeDeviceIdSync(),
-    waitDevices: buildRevisionWaitDevices(),
+    waitDevices,
     posCuts: buildRevisionPosCuts(),
     submittedAtIso: new Date().toISOString(),
   }

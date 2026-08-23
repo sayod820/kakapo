@@ -325,7 +325,20 @@ function normalizeRow(row: any): PendingOp {
   }
 }
 
+/** Ревизия на отправку — только после чеков и прочих складских операций в очереди */
+const REVISION_QUEUE_KINDS = new Set<QueueKind>([
+  'stock_revision_create',
+  'stock_revision_update',
+  'stock_revision_delete',
+])
+
+function queueKindPriority(kind: QueueKind): number {
+  return REVISION_QUEUE_KINDS.has(kind) ? 100 : 0
+}
+
 function byOrder(a: PendingOp, b: PendingOp) {
+  const prio = queueKindPriority(a.kind) - queueKindPriority(b.kind)
+  if (prio !== 0) return prio
   const t = a.createdAtIso.localeCompare(b.createdAtIso)
   return t !== 0 ? t : a.seq - b.seq
 }
@@ -1435,9 +1448,8 @@ async function sendOp(row: PendingOp): Promise<string> {
 }
 
 /**
- * Отправляет очередь на сервер строго по порядку создания.
- * При сетевой ошибке останавливается (интернета нет — ждём).
- * При отказе сервера помечает операцию failed и продолжает следующую.
+ * Отправляет очередь на сервер строго по порядку:
+ * сначала чеки/склад, ревизия — в конце (см. queueKindPriority).
  */
 export async function flushQueue(
   onProgress?: (done: number, total: number) => void,

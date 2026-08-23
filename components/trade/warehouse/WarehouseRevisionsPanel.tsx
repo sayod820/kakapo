@@ -18,6 +18,7 @@ import RevisionScopePanel from './RevisionScopePanel'
 import RevisionStepBar from './RevisionStepBar'
 import RevisionModePicker from './RevisionModePicker'
 import RevisionWalkPanel from './RevisionWalkPanel'
+import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
 import ProductEditModal from '@/components/trade/products/ProductEditModal'
 import {
   clearRevisionDraft,
@@ -29,6 +30,13 @@ import {
   type RevisionDraft,
   type RevisionDraftLine,
 } from './revisionDraftStorage'
+import {
+  defaultRevisionWaitDeviceKeys,
+  listRevisionDeviceOptions,
+  resolveRevisionWaitDevices,
+} from '@/lib/revisionMeta'
+import { usePosStore } from '@/lib/posStore'
+import { useOfflineSync } from '@/lib/offlineSync'
 import { filterProductsBySearch } from '@/lib/productBarcodes'
 import {
   fmtDateTime,
@@ -206,6 +214,8 @@ export default function WarehouseRevisionsPanel({
 }) {
   const fetchProducts = useProducts(s => s.fetchProducts)
   const { categories } = useCategories()
+  const posPoints = usePosStore(s => s.posPoints)
+  const offlinePending = useOfflineSync(s => s.pending)
   const [draft, setDraft] = useState<RevisionDraft>(defaultRevisionDraft)
   const [hydrated, setHydrated] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -226,8 +236,14 @@ export default function WarehouseRevisionsPanel({
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const countedRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  const { open, note, lines, activeLineKey, mode } = draft
+  const { open, note, lines, activeLineKey, mode, waitDeviceKeys } = draft
   const freezeSystem = Boolean(editingId)
+
+  const revisionDeviceOptions = useMemo(() => listRevisionDeviceOptions(), [posPoints])
+  const effectiveWaitDeviceKeys = useMemo(() => {
+    if (waitDeviceKeys?.length) return waitDeviceKeys
+    return defaultRevisionWaitDeviceKeys()
+  }, [waitDeviceKeys, revisionDeviceOptions])
 
   const layersByProduct = useMemo(() => {
     const map = new Map<number, ProductStockLayer[]>()
@@ -624,10 +640,23 @@ export default function WarehouseRevisionsPanel({
       setMsg('Добавьте товары и укажите фактический остаток')
       return
     }
+    const waitDevices = resolveRevisionWaitDevices(effectiveWaitDeviceKeys)
+    if (!waitDevices.length) {
+      setMsg('Отметьте хотя бы одно устройство для ожидания')
+      return
+    }
+    const currentOpt = revisionDeviceOptions.find(o => o.isCurrentDevice)
+    if (currentOpt && !effectiveWaitDeviceKeys.includes(currentOpt.key) && offlinePending > 0) {
+      const ok = confirm(
+        `На этом аппарате ${offlinePending} операций в очереди.\n`
+        + 'Если не ждать его — расхождение может быть неверным.\n\nВсё равно провести?',
+      )
+      if (!ok) return
+    }
     setSaving(true)
     setMsg('')
     try {
-      const payload = { note: note.trim() || undefined, items }
+      const payload = { note: note.trim() || undefined, items, waitDevices }
       const res = editingId
         ? await updateStockRevisionSafe(editingId, payload)
         : await createStockRevisionSafe(payload)
@@ -1031,6 +1060,12 @@ export default function WarehouseRevisionsPanel({
             ) : modalStep === 'walk' && !editingId ? (
               <>
                 <div className="k-modal-b k-rev-scroll k-rev-walk-body">
+                  <RevisionWaitDevicesPanel
+                    options={revisionDeviceOptions}
+                    selectedKeys={effectiveWaitDeviceKeys}
+                    onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+                    currentQueueLen={offlinePending}
+                  />
                   <RevisionWalkPanel
                     products={products}
                     categories={categories}
@@ -1064,6 +1099,12 @@ export default function WarehouseRevisionsPanel({
             ) : (
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>
+                  <RevisionWaitDevicesPanel
+                    options={revisionDeviceOptions}
+                    selectedKeys={effectiveWaitDeviceKeys}
+                    onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+                    currentQueueLen={offlinePending}
+                  />
                   <div className="k-rev-note">
                     <div className="k-rev-note-row">
                       <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Комментарий…" />
