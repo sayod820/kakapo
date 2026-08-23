@@ -393,6 +393,33 @@ export async function getPending(): Promise<PendingOp[]> {
   return [...byRef.values()].sort(byOrder)
 }
 
+/** Пока эти операции в очереди — локальное списание/приход ещё не на сервере. */
+const STOCK_LAYER_PULL_BLOCK_KINDS = new Set<QueueKind>([
+  'sale',
+  'sale_return',
+  'stock_receipt_create',
+  'stock_receipt_update',
+  'stock_receipt_delete',
+  'stock_writeoff_create',
+  'stock_writeoff_update',
+  'stock_writeoff_delete',
+  'stock_layer_update',
+  'stock_layer_delete',
+  'stock_revision_create',
+  'stock_revision_update',
+  'stock_revision_delete',
+])
+
+/** true — партии с сервера не подтягиваем (правило 1: стабильный остаток на кассе). */
+export async function pendingBlocksStockLayerPull(): Promise<boolean> {
+  try {
+    const pending = await getPending()
+    return pending.some(r => !r.failed && STOCK_LAYER_PULL_BLOCK_KINDS.has(r.kind))
+  } catch {
+    return false
+  }
+}
+
 async function putPending(row: PendingOp): Promise<void> {
   const files = androidFiles()
   if (files) {

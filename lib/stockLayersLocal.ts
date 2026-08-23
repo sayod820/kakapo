@@ -154,8 +154,8 @@ export async function loadStockLayersCacheFirst(
 
 /**
  * Подтянуть партии с сервера.
- * При очереди — merge (не затираем локальные off-*), без очереди — полная замена.
- * Нужно, чтобы приход с телефона сразу появился на кассе.
+ * Пока в очереди чек/возврат/склад — не тянем (сервер ещё со старыми остатками).
+ * После пустой очереди — полная замена локального кэша.
  */
 export async function pullStockLayersFromServer(opts?: {
   bumpProducts?: boolean
@@ -163,21 +163,15 @@ export async function pullStockLayersFromServer(opts?: {
   try {
     const { USE_API } = await import('./config')
     if (!USE_API) return null
-    const { isOnline } = await import('./offline')
+    const { isOnline, pendingBlocksStockLayerPull } = await import('./offline')
     const { useOfflineSync } = await import('./offlineSync')
     const st = useOfflineSync.getState()
     if (!(isOnline() && st.online)) return null
+    if (await pendingBlocksStockLayerPull()) return null
 
     const { api } = await import('./api')
     const remote = (await api.getAllStockLayers()) || []
-    const pending = st.pending > 0
-    let next: ProductStockLayer[]
-    if (pending) {
-      const local = await readCachedStockLayers()
-      next = mergeRemoteLayersKeepingLocal(local, remote)
-    } else {
-      next = remote
-    }
+    const next = remote
     await cacheStockLayers(next)
     if (opts?.bumpProducts !== false) {
       await bumpProductStockFromLayers(next)

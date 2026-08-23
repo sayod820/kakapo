@@ -289,6 +289,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } catch {
             try { await refetchEverything() } catch { /* следующий цикл */ }
           }
+          try {
+            const { pullStockLayersFromServer } = await import('./stockLayersLocal')
+            await pullStockLayersFromServer({ bumpProducts: true })
+          } catch { /* ignore */ }
           try { await markLocalSyncAt() } catch { /* ignore */ }
         }
       }
@@ -526,6 +530,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
               pullSyncChanges(),
               new Promise(resolve => setTimeout(resolve, 10000)),
             ])
+          } catch { /* ignore */ }
+          try {
+            const { pullStockLayersFromServer } = await import('./stockLayersLocal')
+            await pullStockLayersFromServer({ bumpProducts: true })
           } catch { /* ignore */ }
           try { await markLocalSyncAt() } catch { /* ignore */ }
           break
