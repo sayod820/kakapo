@@ -82,7 +82,11 @@ function round2(v: number) {
 
 function patchShift(shiftId: string, patch: Partial<PosShift>) {
   usePosStore.setState(s => ({
-    shifts: s.shifts.map(x => (x.id === shiftId ? { ...x, ...patch } : x)),
+    shifts: s.shifts.map(x => (
+      x.id === shiftId
+        ? { ...x, ...patch, updatedAtIso: patch.updatedAtIso || new Date().toISOString() }
+        : x
+    )),
   }))
 }
 

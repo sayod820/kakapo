@@ -1757,6 +1757,7 @@ export function applyDebtRepayToShift(db, data = {}) {
 
   if (method === 'cash' && shift) {
     shift.salesCash = round2((Number(shift.salesCash) || 0) + amount)
+    shift.updatedAtIso = nowIso()
   }
 
   appendMoneyLedger(db, {
@@ -2415,6 +2416,7 @@ export function createPosSale(db, data = {}) {
     shift.salesCard = round2((Number(shift.salesCard) || 0) + paidCard)
     shift.salesCredit = round2((Number(shift.salesCredit) || 0) + debtAdded)
     if (paidWallet > 0) shift.salesWallet = round2((Number(shift.salesWallet) || 0) + paidWallet)
+    shift.updatedAtIso = nowIso()
   }
   // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.
   // На наличку кассы НЕ влияет: деньги уже были внесены при пополнении.
@@ -2844,6 +2846,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))
     shift.salesCredit = Math.max(0, round2((Number(shift.salesCredit) || 0) - cutDebt))
     if (cutWallet > 0) shift.salesWallet = Math.max(0, round2((Number(shift.salesWallet) || 0) - cutWallet))
+    shift.updatedAtIso = nowIso()
   }
 
   if (!Array.isArray(sale.returns)) sale.returns = []

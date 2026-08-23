@@ -325,13 +325,44 @@ const SHIFT_PENDING_KINDS = new Set([
 ])
 
 /** Сигнатура списка — чтобы не дергать React setState без реальных изменений */
-function softListSig(rows: { id?: string | number; status?: string; total?: number; updatedAtIso?: string; createdAtIso?: string; closedAtIso?: string }[] | undefined) {
+function softListSig(rows: {
+  id?: string | number
+  status?: string
+  total?: number
+  salesCount?: number
+  salesCash?: number
+  salesCard?: number
+  salesCredit?: number
+  expenseTotal?: number
+  cashInTotal?: number
+  openingCash?: number
+  closingCash?: number
+  updatedAtIso?: string
+  createdAtIso?: string
+  closedAtIso?: string
+  openedAtIso?: string
+}[] | undefined) {
   const list = rows || []
   const n = list.length
   if (!n) return '0'
+  // Сумма ключевых полей по всем строкам — иначе смена с тем же id/updatedAt
+  // и новым salesCash не считается «изменившейся» и UI остаётся со старым налом.
+  let money = 0
+  let counts = 0
+  for (const r of list) {
+    money += (Number(r.total) || 0)
+      + (Number(r.salesCash) || 0)
+      + (Number(r.salesCard) || 0)
+      + (Number(r.salesCredit) || 0)
+      + (Number(r.expenseTotal) || 0)
+      + (Number(r.cashInTotal) || 0)
+      + (Number(r.openingCash) || 0)
+      + (Number(r.closingCash) || 0)
+    counts += Number(r.salesCount) || 0
+  }
   const a = list[0]
   const c = list[n - 1]
-  return `${n}:${a?.id}:${a?.status || ''}:${a?.total ?? ''}:${a?.updatedAtIso || a?.createdAtIso || ''}:${c?.id}:${c?.closedAtIso || c?.updatedAtIso || c?.createdAtIso || ''}`
+  return `${n}:${a?.id}:${a?.status || ''}:${counts}:${money.toFixed(2)}:${a?.updatedAtIso || a?.openedAtIso || a?.createdAtIso || ''}:${c?.id}:${c?.closedAtIso || c?.updatedAtIso || c?.createdAtIso || ''}`
 }
 
 let posSoftSyncInFlight: Promise<void> | null = null
@@ -390,7 +421,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
             ? localShifts.find(x => String(x.clientRef || '') === String(sh.clientRef))
             : undefined)
         if (!local) return sh
-        let next = sh
+        let next = { ...sh }
         if (isGenericCashier(sh.cashierName) && !isGenericCashier(local.cashierName)) {
           next = { ...next, cashierName: local.cashierName }
         }
@@ -401,6 +432,28 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           next = { ...next, closedAtIso: local.closedAtIso }
         }
         if (local.clientRef && !next.clientRef) next = { ...next, clientRef: local.clientRef }
+        // Открытая смена: счётчики с сервера не должны «залипать» на старом локальном налу
+        if (String(next.status || sh.status) === 'open' || String(local.status) === 'open') {
+          const srvCount = Number(sh.salesCount) || 0
+          const locCount = Number(local.salesCount) || 0
+          if (srvCount >= locCount) {
+            next = {
+              ...next,
+              salesCount: srvCount,
+              salesCash: Number(sh.salesCash) || 0,
+              salesCard: Number(sh.salesCard) || 0,
+              salesCredit: Number(sh.salesCredit) || 0,
+            }
+          } else {
+            next = {
+              ...next,
+              salesCount: locCount,
+              salesCash: Math.max(Number(sh.salesCash) || 0, Number(local.salesCash) || 0),
+              salesCard: Math.max(Number(sh.salesCard) || 0, Number(local.salesCard) || 0),
+              salesCredit: Math.max(Number(sh.salesCredit) || 0, Number(local.salesCredit) || 0),
+            }
+          }
+        }
         return next
       })
       const mergedShifts = protectShifts ? localShifts : mergeInboundById(localShifts, enrichedShifts)
@@ -423,7 +476,9 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         }
       }
 
-      if (salesChanged && (hasNewFromServer || keptLocal || mergedSales.length !== localSales.length)) {
+      // Сохраняем и при обновлении смены (нал/продажи), иначе телефон после reload
+      // поднимает старый кэш с другим salesCash, чем касса.
+      if (salesChanged || shiftsChanged) {
         await persistSoftPosSnapshot()
       }
     } catch { /* нет связи — локальный чек уже на экране */ }
