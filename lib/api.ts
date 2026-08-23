@@ -1153,6 +1153,17 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
     }),
   getStockRevisions: () => request<StockRevision[]>('/stock/revisions'),
+  getStockRevisionQueue: () => request<Array<{
+    id: string
+    createdAtIso: string
+    submittedAtIso?: string
+    status?: StockRevision['status']
+    note?: string
+    waitDevices?: StockRevision['waitDevices']
+    itemCount: number
+  }>>('/stock/revisions/queue'),
+  cancelStockRevision: (id: string) =>
+    request<StockRevision>(`/stock/revisions/${encodeURIComponent(id)}/cancel`, { method: 'PATCH' }),
   createStockRevision: (data: {
     clientRef?: string
     createdAtIso?: string

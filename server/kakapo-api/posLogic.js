@@ -137,6 +137,7 @@ export function publicPosPoint(row) {
       name: String(d.name || 'Устройство'),
       boundAtIso: String(d.boundAtIso || ''),
       lastSeenAtIso: d.lastSeenAtIso ? String(d.lastSeenAtIso) : undefined,
+      revisionParticipationDefault: d.revisionParticipationDefault !== false,
     })).filter(d => d.id)
     : []
   return {
@@ -265,6 +266,7 @@ export function bindPosDevice(db, data = {}) {
       name: deviceName,
       boundAtIso: stamp,
       lastSeenAtIso: stamp,
+      revisionParticipationDefault: true,
     })
   }
   row.pairCode = null
@@ -277,19 +279,29 @@ export function bindPosDevice(db, data = {}) {
 }
 
 export function renamePosDevice(db, posId, deviceId, name) {
+  return updatePosDevice(db, posId, deviceId, { name })
+}
+
+export function updatePosDevice(db, posId, deviceId, patch = {}) {
   ensurePosCollections(db)
   const row = db.posPoints.find(p => p.id === posId)
   if (!row) throw new Error('Точка продаж не найдена')
   const id = String(deviceId || '').trim()
-  const nextName = String(name || '').trim()
-  if (!nextName) throw new Error('Укажите имя устройства')
-  const taken = ensurePointDevices(row).some(d =>
-    String(d.id) !== id && String(d.name || '').trim().toLowerCase() === nextName.toLowerCase(),
-  )
-  if (taken) throw new Error('На этой точке уже есть устройство с таким именем')
   const device = ensurePointDevices(row).find(d => String(d.id) === id)
   if (!device) throw new Error('Устройство не найдено')
-  device.name = nextName
+
+  if (patch.name != null) {
+    const nextName = String(patch.name || '').trim()
+    if (!nextName) throw new Error('Укажите имя устройства')
+    const taken = ensurePointDevices(row).some(d =>
+      String(d.id) !== id && String(d.name || '').trim().toLowerCase() === nextName.toLowerCase(),
+    )
+    if (taken) throw new Error('На этой точке уже есть устройство с таким именем')
+    device.name = nextName
+  }
+  if (patch.revisionParticipationDefault != null) {
+    device.revisionParticipationDefault = !!patch.revisionParticipationDefault
+  }
   row.updatedAtIso = nowIso()
   return publicPosPoint(row)
 }
@@ -2198,8 +2210,18 @@ function buildStockRevision(db, data = {}, meta = {}) {
   return row
 }
 
+let revisionCoordinator = null
+
+/** Регистрация координатора (index.js) — без циклического import */
+export function setRevisionCoordinator(api) {
+  revisionCoordinator = api
+}
+
 export function createStockRevision(db, data = {}) {
   ensurePosCollections(db)
+  if (revisionCoordinator?.isRevisionV2Payload?.(data)) {
+    return revisionCoordinator.enqueueStockRevisionV2(db, data)
+  }
   return buildStockRevision(db, data)
 }
 
@@ -2225,7 +2247,9 @@ export function deleteStockRevision(db, id) {
   const idx = (db.stockRevisions || []).findIndex(r => r.id === id)
   if (idx < 0) throw new Error('Ревизия не найдена')
   const old = db.stockRevisions[idx]
-  reverseStockRevision(db, old)
+  if (String(old.status || 'done') === 'done' || !old.status) {
+    reverseStockRevision(db, old)
+  }
   db.stockRevisions.splice(idx, 1)
   return { id }
 }

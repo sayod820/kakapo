@@ -154,3 +154,8 @@ export function revisionApiFieldsFromPayload(p: Record<string, unknown>) {
     posCuts: p.posCuts as RevisionPosCut[] | undefined,
   }
 }
+
+/** Ревизия с waitDevices — координатор на сервере, локально ± не трогаем сразу */
+export function revisionUsesCoordinator(payload: { waitDevices?: unknown[] | null }): boolean {
+  return (payload.waitDevices?.length ?? 0) > 0
+}

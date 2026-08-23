@@ -104,6 +104,8 @@ import {
   bindPosDevice,
   unbindPosDevice,
   renamePosDevice,
+  updatePosDevice,
+  setRevisionCoordinator,
   checkPosDevice,
   listPosShifts,
   openPosShift,
@@ -153,6 +155,7 @@ import {
   getPosFinanceSummary,
   getPosReport,
 } from './posLogic.js'
+import * as revisionCoordinator from './revisionCoordinator.js'
 import {
   getCashBook,
   getExpectedVsActual,
@@ -220,6 +223,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
 
 await initDb()
 const db = seedIfEmpty()
+setRevisionCoordinator(revisionCoordinator)
 ensurePosCollections(db)
 ensureAuditLog(db)
 pruneAuditLog(db)
@@ -616,6 +620,18 @@ function broadcastPosUpdate(payload = {}) {
   const msg = JSON.stringify({ event: 'pos_update', payload })
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(msg)
+  }
+}
+
+function runRevisionCoordinator() {
+  try {
+    if (revisionCoordinator.processRevisionQueue(db)) {
+      persist()
+      broadcastProduct({ reason: 'revision-coordinator' })
+      broadcastPosUpdate({ kind: 'revision-coordinator' })
+    }
+  } catch (e) {
+    console.error('[revision-coordinator]', e?.message || e)
   }
 }
 
@@ -2482,12 +2498,34 @@ app.delete('/pos/points/:id/devices/:deviceId', (req, res) => {
 
 app.patch('/pos/points/:id/devices/:deviceId', (req, res) => {
   try {
-    const row = renamePosDevice(db, req.params.id, req.params.deviceId, req.body?.name)
+    const body = req.body || {}
+    const row = body.revisionParticipationDefault != null
+      ? updatePosDevice(db, req.params.id, req.params.deviceId, body)
+      : renamePosDevice(db, req.params.id, req.params.deviceId, body.name)
     persist()
     broadcastPosUpdate({ kind: 'pos', id: row.id })
     res.json(row)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось переименовать устройство' })
+    res.status(400).json({ detail: e?.message || 'Не удалось обновить устройство' })
+  }
+})
+
+app.post('/pos/devices/heartbeat', (req, res) => {
+  try {
+    const row = revisionCoordinator.recordDeviceHeartbeat(db, req.body || {})
+    persist()
+    runRevisionCoordinator()
+    res.json({ ok: true, device: row })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Heartbeat не принят' })
+  }
+})
+
+app.get('/pos/devices/status', (_req, res) => {
+  try {
+    res.json(revisionCoordinator.listDeviceStatuses(db))
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось получить статус устройств' })
   }
 })
 
@@ -2854,6 +2892,13 @@ app.delete('/stock/writeoffs/:id', (req, res) => {
 app.get('/stock/revisions', (_req, res) => {
   res.json(listStockRevisions(db))
 })
+app.get('/stock/revisions/queue', (_req, res) => {
+  try {
+    res.json(revisionCoordinator.listRevisionQueue(db))
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось получить очередь' })
+  }
+})
 app.post('/stock/revisions', (req, res) => {
   try {
     const clientRef = takeClientRef(req)
@@ -2868,6 +2913,7 @@ app.post('/stock/revisions', (req, res) => {
       summary: `Ревизия склада · ${row.note || row.id}`,
     })
     persist()
+    runRevisionCoordinator()
     broadcastPosUpdate({ kind: 'revision', id: row.id })
     broadcastProduct({ reason: 'revision' })
     res.json(row)
@@ -2894,6 +2940,24 @@ app.put('/stock/revisions/:id', (req, res) => {
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось изменить ревизию' })
+  }
+})
+app.patch('/stock/revisions/:id/cancel', (req, res) => {
+  try {
+    const row = revisionCoordinator.cancelStockRevision(db, req.params.id)
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.note || row.id,
+      summary: `Отменена ревизия · ${row.note || row.id}`,
+    })
+    persist()
+    runRevisionCoordinator()
+    broadcastPosUpdate({ kind: 'revision', id: row.id, cancelled: true })
+    res.json(row)
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось отменить ревизию' })
   }
 })
 app.delete('/stock/revisions/:id', (req, res) => {
@@ -5268,6 +5332,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     }
   }, 6 * 60 * 60 * 1000)
   auditTimer.unref()
+  const revisionTimer = setInterval(runRevisionCoordinator, 5000)
+  revisionTimer.unref()
+  setImmediate(() => runRevisionCoordinator())
   setImmediate(() => runLoyaltyBackfill())
   setImmediate(() => {
     kickProductPhotoMigration()

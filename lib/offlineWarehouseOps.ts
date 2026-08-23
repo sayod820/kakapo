@@ -2,7 +2,7 @@
 // KAKAPO — склад торговой точки: приход / списание
 // Локально сразу + очередь, как чеки на кассе
 // ════════════════════════════════════════════════
-import { api } from './api'
+import { api, isNetworkError } from './api'
 import { isLocalId, newClientRef, newLocalId, resolveLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { applyPurchasePayToOpenShift } from './offlinePosOps'
@@ -14,6 +14,7 @@ import {
   buildRevisionPosCuts,
   buildRevisionSubmitMeta,
   resolveRevisionWaitDevices,
+  revisionUsesCoordinator,
 } from './revisionMeta'
 import { getTradeDeviceIdSync } from './tradeDevice'
 
@@ -489,6 +490,7 @@ async function buildLocalRevision(
     ? payload.waitDevices
     : resolveRevisionWaitDevices(null)
   const sourceDeviceId = getTradeDeviceIdSync()
+  const coordinated = revisionUsesCoordinator({ waitDevices })
   return {
     id: opts.id,
     clientRef: opts.clientRef,
@@ -499,6 +501,7 @@ async function buildLocalRevision(
     posCuts,
     sourceDeviceId: sourceDeviceId || undefined,
     waitDevices: waitDevices.length ? waitDevices : undefined,
+    status: coordinated ? 'pending_queues' : undefined,
   }
 }
 
@@ -511,6 +514,7 @@ export async function createStockRevisionSafe(
     ? payload.waitDevices
     : resolveRevisionWaitDevices(null)
   const meta = buildRevisionSubmitMeta({ waitDevices })
+  const coordinated = revisionUsesCoordinator({ waitDevices: meta.waitDevices })
   const body = {
     ...payload,
     clientRef,
@@ -530,7 +534,9 @@ export async function createStockRevisionSafe(
     const localId = newLocalId('rev')
     const revision = await buildLocalRevision(payload, { id: localId, clientRef, createdAtIso })
     await useOfflineSync.getState().queueOp('stock_revision_create', body, { localId })
-    await applyRevisionDelta(payload.items)
+    if (!coordinated) {
+      await applyRevisionDelta(payload.items)
+    }
     usePosStore.setState(s => ({ revisions: [revision, ...s.revisions] }))
     shadowMirrorPut('stock_receipt', `rev:${revision.id}`, revision)
     return revision
@@ -611,6 +617,39 @@ export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult
   }
 
   return raceWarehouseOp(() => api.deleteStockRevision(id), applyLocal)
+}
+
+export async function cancelStockRevisionSafe(id: string): Promise<OfflineResult<StockRevision>> {
+  const rev = usePosStore.getState().revisions.find(r => r.id === id)
+  if (!rev) throw new Error('Ревизия не найдена')
+
+  const applyLocal = async () => {
+    usePosStore.setState(s => ({
+      revisions: s.revisions.map(r => (
+        r.id === id ? { ...r, status: 'cancelled' as const, cancelledAtIso: new Date().toISOString() } : r
+      )),
+    }))
+    return usePosStore.getState().revisions.find(r => r.id === id)!
+  }
+
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    return { offline: true, data }
+  }
+
+  try {
+    const data = await api.cancelStockRevision(id)
+    usePosStore.setState(s => ({
+      revisions: s.revisions.map(r => (r.id === id ? { ...r, ...data } : r)),
+    }))
+    return { offline: false, data }
+  } catch (e) {
+    if (isNetworkError(e)) {
+      const data = await applyLocal()
+      return { offline: true, data }
+    }
+    throw e
+  }
 }
 
 /** Правка цен/опта существующей партии (раздел «Партии и приходы»). */

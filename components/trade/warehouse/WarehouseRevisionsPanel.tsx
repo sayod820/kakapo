@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { useBackClose } from '@/lib/hardwareBack'
 import {
+  cancelStockRevisionSafe,
   createStockRevisionSafe,
   deleteStockRevisionSafe,
   updateStockRevisionSafe,
@@ -19,6 +20,7 @@ import RevisionStepBar from './RevisionStepBar'
 import RevisionModePicker from './RevisionModePicker'
 import RevisionWalkPanel from './RevisionWalkPanel'
 import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
+import RevisionQueuePanel from './RevisionQueuePanel'
 import ProductEditModal from '@/components/trade/products/ProductEditModal'
 import {
   clearRevisionDraft,
@@ -37,6 +39,14 @@ import {
 } from '@/lib/revisionMeta'
 import { usePosStore } from '@/lib/posStore'
 import { useOfflineSync } from '@/lib/offlineSync'
+import {
+  canCancelRevision,
+  listPendingRevisions,
+  revisionAwaitingServer,
+  revisionEffectiveStatus,
+  revisionStatusColor,
+  revisionStatusLabel,
+} from '@/lib/revisionStatusUi'
 import { filterProductsBySearch } from '@/lib/productBarcodes'
 import {
   fmtDateTime,
@@ -225,6 +235,7 @@ export default function WarehouseRevisionsPanel({
   const [dateTo, setDateTo] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [modalStep, setModalStep] = useState<'pick' | 'scope' | 'count' | 'walk'>('pick')
   const [scopeLabel, setScopeLabel] = useState('Все категории')
   const [countSearch, setCountSearch] = useState('')
@@ -609,6 +620,8 @@ export default function WarehouseRevisionsPanel({
     return revisions.filter(rev => matchesDateRange(rev.createdAtIso, dateFrom, dateTo))
   }, [revisions, dateFrom, dateTo])
 
+  const pendingRevisions = useMemo(() => listPendingRevisions(revisions), [revisions])
+
   const editingRevision = editingId ? revisions.find(r => r.id === editingId) || null : null
 
   const filledLines = lines.filter(l => l.productId)
@@ -670,6 +683,23 @@ export default function WarehouseRevisionsPanel({
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function cancelRevision(id: string) {
+    const revision = revisions.find(r => r.id === id)
+    if (!revision || !canCancelRevision(revision)) return
+    if (!confirm(`Отменить ревизию от ${fmtDateTime(revision.createdAtIso)}?\n\nОстатки не изменятся.`)) return
+    setCancellingId(id)
+    try {
+      await cancelStockRevisionSafe(id)
+      if (editingId === id) resetForm()
+      if (expanded === id) setExpanded(null)
+      void onRefresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось отменить')
+    } finally {
+      setCancellingId(null)
     }
   }
 
@@ -745,6 +775,12 @@ export default function WarehouseRevisionsPanel({
         +
       </button>
 
+      <RevisionQueuePanel
+        pending={pendingRevisions}
+        cancellingId={cancellingId}
+        onCancel={id => void cancelRevision(id)}
+      />
+
       {!filtered.length ? (
         <div className="k-empty">
           {revisions.length ? 'За выбранный период ревизий нет' : 'Ревизий пока нет — нажмите «Новая ревизия»'}
@@ -753,6 +789,9 @@ export default function WarehouseRevisionsPanel({
         <>
           <div className="k-wh-cards">
             {filtered.map(rev => {
+              const st = revisionEffectiveStatus(rev)
+              const statusLabel = revisionStatusLabel(st)
+              const statusColor = revisionStatusColor(st)
               const surplus = rev.items.reduce((s, it) => s + (it.diff > 0 ? it.diff : 0), 0)
               const shortage = rev.items.reduce((s, it) => s + (it.diff < 0 ? Math.abs(it.diff) : 0), 0)
               const totalDiff = rev.items.reduce((s, it) => s + it.diff, 0)
@@ -765,7 +804,21 @@ export default function WarehouseRevisionsPanel({
                 <div key={rev.id} className="k-wh-card k-rev-card">
                   <div className="k-wh-card-top" onClick={() => setExpanded(isOpen ? null : rev.id)}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(rev.createdAtIso)}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{fmtDateTime(rev.createdAtIso)}</div>
+                        {rev.status ? (
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            color: statusColor,
+                            padding: '1px 6px',
+                            borderRadius: 6,
+                            border: `1px solid ${statusColor}`,
+                          }}>
+                            {statusLabel}
+                          </span>
+                        ) : null}
+                      </div>
                       {rev.note ? (
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {rev.note}
@@ -798,13 +851,24 @@ export default function WarehouseRevisionsPanel({
                       </div>
                     </div>
                   </div>
-                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
-                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API} onClick={() => openEditForm(rev)}>✎</button>
+                  <div className="k-wh-card-actions" style={{ gridTemplateColumns: canCancelRevision(rev) ? '1fr 1fr 1fr auto' : '1fr 1fr auto' }}>
+                    <button type="button" className="k-btn k-btn-s" disabled={!USE_API || revisionAwaitingServer(rev)} onClick={() => openEditForm(rev)}>✎</button>
+                    {canCancelRevision(rev) ? (
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ color: 'var(--gold)' }}
+                        disabled={!USE_API || cancellingId === rev.id}
+                        onClick={() => void cancelRevision(rev.id)}
+                      >
+                        {cancellingId === rev.id ? '…' : 'Отмена'}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="k-btn k-btn-s"
                       style={{ color: 'var(--red)' }}
-                      disabled={!USE_API || deletingId === rev.id}
+                      disabled={!USE_API || deletingId === rev.id || revisionAwaitingServer(rev)}
                       onClick={() => void removeRevision(rev.id)}
                     >
                       {deletingId === rev.id ? '…' : '🗑'}

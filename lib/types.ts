@@ -584,6 +584,9 @@ export interface StockRevision {
   waitDevices?: RevisionWaitDevice[]
   /** Порядок при одинаковом createdAtIso */
   revisionSeq?: number
+  appliedAtIso?: string
+  cancelledAtIso?: string
+  lastError?: string
 }
 
 export interface PosSaleItem {

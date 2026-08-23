@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
-import type { PosBoundDevice, PosPoint } from '@/lib/types'
+import type { PosBoundDevice, PosPoint, TradeDeviceLiveStatus } from '@/lib/types'
 
 /** По умолчанию устройство участвует в ожидании ревизии */
 function deviceParticipatesInRevision(device: PosBoundDevice): boolean {
@@ -18,6 +18,7 @@ export default function PosPointsAdminPage() {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [pair, setPair] = useState<{ posId: string; name: string; code: string; expiresAtIso: string } | null>(null)
+  const [liveDevices, setLiveDevices] = useState<TradeDeviceLiveStatus[]>([])
 
   const load = useCallback(async () => {
     if (!USE_API) {
@@ -28,7 +29,12 @@ export default function PosPointsAdminPage() {
     setLoading(true)
     setErr('')
     try {
-      setRows(await api.getPosPoints())
+      const [points, statuses] = await Promise.all([
+        api.getPosPoints(),
+        api.getPosDeviceStatuses().catch(() => [] as TradeDeviceLiveStatus[]),
+      ])
+      setRows(points)
+      setLiveDevices(statuses)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Не удалось загрузить')
     } finally {
@@ -103,6 +109,10 @@ export default function PosPointsAdminPage() {
 
   const leftSec = pair ? Math.max(0, Math.round((Date.parse(pair.expiresAtIso) - Date.now()) / 1000)) : 0
 
+  function liveForDevice(posId: string, deviceId: string): TradeDeviceLiveStatus | undefined {
+    return liveDevices.find(d => d.posId === posId && d.deviceId === deviceId)
+  }
+
   return (
     <div>
       <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700, maxWidth: 640, lineHeight: 1.45, marginBottom: 16 }}>
@@ -159,9 +169,21 @@ export default function PosPointsAdminPage() {
                 <td>
                   {(row.devices || []).length === 0 ? (
                     <span style={{ color: 'var(--muted)' }}>нет — вход закрыт</span>
-                  ) : (row.devices || []).map(d => (
+                  ) : (row.devices || []).map(d => {
+                    const live = liveForDevice(row.id, d.id)
+                    return (
                     <div key={d.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 800 }}>{d.name}</span>
+                      {live ? (
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          color: live.online ? 'var(--green)' : 'var(--muted)',
+                        }}>
+                          {live.online ? 'онлайн' : 'офлайн'}
+                          {live.queueLen ? ` · очередь ${live.queueLen}` : live.queueFlushed ? ' · очередь 0' : ''}
+                        </span>
+                      ) : null}
                       <label
                         style={{
                           display: 'inline-flex',
@@ -189,7 +211,8 @@ export default function PosPointsAdminPage() {
                         отвязать
                       </button>
                     </div>
-                  ))}
+                    )
+                  })}
                 </td>
                 <td>
                   <button type="button" className="ab abp" disabled={busy || row.active === false} onClick={() => void makeCode(row)}>

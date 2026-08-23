@@ -8,6 +8,7 @@ import { getPending, cacheProducts, cacheClients, persistPosSnapshot } from './o
 import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
 import { cacheStockLayers } from './stockLayersLocal'
 import { appendConflictLog, mergeAppendById, mergeByIdLww, shouldTakeRemoteLww } from './syncConflict'
+import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
@@ -221,9 +222,11 @@ export async function pullSyncChanges(opts?: {
           : mergeAppendById(cur.writeoffs, pos.writeoffs)
       }
       if (Array.isArray(pos.revisions)) {
+        const prevRevisions = cur.revisions
         patch.revisions = delta.full
           ? pos.revisions
           : mergeAppendById(cur.revisions, pos.revisions)
+        void refreshStockAfterRevisionsDone(prevRevisions, patch.revisions as typeof prevRevisions)
       }
       if (Array.isArray(pos.financeMoves)) {
         patch.financeMoves = delta.full
