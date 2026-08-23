@@ -3030,6 +3030,57 @@ export default function CashierModule({
     setScanBlockAlert({ title, sub, code })
   }
 
+  function productScanCode(p: Product): string {
+    return productBarcodes(p)[0] || String(p.art || '').trim()
+  }
+
+  function openOutOfStockBlockAlert(p: Product, available: number, inCart?: number) {
+    const unit = displaySellUnit(p)
+    const code = productScanCode(p)
+    if (!(available > 0)) {
+      openScanBlockAlert(
+        'Нет на складе',
+        `${p.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
+        code,
+      )
+      return
+    }
+    const inCheck = inCart != null ? Math.round(inCart * 1000) / 1000 : 0
+    openScanBlockAlert(
+      'Мало на складе',
+      `${p.name} — на складе ${fmtQty(available)} ${unit}${inCheck > 0 ? `, в чеке уже ${fmtQty(inCheck)} ${unit}` : ''}. `
+        + 'Касса остановлена — нажмите «Отмена», затем продолжайте.',
+      code,
+    )
+  }
+
+  function cartNeedByProduct(lines: CartLine[]): Map<number, number> {
+    const m = new Map<number, number>()
+    for (const line of lines) {
+      const q = line.weightKg != null ? (Number(line.weightKg) || 0) : (Number(line.qty) || 0)
+      if (!(q > 0)) continue
+      m.set(line.productId, Math.round(((m.get(line.productId) || 0) + q) * 1000) / 1000)
+    }
+    return m
+  }
+
+  function blockIfCartOverLiveStock(lines: CartLine[]): boolean {
+    const need = cartNeedByProduct(lines)
+    for (const [pid, qty] of need) {
+      const p = products.find(x => x.id === pid)
+      if (!p) continue
+      const have = liveStockForProduct(p)
+      if (qty > have + 0.001) {
+        const inCart = lines
+          .filter(l => l.productId === pid)
+          .reduce((s, l) => s + (l.weightKg != null ? (Number(l.weightKg) || 0) : (Number(l.qty) || 0)), 0)
+        openOutOfStockBlockAlert(p, have, inCart)
+        return true
+      }
+    }
+    return false
+  }
+
   function closeScanBlockAlert() {
     scanBlockAlertRef.current = false
     setScanBlockAlert(null)
@@ -4711,7 +4762,10 @@ export default function CashierModule({
       return
     }
     const stock = liveStockForProduct(p)
-    if (stock <= 0) return
+    if (stock <= 0) {
+      openOutOfStockBlockAlert(p, 0)
+      return
+    }
 
     // После выбора/скана — сразу чистим поиск, как на обычной кассе
     clearProductSearch()
@@ -5010,7 +5064,10 @@ export default function CashierModule({
     },
   ) {
     const stockTotal = liveStockForProduct(p)
-    if (stockTotal <= 0) return
+    if (stockTotal <= 0) {
+      openOutOfStockBlockAlert(p, 0)
+      return
+    }
     const preferRetailPrice = opts?.preferRetailPrice
     const layerStock = opts?.stock != null
       ? Number(opts.stock) || 0
@@ -5111,13 +5168,17 @@ export default function CashierModule({
 
     // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
     let revealKey: string | null = null
+    let blockedOverStock = false
     flushSync(() => {
       setTickets(prevTickets => prevTickets.map(t => {
         if (t.id !== activeTicketId) return t
         const prev = dropZeroWeightLines(t.cart)
         const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
       if (idx >= 0) {
-          if (prev[idx].qty >= prev[idx].stock) return t
+          if (prev[idx].qty >= prev[idx].stock) {
+            blockedOverStock = true
+            return t
+          }
           const updated = {
             ...prev[idx],
             qty: prev[idx].qty + 1,
@@ -5163,6 +5224,14 @@ export default function CashierModule({
         }
       }))
     })
+    if (blockedOverStock) {
+      const line = cartRef.current.find(l => l.productId === p.id && l.weightKg == null)
+      openOutOfStockBlockAlert(p, line?.stock ?? stockTotal, line?.qty)
+      setLayerPickOpen(false)
+      setLayerPickProduct(null)
+      setLayerPickGroups([])
+      return
+    }
     if (revealKey) {
       // DOM уже обновлён (flushSync) — крутим сразу, потом ещё раз после фокуса поиска
       pinCartToPunched(revealKey)
@@ -5854,6 +5923,7 @@ export default function CashierModule({
 
     // Снимок чека — даже если кассир уже перешёл на другую вкладку
     const cart = ticketSnap.cart
+    if (blockIfCartOverLiveStock(cart)) return false
     const client = ticketSnap.client
     const pay = ticketSnap.pay
     const discountPct = ticketSnap.discountPct
