@@ -763,8 +763,18 @@ export const POS_MOCK_CSS = `
   .shift-reconcile-block .gate-label{margin-bottom:4px;font-size:12px;}
   .shift-reconcile-block .gate-input{margin-bottom:6px;padding:11px 12px;font-size:16px;}
   .shift-reconcile-expected{font-size:11px;color:var(--t2);font-weight:700;margin:0 0 6px;}
-  .shift-reconcile-block .kp-quick{margin:0;gap:6px;flex-wrap:wrap;}
-  .shift-reconcile-block .kp-quick button{padding:7px 10px;font-size:11px;border-radius:10px;}
+  .shift-reconcile-quick{
+    display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;
+  }
+  .pos-root .shift-reconcile-quick button,
+  .shift-reconcile-quick button{
+    min-width:0;min-height:38px;padding:8px 6px;border-radius:10px;
+    background:var(--surface2);border:1.5px solid var(--border);
+    font-size:12px;font-weight:800;color:var(--t2);white-space:nowrap;
+  }
+  .pos-root .shift-reconcile-quick button:hover{
+    border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.08);
+  }
   .shift-reconcile-actions{margin-top:4px;flex-shrink:0;padding-top:8px !important;}
   .shift-rec-box{
     margin:0;padding:10px 12px;border-radius:14px;
@@ -798,7 +808,8 @@ export const POS_MOCK_CSS = `
     .shift-reconcile-inputs{grid-template-columns:1fr 1fr;gap:8px;}
     .shift-reconcile-card{width:100%;max-height:96vh;padding:12px 12px 10px !important;}
     .shift-rec-checks{grid-template-columns:1fr 1fr;}
-    .shift-reconcile-block .kp-quick button{padding:6px 8px;font-size:10px;}
+    .pos-root .shift-reconcile-quick button,
+    .shift-reconcile-quick button{min-height:36px;padding:7px 4px;font-size:11px;}
   }
 
   .products{background:var(--bg);overflow:hidden;display:flex;flex-direction:column;}

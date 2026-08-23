@@ -11087,16 +11087,14 @@ export default function CashierModule({
                   placeholder="0.00"
                   autoFocus
                 />
-                <div className="kp-quick">
-                  {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                    <button
-                      key={`cash-${v}`}
-                      type="button"
-                      onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
-                    >
-                      {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Должно' : String(v)}
-                    </button>
-                  ))}
+                <div className="shift-reconcile-quick">
+                  <button type="button" onClick={() => setClosingCash('0.00')}>0</button>
+                  <button
+                    type="button"
+                    onClick={() => setClosingCash(Number(expectedTillCash(activeShift)).toFixed(2))}
+                  >
+                    Должно
+                  </button>
                 </div>
               </div>
 
@@ -11110,16 +11108,14 @@ export default function CashierModule({
                   inputMode="decimal"
                   placeholder="0.00"
                 />
-                <div className="kp-quick">
-                  {[0, Number(activeShift.salesCard) || 0].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                    <button
-                      key={`card-${v}`}
-                      type="button"
-                      onClick={() => setClosingCard(v === 0 ? '0.00' : Number(v).toFixed(2))}
-                    >
-                      {v === 0 ? '0' : 'Должно'}
-                    </button>
-                  ))}
+                <div className="shift-reconcile-quick">
+                  <button type="button" onClick={() => setClosingCard('0.00')}>0</button>
+                  <button
+                    type="button"
+                    onClick={() => setClosingCard(Number(activeShift.salesCard || 0).toFixed(2))}
+                  >
+                    Должно
+                  </button>
                 </div>
               </div>
             </div>
