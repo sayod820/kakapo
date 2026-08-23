@@ -712,6 +712,12 @@ export const POS_MOCK_CSS = `
     width:28px;height:28px;border-radius:8px;font-size:16px;font-weight:800;line-height:1;
     background:var(--surface);border:1.5px solid var(--border);color:var(--t1);
   }
+  .receipt-qty-inp{
+    width:72px;padding:4px 6px;border-radius:8px;border:1.5px solid var(--border);
+    background:var(--surface);color:var(--t1);font-family:'JetBrains Mono',monospace;
+    font-size:12px;font-weight:800;text-align:center;
+  }
+  .receipt-qty-hint{font-size:11px;color:var(--t2);font-weight:700;white-space:nowrap;}
   .receipt-actions{
     display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0;
     margin-top:0;padding-top:10px;border-top:1px solid var(--border);background:var(--bg);

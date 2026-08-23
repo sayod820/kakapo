@@ -4034,7 +4034,32 @@ export default function CashierModule({
   }
 
   function saleLineLeft(it: { qty?: number; returnedQty?: number }) {
-    return Math.max(0, Math.round(((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)) * 100) / 100)
+    return Math.max(0, Math.round(((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)) * 1000) / 1000)
+  }
+
+  const RETURN_WEIGHT_STEP_KG = 0.05
+
+  function isSaleLineWeighted(
+    line: { unit?: string; qty?: number; productId?: number },
+    product?: Product | null,
+  ): boolean {
+    const u = String(line.unit || '').trim().toLowerCase()
+    if (u === 'кг' || u === 'kg') return true
+    if (product && isWeighted(product)) return true
+    return false
+  }
+
+  function returnQtyStep(weighted: boolean): number {
+    return weighted ? RETURN_WEIGHT_STEP_KG : 1
+  }
+
+  function formatReturnQty(n: number, unitLabel: string, weighted: boolean): string {
+    const u = unitLabel.toLowerCase()
+    if (weighted && (u === 'кг' || u === 'kg') && n > 0 && n < 1) {
+      return `${Math.round(n * 1000)} г`
+    }
+    const q = Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000)
+    return `${q} ${unitLabel}`
   }
 
   function isSaleFullyReturned(s: typeof sales[number]) {
@@ -4595,8 +4620,9 @@ export default function CashierModule({
     })
   }
 
-  function setReturnLineQty(index: number, qty: number, left: number) {
-    const q = Math.max(0, Math.min(left, Math.round(qty * 100) / 100))
+  function setReturnLineQty(index: number, qty: number, left: number, weighted = false) {
+    const prec = weighted ? 1000 : 100
+    const q = Math.max(0, Math.min(left, Math.round(qty * prec) / prec))
     setReturnQtyByIdx(prev => {
       if (!(q > 0)) {
         const next = { ...prev }
@@ -10913,7 +10939,7 @@ export default function CashierModule({
                   )}
                 </div>
                 {!isSaleFullyReturned(receiptDetail) && (
-                  <div className="receipt-return-hint">Отметьте позиции для возврата (можно часть количества)</div>
+                  <div className="receipt-return-hint">Отметьте позиции — можно вернуть часть штук или веса (напр. 250 г из 500 г)</div>
                 )}
                 <div className="hist-lines receipt-lines-compact">
                   {(receiptDetail.items || []).map((line, i) => {
@@ -10927,13 +10953,12 @@ export default function CashierModule({
                     const showSum = left > 0 ? unitPrice * left : Number(line.lineTotal) || 0
                     const canReturn = left > 0 && !isSaleFullyReturned(receiptDetail)
                     const p = products.find(x => x.id === line.productId)
+                    const weightedLine = isSaleLineWeighted(line, p)
+                    const returnStep = returnQtyStep(weightedLine)
                     const unitLabel = String(line.unit || '').trim()
                       || (p ? (isWeighted(p) ? 'кг' : displaySellUnit(p)) : '')
                       || (Number.isInteger(Number(line.qty)) ? 'шт' : 'кг')
-                    const qtyLabel = (n: number) => {
-                      const q = Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000)
-                      return `${q} ${unitLabel}`
-                    }
+                    const qtyLabel = (n: number) => formatReturnQty(n, unitLabel, weightedLine)
                     const codes = productCodesForId(line.productId)
                     const metaParts = [
                       left > 0 ? qtyLabel(left) : `возвращено ${qtyLabel(Number(line.qty) || 0)}`,
@@ -10968,7 +10993,7 @@ export default function CashierModule({
                             <span className="hist-line-sum">{fmtMoney(showSum)}</span>
                           </div>
                           <span className="hist-line-meta">{metaParts.join(' · ')}</span>
-                          {on && left > 1 && (
+                          {on && (left > 1 || weightedLine) && (
                             <div
                               className="receipt-qty-ctrl"
                               onClick={e => e.stopPropagation()}
@@ -10976,15 +11001,33 @@ export default function CashierModule({
                             >
                               <button
                                 type="button"
-                                disabled={busy || selectedQty <= 0.01}
-                                onClick={() => setReturnLineQty(i, selectedQty - 1, left)}
+                                disabled={busy || selectedQty <= returnStep - 1e-9}
+                                onClick={() => setReturnLineQty(i, selectedQty - returnStep, left, weightedLine)}
                               >−</button>
-                              <span>{selectedQty} {unitLabel}</span>
+                              {weightedLine ? (
+                                <input
+                                  type="number"
+                                  className="receipt-qty-inp"
+                                  inputMode="decimal"
+                                  step={returnStep}
+                                  min={returnStep}
+                                  max={left}
+                                  value={selectedQty}
+                                  disabled={busy}
+                                  aria-label="Вес возврата, кг"
+                                  onChange={e => setReturnLineQty(i, Number(e.target.value), left, true)}
+                                />
+                              ) : (
+                                <span>{formatReturnQty(selectedQty, unitLabel, false)}</span>
+                              )}
                               <button
                                 type="button"
-                                disabled={busy || selectedQty >= left}
-                                onClick={() => setReturnLineQty(i, selectedQty + 1, left)}
+                                disabled={busy || selectedQty >= left - 1e-9}
+                                onClick={() => setReturnLineQty(i, selectedQty + returnStep, left, weightedLine)}
                               >+</button>
+                              {weightedLine ? (
+                                <span className="receipt-qty-hint">{formatReturnQty(selectedQty, unitLabel, true)}</span>
+                              ) : null}
                             </div>
                           )}
                         </div>

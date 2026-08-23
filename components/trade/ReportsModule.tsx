@@ -1,17 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '@/lib/api'
-import { USE_API } from '@/lib/config'
-import type { FinanceTruthBundle } from '@/lib/types'
 import {
   buildLocalFinanceTruth,
   cacheFinanceTruth,
-  readCachedFinanceTruth,
 } from '@/lib/financeTruthCache'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { loadDebtHistory } from '@/lib/clientVipCredit'
-import { softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
+import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import { fmtDateTime, fmtMoney } from './warehouse/warehouseShared'
 import {
@@ -77,6 +73,7 @@ export default function ReportsModule() {
   const suppliers = usePosStore(s => s.suppliers)
   const expiry = usePosStore(s => s.expiry)
   const posPoints = usePosStore(s => s.posPoints)
+  const cashVault = usePosStore(s => s.cashVault)
   const cashiers = usePosStore(s => s.cashiers)
   const apiError = usePosStore(s => s.apiError)
   const clients = useClientStore(s => s.clients)
@@ -96,7 +93,6 @@ export default function ReportsModule() {
   const [comparePrev, setComparePrev] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [truth, setTruth] = useState<FinanceTruthBundle | null>(null)
 
   const { from, to } = useMemo(
     () => periodRange(period, customFrom, customTo),
@@ -105,6 +101,36 @@ export default function ReportsModule() {
   const defPos = useMemo(() => defaultPosId(posPoints), [posPoints])
   const filterPosId = posFilter || null
   const filterCashier = cashierFilter || null
+
+  const apiQuery = useMemo(
+    () => periodToApiQuery(period, customFrom, customTo, {
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
+    }),
+    [period, customFrom, customTo, posFilter, cashierFilter],
+  )
+
+  /** Как в Финансах: одна цифра из локального стора, сервер не подменяет (офлайн-очередь учтена). */
+  const truth = useMemo(
+    () => buildLocalFinanceTruth({
+      shifts,
+      financeMoves,
+      expenses,
+      sales,
+      receipts,
+      cashVault,
+      posPoints,
+      fromMs: from,
+      toMs: to,
+      posId: posFilter || undefined,
+      cashierId: cashierFilter || undefined,
+    }),
+    [shifts, financeMoves, expenses, sales, receipts, cashVault, posPoints, from, to, posFilter, cashierFilter],
+  )
+
+  useEffect(() => {
+    void cacheFinanceTruth(apiQuery, truth)
+  }, [apiQuery, truth])
 
   const periodSalesAll = useMemo(
     () => filterSales(sales, {
@@ -275,56 +301,6 @@ export default function ReportsModule() {
   const prevLabel = comparePeriodLabel(period)
   const revDelta = compareOn ? deltaPct(salesAgg.revenue, prevAgg.revenue) : null
 
-  const apiQuery = useMemo(
-    () => periodToApiQuery(period, customFrom, customTo, {
-      posId: posFilter || undefined,
-      cashierId: cashierFilter || undefined,
-    }),
-    [period, customFrom, customTo, posFilter, cashierFilter],
-  )
-
-  const loadTruth = useCallback(async () => {
-    // Всегда локально — Отчёты работают без сервера
-    setTruth(buildLocalFinanceTruth({
-      shifts,
-      financeMoves,
-      expenses,
-      sales,
-      fromMs: from,
-      toMs: to,
-      posId: posFilter || undefined,
-      cashierId: cashierFilter || undefined,
-    }))
-    if (!USE_API) return
-    try {
-      const { useOfflineSync } = await import('@/lib/offlineSync')
-      const { isOnline } = await import('@/lib/offline')
-      const online = isOnline() && useOfflineSync.getState().online
-      if (!online) {
-        void cacheFinanceTruth(apiQuery, buildLocalFinanceTruth({
-          shifts, financeMoves, expenses, sales,
-          fromMs: from, toMs: to,
-          posId: posFilter || undefined,
-          cashierId: cashierFilter || undefined,
-        }))
-        return
-      }
-      const data = await api.getFinanceTruth(apiQuery)
-      setTruth(data)
-      void cacheFinanceTruth(apiQuery, data)
-    } catch {
-      // Без сети — локальный расчёт уже на экране
-      const cached = await readCachedFinanceTruth(apiQuery)
-      if (cached) {
-        setTruth(cached)
-      }
-    }
-  }, [apiQuery, shifts, financeMoves, expenses, sales, from, to, posFilter, cashierFilter])
-
-  useEffect(() => {
-    void loadTruth()
-  }, [loadTruth])
-
   const refresh = useCallback(() => {
     setRefreshing(true)
     void (async () => {
@@ -336,15 +312,15 @@ export default function ReportsModule() {
           await Promise.allSettled([
             softSyncPosAfterSale(),
             softSyncWarehouse(),
+            softSyncFinance(),
             syncClientsFromApi(),
           ])
         }
-        await loadTruth()
       } finally {
         setRefreshing(false)
       }
     })()
-  }, [loadTruth])
+  }, [])
 
   function resetFilters() {
     setPeriod('today')
