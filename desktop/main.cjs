@@ -839,6 +839,20 @@ async function getPrintersAsync() {
   return win.webContents.getPrinters()
 }
 
+/** Кэш списка принтеров — EnumPrinters в Windows часто 5–15с */
+let printersCache = { at: 0, list: null }
+const PRINTERS_CACHE_MS = 60_000
+
+async function getPrintersCached(force = false) {
+  const now = Date.now()
+  if (!force && printersCache.list && (now - printersCache.at) < PRINTERS_CACHE_MS) {
+    return printersCache.list
+  }
+  const list = await getPrintersAsync()
+  printersCache = { at: now, list: list || [] }
+  return printersCache.list
+}
+
 const XP_RECEIPT_HINTS = [
   'xp-58c', 'xp58c', 'xp-58', 'xp58', '58c',
   'xprinter 58', 'xprinter xp-58', 'xpos-58', 'pos-58',
@@ -883,7 +897,7 @@ async function resolveReceiptPrinterName(preferred) {
   let name = String(preferred || settings.printerName || '').trim()
   if (name) return name
   try {
-    const printers = await getPrintersAsync()
+    const printers = await getPrintersCached()
     name = pickReceiptPrinterName(printers)
     if (name) {
       savePrinterSettings({ ...settings, printerName: name, paperWidthMm: 58 })
@@ -898,6 +912,37 @@ function describeMissingReceiptPrinter(printers) {
     return 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.'
   }
   return `Принтер XP-58C не найден в Windows. Сейчас доступны: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и нажмите «Обновить» в настройках.`
+}
+
+/**
+ * Быстрый путь: если имя принтера уже сохранено — печатаем сразу.
+ * Полный опрос Windows (медленный) — только если имени нет или forceVerify.
+ */
+async function ensureReceiptPrinterName(preferred, { forceVerify = false } = {}) {
+  const settings = loadPrinterSettings()
+  let printerName = await resolveReceiptPrinterName(preferred)
+  if (!printerName) {
+    let printers = []
+    try { printers = await getPrintersCached(true) } catch { /* ignore */ }
+    throw new Error(describeMissingReceiptPrinter(printers))
+  }
+  if (!forceVerify) return printerName
+  try {
+    const printers = await getPrintersCached(true)
+    const exists = (printers || []).some(p => p.name === printerName)
+    if (!exists) {
+      const again = pickReceiptPrinterName(printers)
+      if (again) {
+        printerName = again
+        savePrinterSettings({ ...settings, printerName, paperWidthMm: 58 })
+      } else {
+        throw new Error(describeMissingReceiptPrinter(printers))
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
+  }
+  return printerName
 }
 
 function labelPx(mm) {
@@ -1253,32 +1298,6 @@ async function printReceiptEscPos(html, options = {}) {
     mode: sale ? 'escpos-text-cp866' : 'escpos-from-html',
     pageWidthMm: 58,
   }
-}
-
-async function ensureReceiptPrinterName(preferred) {
-  const settings = loadPrinterSettings()
-  let printerName = await resolveReceiptPrinterName(preferred)
-  if (!printerName) {
-    let printers = []
-    try { printers = await getPrintersAsync() } catch { /* ignore */ }
-    throw new Error(describeMissingReceiptPrinter(printers))
-  }
-  try {
-    const printers = await getPrintersAsync()
-    const exists = (printers || []).some(p => p.name === printerName)
-    if (!exists) {
-      const again = pickReceiptPrinterName(printers)
-      if (again) {
-        printerName = again
-        savePrinterSettings({ ...settings, printerName, paperWidthMm: 58 })
-      } else {
-        throw new Error(describeMissingReceiptPrinter(printers))
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && /XP-58C|не найден/.test(err.message)) throw err
-  }
-  return printerName
 }
 
 /**

@@ -638,39 +638,34 @@ export async function printPosReceipt(
 
   const desktop = getKakapoDesktop()
   if (isKakapoDesktop() && desktop) {
-    const [settings, printers] = await Promise.all([
-      desktop.getPrinterSettings().catch(() => ({
-        printerName: '',
-        paperWidthMm: XP58C_RECEIPT_MM,
-        labelPrinterName: '',
-        scaleMode: 'plu-label' as const,
-      })),
-      desktop.getPrinters().catch(() => []),
-    ])
+    // Быстрый путь: сохранённое имя принтера — без опроса Windows (EnumPrinters ~5–15с)
+    const settings = await desktop.getPrinterSettings().catch(() => ({
+      printerName: '',
+      paperWidthMm: XP58C_RECEIPT_MM,
+      labelPrinterName: '',
+      scaleMode: 'plu-label' as const,
+    }))
 
     let printerName = String(settings.printerName || '').trim()
-    const stillThere = printerName && printers.some(p => p.name === printerName)
-    if (!stillThere) {
-      printerName = pickReceiptPrinter(printers)
-    }
     if (!printerName) {
-      const names = printers.map(p => p.displayName || p.name).filter(Boolean)
-      throw new Error(
-        names.length
-          ? `Принтер XP-58C не найден в Windows. Сейчас: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и установите драйвер.`
-          : 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.',
-      )
-    }
-
-    const paperWidthMm = XP58C_RECEIPT_MM
-    if (settings.printerName !== printerName || settings.paperWidthMm !== paperWidthMm) {
+      const printers = await desktop.getPrinters().catch(() => [])
+      printerName = pickReceiptPrinter(printers)
+      if (!printerName) {
+        const names = printers.map(p => p.displayName || p.name).filter(Boolean)
+        throw new Error(
+          names.length
+            ? `Принтер XP-58C не найден в Windows. Сейчас: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и установите драйвер.`
+            : 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.',
+        )
+      }
       await desktop.savePrinterSettings({
         ...settings,
         printerName,
-        paperWidthMm,
+        paperWidthMm: XP58C_RECEIPT_MM,
       }).catch(() => undefined)
     }
 
+    const paperWidthMm = XP58C_RECEIPT_MM
     const salePayload = JSON.parse(JSON.stringify(sale)) as PosSale
     const payload = {
       printerName,
