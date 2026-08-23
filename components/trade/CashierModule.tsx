@@ -566,7 +566,7 @@ function ShiftReconcileReport({ a }: { a: ReturnType<typeof analyzeShiftReconcil
       </div>
       <div className="shift-rec-checks">
         <div className={`shift-rec-check ${a.cash.ok ? 'ok' : 'warn'}`}>
-          <span>Наличные</span>
+          <span>Нал</span>
           <b>{a.cash.text}</b>
         </div>
         <div className={`shift-rec-check ${a.card.ok ? 'ok' : 'warn'}`}>
@@ -11068,55 +11068,59 @@ export default function CashierModule({
       {shiftReconcileOpen && cashierScreen && cashierScreen !== 'receipts' && activeShift && (
         <div className="overlay shift-reconcile-overlay" onClick={() => { if (!busy) { setShiftReconcileOpen(false); setMsg('') } }}>
           <div className="modal-card shift-reconcile-card" onClick={e => e.stopPropagation()}>
-            <h3>Сверка</h3>
-            <p className="shift-reconcile-sub">
-              Введите факт по кассе и карте / переводам. Смена не закроется — только сверка.
-            </p>
-
-            <div className="shift-reconcile-block">
-              <label className="gate-label">Наличные в кассе (факт)</label>
-              <div className="shift-reconcile-expected">Должно быть: {fmtMoney(expectedTillCash(activeShift))}</div>
-              <input
-                className="gate-input"
-                value={closingCash}
-                onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))}
-                inputMode="decimal"
-                placeholder="0.00"
-                autoFocus
-              />
-              <div className="kp-quick" style={{ marginBottom: 8 }}>
-                {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                  <button
-                    key={`cash-${v}`}
-                    type="button"
-                    onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
-                  >
-                    {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Как должно' : String(v)}
-                  </button>
-                ))}
-              </div>
+            <div className="shift-reconcile-head">
+              <h3>Сверка</h3>
+              <p className="shift-reconcile-sub">
+                Введите факт. Смена не закроется — только сверка.
+              </p>
             </div>
 
-            <div className="shift-reconcile-block">
-              <label className="gate-label">Карта / переводы (факт)</label>
-              <div className="shift-reconcile-expected">Должно быть: {fmtMoney(activeShift.salesCard)}</div>
-              <input
-                className="gate-input"
-                value={closingCard}
-                onChange={e => setClosingCard(sanitizeDecimalInput(e.target.value))}
-                inputMode="decimal"
-                placeholder="0.00"
-              />
-              <div className="kp-quick" style={{ marginBottom: 8 }}>
-                {[0, Number(activeShift.salesCard) || 0].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                  <button
-                    key={`card-${v}`}
-                    type="button"
-                    onClick={() => setClosingCard(v === 0 ? '0.00' : Number(v).toFixed(2))}
-                  >
-                    {v === 0 ? '0' : 'Как должно'}
-                  </button>
-                ))}
+            <div className="shift-reconcile-inputs">
+              <div className="shift-reconcile-block">
+                <label className="gate-label">Нал (факт)</label>
+                <div className="shift-reconcile-expected">Должно: {fmtMoney(expectedTillCash(activeShift))}</div>
+                <input
+                  className="gate-input"
+                  value={closingCash}
+                  onChange={e => setClosingCash(sanitizeDecimalInput(e.target.value))}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  autoFocus
+                />
+                <div className="kp-quick">
+                  {[0, expectedTillCash(activeShift), 100, 500].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                    <button
+                      key={`cash-${v}`}
+                      type="button"
+                      onClick={() => setClosingCash(v === 0 ? '0.00' : Number(v).toFixed(2))}
+                    >
+                      {v === 0 ? '0' : v === expectedTillCash(activeShift) ? 'Должно' : String(v)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="shift-reconcile-block">
+                <label className="gate-label">Карта (факт)</label>
+                <div className="shift-reconcile-expected">Должно: {fmtMoney(activeShift.salesCard)}</div>
+                <input
+                  className="gate-input"
+                  value={closingCard}
+                  onChange={e => setClosingCard(sanitizeDecimalInput(e.target.value))}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+                <div className="kp-quick">
+                  {[0, Number(activeShift.salesCard) || 0].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                    <button
+                      key={`card-${v}`}
+                      type="button"
+                      onClick={() => setClosingCard(v === 0 ? '0.00' : Number(v).toFixed(2))}
+                    >
+                      {v === 0 ? '0' : 'Должно'}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -11128,7 +11132,7 @@ export default function CashierModule({
                 Number(activeShift.salesCard) || 0,
               )
               return a.ready ? <ShiftReconcileReport a={a} /> : (
-                <div className="shift-reconcile-hint" style={{ marginBottom: 12 }}>
+                <div className="shift-reconcile-hint" style={{ margin: '8px 0' }}>
                   Введите обе суммы — сразу покажем итог
                 </div>
               )
@@ -11136,7 +11140,7 @@ export default function CashierModule({
 
             {msg && <div className="pos-err">{msg}</div>}
 
-            <div className="modal-card-actions">
+            <div className="modal-card-actions shift-reconcile-actions">
               <button
                 type="button"
                 className="btn-cancel"
