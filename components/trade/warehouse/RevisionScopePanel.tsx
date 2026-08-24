@@ -3,15 +3,14 @@
 import { useMemo, useState } from 'react'
 import type { Product, Category } from '@/lib/types'
 import { categorySlug, productMatchesCategoryFilter } from '@/lib/useCategories'
+import type { RevisionScopeStock } from './revisionDraftStorage'
 
-type StockFilter = 'all' | 'inStock' | 'low' | 'out'
-
-function matchStock(p: Product, filter: StockFilter) {
-  const stock = Number(p.stock) || 0
-  if (filter === 'inStock') return stock > 5
-  if (filter === 'low') return stock > 0 && stock <= 5
-  if (filter === 'out') return stock <= 0
-  return true
+export type RevisionScopeResult = {
+  allCats: boolean
+  cats: string[]
+  stock: RevisionScopeStock
+  label: string
+  count: number
 }
 
 function productInScope(
@@ -28,20 +27,32 @@ function productInScope(
   return false
 }
 
+function matchStock(live: number, filter: RevisionScopeStock) {
+  if (filter === 'in') return live > 0
+  if (filter === 'out') return live <= 0
+  return true
+}
+
 export default function RevisionScopePanel({
   products,
   categories,
+  stockOf,
+  initial,
   onStart,
   onCancel,
 }: {
   products: Product[]
   categories: Category[]
-  onStart: (items: Product[], label: string) => void
+  stockOf: (p: Product) => number
+  initial?: Partial<RevisionScopeResult>
+  onStart: (result: RevisionScopeResult) => void
   onCancel?: () => void
 }) {
-  const [allCats, setAllCats] = useState(true)
-  const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
-  const [stockFlt, setStockFlt] = useState<StockFilter>('all')
+  const [allCats, setAllCats] = useState(initial?.allCats !== false)
+  const [selectedCats, setSelectedCats] = useState<Set<string>>(
+    () => new Set(initial?.cats || []),
+  )
+  const [stockFlt, setStockFlt] = useState<RevisionScopeStock>(initial?.stock || 'all')
 
   const roots = useMemo(
     () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
@@ -49,18 +60,26 @@ export default function RevisionScopePanel({
   )
 
   const scopeProducts = useMemo(() => {
-    return products.filter(p => productInScope(p, allCats, selectedCats, categories) && matchStock(p, stockFlt))
-  }, [products, allCats, selectedCats, categories, stockFlt])
+    return products.filter(
+      p => productInScope(p, allCats, selectedCats, categories) && matchStock(stockOf(p), stockFlt),
+    )
+  }, [products, allCats, selectedCats, categories, stockFlt, stockOf])
 
   const scopeLabel = useMemo(() => {
-    if (allCats) return 'Все категории'
-    if (!selectedCats.size) return 'Выберите категории'
-    const names = [...selectedCats].map(slug => {
-      const c = categories.find(x => categorySlug(x) === slug)
-      return c?.name || slug
-    })
-    return names.join(', ')
-  }, [allCats, selectedCats, categories])
+    const parts: string[] = []
+    if (allCats) parts.push('Все категории')
+    else if (!selectedCats.size) parts.push('Категории не выбраны')
+    else {
+      const names = [...selectedCats].map(slug => {
+        const c = categories.find(x => categorySlug(x) === slug)
+        return c?.name || slug
+      })
+      parts.push(names.length <= 2 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2}`)
+    }
+    if (stockFlt === 'in') parts.push('в наличии')
+    if (stockFlt === 'out') parts.push('нет на складе')
+    return parts.join(' · ')
+  }, [allCats, selectedCats, categories, stockFlt])
 
   function pickAll() {
     setAllCats(true)
@@ -78,30 +97,36 @@ export default function RevisionScopePanel({
   }
 
   function countInRoot(slug: string) {
-    return products.filter(p => productMatchesCategoryFilter(p.catId, slug, categories) && matchStock(p, stockFlt)).length
+    return products.filter(
+      p => productMatchesCategoryFilter(p.catId, slug, categories) && matchStock(stockOf(p), stockFlt),
+    ).length
   }
 
-  const stockFilters: { id: StockFilter; label: string }[] = [
+  const stockFilters: { id: RevisionScopeStock; label: string }[] = [
     { id: 'all', label: 'Все' },
-    { id: 'inStock', label: 'В наличии' },
-    { id: 'low', label: 'Мало' },
+    { id: 'in', label: 'В наличии' },
     { id: 'out', label: 'Нет' },
   ]
 
   const countWord = scopeProducts.length === 1 ? 'товар' : scopeProducts.length < 5 ? 'товара' : 'товаров'
+  const canStart = scopeProducts.length > 0 && (allCats || selectedCats.size > 0)
 
   return (
     <div className="k-rev-scope">
+      <div className="k-rev-scope-hero">
+        <div className="k-rev-scope-hero-ic">📂</div>
+        <div>
+          <b>Что пересчитываем?</b>
+          <small>Выберите категории и остаток — список в обходе будет только с этими товарами</small>
+        </div>
+      </div>
+
       <div className="k-rev-scope-lbl">Категории · можно несколько</div>
       <div className="k-cats k-cats-compact k-rev-cats">
-        <button
-          type="button"
-          className={`k-cat ${allCats ? 'active' : ''}`}
-          onClick={pickAll}
-        >
+        <button type="button" className={`k-cat ${allCats ? 'active' : ''}`} onClick={pickAll}>
           <span className="ce">🏪</span>
           Все
-          <span className="cc">{products.filter(p => matchStock(p, stockFlt)).length}</span>
+          <span className="cc">{products.filter(p => matchStock(stockOf(p), stockFlt)).length}</span>
         </button>
         {roots.map(c => {
           const slug = categorySlug(c)
@@ -138,8 +163,8 @@ export default function RevisionScopePanel({
       </div>
 
       <div className="k-rev-scope-sum">
-        <span>Пересчёт</span>
-        <b style={{ color: scopeProducts.length ? '#3B8EF0' : 'var(--muted)' }}>
+        <span>В обход</span>
+        <b style={{ color: canStart ? '#3B8EF0' : 'var(--muted)' }}>
           {scopeProducts.length} {countWord}
         </b>
         <span className="k-rev-scope-sum-sub">{scopeLabel}</span>
@@ -159,10 +184,16 @@ export default function RevisionScopePanel({
           type="button"
           className="k-btn k-btn-g"
           style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
-          disabled={!scopeProducts.length}
-          onClick={() => onStart(scopeProducts, scopeLabel)}
+          disabled={!canStart}
+          onClick={() => onStart({
+            allCats,
+            cats: [...selectedCats],
+            stock: stockFlt,
+            label: scopeLabel,
+            count: scopeProducts.length,
+          })}
         >
-          Далее → {scopeProducts.length}
+          Далее · обход →
         </button>
       </div>
     </div>

@@ -605,10 +605,20 @@ const CSS = `
   .k-rev-devs-sheet-warn{font-size:10px;color:var(--gold);font-weight:700;line-height:1.35}
   .k-rev-devs-sheet-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:6px}
   .k-rev-devs-sheet-actions .k-btn{min-height:40px;width:100%}
+  .k-rev-devs-step{display:flex;flex-direction:column;gap:8px}
   .k-rev-edit-toolbar{align-items:stretch}
   .k-rev-edit-toolbar .k-inp{flex:1;min-width:0}
   .k-rev-walk{display:flex;flex-direction:column;gap:8px;min-height:0}
   .k-rev-walk-sticky{display:flex;flex-direction:column;gap:8px}
+  .k-rev-walk-scopechip{
+    display:flex;align-items:center;gap:6px;
+    padding:6px 8px;border-radius:10px;border:1px solid var(--border);background:var(--card2)
+  }
+  .k-rev-walk-scopechip-txt{
+    flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-size:12px;font-weight:800;color:var(--text)
+  }
+  .k-rev-walk-scopechip .k-btn{min-height:30px;padding:4px 10px;font-size:11px}
   .k-rev-walk-back-short{display:none}
   .k-rev-walk-prog{display:flex;align-items:center;gap:8px}
   .k-rev-walk-prog-bar{

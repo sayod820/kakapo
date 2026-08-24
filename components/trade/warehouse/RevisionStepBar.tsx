@@ -13,12 +13,16 @@ function StepPill({ n, label, active, done }: { n: number; label: string; active
   )
 }
 
-export default function RevisionStepBar({ step }: { step: 'scope' | 'count' }) {
+export default function RevisionStepBar({ step }: { step: 'scope' | 'walk' | 'devices' }) {
+  const walkDone = step === 'walk' || step === 'devices'
+  const devicesActive = step === 'devices'
   return (
     <div className="k-rev-steps">
-      <StepPill n={1} label="Категории" active={step === 'scope'} done={step === 'count'} />
-      <div className={`k-rev-step-line${step === 'count' ? ' on' : ''}`} />
-      <StepPill n={2} label="Пересчёт" active={step === 'count'} />
+      <StepPill n={1} label="Фильтр" active={step === 'scope'} done={walkDone} />
+      <div className={`k-rev-step-line${walkDone ? ' on' : ''}`} />
+      <StepPill n={2} label="Обход" active={step === 'walk'} done={devicesActive} />
+      <div className={`k-rev-step-line${devicesActive ? ' on' : ''}`} />
+      <StepPill n={3} label="Устройства" active={devicesActive} />
     </div>
   )
 }

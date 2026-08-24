@@ -7,8 +7,13 @@ type Props = {
   options: RevisionDeviceOption[]
   selectedKeys: string[]
   onChange: (keys: string[]) => void
-  /** Очередь на этом аппарате (если сняли галочку с текущего) */
   currentQueueLen?: number
+  /** step = полный экран шага; button = компактная кнопка (редактирование) */
+  variant?: 'button' | 'step'
+  onBack?: () => void
+  onConfirm?: () => void
+  confirmLabel?: string
+  confirming?: boolean
 }
 
 function shortDeviceLabel(opt: RevisionDeviceOption): string {
@@ -35,32 +40,43 @@ export default function RevisionWaitDevicesPanel({
   selectedKeys,
   onChange,
   currentQueueLen = 0,
+  variant = 'button',
+  onBack,
+  onConfirm,
+  confirmLabel,
+  confirming = false,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [draftKeys, setDraftKeys] = useState<string[]>(selectedKeys)
 
   const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys])
   const draftSet = useMemo(() => new Set(draftKeys), [draftKeys])
+  const activeKeys = variant === 'step' ? selectedKeys : draftKeys
+  const activeSet = variant === 'step' ? selectedSet : draftSet
 
   useEffect(() => {
-    if (!open) setDraftKeys(selectedKeys)
-  }, [open, selectedKeys])
+    if (variant === 'button' && !open) setDraftKeys(selectedKeys)
+  }, [open, selectedKeys, variant])
 
-  const excludedCurrentWithQueue = useMemo(() => {
+  useEffect(() => {
+    if (variant === 'step') setDraftKeys(selectedKeys)
+  }, [variant, selectedKeys])
+
+  const excludedWithQueue = useMemo(() => {
     if (currentQueueLen <= 0) return false
     const current = options.find(o => o.isCurrentDevice)
     if (!current) return false
-    return !selectedSet.has(current.key)
-  }, [options, selectedSet, currentQueueLen])
+    return !activeSet.has(current.key)
+  }, [options, activeSet, currentQueueLen])
 
-  const excludedDraftWithQueue = useMemo(() => {
-    if (currentQueueLen <= 0) return false
-    const current = options.find(o => o.isCurrentDevice)
-    if (!current) return false
-    return !draftSet.has(current.key)
-  }, [options, draftSet, currentQueueLen])
-
-  function toggleDraft(key: string) {
+  function toggle(key: string) {
+    if (variant === 'step') {
+      const next = new Set(selectedKeys)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      onChange([...next])
+      return
+    }
     setDraftKeys(prev => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -69,21 +85,96 @@ export default function RevisionWaitDevicesPanel({
     })
   }
 
-  function pickDraftDefaults() {
-    setDraftKeys(options.filter(o => o.adminDefault).map(o => o.key))
+  function pickDefaults() {
+    const keys = options.filter(o => o.adminDefault).map(o => o.key)
+    if (variant === 'step') onChange(keys)
+    else setDraftKeys(keys)
   }
 
-  function pickDraftAll() {
-    setDraftKeys(options.map(o => o.key))
+  function pickAll() {
+    const keys = options.map(o => o.key)
+    if (variant === 'step') onChange(keys)
+    else setDraftKeys(keys)
   }
 
-  function save() {
+  function saveButton() {
     onChange(draftKeys)
     setOpen(false)
   }
 
   const selectedN = options.filter(o => selectedSet.has(o.key)).length
-  const draftN = options.filter(o => draftSet.has(o.key)).length
+  const activeN = options.filter(o => activeSet.has(o.key)).length
+
+  const list = (
+    <>
+      <div className="k-rev-devs-sheet-tools">
+        <button type="button" className="k-btn k-btn-s" onClick={pickDefaults}>По умолчанию</button>
+        <button type="button" className="k-btn k-btn-s" onClick={pickAll}>Все</button>
+        <span className="k-rev-devs-sheet-n">{activeN}/{options.length || 0}</span>
+      </div>
+
+      {!options.length ? (
+        <div className="k-rcpt-empty">Нет привязанных устройств — обновите страницу</div>
+      ) : (
+        <div className="k-rev-devs-sheet-list">
+          {options.map(opt => {
+            const checked = activeSet.has(opt.key)
+            const kind = deviceKind(opt)
+            return (
+              <label key={opt.key} className={`k-rev-devs-row${checked ? ' on' : ''}${opt.isCurrentDevice ? ' cur' : ''}`}>
+                <input type="checkbox" checked={checked} onChange={() => toggle(opt.key)} />
+                <span className="k-rev-devs-row-ic" aria-hidden>{deviceIcon(kind)}</span>
+                <span className="k-rev-devs-row-txt">
+                  <b>{shortDeviceLabel(opt)}</b>
+                  <small>
+                    {opt.isCurrentDevice ? 'это устройство · ' : ''}
+                    {opt.adminDefault ? 'ждём по умолчанию' : 'админ: не ждать'}
+                  </small>
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+
+      {excludedWithQueue && (
+        <div className="k-rev-devs-sheet-warn">
+          На этом аппарате очередь {currentQueueLen} — если не ждать его, факт может быть неверным
+        </div>
+      )}
+    </>
+  )
+
+  if (variant === 'step') {
+    return (
+      <div className="k-rev-devs-step">
+        <div className="k-rev-scope-hero">
+          <div className="k-rev-scope-hero-ic">📡</div>
+          <div>
+            <b>Кого ждать перед ±</b>
+            <small>Сервер применит ревизию, когда у отмеченных устройств пустая офлайн-очередь</small>
+          </div>
+        </div>
+        {list}
+        <div className="k-rev-devs-sheet-actions">
+          {onBack && (
+            <button type="button" className="k-btn k-btn-s" disabled={confirming} onClick={onBack}>
+              ← Обход
+            </button>
+          )}
+          <button
+            type="button"
+            className="k-btn k-btn-g"
+            style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+            disabled={confirming || activeN === 0}
+            onClick={() => onConfirm?.()}
+          >
+            {confirming ? '…' : (confirmLabel || `Провести · ${activeN}`)}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (!options.length) {
     return (
@@ -97,7 +188,7 @@ export default function RevisionWaitDevicesPanel({
     <>
       <button
         type="button"
-        className={`k-rev-devs-btn${excludedCurrentWithQueue ? ' warn' : ''}`}
+        className={`k-rev-devs-btn${excludedWithQueue ? ' warn' : ''}`}
         onClick={() => setOpen(true)}
         title="Кого ждать перед проведением ревизии"
       >
@@ -118,49 +209,17 @@ export default function RevisionWaitDevicesPanel({
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={() => setOpen(false)} aria-label="Закрыть">✕</button>
             </div>
-
-            <div className="k-rev-devs-sheet-tools">
-              <button type="button" className="k-btn k-btn-s" onClick={pickDraftDefaults}>По умолчанию</button>
-              <button type="button" className="k-btn k-btn-s" onClick={pickDraftAll}>Все</button>
-              <span className="k-rev-devs-sheet-n">{draftN}/{options.length}</span>
-            </div>
-
-            <div className="k-rev-devs-sheet-list">
-              {options.map(opt => {
-                const checked = draftSet.has(opt.key)
-                const kind = deviceKind(opt)
-                return (
-                  <label key={opt.key} className={`k-rev-devs-row${checked ? ' on' : ''}${opt.isCurrentDevice ? ' cur' : ''}`}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleDraft(opt.key)} />
-                    <span className="k-rev-devs-row-ic" aria-hidden>{deviceIcon(kind)}</span>
-                    <span className="k-rev-devs-row-txt">
-                      <b>{shortDeviceLabel(opt)}</b>
-                      <small>
-                        {opt.isCurrentDevice ? 'это устройство · ' : ''}
-                        {opt.adminDefault ? 'ждём по умолчанию' : 'админ: не ждать'}
-                      </small>
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
-
-            {excludedDraftWithQueue && (
-              <div className="k-rev-devs-sheet-warn">
-                На этом аппарате очередь {currentQueueLen} — если не ждать его, ± может быть неверным
-              </div>
-            )}
-
+            {list}
             <div className="k-rev-devs-sheet-actions">
               <button type="button" className="k-btn k-btn-s" onClick={() => setOpen(false)}>Отмена</button>
               <button
                 type="button"
                 className="k-btn k-btn-g"
                 style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
-                disabled={draftN === 0}
-                onClick={save}
+                disabled={activeN === 0}
+                onClick={saveButton}
               >
-                Сохранить · {draftN}
+                Сохранить · {activeN}
               </button>
             </div>
           </div>

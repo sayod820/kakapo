@@ -15,6 +15,8 @@ import { useCategories } from '@/lib/useCategories'
 import type { Product, ProductStockLayer, StockRevision } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
+import RevisionScopePanel from './RevisionScopePanel'
+import RevisionStepBar from './RevisionStepBar'
 import RevisionWalkPanel from './RevisionWalkPanel'
 import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
 import RevisionQueuePanel from './RevisionQueuePanel'
@@ -233,7 +235,7 @@ export default function WarehouseRevisionsPanel({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
-  const [modalStep, setModalStep] = useState<'count' | 'walk'>('walk')
+  const [modalStep, setModalStep] = useState<'scope' | 'walk' | 'devices' | 'count'>('scope')
   const [countSearch, setCountSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [editProductId, setEditProductId] = useState<number | null>(null)
@@ -243,7 +245,19 @@ export default function WarehouseRevisionsPanel({
   const lineRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const countedRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  const { open, note, lines, activeLineKey, mode, waitDeviceKeys } = draft
+  const {
+    open,
+    note,
+    lines,
+    activeLineKey,
+    mode,
+    waitDeviceKeys,
+    flowStep,
+    scopeAllCats,
+    scopeCats,
+    scopeStock,
+    scopeLabel,
+  } = draft
   const freezeSystem = Boolean(editingId)
 
   const refreshPosPoints = useCallback(async () => {
@@ -306,7 +320,9 @@ export default function WarehouseRevisionsPanel({
     const loaded = loadRevisionDraft()
     setDraft(loaded)
     if (loaded.open) {
-      if (loaded.mode === 'walk' || !loaded.lines.some(l => l.productId)) {
+      if (loaded.mode === 'walk' && !loaded.lines.some(l => l.productId)) {
+        setModalStep(loaded.flowStep || 'scope')
+      } else if (loaded.mode === 'walk' || !loaded.lines.some(l => l.productId)) {
         setModalStep('walk')
       } else {
         setModalStep('count')
@@ -335,7 +351,7 @@ export default function WarehouseRevisionsPanel({
     clearRevisionDraft()
     setDraft(defaultRevisionDraft())
     setEditingId(null)
-    setModalStep('walk')
+    setModalStep('scope')
     setCountSearch('')
     setAddOpen(false)
     setEditProductId(null)
@@ -351,13 +367,13 @@ export default function WarehouseRevisionsPanel({
     void refreshPosPoints()
     const hasLines = lines.some(l => l.productId)
     if (hasLines && mode === 'walk') {
-      setModalStep('walk')
+      setModalStep(flowStep || 'walk')
       setDraft(prev => ({ ...prev, open: true, mode: 'walk' }))
       void loadLayers()
       return
     }
-    setModalStep('walk')
-    setDraft({ ...defaultRevisionDraft(), open: true, mode: 'walk' })
+    setModalStep('scope')
+    setDraft({ ...defaultRevisionDraft(), open: true, mode: 'walk', flowStep: 'scope' })
     void loadLayers()
   }
 
@@ -384,6 +400,35 @@ export default function WarehouseRevisionsPanel({
   }
 
   useBackClose(!!open, closeForm)
+
+  function startWalkFromScope(scope: { allCats: boolean; cats: string[]; stock: 'all' | 'in' | 'out'; label: string }) {
+    setModalStep('walk')
+    setDraft(prev => ({
+      ...prev,
+      mode: 'walk',
+      flowStep: 'walk',
+      scopeAllCats: scope.allCats,
+      scopeCats: scope.cats,
+      scopeStock: scope.stock,
+      scopeLabel: scope.label,
+    }))
+    setMsg('')
+    void loadLayers()
+  }
+
+  function openDevicesStep() {
+    if (!lines.some(l => l.productId != null && l.countedStock !== '')) {
+      setMsg('Сначала посчитайте хотя бы один товар')
+      return
+    }
+    setModalStep('devices')
+    setDraft(prev => ({ ...prev, flowStep: 'devices' }))
+  }
+
+  function backToWalkFromDevices() {
+    setModalStep('walk')
+    setDraft(prev => ({ ...prev, flowStep: 'walk' }))
+  }
 
   function walkUpsert(product: Product, countedStock: string) {
     const frozen = stockOf(product)
@@ -959,13 +1004,17 @@ export default function WarehouseRevisionsPanel({
                   <div className="sub">
                     {editingId
                       ? 'Измените факт · склад обновится'
-                      : 'Обход · поиск и сканер'}
+                      : modalStep === 'scope'
+                        ? 'Шаг 1/3 · фильтр'
+                        : modalStep === 'walk'
+                          ? 'Шаг 2/3 · обход'
+                          : 'Шаг 3/3 · устройства'}
                     {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
                   </div>
                 </div>
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
-              {(modalStep === 'count' || modalStep === 'walk') && (
+              {(editingId ? modalStep === 'count' : modalStep === 'walk' || modalStep === 'devices') && (
                 <div className="k-rev-head-actions">
                   {editingId && (
                     <button
@@ -986,22 +1035,45 @@ export default function WarehouseRevisionsPanel({
                   >
                     {editingId ? 'Отмена' : 'Очистить'}
                   </button>
-                  <button
-                    type="button"
-                    className="k-btn k-btn-g"
-                    style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
-                    disabled={saving || totals.count === 0}
-                    onClick={() => void submit()}
-                  >
-                    {saving ? '…' : editingId
-                      ? `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`
-                      : `Провести${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
-                  </button>
+                  {editingId ? (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-g"
+                      style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                      disabled={saving || totals.count === 0}
+                      onClick={() => void submit()}
+                    >
+                      {saving ? '…' : `Сохранить${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
+                    </button>
+                  ) : modalStep === 'walk' ? (
+                    <button
+                      type="button"
+                      className="k-btn k-btn-g"
+                      style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
+                      disabled={saving || totals.count === 0}
+                      onClick={openDevicesStep}
+                    >
+                      Далее → устройства
+                    </button>
+                  ) : null}
                 </div>
               )}
             </div>
 
-            {modalStep === 'walk' && !editingId ? (
+            {!editingId && (
+              <RevisionStepBar step={modalStep === 'devices' ? 'devices' : modalStep === 'scope' ? 'scope' : 'walk'} />
+            )}
+
+            {modalStep === 'scope' && !editingId ? (
+              <RevisionScopePanel
+                products={products}
+                categories={categories}
+                stockOf={stockOf}
+                initial={{ allCats: scopeAllCats, cats: scopeCats, stock: scopeStock }}
+                onStart={startWalkFromScope}
+                onCancel={closeForm}
+              />
+            ) : modalStep === 'walk' && !editingId ? (
               <>
                 <div className="k-modal-b k-rev-scroll k-rev-walk-body">
                   <RevisionWalkPanel
@@ -1014,10 +1086,14 @@ export default function WarehouseRevisionsPanel({
                     onEditProduct={id => setEditProductId(id)}
                     note={note}
                     onNoteChange={v => setDraftPatch({ note: v })}
-                    deviceOptions={revisionDeviceOptions}
-                    waitDeviceKeys={effectiveWaitDeviceKeys}
-                    onWaitDeviceKeysChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
-                    currentQueueLen={offlinePending}
+                    scopeAllCats={scopeAllCats}
+                    scopeCats={scopeCats}
+                    scopeStock={scopeStock}
+                    scopeLabel={scopeLabel}
+                    onEditScope={() => {
+                      setModalStep('scope')
+                      setDraftPatch({ flowStep: 'scope' })
+                    }}
                   />
                   {msg && <div className="k-msg" style={{ margin: '8px 10px' }}>{msg}</div>}
                 </div>
@@ -1027,9 +1103,9 @@ export default function WarehouseRevisionsPanel({
                     className="k-btn k-btn-g k-btn-primary-wide"
                     style={{ background: 'linear-gradient(135deg,#3B8EF0,#2563b0)' }}
                     disabled={saving || totals.count === 0}
-                    onClick={() => void submit()}
+                    onClick={openDevicesStep}
                   >
-                    {saving ? 'Сохранение…' : `Провести ревизию · ${totals.count}${totals.netDiff !== 0 ? ` · Δ ${formatDiff(totals.netDiff)}` : ''}`}
+                    Далее → устройства · {totals.count}
                   </button>
                   <div className="k-btn-row">
                     <button type="button" className="k-btn k-btn-s" disabled={saving} onClick={() => { if (confirm('Очистить черновик?')) resetForm() }}>Очистить</button>
@@ -1037,6 +1113,21 @@ export default function WarehouseRevisionsPanel({
                   </div>
                 </div>
               </>
+            ) : modalStep === 'devices' && !editingId ? (
+              <div className="k-modal-b k-rev-scroll k-rev-walk-body">
+                <RevisionWaitDevicesPanel
+                  variant="step"
+                  options={revisionDeviceOptions}
+                  selectedKeys={effectiveWaitDeviceKeys}
+                  onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+                  currentQueueLen={offlinePending}
+                  onBack={backToWalkFromDevices}
+                  onConfirm={() => void submit()}
+                  confirmLabel={saving ? 'Сохранение…' : `Провести ревизию · ${totals.count}`}
+                  confirming={saving}
+                />
+                {msg && <div className="k-msg" style={{ margin: '8px 10px' }}>{msg}</div>}
+              </div>
             ) : (
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>

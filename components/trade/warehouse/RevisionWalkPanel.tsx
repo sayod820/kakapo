@@ -8,12 +8,10 @@ import {
   filterProductsByQuery,
   lookupProductByCode,
 } from '@/lib/productSearchIndex'
-import { categorySlug, productMatchesCategoryFilter } from '@/lib/useCategories'
+import { productMatchesCategoryFilter } from '@/lib/useCategories'
 import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
-import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
-import type { RevisionDeviceOption } from '@/lib/revisionMeta'
-import type { RevisionDraftLine } from './revisionDraftStorage'
+import type { RevisionDraftLine, RevisionScopeStock } from './revisionDraftStorage'
 import {
   fmtMoney,
   formatQty,
@@ -70,10 +68,11 @@ export default function RevisionWalkPanel({
   onEditProduct,
   note,
   onNoteChange,
-  deviceOptions = [],
-  waitDeviceKeys = [],
-  onWaitDeviceKeysChange,
-  currentQueueLen = 0,
+  scopeAllCats = true,
+  scopeCats = [],
+  scopeStock = 'all',
+  scopeLabel = 'Все товары',
+  onEditScope,
 }: {
   products: Product[]
   categories: Category[]
@@ -84,16 +83,14 @@ export default function RevisionWalkPanel({
   onEditProduct: (productId: number) => void
   note: string
   onNoteChange: (v: string) => void
-  deviceOptions?: RevisionDeviceOption[]
-  waitDeviceKeys?: string[]
-  onWaitDeviceKeysChange?: (keys: string[]) => void
-  currentQueueLen?: number
+  scopeAllCats?: boolean
+  scopeCats?: string[]
+  scopeStock?: RevisionScopeStock
+  scopeLabel?: string
+  onEditScope?: () => void
 }) {
   const [tab, setTab] = useState<WalkTab>('todo')
   const [q, setQ] = useState('')
-  const [allCats, setAllCats] = useState(true)
-  const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
-  const [stockFlt, setStockFlt] = useState<StockFlt>('all')
   const [visibleCount, setVisibleCount] = useState(PAGE)
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
@@ -109,6 +106,10 @@ export default function RevisionWalkPanel({
   const factRef = useRef<HTMLInputElement>(null)
   const deferredQ = useDeferredValue(q)
 
+  const selectedCats = useMemo(() => new Set(scopeCats), [scopeCats])
+  const allCats = scopeAllCats
+  const stockFlt = scopeStock
+
   const doneById = useMemo(() => {
     const map = new Map<number, RevisionDraftLine>()
     for (const l of lines) {
@@ -120,11 +121,6 @@ export default function RevisionWalkPanel({
   const doneLines = useMemo(
     () => lines.filter(l => l.productId != null && l.countedStock !== ''),
     [lines],
-  )
-
-  const roots = useMemo(
-    () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
-    [categories],
   )
 
   const codeIndex = useMemo(() => buildProductCodeIndex(products), [products])
@@ -165,7 +161,7 @@ export default function RevisionWalkPanel({
 
   useEffect(() => {
     setVisibleCount(PAGE)
-  }, [deferredQ, allCats, selectedCats, stockFlt, tab])
+  }, [deferredQ, allCats, scopeCats, stockFlt, tab])
 
   /** Мобильная клавиатура: окно факта держим в видимой зоне visualViewport */
   useEffect(() => {
@@ -314,22 +310,19 @@ export default function RevisionWalkPanel({
   return (
     <div className="k-rev-walk">
       <div className="k-rev-walk-sticky">
-        <div className="k-rev-walk-toolbar">
-          <input
-            className="k-inp"
-            value={note}
-            onChange={e => onNoteChange(e.target.value)}
-            placeholder="Комментарий…"
-          />
-          {onWaitDeviceKeysChange ? (
-            <RevisionWaitDevicesPanel
-              options={deviceOptions}
-              selectedKeys={waitDeviceKeys}
-              onChange={onWaitDeviceKeysChange}
-              currentQueueLen={currentQueueLen}
-            />
-          ) : null}
+        <div className="k-rev-walk-scopechip">
+          <span className="k-rev-walk-scopechip-txt" title={scopeLabel}>📂 {scopeLabel}</span>
+          {onEditScope && (
+            <button type="button" className="k-btn k-btn-s" onClick={onEditScope}>Изменить</button>
+          )}
         </div>
+
+        <input
+          className="k-inp"
+          value={note}
+          onChange={e => onNoteChange(e.target.value)}
+          placeholder="Комментарий…"
+        />
 
         <div className="k-rev-walk-prog">
           <div className="k-rev-walk-prog-bar">
@@ -393,62 +386,6 @@ export default function RevisionWalkPanel({
           <div><span>ОК</span><b style={{ color: 'var(--green)' }}>{walkTotals.matched}</b></div>
           <div><span>Δ</span><b style={diffStyle(walkTotals.netDiff)}>{formatDiff(walkTotals.netDiff)}</b></div>
           <div><span>Σ</span><b style={diffStyle(walkTotals.costMoneyDiff)}>{formatMoneyDiff(walkTotals.costMoneyDiff)}</b></div>
-        </div>
-      )}
-
-      {tab === 'todo' && (
-        <div className="k-rev-walk-filters">
-          <div className="k-rev-scope-lbl">Категории</div>
-          <div className="k-cats k-cats-compact k-rev-cats">
-            <button
-              type="button"
-              className={`k-cat ${allCats ? 'active' : ''}`}
-              onClick={() => { setAllCats(true); setSelectedCats(new Set()) }}
-            >
-              <span className="ce">🏪</span>
-              Все
-            </button>
-            {roots.map(c => {
-              const slug = categorySlug(c)
-              const active = !allCats && selectedCats.has(slug)
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`k-cat ${active ? 'active' : ''}`}
-                  onClick={() => {
-                    setAllCats(false)
-                    setSelectedCats(prev => {
-                      const next = new Set(prev)
-                      if (next.has(slug)) next.delete(slug)
-                      else next.add(slug)
-                      return next
-                    })
-                  }}
-                >
-                  <span className="ce">{c.emoji || '📦'}</span>
-                  {c.name.split(' ')[0]}
-                  {active && <span className="cc">✓</span>}
-                </button>
-              )
-            })}
-          </div>
-          <div className="k-rev-stock-flt">
-            {([
-              { id: 'all' as const, label: 'Все' },
-              { id: 'in' as const, label: 'В наличии' },
-              { id: 'out' as const, label: 'Нет' },
-            ]).map(f => (
-              <button
-                key={f.id}
-                type="button"
-                className={`k-subtab${stockFlt === f.id ? ' active' : ''}`}
-                onClick={() => setStockFlt(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
