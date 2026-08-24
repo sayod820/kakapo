@@ -121,53 +121,55 @@ export default function RevisionScopePanel({
         </div>
       </div>
 
-      <div className="k-rev-scope-lbl">Категории · можно несколько</div>
-      <div className="k-cats k-cats-compact k-rev-cats">
-        <button type="button" className={`k-cat ${allCats ? 'active' : ''}`} onClick={pickAll}>
-          <span className="ce">🏪</span>
-          Все
-          <span className="cc">{products.filter(p => matchStock(stockOf(p), stockFlt)).length}</span>
-        </button>
-        {roots.map(c => {
-          const slug = categorySlug(c)
-          const active = !allCats && selectedCats.has(slug)
-          const count = countInRoot(slug)
-          return (
-            <button
-              key={c.id}
-              type="button"
-              className={`k-cat ${active ? 'active' : ''}`}
-              onClick={() => toggleRoot(slug)}
-            >
-              <span className="ce">{c.emoji || '📦'}</span>
-              {c.name.split(' ')[0]}
-              <span className="cc">{count}</span>
-              {active && <span className="cc">✓</span>}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="k-rev-scope-lbl">Остаток</div>
-      <div className="k-rev-stock-flt">
-        {stockFilters.map(f => (
-          <button
-            key={f.id}
-            type="button"
-            className={`k-subtab ${stockFlt === f.id ? 'active' : ''}`}
-            onClick={() => setStockFlt(f.id)}
-          >
-            {f.label}
+      <div className="k-rev-scope-main">
+        <div className="k-rev-scope-lbl">Категории · можно несколько</div>
+        <div className="k-cats k-cats-compact k-rev-cats k-rev-scope-cats">
+          <button type="button" className={`k-cat ${allCats ? 'active' : ''}`} onClick={pickAll}>
+            <span className="ce">🏪</span>
+            Все
+            <span className="cc">{products.filter(p => matchStock(stockOf(p), stockFlt)).length}</span>
           </button>
-        ))}
-      </div>
+          {roots.map(c => {
+            const slug = categorySlug(c)
+            const active = !allCats && selectedCats.has(slug)
+            const count = countInRoot(slug)
+            return (
+              <button
+                key={c.id}
+                type="button"
+                className={`k-cat ${active ? 'active' : ''}`}
+                onClick={() => toggleRoot(slug)}
+              >
+                <span className="ce">{c.emoji || '📦'}</span>
+                {c.name}
+                <span className="cc">{count}</span>
+                {active && <span className="cc">✓</span>}
+              </button>
+            )
+          })}
+        </div>
 
-      <div className="k-rev-scope-sum">
-        <span>В обход</span>
-        <b style={{ color: canStart ? '#3B8EF0' : 'var(--muted)' }}>
-          {scopeProducts.length} {countWord}
-        </b>
-        <span className="k-rev-scope-sum-sub">{scopeLabel}</span>
+        <div className="k-rev-scope-lbl">Остаток</div>
+        <div className="k-rev-stock-flt">
+          {stockFilters.map(f => (
+            <button
+              key={f.id}
+              type="button"
+              className={`k-subtab ${stockFlt === f.id ? 'active' : ''}`}
+              onClick={() => setStockFlt(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="k-rev-scope-sum">
+          <span>В обход</span>
+          <b style={{ color: canStart ? '#3B8EF0' : 'var(--muted)' }}>
+            {scopeProducts.length} {countWord}
+          </b>
+          <span className="k-rev-scope-sum-sub">{scopeLabel}</span>
+        </div>
       </div>
 
       {!allCats && !selectedCats.size && (
