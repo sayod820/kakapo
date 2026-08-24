@@ -522,7 +522,7 @@ const CSS = `
   }
   .k-rev-scope-main{
     flex:1;min-height:0;display:flex;flex-direction:column;
-    gap:8px;padding:8px;border:1px solid var(--border);border-radius:12px;background:var(--card2)
+    gap:8px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--card2)
   }
   .k-rev-scope-hero{
     display:flex;align-items:flex-start;gap:10px;
@@ -534,31 +534,42 @@ const CSS = `
   }
   .k-rev-scope-hero b{display:block;font-size:20px;line-height:1.15;font-weight:900}
   .k-rev-scope-hero small{display:block;margin-top:4px;font-size:13px;line-height:1.35;color:var(--muted);font-weight:700}
-  .k-rev-scope-lbl{font-size:11px;color:var(--muted);font-weight:700;margin:0 0 6px}
+  .k-rev-scope-lbl{font-size:11px;color:var(--muted);font-weight:700;margin:0}
   .k-rev-cats{margin-bottom:10px}
   .k-rev-scope-cats{
-    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;
-    overflow:auto;max-height:36vh;padding-right:2px
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;
+    flex:1;min-height:120px;overflow:auto;-webkit-overflow-scrolling:touch;align-content:start;padding:2px
   }
-  .k-rev-scope-cats .k-cat{
-    width:100%;justify-content:flex-start;text-align:left;min-height:42px;padding:8px 10px;
-    border-radius:11px;font-size:12px;gap:6px
+  .k-rev-scope-cat{
+    display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+    min-height:44px;padding:8px 10px;border-radius:11px;cursor:pointer;
+    border:1px solid var(--border);background:var(--panel);color:var(--text);
+    font-family:'Nunito',sans-serif;font-size:13px;font-weight:800
   }
-  .k-rev-scope-cats .k-cat .ce{font-size:16px}
-  .k-rev-scope-cats .k-cat .cc{margin-left:auto}
-  .k-rev-stock-flt{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+  .k-rev-scope-cat.active{
+    border-color:rgba(31,215,96,.45);background:rgba(31,215,96,.12);color:#1a7a3c
+  }
+  .k-rev-scope-cat .ce{font-size:16px;line-height:1;flex-shrink:0}
+  .k-rev-scope-cat .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .k-rev-scope-cat .cc{
+    flex-shrink:0;font-size:11px;font-weight:900;padding:2px 7px;border-radius:999px;
+    background:var(--card2);border:1px solid var(--border);color:var(--muted)
+  }
+  .k-rev-scope-cat.active .cc{border-color:rgba(31,215,96,.35);color:#1a7a3c;background:rgba(31,215,96,.1)}
+  .k-rev-scope-cat .ok{flex-shrink:0;color:#1FD760;font-weight:900}
+  .k-rev-stock-flt{display:flex;gap:5px;flex-wrap:wrap;margin:0}
   .k-rev-stock-flt .k-subtab{padding:7px 12px;font-size:12px;min-height:34px}
   .k-rev-scope-sum{
-    display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
-    padding:8px 10px;border-radius:10px;background:var(--card2);
-    border:1px solid var(--border);margin-bottom:10px
+    display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;flex-shrink:0;
+    padding:8px 10px;border-radius:10px;background:var(--panel);
+    border:1px solid var(--border);margin:0
   }
   .k-rev-scope-sum > span:first-child{font-size:11px;color:var(--muted);font-weight:700}
   .k-rev-scope-sum b{font-size:16px;font-weight:900}
   .k-rev-scope-sum-sub{font-size:11px;color:var(--muted);margin-left:auto}
-  .k-rev-scope-hint{font-size:11px;color:var(--gold);margin:-4px 0 8px;text-align:center}
+  .k-rev-scope-hint{font-size:11px;color:var(--gold);margin:0;text-align:center;font-weight:700}
   .k-rev-scope-actions{
-    display:grid;grid-template-columns:1fr 1.6fr;gap:8px;margin-top:10px;
+    display:grid;grid-template-columns:1fr 1.6fr;gap:8px;margin-top:10px;flex-shrink:0;
     position:sticky;bottom:0;background:var(--panel);padding-top:8px
   }
   .k-rev-scope-actions .k-btn{min-height:44px;width:100%;font-size:16px}
@@ -2107,10 +2118,10 @@ const CSS = `
     .k-rev-scope-hero-ic{width:28px;height:28px;border-radius:8px;font-size:14px}
     .k-rev-scope-hero b{font-size:16px}
     .k-rev-scope-hero small{font-size:12px;margin-top:2px}
-    .k-rev-scope-cats{grid-template-columns:1fr;max-height:34vh;gap:5px}
-    .k-rev-scope-cats .k-cat{min-height:38px;padding:6px 8px;font-size:11px}
-    .k-rev-scope-cats .k-cat .ce{font-size:14px}
-    .k-rev-scope-sum{padding:6px 8px;margin-bottom:8px}
+    .k-rev-scope-cats{grid-template-columns:1fr;gap:5px;min-height:100px}
+    .k-rev-scope-cat{min-height:40px;padding:7px 9px;font-size:12px}
+    .k-rev-scope-cat .ce{font-size:14px}
+    .k-rev-scope-sum{padding:6px 8px}
     .k-rev-scope-sum b{font-size:14px}
     .k-rev-scope-actions{grid-template-columns:1fr 1.5fr;gap:6px;padding-top:6px}
     .k-rev-scope-actions .k-btn{min-height:40px;font-size:14px}

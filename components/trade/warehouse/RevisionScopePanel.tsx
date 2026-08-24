@@ -55,7 +55,9 @@ export default function RevisionScopePanel({
   const [stockFlt, setStockFlt] = useState<RevisionScopeStock>(initial?.stock || 'all')
 
   const roots = useMemo(
-    () => categories.filter(c => c.parent_id == null).sort((a, b) => (a.order || 0) - (b.order || 0)),
+    () => categories
+      .filter(c => c.parent_id == null || Number(c.parent_id) === 0)
+      .sort((a, b) => (a.order || 0) - (b.order || 0)),
     [categories],
   )
 
@@ -123,10 +125,10 @@ export default function RevisionScopePanel({
 
       <div className="k-rev-scope-main">
         <div className="k-rev-scope-lbl">Категории · можно несколько</div>
-        <div className="k-cats k-cats-compact k-rev-cats k-rev-scope-cats">
-          <button type="button" className={`k-cat ${allCats ? 'active' : ''}`} onClick={pickAll}>
-            <span className="ce">🏪</span>
-            Все
+        <div className="k-rev-scope-cats" role="group" aria-label="Категории">
+          <button type="button" className={`k-rev-scope-cat ${allCats ? 'active' : ''}`} onClick={pickAll}>
+            <span className="ce" aria-hidden>🏪</span>
+            <span className="nm">Все</span>
             <span className="cc">{products.filter(p => matchStock(stockOf(p), stockFlt)).length}</span>
           </button>
           {roots.map(c => {
@@ -137,16 +139,21 @@ export default function RevisionScopePanel({
               <button
                 key={c.id}
                 type="button"
-                className={`k-cat ${active ? 'active' : ''}`}
+                className={`k-rev-scope-cat ${active ? 'active' : ''}`}
                 onClick={() => toggleRoot(slug)}
               >
-                <span className="ce">{c.emoji || '📦'}</span>
-                {c.name}
+                <span className="ce" aria-hidden>{c.emoji || '📦'}</span>
+                <span className="nm">{c.name}</span>
                 <span className="cc">{count}</span>
-                {active && <span className="cc">✓</span>}
+                {active && <span className="ok">✓</span>}
               </button>
             )
           })}
+          {!roots.length && (
+            <div className="k-rev-scope-hint" style={{ gridColumn: '1 / -1', margin: 0 }}>
+              Категории не загрузились — обновите страницу
+            </div>
+          )}
         </div>
 
         <div className="k-rev-scope-lbl">Остаток</div>
