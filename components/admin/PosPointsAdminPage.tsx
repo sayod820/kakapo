@@ -155,11 +155,12 @@ export default function PosPointsAdminPage() {
         .pos-dev{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px 10px;align-items:center;padding:9px 14px;border-bottom:1px solid color-mix(in srgb, var(--b1) 45%, transparent);}
         .pos-dev:last-child{border-bottom:none;}
         .pos-dev-main{display:flex;align-items:center;gap:8px;min-width:0;}
-        .pos-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-        .pos-dot.on{background:var(--green);box-shadow:0 0 0 3px rgba(31,215,96,.18);}
-        .pos-dot.off{background:var(--muted);opacity:.55;}
+        .pos-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+        .pos-dot.on{background:#1FD760;box-shadow:0 0 0 3px rgba(31,215,96,.35),0 0 8px rgba(31,215,96,.75);}
+        .pos-dot.off{background:#9aa3ab;opacity:.7;}
         .pos-dev-name{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .pos-dev-meta{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap;}
+        .pos-dev-meta.on{color:#1FD760;}
         .pos-rev{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;cursor:pointer;user-select:none;padding:4px 8px;border-radius:8px;border:1px solid var(--b1);background:var(--l3);color:var(--muted);white-space:nowrap;}
         .pos-rev.on{color:var(--green);border-color:rgba(31,215,96,.35);background:rgba(31,215,96,.1);}
         .pos-rev input{margin:0;accent-color:var(--green);}
@@ -281,7 +282,7 @@ export default function PosPointsAdminPage() {
                     <span className={`pos-dot ${online ? 'on' : 'off'}`} title={online ? 'онлайн' : 'офлайн'} />
                     <div style={{ minWidth: 0 }}>
                       <div className="pos-dev-name">{d.name}</div>
-                      <div className="pos-dev-meta">
+                      <div className={`pos-dev-meta ${online ? 'on' : ''}`}>
                         {online ? 'онлайн' : 'офлайн'}
                         {queueTxt ? ` · ${queueTxt}` : ''}
                       </div>
