@@ -15,9 +15,6 @@ import { useCategories } from '@/lib/useCategories'
 import type { Product, ProductStockLayer, StockRevision } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
-import RevisionScopePanel from './RevisionScopePanel'
-import RevisionStepBar from './RevisionStepBar'
-import RevisionModePicker from './RevisionModePicker'
 import RevisionWalkPanel from './RevisionWalkPanel'
 import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
 import RevisionQueuePanel from './RevisionQueuePanel'
@@ -236,8 +233,7 @@ export default function WarehouseRevisionsPanel({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
-  const [modalStep, setModalStep] = useState<'pick' | 'scope' | 'count' | 'walk'>('pick')
-  const [scopeLabel, setScopeLabel] = useState('Все категории')
+  const [modalStep, setModalStep] = useState<'count' | 'walk'>('walk')
   const [countSearch, setCountSearch] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [editProductId, setEditProductId] = useState<number | null>(null)
@@ -249,6 +245,14 @@ export default function WarehouseRevisionsPanel({
 
   const { open, note, lines, activeLineKey, mode, waitDeviceKeys } = draft
   const freezeSystem = Boolean(editingId)
+
+  const refreshPosPoints = useCallback(async () => {
+    if (!USE_API) return
+    try {
+      const points = await api.getPosPoints()
+      usePosStore.setState({ posPoints: points })
+    } catch { /* ignore */ }
+  }, [])
 
   const revisionDeviceOptions = useMemo(() => listRevisionDeviceOptions(), [posPoints])
   const effectiveWaitDeviceKeys = useMemo(() => {
@@ -295,15 +299,17 @@ export default function WarehouseRevisionsPanel({
   }, [open, loadLayers])
 
   useEffect(() => {
+    if (open) void refreshPosPoints()
+  }, [open, refreshPosPoints])
+
+  useEffect(() => {
     const loaded = loadRevisionDraft()
     setDraft(loaded)
     if (loaded.open) {
-      if (loaded.mode === 'walk') {
+      if (loaded.mode === 'walk' || !loaded.lines.some(l => l.productId)) {
         setModalStep('walk')
-      } else if (loaded.lines.some(l => l.productId)) {
-        setModalStep('count')
       } else {
-        setModalStep('pick')
+        setModalStep('count')
       }
     }
     setHydrated(true)
@@ -329,8 +335,7 @@ export default function WarehouseRevisionsPanel({
     clearRevisionDraft()
     setDraft(defaultRevisionDraft())
     setEditingId(null)
-    setModalStep('pick')
-    setScopeLabel('Все категории')
+    setModalStep('walk')
     setCountSearch('')
     setAddOpen(false)
     setEditProductId(null)
@@ -343,27 +348,28 @@ export default function WarehouseRevisionsPanel({
     setAddOpen(false)
     setEditProductId(null)
     setMsg('')
+    void refreshPosPoints()
     const hasLines = lines.some(l => l.productId)
-    if (hasLines) {
-      setModalStep(mode === 'walk' ? 'walk' : 'count')
-      if (mode === 'walk') setScopeLabel('Обход')
-      setDraft(prev => ({ ...prev, open: true }))
+    if (hasLines && mode === 'walk') {
+      setModalStep('walk')
+      setDraft(prev => ({ ...prev, open: true, mode: 'walk' }))
+      void loadLayers()
       return
     }
-    setModalStep('pick')
-    setScopeLabel('Все категории')
-    setDraft({ ...defaultRevisionDraft(), open: true })
+    setModalStep('walk')
+    setDraft({ ...defaultRevisionDraft(), open: true, mode: 'walk' })
+    void loadLayers()
   }
 
   function openEditForm(revision: StockRevision) {
     setEditingId(revision.id)
     setModalStep('count')
-    setScopeLabel('Редактирование')
     setCountSearch('')
     setAddOpen(false)
     setEditProductId(null)
     setDraft(revisionToDraft(revision))
     setMsg('')
+    void refreshPosPoints()
   }
 
   function closeForm() {
@@ -372,54 +378,12 @@ export default function WarehouseRevisionsPanel({
     setDraft(prev => ({ ...prev, open: false }))
     if (editingId) {
       setEditingId(null)
-      setModalStep('pick')
-      setScopeLabel('Все категории')
+      setModalStep('walk')
     }
     setMsg('')
   }
 
   useBackClose(!!open, closeForm)
-
-  function pickCategoriesMode() {
-    setDraft(prev => ({
-      ...prev,
-      mode: 'categories',
-      lines: [emptyRevisionLine()],
-      activeLineKey: null,
-    }))
-    setModalStep('scope')
-    setScopeLabel('Все категории')
-    setMsg('')
-  }
-
-  function pickWalkMode() {
-    setDraft(prev => ({
-      ...prev,
-      mode: 'walk',
-      lines: [],
-      activeLineKey: null,
-    }))
-    setModalStep('walk')
-    setScopeLabel('Обход')
-    setMsg('')
-    void loadLayers()
-  }
-
-  function backToModePick() {
-    if (editingId) return
-    const hasLines = lines.some(l => l.productId)
-    if (hasLines && !confirm('Вернуться к выбору режима? Текущий пересчёт будет сброшен.')) return
-    setDraft(prev => ({
-      ...prev,
-      mode: 'categories',
-      lines: [emptyRevisionLine()],
-      activeLineKey: null,
-      note: '',
-    }))
-    setModalStep('pick')
-    setScopeLabel('Все категории')
-    setMsg('')
-  }
 
   function walkUpsert(product: Product, countedStock: string) {
     const frozen = stockOf(product)
@@ -463,59 +427,6 @@ export default function WarehouseRevisionsPanel({
       countedStock: keepCounted ? line.countedStock : String(stock),
       systemStock: keepCounted && line.systemStock != null ? line.systemStock : stock,
     }
-  }
-
-  async function startCountFromScope(toAdd: Product[], label: string) {
-    if (!toAdd.length) return
-    // Не ждём сеть — берём уже загруженный/кэшированный остаток
-    let source = layers
-    if (!layersLoaded || !source.length) {
-      try {
-        const { readCachedStockLayers } = await import('@/lib/stockLayersLocal')
-        const cached = await readCachedStockLayers()
-        if (cached.length) {
-          source = cached
-          setLayers(cached)
-          setLayersLoaded(true)
-        }
-      } catch { /* ignore */ }
-    }
-    const byProduct = new Map<number, ProductStockLayer[]>()
-    for (const layer of source) {
-      const list = byProduct.get(layer.productId) || []
-      list.push(layer)
-      byProduct.set(layer.productId, list)
-    }
-    void loadLayers()
-    setScopeLabel(label)
-    setCountSearch('')
-    setDraft(prev => ({
-      ...prev,
-      mode: 'categories',
-      lines: [
-        ...toAdd.map(p => {
-          const qty = liveProductStock(p, byProduct.get(p.id), true)
-          return {
-            key: `rev-${p.id}-${Math.random()}`,
-            productId: p.id,
-            countedStock: String(qty),
-            systemStock: qty,
-          }
-        }),
-        emptyRevisionLine(),
-      ],
-      activeLineKey: null,
-    }))
-    setModalStep('count')
-    setMsg('')
-  }
-
-  function backToScope() {
-    if (editingId) return
-    if (filledLines.length && !confirm('Вернуться к выбору категорий? Текущий пересчёт будет сброшен.')) return
-    setModalStep('scope')
-    setDraft(prev => ({ ...prev, mode: 'categories', lines: [emptyRevisionLine()], activeLineKey: null }))
-    setMsg('')
   }
 
   function selectProduct(key: string, product: Product | null) {
@@ -1048,13 +959,7 @@ export default function WarehouseRevisionsPanel({
                   <div className="sub">
                     {editingId
                       ? 'Измените факт · склад обновится'
-                      : modalStep === 'pick'
-                        ? 'Выберите способ пересчёта'
-                        : modalStep === 'scope'
-                          ? 'Категории → пересчёт'
-                          : modalStep === 'walk'
-                            ? 'Обход · поиск и сканер'
-                            : 'Факт по каждому товару → провести'}
+                      : 'Обход · поиск и сканер · ждём устройства'}
                     {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
                   </div>
                 </div>
@@ -1096,40 +1001,16 @@ export default function WarehouseRevisionsPanel({
               )}
             </div>
 
-            {!editingId && modalStep !== 'pick' && mode === 'categories' && (modalStep === 'scope' || modalStep === 'count') && (
-              <RevisionStepBar step={modalStep === 'scope' ? 'scope' : 'count'} />
-            )}
-            {!editingId && modalStep === 'walk' && (
-              <div className="k-rev-steps">
-                <div className="k-rev-step-pill">
-                  <div className="k-rev-step-n on">1</div>
-                  <span className="k-rev-step-lbl on">Обход</span>
-                </div>
-              </div>
-            )}
+            <RevisionWaitDevicesPanel
+              options={revisionDeviceOptions}
+              selectedKeys={effectiveWaitDeviceKeys}
+              onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+              currentQueueLen={offlinePending}
+            />
 
-            {modalStep === 'pick' && !editingId ? (
-              <RevisionModePicker
-                onPickCategories={pickCategoriesMode}
-                onPickWalk={pickWalkMode}
-                onCancel={closeForm}
-              />
-            ) : modalStep === 'scope' && !editingId ? (
-              <RevisionScopePanel
-                products={products}
-                categories={categories}
-                onStart={startCountFromScope}
-                onCancel={backToModePick}
-              />
-            ) : modalStep === 'walk' && !editingId ? (
+            {modalStep === 'walk' && !editingId ? (
               <>
                 <div className="k-modal-b k-rev-scroll k-rev-walk-body">
-                  <RevisionWaitDevicesPanel
-                    options={revisionDeviceOptions}
-                    selectedKeys={effectiveWaitDeviceKeys}
-                    onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
-                    currentQueueLen={offlinePending}
-                  />
                   <RevisionWalkPanel
                     products={products}
                     categories={categories}
@@ -1140,7 +1021,6 @@ export default function WarehouseRevisionsPanel({
                     onEditProduct={id => setEditProductId(id)}
                     note={note}
                     onNoteChange={v => setDraftPatch({ note: v })}
-                    onBack={backToModePick}
                   />
                   {msg && <div className="k-msg" style={{ margin: '8px 10px' }}>{msg}</div>}
                 </div>
@@ -1163,24 +1043,10 @@ export default function WarehouseRevisionsPanel({
             ) : (
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>
-                  <RevisionWaitDevicesPanel
-                    options={revisionDeviceOptions}
-                    selectedKeys={effectiveWaitDeviceKeys}
-                    onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
-                    currentQueueLen={offlinePending}
-                  />
                   <div className="k-rev-note">
                     <div className="k-rev-note-row">
                       <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Комментарий…" />
-                      {!editingId && (
-                        <button type="button" className="k-btn k-btn-s" onClick={backToScope}>← Кат.</button>
-                      )}
                     </div>
-                    {!editingId && (
-                      <div className="k-rev-scope-chip">
-                        <span>📂 {scopeLabel} · {filledLines.length}</span>
-                      </div>
-                    )}
                   </div>
 
                   <div className="k-rev-summary">

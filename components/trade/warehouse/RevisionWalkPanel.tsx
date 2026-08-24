@@ -68,7 +68,6 @@ export default function RevisionWalkPanel({
   onEditProduct,
   note,
   onNoteChange,
-  onBack,
 }: {
   products: Product[]
   categories: Category[]
@@ -79,7 +78,6 @@ export default function RevisionWalkPanel({
   onEditProduct: (productId: number) => void
   note: string
   onNoteChange: (v: string) => void
-  onBack: () => void
 }) {
   const [tab, setTab] = useState<WalkTab>('todo')
   const [q, setQ] = useState('')
@@ -307,18 +305,12 @@ export default function RevisionWalkPanel({
     <div className="k-rev-walk">
       <div className="k-rev-walk-sticky">
         <div className="k-rev-note">
-          <div className="k-rev-note-row">
-            <input
-              className="k-inp"
-              value={note}
-              onChange={e => onNoteChange(e.target.value)}
-              placeholder="Комментарий…"
-            />
-            <button type="button" className="k-btn k-btn-s k-rev-walk-back" onClick={onBack}>
-              <span className="k-rev-walk-back-full">← Режим</span>
-              <span className="k-rev-walk-back-short">←</span>
-            </button>
-          </div>
+          <input
+            className="k-inp"
+            value={note}
+            onChange={e => onNoteChange(e.target.value)}
+            placeholder="Комментарий…"
+          />
         </div>
 
         <div className="k-rev-walk-prog">

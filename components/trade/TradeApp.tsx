@@ -556,6 +556,37 @@ const CSS = `
   .k-rev-mode-go{font-size:18px;color:var(--muted);font-weight:900;flex-shrink:0}
   .k-rev-mode-cancel{margin-top:4px;align-self:stretch;min-height:36px}
   .k-rev-walk-body{padding:8px 12px 72px!important}
+  .k-rev-devs-bar{
+    flex-shrink:0;padding:8px 12px 6px;border-bottom:1px solid var(--border);background:var(--card2)
+  }
+  .k-rev-devs-bar--empty{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .k-rev-devs-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .k-rev-devs-lbl{font-size:11px;font-weight:800;color:var(--muted);white-space:nowrap}
+  .k-rev-devs-count{
+    font-size:10px;font-weight:900;padding:2px 7px;border-radius:999px;
+    background:var(--panel);border:1px solid var(--border);color:var(--text)
+  }
+  .k-rev-devs-reset{
+    margin-left:auto;font-family:'Nunito',sans-serif;font-size:10px;font-weight:800;
+    padding:3px 8px;border-radius:7px;border:1px solid var(--border);background:var(--panel);
+    color:var(--muted);cursor:pointer
+  }
+  .k-rev-devs-chips{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .k-rev-dev-chip{
+    display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+    padding:5px 9px;border-radius:999px;border:1px solid var(--border);
+    background:var(--panel);color:var(--muted);font-size:11px;font-weight:800;cursor:pointer;
+    font-family:'Nunito',sans-serif;max-width:160px
+  }
+  .k-rev-dev-chip.on{
+    border-color:rgba(31,215,96,.45);background:rgba(31,215,96,.12);color:#1FD760
+  }
+  .k-rev-dev-chip.cur{box-shadow:0 0 0 2px rgba(59,142,240,.25)}
+  .k-rev-dev-chip-ic{font-size:12px;line-height:1;flex-shrink:0}
+  .k-rev-dev-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .k-rev-dev-chip-ok{font-size:10px;font-weight:900;flex-shrink:0}
+  .k-rev-devs-hint{font-size:11px;color:var(--muted);font-weight:700}
+  .k-rev-devs-warn{font-size:10px;color:var(--gold);font-weight:700;margin-top:6px;line-height:1.35}
   .k-rev-walk{display:flex;flex-direction:column;gap:8px;min-height:0}
   .k-rev-walk-sticky{display:flex;flex-direction:column;gap:8px}
   .k-rev-walk-back-short{display:none}

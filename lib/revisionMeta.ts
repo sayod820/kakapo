@@ -60,11 +60,14 @@ export function buildRevisionPosCuts(): RevisionPosCut[] {
 
 export function listRevisionDeviceOptions(): RevisionDeviceOption[] {
   const currentId = getTradeDeviceIdSync()
+  const bind = getTradeDeviceBindSync()
+  const posFilter = String(bind?.posId || '').trim()
   const out: RevisionDeviceOption[] = []
   try {
     for (const point of usePosStore.getState().posPoints || []) {
       const posId = String(point.id || '').trim()
       if (!posId) continue
+      if (posFilter && posId !== posFilter) continue
       for (const device of point.devices || []) {
         const deviceId = String(device.id || '').trim()
         if (!deviceId) continue
@@ -81,7 +84,6 @@ export function listRevisionDeviceOptions(): RevisionDeviceOption[] {
   } catch { /* ignore */ }
 
   if (!out.length) {
-    const bind = getTradeDeviceBindSync()
     const deviceId = getTradeDeviceIdSync()
     const posId = String(bind?.posId || '').trim()
     if (posId && deviceId) {
@@ -96,7 +98,10 @@ export function listRevisionDeviceOptions(): RevisionDeviceOption[] {
     }
   }
 
-  return out
+  return out.sort((a, b) => {
+    if (a.isCurrentDevice !== b.isCurrentDevice) return a.isCurrentDevice ? -1 : 1
+    return a.label.localeCompare(b.label, 'ru')
+  })
 }
 
 export function defaultRevisionWaitDeviceKeys(): string[] {

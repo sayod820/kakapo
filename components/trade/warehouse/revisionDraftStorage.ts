@@ -33,9 +33,9 @@ export function emptyRevisionLine(): RevisionDraftLine {
 export function defaultRevisionDraft(): RevisionDraft {
   return {
     open: false,
-    mode: 'categories',
+    mode: 'walk',
     note: '',
-    lines: [emptyRevisionLine()],
+    lines: [],
     activeLineKey: null,
     scrollTop: 0,
   }
