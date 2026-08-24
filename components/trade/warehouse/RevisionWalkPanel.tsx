@@ -11,6 +11,8 @@ import {
 import { categorySlug, productMatchesCategoryFilter } from '@/lib/useCategories'
 import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
+import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
+import type { RevisionDeviceOption } from '@/lib/revisionMeta'
 import type { RevisionDraftLine } from './revisionDraftStorage'
 import {
   fmtMoney,
@@ -68,6 +70,10 @@ export default function RevisionWalkPanel({
   onEditProduct,
   note,
   onNoteChange,
+  deviceOptions = [],
+  waitDeviceKeys = [],
+  onWaitDeviceKeysChange,
+  currentQueueLen = 0,
 }: {
   products: Product[]
   categories: Category[]
@@ -78,6 +84,10 @@ export default function RevisionWalkPanel({
   onEditProduct: (productId: number) => void
   note: string
   onNoteChange: (v: string) => void
+  deviceOptions?: RevisionDeviceOption[]
+  waitDeviceKeys?: string[]
+  onWaitDeviceKeysChange?: (keys: string[]) => void
+  currentQueueLen?: number
 }) {
   const [tab, setTab] = useState<WalkTab>('todo')
   const [q, setQ] = useState('')
@@ -304,13 +314,21 @@ export default function RevisionWalkPanel({
   return (
     <div className="k-rev-walk">
       <div className="k-rev-walk-sticky">
-        <div className="k-rev-note">
+        <div className="k-rev-walk-toolbar">
           <input
             className="k-inp"
             value={note}
             onChange={e => onNoteChange(e.target.value)}
             placeholder="Комментарий…"
           />
+          {onWaitDeviceKeysChange ? (
+            <RevisionWaitDevicesPanel
+              options={deviceOptions}
+              selectedKeys={waitDeviceKeys}
+              onChange={onWaitDeviceKeysChange}
+              currentQueueLen={currentQueueLen}
+            />
+          ) : null}
         </div>
 
         <div className="k-rev-walk-prog">

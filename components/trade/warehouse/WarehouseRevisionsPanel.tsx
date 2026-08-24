@@ -959,7 +959,7 @@ export default function WarehouseRevisionsPanel({
                   <div className="sub">
                     {editingId
                       ? 'Измените факт · склад обновится'
-                      : 'Обход · поиск и сканер · ждём устройства'}
+                      : 'Обход · поиск и сканер'}
                     {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
                   </div>
                 </div>
@@ -1001,13 +1001,6 @@ export default function WarehouseRevisionsPanel({
               )}
             </div>
 
-            <RevisionWaitDevicesPanel
-              options={revisionDeviceOptions}
-              selectedKeys={effectiveWaitDeviceKeys}
-              onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
-              currentQueueLen={offlinePending}
-            />
-
             {modalStep === 'walk' && !editingId ? (
               <>
                 <div className="k-modal-b k-rev-scroll k-rev-walk-body">
@@ -1021,6 +1014,10 @@ export default function WarehouseRevisionsPanel({
                     onEditProduct={id => setEditProductId(id)}
                     note={note}
                     onNoteChange={v => setDraftPatch({ note: v })}
+                    deviceOptions={revisionDeviceOptions}
+                    waitDeviceKeys={effectiveWaitDeviceKeys}
+                    onWaitDeviceKeysChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+                    currentQueueLen={offlinePending}
                   />
                   {msg && <div className="k-msg" style={{ margin: '8px 10px' }}>{msg}</div>}
                 </div>
@@ -1044,8 +1041,14 @@ export default function WarehouseRevisionsPanel({
               <>
                 <div ref={bodyRef} className="k-modal-b k-rev-scroll" onScroll={onBodyScroll}>
                   <div className="k-rev-note">
-                    <div className="k-rev-note-row">
+                    <div className="k-rev-note-row k-rev-edit-toolbar">
                       <input className="k-inp" value={note} onChange={e => setDraftPatch({ note: e.target.value })} placeholder="Комментарий…" />
+                      <RevisionWaitDevicesPanel
+                        options={revisionDeviceOptions}
+                        selectedKeys={effectiveWaitDeviceKeys}
+                        onChange={keys => setDraftPatch({ waitDeviceKeys: keys })}
+                        currentQueueLen={offlinePending}
+                      />
                     </div>
                   </div>
 
