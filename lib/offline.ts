@@ -971,28 +971,83 @@ async function sendOp(row: PendingOp): Promise<string> {
       return String((rowOut as any)?.id || '')
     }
     case 'stock_receipt_create': {
-      const p = row.payload || {}
+      let p = await resolveRefs(row.payload, ['supplierId'])
       const items = await remapProductIdsInItems(p.items || [])
-      const receipt = await api.createStockReceipt({
+      const body = () => ({
         clientRef: p.clientRef,
         supplierId: p.supplierId,
         createdBy: p.createdBy,
         paidNow: Number(p.paidNow) || 0,
         items,
         createdAtIso: p.createdAtIso,
-      } as any)
-      return String((receipt as any)?.id || '')
+      })
+      try {
+        const receipt = await api.createStockReceipt(body() as any)
+        return String((receipt as any)?.id || '')
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/Поставщик не найден/i.test(msg) || !p.supplierId) throw e
+        // Поставщик есть на телефоне, на сервере нет — создаём и повторяем приход
+        const { usePosStore } = await import('./posStore')
+        const local = usePosStore.getState().suppliers.find(s => String(s.id) === String(p.supplierId))
+        if (!local?.name) throw e
+        const saved = await api.createSupplier({
+          name: local.name,
+          category: local.category,
+          phone: local.phone,
+          address: local.address,
+          note: local.note,
+          clientRef: p.clientRef ? `${p.clientRef}:sup` : undefined,
+        } as any)
+        const serverId = String((saved as any)?.id || '')
+        if (!serverId) throw e
+        await rememberId(String(p.supplierId), serverId)
+        usePosStore.setState(s => ({
+          suppliers: s.suppliers.map(x => (String(x.id) === String(p.supplierId) ? { ...x, ...saved, id: serverId } : x)),
+        }))
+        void persistPosSnapshot()
+        p = { ...p, supplierId: serverId }
+        const receipt = await api.createStockReceipt(body() as any)
+        return String((receipt as any)?.id || '')
+      }
     }
     case 'stock_receipt_update': {
-      const p = await resolveRefs(row.payload, ['id'])
+      let p = await resolveRefs(row.payload, ['id', 'supplierId'])
       const items = await remapProductIdsInItems(p.items || [])
-      const receipt = await api.updateStockReceipt(String(p.id), {
+      const body = () => ({
         clientRef: p.clientRef,
         supplierId: p.supplierId,
         paidNow: Number(p.paidNow) || 0,
         items,
-      } as any)
-      return String((receipt as any)?.id || '')
+      })
+      try {
+        const receipt = await api.updateStockReceipt(String(p.id), body() as any)
+        return String((receipt as any)?.id || '')
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/Поставщик не найден/i.test(msg) || !p.supplierId) throw e
+        const { usePosStore } = await import('./posStore')
+        const local = usePosStore.getState().suppliers.find(s => String(s.id) === String(p.supplierId))
+        if (!local?.name) throw e
+        const saved = await api.createSupplier({
+          name: local.name,
+          category: local.category,
+          phone: local.phone,
+          address: local.address,
+          note: local.note,
+          clientRef: p.clientRef ? `${p.clientRef}:sup` : undefined,
+        } as any)
+        const serverId = String((saved as any)?.id || '')
+        if (!serverId) throw e
+        await rememberId(String(p.supplierId), serverId)
+        usePosStore.setState(s => ({
+          suppliers: s.suppliers.map(x => (String(x.id) === String(p.supplierId) ? { ...x, ...saved, id: serverId } : x)),
+        }))
+        void persistPosSnapshot()
+        p = { ...p, supplierId: serverId }
+        const receipt = await api.updateStockReceipt(String(p.id), body() as any)
+        return String((receipt as any)?.id || '')
+      }
     }
     case 'stock_receipt_delete': {
       const p = await resolveRefs(row.payload, ['id'])
@@ -1077,7 +1132,14 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_revision_delete': {
       const p = await resolveRefs(row.payload, ['id'])
-      await api.deleteStockRevision(String(p.id), { clientRef: p.clientRef })
+      try {
+        await api.deleteStockRevision(String(p.id), { clientRef: p.clientRef })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Ревизия уже снята / товар из строк пропал с сервера — локально удаление уже применено
+        if (/не найден/i.test(msg)) return String(p.id || '')
+        throw e
+      }
       return String(p.id || '')
     }
     case 'supplier_payment_create': {

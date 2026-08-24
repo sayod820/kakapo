@@ -175,6 +175,22 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
     }
   }
 
+  async function discardOne(row: PendingOp) {
+    if (syncing || busyRef) return
+    const label = QUEUE_KIND_LABEL[row.kind] || row.kind
+    if (!confirm(`Убрать из очереди «${label}»?\n\nНа сервер эта операция больше не уйдёт. На телефоне данные останутся как есть.`)) {
+      return
+    }
+    setBusyRef(row.clientRef)
+    try {
+      const { dropPending } = await import('@/lib/offline')
+      await dropPending(row.clientRef)
+      await refresh()
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
   async function sendAll() {
     if (syncing || busyRef) return
     setBusyRef('__all__')
@@ -216,6 +232,16 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           >
             {busyRef === row.clientRef ? 'Отправка…' : 'Отправить сейчас'}
           </button>
+          {row.failed && (
+            <button
+              type="button"
+              className="k-btn k-btn-s"
+              disabled={isBusy}
+              onClick={() => void discardOne(row)}
+            >
+              Убрать
+            </button>
+          )}
         </div>
       </div>
     )

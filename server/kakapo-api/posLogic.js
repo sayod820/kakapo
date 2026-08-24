@@ -2164,8 +2164,11 @@ export function listStockRevisions(db) {
 
 function reverseStockRevision(db, revision) {
   for (const item of revision.items || []) {
+    const productId = Number(item.productId)
+    const product = (db.products || []).find(p => Number(p.id) === productId)
+    if (!product) continue
     const restore = item.stockBefore != null ? item.stockBefore : item.systemStock
-    setProductStockExact(db, item.productId, restore, { reason: 'Откат ревизии' })
+    setProductStockExact(db, productId, restore, { reason: 'Откат ревизии' })
   }
 }
 
