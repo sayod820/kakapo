@@ -91,6 +91,7 @@ export default function RevisionWalkPanel({
 }) {
   const [tab, setTab] = useState<WalkTab>('todo')
   const [q, setQ] = useState('')
+  const [noteOpen, setNoteOpen] = useState(Boolean(note.trim()))
   const [visibleCount, setVisibleCount] = useState(PAGE)
   const [scanOpen, setScanOpen] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
@@ -310,28 +311,59 @@ export default function RevisionWalkPanel({
   return (
     <div className="k-rev-walk">
       <div className="k-rev-walk-sticky">
-        <div className="k-rev-walk-scopechip">
-          <span className="k-rev-walk-scopechip-txt" title={scopeLabel}>📂 {scopeLabel}</span>
-          {onEditScope && (
-            <button type="button" className="k-btn k-btn-s" onClick={onEditScope}>Изменить</button>
-          )}
+        <div className="k-rev-walk-mini">
+          <button
+            type="button"
+            className="k-rev-walk-filterbtn"
+            onClick={onEditScope}
+            disabled={!onEditScope}
+            title={scopeLabel}
+          >
+            <span>📂 {scopeLabel}</span>
+            <em>{progressPct}% · {doneCount}/{progressTotal || 0}</em>
+          </button>
+          <button
+            type="button"
+            className={`k-rev-walk-icbtn${noteOpen || note.trim() ? ' on' : ''}`}
+            title="Комментарий"
+            onClick={() => setNoteOpen(v => !v)}
+          >
+            💬
+          </button>
         </div>
 
-        <input
-          className="k-inp"
-          value={note}
-          onChange={e => onNoteChange(e.target.value)}
-          placeholder="Комментарий…"
-        />
+        {noteOpen && (
+          <input
+            className="k-inp"
+            value={note}
+            onChange={e => onNoteChange(e.target.value)}
+            placeholder="Комментарий…"
+          />
+        )}
 
-        <div className="k-rev-walk-prog">
-          <div className="k-rev-walk-prog-bar">
-            <i style={{ width: `${progressPct}%` }} />
-          </div>
-          <span>
-            <b>{progressPct}%</b>
-            <em> · {doneCount}{progressTotal ? `/${progressTotal}` : ''}</em>
-          </span>
+        <div className="k-rev-walk-search">
+          <input
+            ref={searchRef}
+            className="k-inp"
+            value={q}
+            onChange={e => { setQ(e.target.value); setScanMsg('') }}
+            placeholder="Штрихкод, название…"
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (!tryOpenFromQuery(q) && tab === 'todo' && todoShown[0]) openSheet(todoShown[0])
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="k-btn k-btn-s k-cam-scan-btn"
+            title="Сканер камеры"
+            aria-label="Сканер камеры"
+            onClick={() => { setScanOpen(true); setScanMsg('') }}
+          >
+            📷
+          </button>
         </div>
 
         <div className="k-rev-walk-tabs" role="tablist">
@@ -350,31 +382,6 @@ export default function RevisionWalkPanel({
             onClick={() => setTab('done')}
           >
             Сделано <b>{doneCount}</b>
-          </button>
-        </div>
-
-        <div className="k-rev-walk-search">
-          <input
-            ref={searchRef}
-            className="k-inp"
-            value={q}
-            onChange={e => { setQ(e.target.value); setScanMsg('') }}
-            placeholder="Штрихкод, название, артикул…"
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                if (!tryOpenFromQuery(q) && tab === 'todo' && todoShown[0]) openSheet(todoShown[0])
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="k-btn k-btn-s k-cam-scan-btn"
-            title="Сканер камеры"
-            aria-label="Сканер камеры"
-            onClick={() => { setScanOpen(true); setScanMsg('') }}
-          >
-            📷
           </button>
         </div>
         {scanMsg && <div className="k-rev-walk-msg">{scanMsg}</div>}

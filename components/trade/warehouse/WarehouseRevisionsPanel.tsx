@@ -995,7 +995,7 @@ export default function WarehouseRevisionsPanel({
 
       {open && (
         <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
-          <div className="k-modal k-receipt-modal k-rev-modal" onClick={e => e.stopPropagation()}>
+          <div className={`k-modal k-receipt-modal k-rev-modal${modalStep === 'walk' && !editingId ? ' k-rev-modal--walk' : ''}`} onClick={e => e.stopPropagation()}>
             <div className="k-rcpt-head">
               <div className="k-rcpt-head-title">
                 <div className="k-rcpt-head-ic" style={{ background: 'rgba(59,142,240,.15)', color: '#3B8EF0' }}>📋</div>
@@ -1005,16 +1005,16 @@ export default function WarehouseRevisionsPanel({
                     {editingId
                       ? 'Измените факт · склад обновится'
                       : modalStep === 'scope'
-                        ? 'Шаг 1/3 · фильтр'
+                        ? '1/3 фильтр'
                         : modalStep === 'walk'
-                          ? 'Шаг 2/3 · обход'
-                          : 'Шаг 3/3 · устройства'}
+                          ? '2/3 обход'
+                          : '3/3 устройства'}
                     {editingRevision ? ` · ${fmtDateTime(editingRevision.createdAtIso)}` : ''}
                   </div>
                 </div>
               </div>
               <button type="button" className="k-rcpt-find-x" onClick={closeForm} aria-label="Закрыть">✕</button>
-              {(editingId ? modalStep === 'count' : modalStep === 'walk' || modalStep === 'devices') && (
+              {(editingId ? modalStep === 'count' : modalStep === 'walk') && (
                 <div className="k-rev-head-actions">
                   {editingId && (
                     <button
@@ -1027,14 +1027,16 @@ export default function WarehouseRevisionsPanel({
                       {deletingId === editingId ? '…' : 'Удалить'}
                     </button>
                   )}
+                  {editingId && (
                   <button
                     type="button"
                     className="k-btn k-btn-s"
                     disabled={saving}
-                    onClick={() => { if (confirm(editingId ? 'Отменить редактирование?' : 'Очистить черновик?')) resetForm() }}
+                    onClick={() => { if (confirm('Отменить редактирование?')) resetForm() }}
                   >
-                    {editingId ? 'Отмена' : 'Очистить'}
+                    Отмена
                   </button>
+                  )}
                   {editingId ? (
                     <button
                       type="button"
@@ -1053,15 +1055,15 @@ export default function WarehouseRevisionsPanel({
                       disabled={saving || totals.count === 0}
                       onClick={openDevicesStep}
                     >
-                      Далее → устройства
+                      Далее
                     </button>
                   ) : null}
                 </div>
               )}
             </div>
 
-            {!editingId && (
-              <RevisionStepBar step={modalStep === 'devices' ? 'devices' : modalStep === 'scope' ? 'scope' : 'walk'} />
+            {!editingId && modalStep !== 'walk' && (
+              <RevisionStepBar step={modalStep === 'devices' ? 'devices' : 'scope'} />
             )}
 
             {modalStep === 'scope' && !editingId ? (
