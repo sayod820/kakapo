@@ -147,14 +147,21 @@ export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
     remain.set(d.id, Math.round(Math.abs(d.amount) * 100) / 100)
   }
 
-  // Сначала погашения, привязанные к конкретному чеку/заказу
+  // Сначала погашения, привязанные к конкретному чеку/заказу/наличной выдаче
   let repayLeft = 0
   for (const p of pays) {
     const amt = Math.round(Math.abs(Number(p.amount) || 0) * 100) / 100
     if (!(amt > 0)) continue
     const oid = String(p.orderId || '').trim()
     if (oid) {
-      const target = debts.find(d => debtOrderIdsMatch(d.orderId, oid) && (remain.get(d.id) || 0) > 0.001)
+      const target = debts.find(d => {
+        if ((remain.get(d.id) || 0) <= 0.001) return false
+        if (debtOrderIdsMatch(d.orderId, oid)) return true
+        // Наличная выдача: orderId = cash-D-… или сам id записи
+        if (debtOrderIdsMatch(d.id, oid)) return true
+        if (debtOrderIdsMatch(`cash-${d.id}`, oid)) return true
+        return false
+      })
       if (target) {
         const need = remain.get(target.id) || 0
         const apply = Math.min(need, amt)
@@ -923,14 +930,34 @@ export function debtBalanceDeltaForHistoryChange(
 function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'date' | 'time' | 'ts'>) {
   const prev = loadDebtHistory(phone)
   const now = new Date()
+  const id = `D-${now.getTime()}`
+  // Наличная выдача без чека — свой orderId, чтобы погашать по одной строке
+  let orderId = entry.orderId
+  if (
+    entry.type === 'debt'
+    && !orderId
+    && entry.source !== 'pos'
+    && entry.source !== 'order'
+  ) {
+    orderId = `cash-${id}`
+  }
   const row: DebtHistoryEntry = {
     ...entry,
-    id: `D-${now.getTime()}`,
+    id,
+    orderId,
     date: now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
     time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
     ts: now.getTime(),
   }
   saveDebtHistoryList(phone, [row, ...prev])
+}
+
+/** Стабильный ключ для погашения наличной выдачи */
+export function cashDebtOrderId(row: { id?: string; orderId?: string }): string {
+  const oid = String(row.orderId || '').trim()
+  if (oid) return oid
+  const id = String(row.id || '').trim()
+  return id ? `cash-${id}` : ''
 }
 
 export async function chargeCredit(
