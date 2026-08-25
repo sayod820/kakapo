@@ -10570,7 +10570,7 @@ export default function CashierModule({
               <div className="hist-when" style={{ marginBottom: 6 }}>{histDetail.when}</div>
               <div className="hist-sub" style={{ marginBottom: 12 }}>{histDetail.sub}</div>
               {(histDetail.debtPaid != null || histDetail.debtRemain != null) ? (
-                <div className="cashier-debt-check-nums" style={{ marginBottom: 12 }}>
+                <div className="cashier-debt-check-nums hist-detail-nums" style={{ marginBottom: 12 }}>
                   <div><span>Сумма</span><b>{fmtMoney(histDetail.amount)}</b></div>
                   <div><span>Оплатил</span><b style={{ color: 'var(--accent)' }}>{fmtMoney(histDetail.debtPaid || 0)}</b></div>
                   <div><span>Осталось</span><b style={{ color: 'var(--red)' }}>{fmtMoney(histDetail.debtRemain || 0)}</b></div>
@@ -10585,7 +10585,7 @@ export default function CashierModule({
                 if (!detailLines.length) return null
                 return (
                   <div className="hist-detail-items">
-                    <div className="hist-section-h">Состав</div>
+                    <div className="hist-section-h">Состав · {detailLines.length}</div>
                     <div className="hist-lines">
                       {detailLines.map((line, i) => {
                         const q = Number.isInteger(line.qty)
@@ -10608,11 +10608,13 @@ export default function CashierModule({
                   </div>
                 )
               })()}
+            </div>
+            <div className="hist-detail-foot">
               {(histDetail.tone === 'credit' || histDetail.tone === 'debt') && histDetail.debtStatus !== 'paid' && (
                 <button
                   type="button"
                   className="action-chip ac-repay"
-                  style={{ width: '100%', marginTop: 16 }}
+                  style={{ width: '100%' }}
                   onClick={() => {
                     const remain = Math.min(
                       histDetail.debtRemain ?? histDetail.amount,
@@ -10643,8 +10645,6 @@ export default function CashierModule({
                   <span>{histDetail.orderId || histDetail.saleId ? 'Погасить этот чек' : 'Погасить этот долг'}</span>
                 </button>
               )}
-            </div>
-            <div className="modal-card-actions" style={{ marginTop: 14 }}>
               <button type="button" className="btn-confirm" onClick={() => setHistDetail(null)}>Закрыть</button>
             </div>
           </div>
