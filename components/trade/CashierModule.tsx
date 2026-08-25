@@ -10322,6 +10322,7 @@ export default function CashierModule({
                     const renderSale = (s: typeof cashierDebtPanel.creditSales[number]) => {
                       const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'Должен'
                       const statusColor = s.status === 'paid' ? 'var(--accent)' : s.status === 'partial' ? 'var(--org)' : 'var(--red)'
+                      const whenShort = s.when.replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
                       return (
                         <button
                           key={s.id}
@@ -10343,7 +10344,7 @@ export default function CashierModule({
                                 : `К оплате ${fmtMoney(s.remain)}`,
                               items: s.items || undefined,
                               lines: lines.length ? lines : undefined,
-                              amount: s.remain || s.debtAdded,
+                              amount: s.debtAdded,
                               tone: s.status === 'paid' ? 'credit' : 'debt',
                               debtStatus: s.status,
                               debtPaid: s.paid,
@@ -10353,19 +10354,16 @@ export default function CashierModule({
                             })
                           }}
                         >
-                          <div className="cashier-debt-check-top">
-                            <div>
-                              <b>{s.label}</b>
-                              <div className="cashier-debt-check-when">{s.when}</div>
-                            </div>
-                            <span className="cashier-debt-check-st" style={{ color: statusColor }}>{statusLabel}</span>
-                          </div>
-                          {s.items && <div className="cashier-debt-check-items">{s.items}</div>}
-                          <div className="cashier-debt-check-nums">
-                            <div><span>Было</span><b>{fmtMoney(s.debtAdded)}</b></div>
-                            <div><span>Оплатил</span><b style={{ color: 'var(--accent)' }}>{fmtMoney(s.paid)}</b></div>
-                            <div><span>Осталось</span><b style={{ color: statusColor }}>{s.status === 'paid' ? '—' : fmtMoney(s.remain)}</b></div>
-                          </div>
+                          <span className="cashier-debt-check-id">
+                            <b>{s.label}</b>
+                            <em>{whenShort}</em>
+                          </span>
+                          <span className="cashier-debt-check-nums">
+                            <span title="Было"><i>было</i><b>{fmtMoney(s.debtAdded)}</b></span>
+                            <span title="Оплатил"><i>опл.</i><b style={{ color: 'var(--accent)' }}>{fmtMoney(s.paid)}</b></span>
+                            <span title="Осталось"><i>ост.</i><b style={{ color: statusColor }}>{s.status === 'paid' ? '—' : fmtMoney(s.remain)}</b></span>
+                          </span>
+                          <span className="cashier-debt-check-st" style={{ color: statusColor }}>{statusLabel} ›</span>
                         </button>
                       )
                     }
@@ -10411,13 +10409,12 @@ export default function CashierModule({
                             if (match) setHistDetail(match)
                           }}
                         >
-                          <div className="cashier-debt-pay-main">
-                            <b>{r.isReturn ? '↩️ Возврат' : '✅ Оплата'} · {fmtMoney(r.amount)} сом</b>
-                            <div className="cashier-debt-pay-check">по {r.checkLabel}</div>
-                            {r.items && <div className="cashier-debt-check-items">{r.items}</div>}
-                            <div className="cashier-debt-check-when">{r.when}</div>
-                          </div>
-                          <div className="cashier-debt-pay-amt">−{fmtMoney(r.amount)}</div>
+                          <span className="cashier-debt-pay-main">
+                            <b>{r.isReturn ? 'Возврат' : 'Оплата'} {fmtMoney(r.amount)}</b>
+                            <em>по {r.checkLabel}</em>
+                            <i>{r.when}</i>
+                          </span>
+                          <span className="cashier-debt-pay-amt">−{fmtMoney(r.amount)}</span>
                         </button>
                       ))}
                     </div>

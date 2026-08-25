@@ -1554,36 +1554,41 @@ export const POS_MOCK_CSS = `
     display:flex;flex-wrap:wrap;gap:8px 14px;margin:0 0 10px;font-size:12px;color:var(--t3);flex-shrink:0;
   }
   .cashier-debts-split b{font-family:'JetBrains Mono',monospace;}
-  .cashier-debt-hint{font-size:12px;color:var(--t3);margin:0 0 10px;line-height:1.35;}
-  .cashier-debt-sec{font-size:11px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.03em;margin:10px 0 6px;}
+  .cashier-debt-hint{font-size:11px;color:var(--t3);margin:0 0 8px;line-height:1.3;}
+  .cashier-debt-sec{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.03em;margin:8px 0 4px;}
   .pos-root button.cashier-debt-check,.cashier-debt-check{
-    display:block;width:100%;text-align:left;margin:0 0 8px;padding:12px;
-    border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:inherit;cursor:pointer;
+    display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:0 0 4px;padding:7px 10px;
+    border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:inherit;cursor:pointer;
   }
   .pos-root button.cashier-debt-check:hover{border-color:var(--accent);}
-  .cashier-debt-check-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
-  .cashier-debt-check-when{font-size:11px;color:var(--t3);margin-top:2px;}
-  .cashier-debt-check-st{font-size:12px;font-weight:800;white-space:nowrap;}
-  .cashier-debt-check-items{
-    font-size:11px;color:var(--t3);margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  }
+  .cashier-debt-check-id{display:flex;flex-direction:column;gap:1px;min-width:0;flex:0 1 118px;}
+  .cashier-debt-check-id b{font-size:12px;font-weight:900;white-space:nowrap;}
+  .cashier-debt-check-id em{font-style:normal;font-size:10px;color:var(--t3);white-space:nowrap;}
+  .cashier-debt-check-st{font-size:11px;font-weight:800;white-space:nowrap;flex-shrink:0;margin-left:auto;}
   .cashier-debt-check-nums{
-    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;padding-top:10px;
-    border-top:1px solid var(--border);
+    display:flex;align-items:center;gap:10px;flex:1;min-width:0;justify-content:flex-end;
   }
-  .cashier-debt-check-nums > div{display:flex;flex-direction:column;gap:2px;}
-  .cashier-debt-check-nums span{font-size:10px;color:var(--t3);font-weight:700;}
-  .cashier-debt-check-nums b{font-size:14px;font-family:'JetBrains Mono',monospace;}
-  .cashier-debt-pays{display:flex;flex-direction:column;gap:8px;}
+  .cashier-debt-check-nums > span{display:flex;flex-direction:column;align-items:flex-end;gap:0;line-height:1.15;}
+  .cashier-debt-check-nums i{font-style:normal;font-size:9px;color:var(--t3);font-weight:700;}
+  .cashier-debt-check-nums b{font-size:12px;font-family:'JetBrains Mono',monospace;font-weight:900;}
+  .cashier-debt-pays{display:flex;flex-direction:column;gap:4px;}
   .pos-root button.cashier-debt-pay,.cashier-debt-pay{
-    display:flex;justify-content:space-between;gap:12px;align-items:flex-start;width:100%;
-    padding:12px;border-radius:12px;border:1px solid rgba(31,215,96,.28);
+    display:flex;justify-content:space-between;gap:10px;align-items:center;width:100%;
+    padding:7px 10px;border-radius:10px;border:1px solid rgba(31,215,96,.28);
     background:rgba(31,215,96,.07);color:inherit;cursor:pointer;text-align:left;
   }
   .pos-root button.cashier-debt-pay:disabled{cursor:default;opacity:1;}
-  .cashier-debt-pay-main b{font-size:14px;}
-  .cashier-debt-pay-check{font-size:13px;font-weight:800;color:var(--blue);margin-top:4px;}
-  .cashier-debt-pay-amt{font-size:16px;font-weight:900;color:var(--accent);font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+  .cashier-debt-pay-main{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .cashier-debt-pay-main b{font-size:12px;font-weight:900;}
+  .cashier-debt-pay-main em{font-style:normal;font-size:11px;font-weight:800;color:var(--blue);}
+  .cashier-debt-pay-main i{font-style:normal;font-size:10px;color:var(--t3);}
+  .cashier-debt-pay-amt{font-size:13px;font-weight:900;color:var(--accent);font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+  @media (max-width:900px){
+    .cashier-debt-check-id{flex:0 1 96px;}
+    .cashier-debt-check-nums{gap:6px;}
+    .cashier-debt-check-nums b{font-size:11px;}
+    .cashier-debt-check-st{font-size:10px;}
+  }
   .cashier-debts-subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;flex-shrink:0;}
   .pos-root button.cashier-debts-subtab{
     border:1px solid var(--border);background:var(--surface2);color:var(--t3);border-radius:10px;
