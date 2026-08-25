@@ -846,6 +846,7 @@ export async function returnSaleSafe(
   const clientRef = newClientRef()
 
   const applyAndQueue = async () => {
+    const debtBefore = saleDebtBeforeReturn(sale)
     const returned = applyLocalReturn(sale, input.items)
     const party = resolveSaleClientAndCard({
       clientId: returned.clientId || sale.clientId,
@@ -855,6 +856,7 @@ export async function returnSaleSafe(
     const clientDebtAfter = (party.cl || party.card)
       ? round2(effectiveDebt(party.cl, party.card))
       : undefined
+    const cutDebt = Math.max(0, round2(debtBefore - (Number(returned.debtAdded) || 0)))
     await useOfflineSync.getState().queueOp('sale_return', {
       clientRef,
       saleId: sale.id,
@@ -864,7 +866,7 @@ export async function returnSaleSafe(
       clientId: party.cl?.id || returned.clientId || sale.clientId,
       cardNum: party.resolvedCardNum || returned.cardNum || sale.cardNum,
       clientDebtAfter,
-      cutDebt: Math.max(0, round2((Number(sale.debtAdded) || 0) - (Number(returned.debtAdded) || 0))),
+      cutDebt,
     })
     return returned
   }
@@ -884,6 +886,26 @@ export async function returnSaleSafe(
   return res
 }
 
+/**
+ * Сколько долга ещё висит на чеке к возврату.
+ * mixed: если debtAdded пропал — выводим из total − нал/карта/кошелёк.
+ */
+function saleDebtBeforeReturn(sale: PosSale): number {
+  const explicit = round2(Number(sale.debtAdded) || 0)
+  if (explicit > 0.001) return explicit
+  const method = String(sale.paymentMethod || '')
+  if (method === 'credit') return round2(Number(sale.total) || 0)
+  if (method === 'mixed') {
+    const paid = round2(
+      (Number(sale.paidCash) || 0)
+      + (Number(sale.paidCard) || 0)
+      + (Number(sale.paidWallet) || 0),
+    )
+    return round2(Math.max(0, (Number(sale.total) || 0) - paid))
+  }
+  return 0
+}
+
 /** Локальный возврат: товары на склад, долг/бонусы/кошелёк как на сервере */
 function computeReturnCuts(sale: PosSale, returnTotal: number) {
   const bonusBefore = round2(Number(sale.bonusSpent) || 0)
@@ -901,11 +923,7 @@ function computeReturnCuts(sale: PosSale, returnTotal: number) {
   let cutCash = 0
   let cutCard = 0
   let cutWallet = 0
-  const debtBefore = round2(
-    Number(sale.debtAdded) > 0
-      ? Number(sale.debtAdded)
-      : (sale.paymentMethod === 'credit' ? (Number(sale.total) || 0) : 0),
-  )
+  const debtBefore = saleDebtBeforeReturn(sale)
   if (debtBefore > 0 && remainCashCut > 0) {
     cutDebt = Math.min(debtBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutDebt)
@@ -1061,8 +1079,21 @@ function applyLocalReturn(
 
 function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof computeReturnCuts>) {
   if (!(cuts.cutDebt > 0 || cuts.cutWallet > 0 || cuts.cutBonus > 0)) return
-  const { cl, card, phone, resolvedCardNum } = resolveSaleClientAndCard(sale)
-  markMoneyPending({ clientId: cl?.id, cardNum: resolvedCardNum })
+  let { cl, card, phone, resolvedCardNum } = resolveSaleClientAndCard(sale)
+  // Запасной поиск — иначе mixed-возврат режет чек, а долг на карте остаётся
+  if (!cl && sale.clientId) {
+    cl = useClientStore.getState().clients.find(c => c.id === sale.clientId)
+  }
+  if (!cl && sale.clientPhone) {
+    cl = useClientStore.getState().clients.find(c => phonesMatch(c.phone, sale.clientPhone!))
+  }
+  if (!card && (sale.cardNum || cl?.card)) {
+    const want = sale.cardNum || cl?.card || ''
+    card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, want))
+  }
+  if (!resolvedCardNum) resolvedCardNum = card?.num || sale.cardNum || cl?.card || ''
+
+  markMoneyPending({ clientId: cl?.id || sale.clientId, cardNum: resolvedCardNum || sale.cardNum })
   if (sale.cardNum && resolvedCardNum && !cardNumsMatch(sale.cardNum, resolvedCardNum)) {
     markMoneyPending({ cardNum: sale.cardNum })
   }
@@ -1079,13 +1110,14 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
   if (cuts.cutDebt > 0) clientPatch.debt = nextDebt
   if (cuts.cutWallet > 0) clientPatch.wallet = round2((Number(cl?.wallet) || 0) + cuts.cutWallet)
   if (cuts.cutBonus > 0) clientPatch.bonus = round2((Number(cl?.bonus) || 0) + cuts.cutBonus)
-  if (cl && Object.keys(clientPatch).length) {
-    useClientStore.getState().updateClient(cl.id, clientPatch, { skipApi: true })
+  const clientId = cl?.id || String(sale.clientId || '').trim()
+  if (clientId && Object.keys(clientPatch).length) {
+    useClientStore.getState().updateClient(clientId, clientPatch, { skipApi: true })
   }
 
   for (const num of nums) {
     const cur = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
-    if (!cur && !cl) continue
+    if (!cur && !cl && !clientId) continue
     const cardPatch: Record<string, unknown> = {}
     if (cuts.cutDebt > 0) cardPatch.debt = nextDebt
     if (cuts.cutWallet > 0) {
@@ -1101,7 +1133,8 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
   }
 
   if (cuts.cutDebt > 0) {
-    const histKey = debtAccountKey(cl) || String(phone || '').trim()
+    const histKey = debtAccountKey(cl || { id: sale.clientId, phone: sale.clientPhone })
+      || String(phone || sale.clientPhone || '').trim()
     if (histKey) {
       recordStoreDebtRepayment(histKey, cuts.cutDebt, {
         desc: `Возврат чека · долг −${cuts.cutDebt}`,

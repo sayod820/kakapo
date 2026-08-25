@@ -2778,12 +2778,27 @@ export function returnPosSale(db, saleId, meta = {}) {
   let cutCash = 0
   let cutCard = 0
   let cutWallet = 0
-  const debtBefore = round2(
-    Number(sale.debtAdded) > 0
-      ? Number(sale.debtAdded)
-      : (sale.paymentMethod === 'credit' ? (Number(sale.total) || 0) : 0),
-  )
-  if (debtBefore > 0 && remainCashCut > 0) {
+  const skipBalanceRestore = !!(meta.appliedLocal || meta.queuedOffline || meta.skipBalances)
+
+  // Долг на чеке: explicit debtAdded, иначе credit/total, иначе mixed = total − оплаты
+  let debtBefore = round2(Number(sale.debtAdded) || 0)
+  if (!(debtBefore > 0.001)) {
+    if (sale.paymentMethod === 'credit') {
+      debtBefore = round2(Number(sale.total) || 0)
+    } else if (sale.paymentMethod === 'mixed') {
+      const paid = round2(
+        (Number(sale.paidCash) || 0)
+        + (Number(sale.paidCard) || 0)
+        + (Number(sale.paidWallet) || 0),
+      )
+      debtBefore = round2(Math.max(0, (Number(sale.total) || 0) - paid))
+    }
+  }
+  // Local-first: доверяем cutDebt с кассы, если он > 0; иначе считаем сами
+  if (skipBalanceRestore && meta.cutDebt != null && Number(meta.cutDebt) > 0.001) {
+    cutDebt = round2(Math.min(debtBefore, remainCashCut, Math.max(0, Number(meta.cutDebt))))
+    remainCashCut = round2(remainCashCut - cutDebt)
+  } else if (debtBefore > 0 && remainCashCut > 0) {
     cutDebt = Math.min(debtBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutDebt)
   }
@@ -2828,16 +2843,15 @@ export function returnPosSale(db, saleId, meta = {}) {
   sale.bonusSpent = Math.max(0, round2(bonusBefore - cutBonus))
   sale.total = Math.max(0, round2((Number(sale.total) || 0) - (returnTotal - cutBonus)))
 
-  const skipBalanceRestore = !!(meta.appliedLocal || meta.queuedOffline || meta.skipBalances)
-
-  if (cutDebt > 0) {
+  // Долг клиента: при skipBalances — clientDebtAfter с кассы; иначе −cutDebt
+  if (cutDebt > 0 || (skipBalanceRestore && meta.clientDebtAfter != null)) {
     const { client, card } = resolveSaleClientAndCard(db, sale)
     if (skipBalanceRestore && meta.clientDebtAfter != null) {
       applyDebtToPair(client, card, meta.clientDebtAfter)
-    } else {
+    } else if (cutDebt > 0) {
       applyDebtToPair(client, card, effectiveDebt(client, card) - cutDebt)
     }
-    if (client) {
+    if (client && cutDebt > 0) {
       applyDebtRepayment(client, card, cutDebt, {
         desc: `Возврат · ${sale.orderId || sale.number}`,
         saleId: sale.id,

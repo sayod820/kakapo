@@ -4875,7 +4875,20 @@ export default function CashierModule({
     setBusy(true)
     setMsg('')
     try {
-      const debtBefore = Number(sale.debtAdded) || 0
+      const debtBefore = Math.max(
+        0,
+        Number(sale.debtAdded) || 0,
+        sale.paymentMethod === 'credit' ? (Number(sale.total) || 0) : 0,
+        sale.paymentMethod === 'mixed'
+          ? Math.max(
+            0,
+            (Number(sale.total) || 0)
+            - (Number(sale.paidCash) || 0)
+            - (Number(sale.paidCard) || 0)
+            - (Number(sale.paidWallet) || 0),
+          )
+          : 0,
+      )
       const res = await returnSaleSafe(sale, {
         note: pending.mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
         cashierId: settings.cashierId || activeShift?.cashierId,
