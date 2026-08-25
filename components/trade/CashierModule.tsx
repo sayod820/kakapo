@@ -20,6 +20,7 @@ import {
   chargeCashDebtFromOpenShift,
   returnSaleSafe,
   createSaleSafe,
+  previewReturnPayout,
   createPosPointSafe,
   updatePosPointSafe,
   deletePosPointSafe,
@@ -1390,6 +1391,9 @@ export default function CashierModule({
     title: string
     body: string
     total: number
+    /** Сколько выдать клиенту (нал+карта). При всём долге = 0 */
+    giveMoney?: number
+    cutDebt?: number
     payloadItems?: { index: number; qty: number }[]
     needAdmin: boolean
     step: 'confirm' | 'admin'
@@ -4752,7 +4756,17 @@ export default function CashierModule({
   )
 
   const receiptReturnPreview = useMemo(() => {
-    if (!receiptDetail) return { count: 0, total: 0, items: [] as { index: number; qty: number }[] }
+    if (!receiptDetail) {
+      return {
+        count: 0,
+        total: 0,
+        giveMoney: 0,
+        giveCash: 0,
+        giveCard: 0,
+        cutDebt: 0,
+        items: [] as { index: number; qty: number }[],
+      }
+    }
     const items: { index: number; qty: number }[] = []
     let total = 0
     ;(receiptDetail.items || []).forEach((line, index) => {
@@ -4767,8 +4781,41 @@ export default function CashierModule({
       total += unit * take
       items.push({ index, qty: take })
     })
-    return { count: items.length, total: Math.round(total * 100) / 100, items }
+    const goods = Math.round(total * 100) / 100
+    const payout = goods > 0.001
+      ? previewReturnPayout(receiptDetail, goods)
+      : { giveMoney: 0, giveCash: 0, giveCard: 0, cutDebt: 0 }
+    return {
+      count: items.length,
+      total: goods,
+      giveMoney: payout.giveMoney,
+      giveCash: payout.giveCash,
+      giveCard: payout.giveCard,
+      cutDebt: payout.cutDebt,
+      items,
+    }
   }, [receiptDetail, returnQtyByIdx])
+
+  function returnPayoutHint(p: {
+    giveMoney: number
+    giveCash: number
+    giveCard: number
+    cutDebt: number
+    total: number
+  }) {
+    const parts: string[] = []
+    parts.push(`К выдаче ${fmtMoney(p.giveMoney)}`)
+    if (p.giveCash > 0.001 && p.giveCard > 0.001) {
+      parts.push(`нал ${fmtMoney(p.giveCash)} · карта ${fmtMoney(p.giveCard)}`)
+    } else if (p.giveCard > 0.001 && p.giveCash < 0.001) {
+      parts.push('на карту')
+    }
+    if (p.cutDebt > 0.001) parts.push(`долг −${fmtMoney(p.cutDebt)}`)
+    if (p.total > 0.001 && Math.abs(p.total - p.giveMoney - p.cutDebt) > 0.05) {
+      parts.push(`товары ${fmtMoney(p.total)}`)
+    }
+    return parts.join(' · ')
+  }
 
   function toggleReturnLine(index: number, left: number) {
     if (!(left > 0)) return
@@ -4826,26 +4873,44 @@ export default function CashierModule({
       }
       payloadItems = undefined
       confirmTotal = Number(sale.total) || 0
+      const payout = previewReturnPayout(sale, confirmTotal)
       title = 'Вернуть весь чек?'
-      body = `Сумма ${fmtMoney(confirmTotal)}. Все оставшиеся товары вернутся на склад.`
-    } else {
-      const selected = receiptReturnPreview.items
-      if (!selected.length) {
-        showToast('Выберите товары', 'Отметьте позиции для возврата')
-        return
-      }
-      payloadItems = selected
-      confirmTotal = receiptReturnPreview.total
-      title = `Вернуть ${selected.length} позиц.?`
-      body = `Сумма ${fmtMoney(confirmTotal)}. Товары вернутся на склад.`
+      body = `${returnPayoutHint({
+        ...payout,
+        total: confirmTotal,
+      })}. Все оставшиеся товары вернутся на склад.`
+      setReturnConfirm({
+        saleId,
+        mode,
+        title,
+        body,
+        total: confirmTotal,
+        giveMoney: payout.giveMoney,
+        cutDebt: payout.cutDebt,
+        payloadItems,
+        needAdmin: needsAdminReturnConfirm(sale),
+        step: 'confirm',
+        adminCode: '',
+      })
+      return
     }
-
+    const selected = receiptReturnPreview.items
+    if (!selected.length) {
+      showToast('Выберите товары', 'Отметьте позиции для возврата')
+      return
+    }
+    payloadItems = selected
+    confirmTotal = receiptReturnPreview.total
+    title = `Вернуть ${selected.length} позиц.?`
+    body = `${returnPayoutHint(receiptReturnPreview)}. Товары вернутся на склад.`
     setReturnConfirm({
       saleId,
       mode,
       title,
       body,
       total: confirmTotal,
+      giveMoney: receiptReturnPreview.giveMoney,
+      cutDebt: receiptReturnPreview.cutDebt,
       payloadItems,
       needAdmin: needsAdminReturnConfirm(sale),
       step: 'confirm',
@@ -4895,19 +4960,28 @@ export default function CashierModule({
         ...(pending.payloadItems ? { items: pending.payloadItems } : {}),
       })
       const updated = res.data
-      const debtCut = Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
       if (!res.offline) {
         void Promise.allSettled([refresh(), fetchProducts()])
       } else {
         void useOfflineSync.getState().syncNow()
       }
       setReturnQtyByIdx({})
-      const retTotal = Number(updated.lastReturnTotal) || pending.total
+      const lastRet = Array.isArray(updated.returns) && updated.returns.length
+        ? updated.returns[updated.returns.length - 1]
+        : null
+      const giveMoney = lastRet
+        ? Math.round(((Number(lastRet.cutCash) || 0) + (Number(lastRet.cutCard) || 0)) * 100) / 100
+        : Math.max(0, (Number(pending.giveMoney) || 0))
+      const debtCut = lastRet
+        ? Math.round((Number(lastRet.cutDebt) || 0) * 100) / 100
+        : Math.max(0, debtBefore - (Number(updated.debtAdded) || 0))
+      const toastParts = [`К выдаче ${fmtMoney(giveMoney)}`]
+      if (debtCut > 0.001) toastParts.push(`долг −${fmtMoney(debtCut)}`)
+      toastParts.push('товары на складе')
+      if (res.offline) toastParts.push('отправится в фоне')
       showToast(
         updated.status === 'returned' ? 'Чек возвращён' : 'Частичный возврат',
-        `${fmtMoney(retTotal)} · товары на складе`
-          + (debtCut > 0.001 ? ` · долг −${fmtMoney(debtCut)}` : '')
-          + (res.offline ? ' · отправится в фоне' : ''),
+        toastParts.join(' · '),
       )
       setReceiptSaleId(sale.id)
     } catch (e) {
@@ -11164,12 +11238,17 @@ export default function CashierModule({
                           : '—'
                         return (
                           <div key={`${r.atIso}-${idx}`} className="receipt-return-row">
-                            <b>{fmtMoney(Number(r.total) || 0)}</b>
+                            <b>{fmtMoney(
+                              (r.cutCash != null || r.cutCard != null || r.cutDebt != null)
+                                ? (Number(r.cutCash) || 0) + (Number(r.cutCard) || 0)
+                                : (Number(r.total) || 0),
+                            )}</b>
                             <span>
                               {Number.isNaN(at.getTime())
                                 ? r.atIso
                                 : `${at.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · ${at.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
                               {` · ${who}`}
+                              {(Number(r.cutDebt) || 0) > 0.001 ? ` · долг −${fmtMoney(Number(r.cutDebt))}` : ''}
                               {r.note ? ` · ${r.note}` : ''}
                             </span>
                           </div>
@@ -11331,7 +11410,7 @@ export default function CashierModule({
                         <span className="ic-wrap">↩️</span>
                         <span>
                           {receiptReturnPreview.count > 0
-                            ? `Вернуть выбранное · ${fmtMoney(receiptReturnPreview.total)}`
+                            ? `Вернуть выбранное · ${fmtMoney(receiptReturnPreview.giveMoney)}`
                             : 'Вернуть выбранное'}
                         </span>
                       </button>

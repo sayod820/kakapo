@@ -890,7 +890,7 @@ export async function returnSaleSafe(
  * Сколько долга ещё висит на чеке к возврату.
  * mixed: если debtAdded пропал — выводим из total − нал/карта/кошелёк.
  */
-function saleDebtBeforeReturn(sale: PosSale): number {
+export function saleDebtBeforeReturn(sale: PosSale): number {
   const explicit = round2(Number(sale.debtAdded) || 0)
   if (explicit > 0.001) return explicit
   const method = String(sale.paymentMethod || '')
@@ -904,6 +904,21 @@ function saleDebtBeforeReturn(sale: PosSale): number {
     return round2(Math.max(0, (Number(sale.total) || 0) - paid))
   }
   return 0
+}
+
+/** Превью возврата: сколько выдать на руки (не сумма товаров). */
+export function previewReturnPayout(sale: PosSale, returnTotal: number) {
+  const cuts = computeReturnCuts(sale, round2(returnTotal))
+  return {
+    goodsTotal: round2(returnTotal),
+    giveCash: cuts.cutCash,
+    giveCard: cuts.cutCard,
+    cutDebt: cuts.cutDebt,
+    cutWallet: cuts.cutWallet,
+    cutBonus: cuts.cutBonus,
+    /** Деньги клиенту (нал + карта). Долг сюда не входит → при «всё в долг» = 0 */
+    giveMoney: round2(cuts.cutCash + cuts.cutCard),
+  }
 }
 
 /** Локальный возврат: товары на склад, долг/бонусы/кошелёк как на сервере */
@@ -1023,6 +1038,23 @@ function applyLocalReturn(
   }, 0)
   const cuts = computeReturnCuts(sale, round2(lastReturnTotal))
 
+  const returnEntry = {
+    atIso: new Date().toISOString(),
+    total: round2(lastReturnTotal),
+    cutCash: cuts.cutCash,
+    cutCard: cuts.cutCard,
+    cutDebt: cuts.cutDebt,
+    cutWallet: cuts.cutWallet,
+    cutBonus: cuts.cutBonus,
+    items: restoreLines.map(l => ({
+      productId: l.productId,
+      productName: l.productName,
+      qty: l.qty,
+      price: Number(l.retailPrice) || 0,
+      lineTotal: round2((Number(l.retailPrice) || 0) * l.qty),
+    })),
+  }
+
   const updated: PosSale = {
     ...sale,
     items: nextItems,
@@ -1034,6 +1066,7 @@ function applyLocalReturn(
     paidWallet: Math.max(0, round2(cuts.walletBefore - cuts.cutWallet)),
     bonusSpent: Math.max(0, round2(cuts.bonusBefore - cuts.cutBonus)),
     total: Math.max(0, round2((Number(sale.total) || 0) - (round2(lastReturnTotal) - cuts.cutBonus))),
+    returns: [...(Array.isArray(sale.returns) ? sale.returns : []), returnEntry],
   } as PosSale
 
   usePosStore.setState(s => ({ sales: s.sales.map(x => (x.id === sale.id ? updated : x)) }))
