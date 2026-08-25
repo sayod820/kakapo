@@ -20,3 +20,11 @@ server/kakapo-api/data/updates/
 
 # nginx конфиг генерируется deploy.sh / ssl-init.sh из шаблонов
 deploy/hetzner/nginx/default.conf
+
+# Локальный кэш Gradle (сборка Android APK) — не в git
+.gradle-local/
+**/.gradle/
+**/build/
+app-debug.apk
+*.apk
+android-app/www/

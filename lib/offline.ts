@@ -332,8 +332,19 @@ const REVISION_QUEUE_KINDS = new Set<QueueKind>([
   'stock_revision_delete',
 ])
 
+/** Справочники должны уйти раньше прихода/ревизии — иначе «поставщик не найден». */
+const CATALOG_FIRST_KINDS = new Set<QueueKind>([
+  'supplier_upsert',
+  'product_upsert',
+  'category_upsert',
+  'category_reorder',
+  'client_upsert',
+])
+
 function queueKindPriority(kind: QueueKind): number {
-  return REVISION_QUEUE_KINDS.has(kind) ? 100 : 0
+  if (REVISION_QUEUE_KINDS.has(kind)) return 100
+  if (CATALOG_FIRST_KINDS.has(kind)) return -50
+  return 0
 }
 
 function byOrder(a: PendingOp, b: PendingOp) {
@@ -742,6 +753,78 @@ export async function resolveLocalId(id: string | undefined | null): Promise<str
   return map[id] || ''
 }
 
+const sendingSiblingRefs = new Set<string>()
+
+async function completeQueuedRow(row: PendingOp): Promise<string> {
+  if (sendingSiblingRefs.has(row.clientRef)) return ''
+  sendingSiblingRefs.add(row.clientRef)
+  try {
+    const serverId = await sendOp(row)
+    if (row.localId && serverId) {
+      await rememberId(row.localId, serverId)
+      await applyLocalIdRemap(row.kind, row.localId, serverId)
+    }
+    await deletePending(row.clientRef)
+    return serverId
+  } finally {
+    sendingSiblingRefs.delete(row.clientRef)
+  }
+}
+
+/** Если в очереди ещё лежит создание поставщика — отправить его до прихода. */
+async function flushPendingSupplier(localSupplierId: string): Promise<string> {
+  const list = await getPending()
+  const row = list.find(r => {
+    if (r.kind !== 'supplier_upsert') return false
+    const p = (r.payload || {}) as Record<string, unknown>
+    const sup = (p.supplier || p) as Record<string, unknown>
+    return String(p.localId || '') === localSupplierId
+      || String(sup.id || '') === localSupplierId
+      || String(r.localId || '') === localSupplierId
+  })
+  if (!row) return ''
+  return completeQueuedRow(row)
+}
+
+async function ensureSupplierOnServer(
+  supplierId: unknown,
+  fallbackName?: string,
+): Promise<string> {
+  const raw = String(supplierId || '').trim()
+  if (!raw) return ''
+  const mapped = isLocalId(raw) ? await resolveLocalId(raw) : raw
+  if (mapped && !isLocalId(mapped)) return mapped
+
+  if (isLocalId(raw)) {
+    const fromQueue = await flushPendingSupplier(raw)
+    if (fromQueue && !isLocalId(fromQueue)) return fromQueue
+    const again = await resolveLocalId(raw)
+    if (again && !isLocalId(again)) return again
+  }
+
+  const { usePosStore } = await import('./posStore')
+  const local = usePosStore.getState().suppliers.find(s => String(s.id) === raw || String(s.id) === mapped)
+  const name = String(local?.name || fallbackName || '').trim()
+  if (!name) {
+    throw new BrokenRefError('Связанная операция не отправлена — разберите её первой')
+  }
+  const saved = await api.createSupplier({
+    name,
+    category: local?.category,
+    phone: local?.phone,
+    address: local?.address,
+    note: local?.note,
+  } as any)
+  const serverId = String((saved as any)?.id || '')
+  if (!serverId) throw new Error('Поставщик не найден')
+  await rememberId(raw, serverId)
+  usePosStore.setState(s => ({
+    suppliers: s.suppliers.map(x => (String(x.id) === raw ? { ...x, ...saved, id: serverId } : x)),
+  }))
+  void persistPosSnapshot()
+  return serverId
+}
+
 // ── Онлайн-детект ──
 export function isOnline(): boolean {
   if (typeof navigator === 'undefined') return true
@@ -971,83 +1054,30 @@ async function sendOp(row: PendingOp): Promise<string> {
       return String((rowOut as any)?.id || '')
     }
     case 'stock_receipt_create': {
-      let p = await resolveRefs(row.payload, ['supplierId'])
+      const p = row.payload || {}
+      const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
-      const body = () => ({
+      const receipt = await api.createStockReceipt({
         clientRef: p.clientRef,
-        supplierId: p.supplierId,
+        supplierId: supplierId || undefined,
         createdBy: p.createdBy,
         paidNow: Number(p.paidNow) || 0,
         items,
         createdAtIso: p.createdAtIso,
-      })
-      try {
-        const receipt = await api.createStockReceipt(body() as any)
-        return String((receipt as any)?.id || '')
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (!/Поставщик не найден/i.test(msg) || !p.supplierId) throw e
-        // Поставщик есть на телефоне, на сервере нет — создаём и повторяем приход
-        const { usePosStore } = await import('./posStore')
-        const local = usePosStore.getState().suppliers.find(s => String(s.id) === String(p.supplierId))
-        if (!local?.name) throw e
-        const saved = await api.createSupplier({
-          name: local.name,
-          category: local.category,
-          phone: local.phone,
-          address: local.address,
-          note: local.note,
-          clientRef: p.clientRef ? `${p.clientRef}:sup` : undefined,
-        } as any)
-        const serverId = String((saved as any)?.id || '')
-        if (!serverId) throw e
-        await rememberId(String(p.supplierId), serverId)
-        usePosStore.setState(s => ({
-          suppliers: s.suppliers.map(x => (String(x.id) === String(p.supplierId) ? { ...x, ...saved, id: serverId } : x)),
-        }))
-        void persistPosSnapshot()
-        p = { ...p, supplierId: serverId }
-        const receipt = await api.createStockReceipt(body() as any)
-        return String((receipt as any)?.id || '')
-      }
+      } as any)
+      return String((receipt as any)?.id || '')
     }
     case 'stock_receipt_update': {
-      let p = await resolveRefs(row.payload, ['id', 'supplierId'])
+      const p = await resolveRefs(row.payload, ['id'])
+      const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
-      const body = () => ({
+      const receipt = await api.updateStockReceipt(String(p.id), {
         clientRef: p.clientRef,
-        supplierId: p.supplierId,
+        supplierId: supplierId || undefined,
         paidNow: Number(p.paidNow) || 0,
         items,
-      })
-      try {
-        const receipt = await api.updateStockReceipt(String(p.id), body() as any)
-        return String((receipt as any)?.id || '')
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (!/Поставщик не найден/i.test(msg) || !p.supplierId) throw e
-        const { usePosStore } = await import('./posStore')
-        const local = usePosStore.getState().suppliers.find(s => String(s.id) === String(p.supplierId))
-        if (!local?.name) throw e
-        const saved = await api.createSupplier({
-          name: local.name,
-          category: local.category,
-          phone: local.phone,
-          address: local.address,
-          note: local.note,
-          clientRef: p.clientRef ? `${p.clientRef}:sup` : undefined,
-        } as any)
-        const serverId = String((saved as any)?.id || '')
-        if (!serverId) throw e
-        await rememberId(String(p.supplierId), serverId)
-        usePosStore.setState(s => ({
-          suppliers: s.suppliers.map(x => (String(x.id) === String(p.supplierId) ? { ...x, ...saved, id: serverId } : x)),
-        }))
-        void persistPosSnapshot()
-        p = { ...p, supplierId: serverId }
-        const receipt = await api.updateStockReceipt(String(p.id), body() as any)
-        return String((receipt as any)?.id || '')
-      }
+      } as any)
+      return String((receipt as any)?.id || '')
     }
     case 'stock_receipt_delete': {
       const p = await resolveRefs(row.payload, ['id'])
@@ -1143,8 +1173,9 @@ async function sendOp(row: PendingOp): Promise<string> {
       return String(p.id || '')
     }
     case 'supplier_payment_create': {
-      const p = await resolveRefs(row.payload, ['supplierId'])
-      const pay = await api.createSupplierPayment(String(p.supplierId), {
+      const p = row.payload || {}
+      const supplierId = await ensureSupplierOnServer(p.supplierId)
+      const pay = await api.createSupplierPayment(String(supplierId), {
         amount: Number(p.amount) || 0,
         note: p.note,
         clientRef: p.clientRef,
@@ -1511,7 +1542,7 @@ async function sendOp(row: PendingOp): Promise<string> {
 
 /**
  * Отправляет очередь на сервер строго по порядку:
- * сначала чеки/склад, ревизия — в конце (см. queueKindPriority).
+ * справочники (поставщик/товар) → чеки/склад → ревизия в конце.
  */
 export async function flushQueue(
   onProgress?: (done: number, total: number) => void,
@@ -1522,24 +1553,33 @@ export async function flushQueue(
   let failed = 0
   let stopped = false
   try {
-    const queue = (await getPending()).filter(r => !r.failed)
+    const all = await getPending()
+    const catalog = all.filter(r => CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
+    const rest = all.filter(r => !r.failed && !CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
+    const queue = [...catalog, ...rest]
     const total = queue.length
     let done = 0
     for (const row of queue) {
+      const live = (await getPending()).find(r => r.clientRef === row.clientRef)
+      if (!live) {
+        done++
+        onProgress?.(done, total)
+        continue
+      }
       try {
-        const serverId = await sendOp(row)
-        if (row.localId && serverId) {
-          await rememberId(row.localId, serverId)
-          await applyLocalIdRemap(row.kind, row.localId, serverId)
+        const serverId = await sendOp(live)
+        if (live.localId && serverId) {
+          await rememberId(live.localId, serverId)
+          await applyLocalIdRemap(live.kind, live.localId, serverId)
         }
-        await deletePending(row.clientRef)
+        await deletePending(live.clientRef)
         if (
-          row.kind === 'sale'
-          || row.kind === 'sale_return'
-          || row.kind === 'debt_repay'
-          || row.kind === 'card_topup'
+          live.kind === 'sale'
+          || live.kind === 'sale_return'
+          || live.kind === 'debt_repay'
+          || live.kind === 'card_topup'
         ) {
-          const p = (row.payload || {}) as Record<string, unknown>
+          const p = (live.payload || {}) as Record<string, unknown>
           if (row.kind === 'sale_return' && !p.clientId) {
             try {
               const { usePosStore } = await import('./posStore')
@@ -1551,7 +1591,7 @@ export async function flushQueue(
             } catch { /* ignore */ }
           }
           const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
-          clearMoneyPendingFromOp(row.kind, p)
+          clearMoneyPendingFromOp(live.kind, p)
         }
         sent++
       } catch (e) {
@@ -1559,10 +1599,10 @@ export async function flushQueue(
           stopped = true
           break
         }
-        row.attempts += 1
-        row.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
-        row.failed = true
-        await putPending(row)
+        live.attempts += 1
+        live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
+        live.failed = true
+        await putPending(live)
         failed++
       }
       done++

@@ -201,7 +201,10 @@ export async function createStockReceiptSafe(
 ): Promise<OfflineResult<StockReceipt>> {
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
-  const body = { ...payload, clientRef, createdAtIso, paidNow: round2(payload.paidNow || 0) }
+  const supplierName = payload.supplierId
+    ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
+    : ''
+  const body = { ...payload, clientRef, createdAtIso, paidNow: round2(payload.paidNow || 0), supplierName }
 
   const applyLocal = async () => {
     const localId = newLocalId('rec')
@@ -231,7 +234,10 @@ export async function updateStockReceiptSafe(
   const mapped = isLocalId(id) ? await resolveLocalId(id) : id
   const persistId = mapped || id
   const clientRef = newClientRef()
-  const body = { ...payload, clientRef, id: persistId, paidNow: round2(payload.paidNow || 0) }
+  const supplierName = payload.supplierId
+    ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
+    : ''
+  const body = { ...payload, clientRef, id: persistId, paidNow: round2(payload.paidNow || 0), supplierName }
   const nowIso = new Date().toISOString()
 
   const applyLocal = async () => {

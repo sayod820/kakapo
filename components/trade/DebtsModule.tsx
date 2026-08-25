@@ -364,8 +364,14 @@ function buildFeed(
         editable: isManualDebtHistoryEntry(row) ? row : undefined,
       }
     }),
+    // Оплаты по открытым чекам уже учтены в remain — не дублируем в ленте.
     ...checkPays
-      .filter(row => !saleFullyPaid(row.orderId, saleStatus, posSales))
+      .filter(row => {
+        const sid = String(row.orderId || '').replace(/^sale-/, '')
+        if (!sid) return true
+        const sale = posSales.find(s => debtOrderIdsMatch(s.id, sid) || debtOrderIdsMatch(s.id, row.orderId))
+        return !sale
+      })
       .map(row => {
       const isReturn = /возврат/i.test(String(row.desc || ''))
       return {
@@ -383,19 +389,22 @@ function buildFeed(
       .filter(s => !saleFullyPaid(s.id, saleStatus, posSales))
       .map(s => {
       const st = saleStatus[s.id]
+      const remain = Math.max(0, Math.round((Number(st?.remain ?? s.debtAdded) || 0) * 100) / 100)
+      const orig = Math.max(0, Math.round((Number(s.debtAdded) || 0) * 100) / 100)
       const statusNote = !st
         ? ''
         : st.status === 'partial'
           ? ` · остаток ${fmtMoney(st.remain)}`
           : ` · к оплате ${fmtMoney(st.remain)}`
+      const wasNote = orig > remain + 0.05 ? ` · было ${fmtMoney(orig)}` : ''
       return {
         key: `p-${s.id}`,
         ts: Date.parse(s.dateIso) || 0,
         dateLabel: s.dateIso ? fmtDateTime(s.dateIso) : '—',
         kind: 'pos' as const,
         title: 'Чек в долг',
-        desc: `${saleLabel(s)}${statusNote}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
-        amount: Math.abs(Number(s.debtAdded) || 0),
+        desc: `${saleLabel(s)}${statusNote}${wasNote}${s.items.length ? ` · ${s.items.slice(0, 2).map(i => i.name).join(', ')}${s.items.length > 2 ? '…' : ''}` : ''}`,
+        amount: remain,
         saleId: s.id,
       }
     }),
@@ -414,13 +423,35 @@ function buildFeed(
   return rows.sort((a, b) => b.ts - a.ts)
 }
 
-function withRunningBalance(feed: FeedRow[]): (FeedRow & { balance: number })[] {
+function withRunningBalance(
+  feed: FeedRow[],
+  targetDebt?: number,
+): (FeedRow & { balance: number })[] {
   const chronological = [...feed].sort((a, b) => a.ts - b.ts)
   let bal = 0
   const withBal = chronological.map(row => {
     bal = Math.round((bal + row.amount) * 100) / 100
     return { ...row, balance: Math.max(0, bal) }
   })
+  if (targetDebt != null && Number.isFinite(targetDebt)) {
+    const target = Math.max(0, Math.round(targetDebt * 100) / 100)
+    const lastBal = withBal.length ? withBal[withBal.length - 1].balance : 0
+    const drift = Math.round((target - lastBal) * 100) / 100
+    if (Math.abs(drift) > 0.05) {
+      withBal.push({
+        key: 'debt-reconcile',
+        ts: Date.now(),
+        dateLabel: 'сейчас',
+        kind: drift > 0 ? 'cash' : 'pay',
+        title: drift > 0 ? 'Корректировка' : 'Учтено',
+        desc: drift > 0
+          ? 'Корректировка до долга на карте'
+          : 'Учтены оплаты / списание до долга на карте',
+        amount: drift,
+        balance: target,
+      })
+    }
+  }
   return withBal.reverse()
 }
 
@@ -572,7 +603,7 @@ export default function DebtsModule({
       totalDebt,
       residualCash,
       feed,
-      historyFeed: withRunningBalance(feed),
+      historyFeed: withRunningBalance(feed, cardDebt),
       saleStatus,
       openChecks: posSales.filter(s => (saleStatus[s.id]?.remain || 0) > 0.001).length,
       repaidTotal: allPaySum,

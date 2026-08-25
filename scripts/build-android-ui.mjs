@@ -28,7 +28,7 @@ const wsUrl = (process.env.KAKAPO_ANDROID_WS || 'wss://kakappo.shop').replace(/\
 
 const SKIP_ROOT = new Set([
   'node_modules', '.next', 'out', 'android-app', 'desktop', '.git',
-  'server', 'data', 'tmp', '.claude',
+  'server', 'data', 'tmp', '.claude', '.gradle-local',
 ])
 
 function run(cwd, cmd, args, env) {
