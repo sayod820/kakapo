@@ -175,13 +175,16 @@ async function enrichReceiptNames(receipt: StockReceipt): Promise<StockReceipt> 
 async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
   const { useProducts } = await import('./store')
   const ps = useProducts.getState()
-  const bumps = new Map<number, { delta: number; prices?: { costPrice?: number; retailPrice?: number } }>()
+  const bumps = new Map<number, {
+    delta: number
+    prices?: { costPrice?: number; retailPrice?: number; bulkPricing?: StockReceipt['items'][0]['bulkPricing'] }
+  }>()
   for (const it of receipt.items) {
     const pid = Number(it.productId)
     const prev = bumps.get(pid) || { delta: 0 }
     prev.delta += sign * (Number(sign < 0 ? (it.remainingQty ?? it.qty) : (it.remainingQty ?? it.qty)) || 0)
     if (sign > 0) {
-      prev.prices = { costPrice: it.costPrice, retailPrice: it.retailPrice }
+      prev.prices = { costPrice: it.costPrice, retailPrice: it.retailPrice, bulkPricing: it.bulkPricing }
     }
     bumps.set(pid, prev)
   }
@@ -193,6 +196,11 @@ async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
     }
     if (prices?.costPrice != null && prices.costPrice > 0) patch.costPrice = prices.costPrice
     if (prices?.retailPrice != null && prices.retailPrice > 0) patch.price = prices.retailPrice
+    if (sign > 0 && prices?.bulkPricing !== undefined) {
+      patch.bulkPricing = Array.isArray(prices.bulkPricing) && prices.bulkPricing.length
+        ? prices.bulkPricing
+        : undefined
+    }
     ps.updateProduct(productId, patch as any)
   }
   patchSupplierDebt(receipt.supplierId || undefined, sign * (Number(receipt.debtAdded) || 0))
@@ -739,13 +747,16 @@ export async function updateStockLayerSafe(
         }
       }),
     }))
-    if (body.retailPrice != null && body.retailPrice > 0) {
+    {
       const { useProducts } = await import('./store')
-      useProducts.getState().updateProduct(productId, { price: body.retailPrice } as any)
-    }
-    if (body.costPrice != null && body.costPrice > 0) {
-      const { useProducts } = await import('./store')
-      useProducts.getState().updateProduct(productId, { costPrice: body.costPrice } as any)
+      const patch: Record<string, unknown> = {}
+      if (body.retailPrice != null && body.retailPrice > 0) patch.price = body.retailPrice
+      if (body.costPrice != null && body.costPrice > 0) patch.costPrice = body.costPrice
+      if (body.bulkPricing !== undefined) {
+        const bulk = Array.isArray(body.bulkPricing) && body.bulkPricing.length ? body.bulkPricing : undefined
+        patch.bulkPricing = bulk
+      }
+      if (Object.keys(patch).length) useProducts.getState().updateProduct(productId, patch as any)
     }
     // Локальный снимок слоёв для UI
     const receipt = usePosStore.getState().receipts.find(r => r.id === receiptId)

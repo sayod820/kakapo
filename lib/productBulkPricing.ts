@@ -18,15 +18,24 @@ export function normalizeBulkPricing(raw?: BulkPriceTier[] | null): BulkPriceTie
 }
 
 /** Цена за единицу (шт или за unitGrams) при текущем количестве в корзине */
-export function effectiveUnitPrice(p: Partial<Product>, qty: number): number {
-  const base = Number(p.price) || 0
-  const tiers = normalizeBulkPricing(p.bulkPricing)
-  if (!qty || !tiers.length) return base
+/** Розница + опт: при qty ≥ minQty берём цену уровня (последний подходящий). */
+export function effectiveUnitPriceFrom(
+  basePrice: number,
+  bulkPricing: BulkPriceTier[] | null | undefined,
+  qty: number,
+): number {
+  const base = Math.round((Number(basePrice) || 0) * 100) / 100
+  const tiers = normalizeBulkPricing(bulkPricing)
+  if (!(qty > 0) || !tiers.length) return base
   let unit = base
   for (const tier of tiers) {
     if (qty >= tier.minQty) unit = tier.price
   }
-  return unit
+  return Math.round(unit * 100) / 100
+}
+
+export function effectiveUnitPrice(p: Partial<Product>, qty: number): number {
+  return effectiveUnitPriceFrom(Number(p.price) || 0, p.bulkPricing, qty)
 }
 
 export function qtyLabelForBulk(p: Partial<Product>, qty: number): string {

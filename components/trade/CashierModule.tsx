@@ -75,6 +75,7 @@ import {
 import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
+import { effectiveUnitPriceFrom, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
@@ -144,6 +145,10 @@ type CartLine = {
   receiptId?: string
   /** Цена группы партий: списание FIFO только среди приходов с этой розничной ценой */
   preferRetailPrice?: number
+  /** Розница без опта — база для пересчёта при смене qty */
+  retailBase?: number
+  /** Оптовые уровни с партии / карточки */
+  bulkPricing?: BulkPriceTier[]
   costPrice?: number
   supplierName?: string
 }
@@ -168,6 +173,7 @@ type PriceLayerGroup = {
   layers: ProductStockLayer[]
   isFifo: boolean
   oldest: ProductStockLayer
+  bulkPricing: BulkPriceTier[]
 }
 
 /** Цена продажи для чека: не подставляем закуп, если в карточке уже есть нормальная розница */
@@ -188,6 +194,26 @@ function resolveCartSellPrice(opts: {
   return price
 }
 
+function resolveLineBulkPricing(
+  primary?: BulkPriceTier[] | null,
+  fallback?: BulkPriceTier[] | null,
+): BulkPriceTier[] | undefined {
+  if (Array.isArray(primary) && primary.length) return primary
+  if (Array.isArray(fallback) && fallback.length) return fallback
+  return undefined
+}
+
+/** Розница + опт для строки чека (шт: qty; вес: граммы). */
+function cartUnitPriceForQty(
+  retailBase: number,
+  bulkPricing: BulkPriceTier[] | undefined,
+  qty: number,
+  weightKg?: number,
+): number {
+  const bulkQty = weightKg != null ? Math.round(weightKg * 1000) : qty
+  return effectiveUnitPriceFrom(retailBase, bulkPricing, bulkQty)
+}
+
 /** Партии с одной ценой продажи → один пункт; списание потом FIFO по дате внутри группы */
 function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0): PriceLayerGroup[] {
   const map = new Map<string, ProductStockLayer[]>()
@@ -204,6 +230,8 @@ function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0)
       String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')),
     )
     const oldest = sorted[0]
+    // Опт с FIFO-партии; если пусто — с любой партии группы, где уровни заданы
+    const withBulk = sorted.find(l => Array.isArray(l.bulkPricing) && l.bulkPricing.length > 0)
     groups.push({
       key: k,
       retailPrice: Number(k),
@@ -212,6 +240,7 @@ function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0)
       layers: sorted,
       isFifo: arr.some(l => l.isActive),
       oldest,
+      bulkPricing: (withBulk?.bulkPricing || oldest.bulkPricing || []) as BulkPriceTier[],
     })
   }
   groups.sort((a, b) => {
@@ -5116,6 +5145,7 @@ export default function CashierModule({
           stock: g.remainingQty,
           costPrice: g.costPrice,
           supplierName: g.oldest.supplierName,
+          bulkPricing: g.bulkPricing,
         })
         finishBumps()
         return
@@ -5338,6 +5368,7 @@ export default function CashierModule({
       stock?: number
       costPrice?: number
       supplierName?: string
+      bulkPricing?: BulkPriceTier[]
     },
   ) {
     const stockTotal = liveStockForProduct(p)
@@ -5363,7 +5394,19 @@ export default function CashierModule({
       ? opts.costPrice
       : (layer ? Number(layer.costPrice) || 0 : undefined)
     const supplierName = opts?.supplierName || layer?.supplierName || undefined
-    const price = resolveCartSellPrice({
+    const bulkPricing = resolveLineBulkPricing(
+      opts?.bulkPricing,
+      resolveLineBulkPricing(
+        layer?.bulkPricing,
+        resolveLineBulkPricing(
+          layerGroupsCacheRef.current.get(p.id)?.find(g =>
+            preferRetailPrice == null || Math.abs(g.retailPrice - preferRetailPrice) < 0.011,
+          )?.bulkPricing,
+          p.bulkPricing,
+        ),
+      ),
+    )
+    const retailBase = resolveCartSellPrice({
       catalogPrice: Number(p.price) || 0,
       layerRetail: preferRetailPrice != null && preferRetailPrice > 0
         ? preferRetailPrice
@@ -5375,6 +5418,7 @@ export default function CashierModule({
       const key = cartLineKey(p.id, receiptId, 0, preferRetailPrice)
       const art = String(p.art || '').trim()
       const barcode = productBarcodes(p)[0] || ''
+      const price = cartUnitPriceForQty(retailBase, bulkPricing, 1, 0)
       setCartAndSelect(prev => [...dropZeroWeightLines(prev), {
         key,
         productId: p.id,
@@ -5389,6 +5433,8 @@ export default function CashierModule({
         weightKg: 0,
         receiptId,
         preferRetailPrice,
+        retailBase,
+        bulkPricing,
         costPrice,
         supplierName,
       }], key)
@@ -5419,6 +5465,7 @@ export default function CashierModule({
         return
       }
       const key = cartLineKey(p.id, receiptId, weightKg, preferRetailPrice)
+      const price = cartUnitPriceForQty(retailBase, bulkPricing, 1, weightKg)
       setCartAndSelect(prev => [...dropZeroWeightLines(prev), {
         key,
           productId: p.id,
@@ -5433,6 +5480,8 @@ export default function CashierModule({
           weightKg,
           receiptId,
         preferRetailPrice,
+          retailBase,
+          bulkPricing,
           costPrice,
           supplierName,
       }], key)
@@ -5456,11 +5505,18 @@ export default function CashierModule({
             blockedOverStock = true
             return t
           }
+          const nextQty = prev[idx].qty + 1
+          const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
+          const lineBase = preferRetailPrice != null && preferRetailPrice > 0
+            ? preferRetailPrice
+            : (prev[idx].retailBase ?? prev[idx].preferRetailPrice ?? retailBase)
           const updated = {
             ...prev[idx],
-            qty: prev[idx].qty + 1,
-            price,
+            qty: nextQty,
+            price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
             stock: layerStock > 0 ? layerStock : prev[idx].stock,
+            retailBase: lineBase,
+            bulkPricing: lineBulk,
             ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
           }
           revealKey = updated.key
@@ -5477,6 +5533,7 @@ export default function CashierModule({
         }
         const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
         revealKey = key
+        const price = cartUnitPriceForQty(retailBase, bulkPricing, 1)
         const next = [...prev, {
           key,
         productId: p.id,
@@ -5490,6 +5547,8 @@ export default function CashierModule({
         barcode,
         receiptId,
           preferRetailPrice,
+        retailBase,
+        bulkPricing,
         costPrice,
         supplierName,
       }]
@@ -5531,6 +5590,7 @@ export default function CashierModule({
       stock: group.remainingQty,
       costPrice: group.costPrice,
       supplierName: group.oldest.supplierName,
+      bulkPricing: group.bulkPricing,
     })
   }
 
@@ -5538,7 +5598,17 @@ export default function CashierModule({
     setCart(prev => prev.map(l => {
       if (l.key !== key) return l
       const q = Math.round(Math.max(0, qty) * 1000) / 1000
-      return { ...l, qty: Math.min(l.stock, q) }
+      const capped = Math.min(l.stock, q)
+      const p = products.find(x => x.id === l.productId)
+      const base = l.retailBase ?? l.preferRetailPrice ?? (Number(p?.price) || l.price)
+      const bulk = resolveLineBulkPricing(l.bulkPricing, p?.bulkPricing)
+      return {
+        ...l,
+        qty: capped,
+        retailBase: base,
+        bulkPricing: bulk,
+        price: cartUnitPriceForQty(base, bulk, capped, l.weightKg),
+      }
     }).filter(l => l.qty > 0 || (l.weightKg != null && l.weightKg > 0)))
   }
 
@@ -5547,7 +5617,15 @@ export default function CashierModule({
       if (l.key !== key) return l
       const w = Math.max(0, Math.round(weightKg * 1000) / 1000)
       const maxW = l.stock > 0 ? l.stock : w
-      return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+      const nextW = Math.min(w, maxW)
+      const base = l.retailBase ?? l.preferRetailPrice ?? l.price
+      return {
+        ...l,
+        weightKg: nextW,
+        qty: 1,
+        retailBase: base,
+        price: cartUnitPriceForQty(base, l.bulkPricing, 1, nextW),
+      }
     }).filter(l => (l.weightKg != null ? l.weightKg > 0 : l.qty > 0)))
   }
 
@@ -5588,15 +5666,18 @@ export default function CashierModule({
   }
 
   function resolveQtyEdit(line: CartLine, mode: 'qty' | 'sum', raw: string) {
-    const price = Number(line.price) || 0
+    const base = line.retailBase ?? line.preferRetailPrice ?? line.price
     const val = Number(raw) || 0
     const isWeight = line.weightKg != null
     if (mode === 'sum') {
       const amount = val
+      // Для суммы считаем от текущей ед. цены строки (уже с оптом, если он включён)
+      const price = Number(line.price) || 0
       const qty = price > 0 ? Math.round((amount / price) * 1000) / 1000 : 0
       return { qty, amount, price, isWeight }
     }
     const qty = isWeight ? Math.round(val * 1000) / 1000 : Math.round(val * 1000) / 1000
+    const price = cartUnitPriceForQty(base, line.bulkPricing, isWeight ? 1 : qty, isWeight ? qty : undefined)
     return { qty, amount: Math.round(qty * price * 100) / 100, price, isWeight }
   }
 
