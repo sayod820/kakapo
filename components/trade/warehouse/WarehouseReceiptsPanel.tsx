@@ -5,6 +5,7 @@ import { USE_API } from '@/lib/config'
 import { resolveLocalId } from '@/lib/offline'
 import { useBackClose } from '@/lib/hardwareBack'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import MoneySourceFields from '@/components/trade/MoneySourceFields'
 import { resolveOpenShift, shiftExpectedCashLocal, vaultAvailableLocal } from '@/lib/offlinePosOps'
 import {
@@ -172,9 +173,7 @@ function ReceiptLineEditModal({
   return (
     <div
       className="k-rcpt-line-bg"
-      onClick={() => {
-        if (canCloseBackdrop) onClose()
-      }}
+      {...backdropCloseProps(onClose, canCloseBackdrop)}
     >
       <div className="k-rcpt-line-modal" onClick={e => e.stopPropagation()}>
         <div className="k-rcpt-line-h">
@@ -1177,7 +1176,7 @@ export default function WarehouseReceiptsPanel({
 
         return (
           <>
-          <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
+          <div className="k-modal-bg k-receipt-modal-bg" {...backdropCloseProps(closeForm)}>
             <div
               className="k-modal k-receipt-modal"
               onClick={e => e.stopPropagation()}

@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
 import type { MoneyLedgerEntry, MoneyPayFrom, MoneyPayMethod } from '@/lib/types'
@@ -1159,7 +1160,7 @@ export default function FinanceModule() {
       )}
 
       {expOpen && (
-        <div className="k-modal-bg" onClick={() => !busy && setExpOpen(false)}>
+        <div className="k-modal-bg" {...backdropCloseProps(() => !busy && setExpOpen(false))}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>Новый расход</b>
@@ -1190,7 +1191,7 @@ export default function FinanceModule() {
       )}
 
       {depOpen && (
-        <div className="k-modal-bg" onClick={() => !busy && setDepOpen(false)}>
+        <div className="k-modal-bg" {...backdropCloseProps(() => !busy && setDepOpen(false))}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>{depType === 'deposit' ? 'Внесение' : 'Снятие'}</b>
@@ -1248,7 +1249,7 @@ export default function FinanceModule() {
       )}
 
       {convOpen && (
-        <div className="k-modal-bg" onClick={() => !busy && setConvOpen(false)}>
+        <div className="k-modal-bg" {...backdropCloseProps(() => !busy && setConvOpen(false))}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>{convDir === 'card_to_cash' ? 'Карта → нал' : 'Нал → карта'}</b>
@@ -1296,7 +1297,7 @@ export default function FinanceModule() {
       )}
 
       {delMoveId && (
-        <div className="k-modal-bg" onClick={() => setDelMoveId(null)}>
+        <div className="k-modal-bg" {...backdropCloseProps(() => setDelMoveId(null))}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>Удалить вклад?</b>
@@ -1314,7 +1315,7 @@ export default function FinanceModule() {
       )}
 
       {delExpId && (
-        <div className="k-modal-bg" onClick={() => setDelExpId(null)}>
+        <div className="k-modal-bg" {...backdropCloseProps(() => setDelExpId(null))}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>Удалить расход?</b>

@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Product, StockReceipt } from '@/lib/types'
 import { formatQty } from './warehouseShared'
@@ -107,7 +108,7 @@ export default function ReceiptLabelPrintModal({
   }
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1500 }} onClick={onClose}>
+    <div className="k-modal-bg" style={{ zIndex: 1500 }} {...backdropCloseProps(onClose)}>
       <div
         className="k-modal"
         onClick={e => e.stopPropagation()}

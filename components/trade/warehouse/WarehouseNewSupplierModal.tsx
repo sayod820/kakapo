@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useEffect, useState } from 'react'
 import { USE_API } from '@/lib/config'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
@@ -68,7 +69,7 @@ export default function WarehouseNewSupplierModal({
   }
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1400 }} onClick={() => !saving && onClose()}>
+    <div className="k-modal-bg" style={{ zIndex: 1400 }} {...backdropCloseProps(() => !saving && onClose())}>
       <div className="k-modal" onClick={e => e.stopPropagation()}>
         <div className="k-modal-h">
           <b>{editingSupplier ? '✎ Редактирование поставщика' : '🚚 Новый поставщик'}</b>

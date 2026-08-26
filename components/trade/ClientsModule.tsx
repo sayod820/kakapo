@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
@@ -703,7 +704,7 @@ export default function ClientsModule() {
 
       {/* ── Новый / редактирование клиента ── */}
       {form.open && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} {...backdropCloseProps(closeForm)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>{form.editingId ? '✎ Редактирование клиента' : '👤 Новый клиент'}</b>
@@ -776,7 +777,7 @@ export default function ClientsModule() {
 
       {/* ── Наличные в магазин ── */}
       {cashForm.open && cashClient && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeCashForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} {...backdropCloseProps(closeCashForm)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>💵 Наличные в магазин</b>
@@ -851,7 +852,7 @@ export default function ClientsModule() {
 
       {/* ── Лояльность ── */}
       {loyaltyForm.open && loyaltyClient && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeLoyaltyForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} {...backdropCloseProps(closeLoyaltyForm)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>🏅 Статус и лояльность</b>
@@ -925,7 +926,7 @@ export default function ClientsModule() {
 
       {/* ── Детальная карточка ── */}
       {detailClient && (
-        <div className="k-modal-bg" onClick={closeDetail}>
+        <div className="k-modal-bg" {...backdropCloseProps(closeDetail)}>
           <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

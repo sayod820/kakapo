@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
 import { useBackClose } from '@/lib/hardwareBack'
@@ -698,7 +699,7 @@ export default function WarehouseWriteoffsPanel({
       )}
 
       {open && (
-        <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
+        <div className="k-modal-bg k-receipt-modal-bg" {...backdropCloseProps(closeForm)}>
           <div
             className="k-modal k-receipt-modal k-wo-modal"
             onClick={e => e.stopPropagation()}

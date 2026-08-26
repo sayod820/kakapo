@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
@@ -462,7 +463,7 @@ export default function SuppliersModule() {
       </button>
 
       {form.open && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closeForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} {...backdropCloseProps(closeForm)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>{form.editingId ? '✎ Редактирование поставщика' : '🚚 Новый поставщик'}</b>
@@ -506,7 +507,7 @@ export default function SuppliersModule() {
       )}
 
       {payForm.open && (
-        <div className="k-modal-bg" style={{ zIndex: 75 }} onClick={closePayForm}>
+        <div className="k-modal-bg" style={{ zIndex: 75 }} {...backdropCloseProps(closePayForm)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <b>💰 Оплата поставщику</b>
@@ -615,7 +616,7 @@ export default function SuppliersModule() {
       )}
 
       {detailSupplier && (
-        <div className="k-modal-bg" onClick={closeDetail}>
+        <div className="k-modal-bg" {...backdropCloseProps(closeDetail)}>
           <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

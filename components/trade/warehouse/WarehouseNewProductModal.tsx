@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useEffect, useState } from 'react'
 import { useProductPhotos } from '@/lib/productPhotos'
 import { useProducts } from '@/lib/store'
@@ -82,7 +83,7 @@ export default function WarehouseNewProductModal({
   }
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1900 }} onClick={() => !saving && onClose()}>
+    <div className="k-modal-bg" style={{ zIndex: 1900 }} {...backdropCloseProps(() => !saving && onClose())}>
       <div className="k-modal k-modal-wide" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '92vh' }}>
         <div className="k-modal-h">
           <b>{duplicateFrom ? '⧉ Дублировать товар' : '📦 Новый товар'}</b>

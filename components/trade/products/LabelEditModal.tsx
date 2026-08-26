@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import type { LabelEdit } from './labelShared'
 
 export default function LabelEditModal({
@@ -18,7 +19,7 @@ export default function LabelEditModal({
   if (!open) return null
 
   return (
-    <div className="k-modal-bg" style={{ zIndex: 1300 }} onClick={onClose}>
+    <div className="k-modal-bg" style={{ zIndex: 1300 }} {...backdropCloseProps(onClose)}>
       <div className="k-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <div className="k-modal-h">
           <b>✏️ Текст этикетки</b>

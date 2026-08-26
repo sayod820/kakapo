@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
@@ -298,7 +299,7 @@ export default function ProductArrivalsPanel({
   const tableColSpan = 10
 
   return (
-    <div className="k-modal-bg k-modal-fs-bg k-arrivals-modal" onClick={requestClose}>
+    <div className="k-modal-bg k-modal-fs-bg k-arrivals-modal" {...backdropCloseProps(requestClose)}>
       <div className="k-modal k-modal-fs" onClick={e => e.stopPropagation()}>
         <div className="k-modal-h k-arrivals-head">
           <div className="k-arrivals-head-txt">

@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
@@ -1607,7 +1608,7 @@ export default function DebtsModule({
         const maxPay = Math.min(st.remain, debtNow)
         const canRepay = maxPay > 0.001
         return (
-          <div className="k-modal-bg" style={{ zIndex: 80 }} onClick={() => { setSaleDetailId(null); setSaleRepay(null) }}>
+          <div className="k-modal-bg" style={{ zIndex: 80 }} {...backdropCloseProps(() => { setSaleDetailId(null); setSaleRepay(null) })}>
             <div className="k-modal" onClick={e => e.stopPropagation()} style={{ width: 480, maxWidth: '100%' }}>
               <div className="k-modal-h">
                 <b>{saleLabel(s)}</b>

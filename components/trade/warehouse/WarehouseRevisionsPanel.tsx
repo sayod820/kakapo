@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { useBackClose } from '@/lib/hardwareBack'
@@ -994,7 +995,7 @@ export default function WarehouseRevisionsPanel({
       )}
 
       {open && (
-        <div className="k-modal-bg k-receipt-modal-bg" onClick={closeForm}>
+        <div className="k-modal-bg k-receipt-modal-bg" {...backdropCloseProps(closeForm)}>
           <div className={`k-modal k-receipt-modal k-rev-modal${modalStep === 'walk' && !editingId ? ' k-rev-modal--walk' : ''}`} onClick={e => e.stopPropagation()}>
             <div className="k-rcpt-head">
               <div className="k-rcpt-head-title">

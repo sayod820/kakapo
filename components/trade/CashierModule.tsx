@@ -1,5 +1,6 @@
 'use client'
 
+import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
@@ -8601,7 +8602,7 @@ export default function CashierModule({
       </div>
 
       {catModalOpen && (
-        <div className="overlay" onClick={() => setCatModalOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => setCatModalOpen(false))}>
           <div className="modal-card cat-browse-card" onClick={e => e.stopPropagation()}>
             <h3>Категории</h3>
             <p className="cat-browse-hint">Можно выбрать несколько — товары объединяются</p>
@@ -8670,7 +8671,7 @@ export default function CashierModule({
         const unit = isWeight ? 'кг' : (line.unit || 'шт')
         const overStock = previewQty > line.stock + 0.001
         return (
-          <div className="overlay" onClick={() => closeQtyEdit()}>
+          <div className="overlay" {...backdropCloseProps(() => closeQtyEdit())}>
             <PadShell
               openPad={qtyEditPad}
               onHidePad={() => setQtyEditPad(false)}
@@ -8839,7 +8840,7 @@ export default function CashierModule({
       })()}
 
       {payPickOpen && (
-        <div className="overlay" onClick={() => !busy && setPayPickOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => !busy && setPayPickOpen(false))}>
           <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
             <h3>Оплата</h3>
 
@@ -9041,12 +9042,12 @@ export default function CashierModule({
       {creditNoteOpen && creditPending && (
         <div
           className="overlay"
-          onClick={() => {
+          {...backdropCloseProps(() => {
             if (busy) return
             setCreditNoteOpen(false)
             setCreditPending(null)
             setCreditNoteBuf('')
-          }}
+          })}
         >
           <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
             <h3>📝 В долг</h3>
@@ -9133,7 +9134,7 @@ export default function CashierModule({
       )}
 
       {clearCartConfirm && (
-        <div className="overlay" onClick={() => setClearCartConfirm(false)}>
+        <div className="overlay" {...backdropCloseProps(() => setClearCartConfirm(false))}>
           <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
             <h3>Очистить чек?</h3>
             <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
@@ -9152,7 +9153,7 @@ export default function CashierModule({
       )}
 
       {returnConfirm && (
-        <div className="overlay" onClick={() => !busy && setReturnConfirm(null)}>
+        <div className="overlay" {...backdropCloseProps(() => !busy && setReturnConfirm(null))}>
           <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
             {returnConfirm.step === 'confirm' ? (
               <>
@@ -9214,7 +9215,7 @@ export default function CashierModule({
         const label = t?.client?.name?.split(/\s+/)[0] || (idx >= 0 ? `Чек ${idx + 1}` : 'Чек')
         const onlyOne = tickets.length <= 1
         return (
-          <div className="overlay" onClick={() => setCloseTicketConfirmId(null)}>
+          <div className="overlay" {...backdropCloseProps(() => setCloseTicketConfirmId(null))}>
             <div className="modal-card" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
               <h3>{onlyOne ? 'Очистить чек?' : 'Закрыть чек?'}</h3>
               <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 16 }}>
@@ -9343,7 +9344,7 @@ export default function CashierModule({
       )}
 
       {saleConfirm && (
-        <div className="overlay" onClick={() => cancelSaleConfirm()}>
+        <div className="overlay" {...backdropCloseProps(() => cancelSaleConfirm())}>
           <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
             <h3>Пробить чек?</h3>
             <div className="pay-breakdown" style={{ marginBottom: 14 }}>
@@ -9392,7 +9393,7 @@ export default function CashierModule({
       />
 
       {clientScanOpen && (
-        <div className="overlay" onClick={() => setClientScanOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => setClientScanOpen(false))}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>QR клиента</h3>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.4 }}>
@@ -9431,7 +9432,7 @@ export default function CashierModule({
       )}
 
       {clientOpen && (
-        <div className="overlay" onClick={() => setClientOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => setClientOpen(false))}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>👤 Выбор клиента</h3>
             <div className="pos-search">
@@ -9508,7 +9509,7 @@ export default function CashierModule({
       )}
 
       {discPickOpen && (
-        <div className="overlay" onClick={() => setDiscPickOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => setDiscPickOpen(false))}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <h3>🏷 Скидка на товар</h3>
             <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 12 }}>Выберите позицию в чеке</div>
@@ -9597,7 +9598,7 @@ export default function CashierModule({
             : `×${fmtQty(line.qty)}`)
           : ''
         return (
-          <div className="overlay" onClick={() => { setDiscOpen(false); setDiscInputKind('pct'); setDiscEditTarget('unit') }}>
+          <div className="overlay" {...backdropCloseProps(() => { setDiscOpen(false); setDiscInputKind('pct'); setDiscEditTarget('unit') })}>
             <PadShell
               openPad={amountPad}
               onHidePad={() => setAmountPad(false)}
@@ -9766,7 +9767,7 @@ export default function CashierModule({
       })()}
 
       {cashOpen && (
-        <div className="overlay" onClick={() => !busy && setCashOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => !busy && setCashOpen(false))}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -9916,7 +9917,7 @@ export default function CashierModule({
       )}
 
       {splitCardOpen && (
-        <div className="overlay" onClick={() => !busy && setSplitCardOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => !busy && setSplitCardOpen(false))}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -10034,7 +10035,7 @@ export default function CashierModule({
       )}
 
       {layerPickOpen && layerPickProduct && (
-        <div className="overlay" onClick={() => !layerPickBusy && setLayerPickOpen(false)}>
+        <div className="overlay" {...backdropCloseProps(() => !layerPickBusy && setLayerPickOpen(false))}>
           <div className="modal-card layer-pick-card" onClick={e => e.stopPropagation()}>
             <h3>Выберите цену</h3>
             <div className="layer-pick-hint">
@@ -10088,7 +10089,7 @@ export default function CashierModule({
       )}
 
       {tillMoveKind && activeShift && (
-        <div className="overlay" onClick={() => !busy && setTillMoveKind(null)}>
+        <div className="overlay" {...backdropCloseProps(() => !busy && setTillMoveKind(null))}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -10205,7 +10206,7 @@ export default function CashierModule({
       )}
 
       {topupOpen && client && (
-        <div className="overlay stack-above-hist" onClick={() => !busy && setTopupOpen(false)}>
+        <div className="overlay stack-above-hist" {...backdropCloseProps(() => !busy && setTopupOpen(false))}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -10261,11 +10262,11 @@ export default function CashierModule({
       )}
 
       {repayOpen && client && (
-        <div className="overlay stack-above-hist" onClick={() => {
+        <div className="overlay stack-above-hist" {...backdropCloseProps(() => {
           if (busy) return
           setRepayOpen(false)
           setRepayTarget(null)
-        }}>
+        })}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -10376,10 +10377,10 @@ export default function CashierModule({
       )}
 
       {chargeOpen && client && (
-        <div className="overlay stack-above-hist" onClick={() => {
+        <div className="overlay stack-above-hist" {...backdropCloseProps(() => {
           if (busy) return
           setChargeOpen(false)
-        }}>
+        })}>
           <PadShell
             openPad={amountPad}
             onHidePad={() => setAmountPad(false)}
@@ -10454,7 +10455,7 @@ export default function CashierModule({
       )}
 
       {histOpen && client && loyalty && (
-        <div className="overlay hist-fs-overlay" onClick={() => { setHistOpen(false); setHistDetail(null) }}>
+        <div className="overlay hist-fs-overlay" {...backdropCloseProps(() => { setHistOpen(false); setHistDetail(null) })}>
           <div className="modal-card hist-card hist-card-fs cashier-debts-panel" onClick={e => e.stopPropagation()}>
             <div className="cashier-debts-head">
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0, flex: 1 }}>
@@ -10847,7 +10848,7 @@ export default function CashierModule({
       )}
 
       {histDetail && (
-        <div className="overlay hist-detail-overlay" onClick={() => setHistDetail(null)}>
+        <div className="overlay hist-detail-overlay" {...backdropCloseProps(() => setHistDetail(null))}>
           <div className="modal-card hist-detail-card" onClick={e => e.stopPropagation()}>
             <div className="hist-detail-head">
               <button type="button" className="hist-back" onClick={() => setHistDetail(null)}>← Назад</button>
@@ -11524,7 +11525,7 @@ export default function CashierModule({
       )}
 
       {shiftReconcileOpen && cashierScreen && cashierScreen !== 'receipts' && activeShift && (
-        <div className="overlay shift-reconcile-overlay" onClick={() => { if (!busy) { setShiftReconcileOpen(false); setMsg('') } }}>
+        <div className="overlay shift-reconcile-overlay" {...backdropCloseProps(() => { if (!busy) { setShiftReconcileOpen(false); setMsg('') } })}>
           <div className="modal-card shift-reconcile-card" onClick={e => e.stopPropagation()}>
             <div className="shift-reconcile-head">
               <h3>Сверка</h3>
