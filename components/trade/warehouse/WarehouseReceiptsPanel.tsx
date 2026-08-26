@@ -570,13 +570,14 @@ export default function WarehouseReceiptsPanel({
   }
 
   /** Пересчёт наценки/розницы от себестоимости. Также пересчитывает «Общую сумму закуп» —
-   *  используется только когда пользователь редактирует именно себестоимость за единицу. */
+   *  используется только когда пользователь редактирует именно себестоимость за единицу.
+   *  Нуль тоже валиден: 12 уп × 0 = 0 закуп (раньше условие cost > 0 оставляло старую сумму). */
   function applyCostWithMarkup(line: ReceiptDraftLine, costPrice: string): ReceiptDraftLine {
     const cost = Number(costPrice) || 0
     const markup = Number(line.markupPct)
     let next: ReceiptDraftLine = { ...line, costPrice }
     const qty = Number(line.qty) || 0
-    if (qty > 0 && cost > 0) {
+    if (qty > 0 && costPrice !== '') {
       next.purchaseTotal = String(roundMoney(qty * cost))
     }
     if (cost > 0 && line.markupPct !== '') {
@@ -609,8 +610,8 @@ export default function WarehouseReceiptsPanel({
         const next = { ...l, qty }
         const q = Number(qty) || 0
         const cost = Number(l.costPrice) || 0
-        // Кол-во меняется → себестоимость за единицу не трогаем, пересчитываем общую сумму закупа.
-        if (q > 0 && cost > 0) {
+        // Кол-во меняется → себестоимость за единицу не трогаем, пересчитываем общую сумму закупа (в т.ч. 0).
+        if (q > 0 && l.costPrice !== '') {
           next.purchaseTotal = String(roundMoney(q * cost))
         } else if (!(q > 0)) {
           next.purchaseTotal = ''
@@ -627,8 +628,8 @@ export default function WarehouseReceiptsPanel({
         if (l.key !== key) return l
         const qty = Number(l.qty) || 0
         const total = Number(purchaseTotal) || 0
-        if (qty > 0 && total > 0) {
-          const cost = costFromPurchaseTotal(qty, total)
+        if (qty > 0 && purchaseTotal !== '') {
+          const cost = total > 0 ? costFromPurchaseTotal(qty, total) : 0
           return applyCostKeepingTotal({ ...l, purchaseTotal }, String(cost))
         }
         return { ...l, purchaseTotal }
