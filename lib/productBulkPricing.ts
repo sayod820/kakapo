@@ -38,6 +38,24 @@ export function effectiveUnitPrice(p: Partial<Product>, qty: number): number {
   return effectiveUnitPriceFrom(Number(p.price) || 0, p.bulkPricing, qty)
 }
 
+/** Активный оптовый уровень при данном qty (или null, если розница). */
+export function activeBulkTierForQty(
+  basePrice: number,
+  bulkPricing: BulkPriceTier[] | null | undefined,
+  qty: number,
+): BulkPriceTier | null {
+  const base = Math.round((Number(basePrice) || 0) * 100) / 100
+  const tiers = normalizeBulkPricing(bulkPricing)
+  if (!(qty > 0) || !tiers.length) return null
+  let active: BulkPriceTier | null = null
+  for (const tier of tiers) {
+    if (qty >= tier.minQty) active = tier
+  }
+  if (!active) return null
+  if (!(active.price < base - 0.001)) return null
+  return active
+}
+
 export function qtyLabelForBulk(p: Partial<Product>, qty: number): string {
   if (isWeighted(p)) return formatWeightGrams(qty)
   return `${qty} шт`

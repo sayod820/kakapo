@@ -75,7 +75,7 @@ import {
 import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
-import { effectiveUnitPriceFrom, type BulkPriceTier } from '@/lib/productBulkPricing'
+import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
@@ -8547,11 +8547,17 @@ export default function CashierModule({
               const gross = lineGross(line)
               const net = lineNet(line)
               const lineDisc = Number(line.discPct) || 0
+              const retailBase = line.retailBase ?? line.preferRetailPrice ?? line.price
+              const bulkQty = line.weightKg != null ? Math.round(line.weightKg * 1000) : line.qty
+              const activeBulk = activeBulkTierForQty(retailBase, line.bulkPricing, bulkQty)
+              const bulkRetailGross = activeBulk
+                ? Math.round((line.weightKg != null ? retailBase * line.weightKg : retailBase * line.qty) * 100) / 100
+                : 0
               return (
                 <div
                   key={line.key}
                   data-line-key={line.key}
-                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''}`}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${activeBulk ? 'bulk' : ''}`}
                   onClick={() => setSelectedLineKey(line.key)}
                   ref={selectedLineKey === line.key ? (el) => {
                     if (!el) return
@@ -8568,7 +8574,7 @@ export default function CashierModule({
                     <div className="meta">
                       {line.art ? <span>арт. {line.art}</span> : null}
                       {line.barcode ? <span>ш/к {line.barcode}</span> : null}
-                      <span>
+                      <span className={activeBulk ? 'line-bulk-unit' : undefined}>
                         {lineDisc > 0
                           ? `${(Math.round(line.price * (1 - lineDisc / 100) * 100) / 100).toFixed(2)} ЅМ/${cartLineUnit(line)}`
                           : `${line.price.toFixed(2)} ЅМ/${cartLineUnit(line)}`}
@@ -8577,6 +8583,11 @@ export default function CashierModule({
                         <span className="line-batch">FIFO</span>
                       ) : line.receiptId && line.supplierName ? (
                         <span className="line-batch">{line.supplierName}</span>
+                      ) : null}
+                      {activeBulk ? (
+                        <span className="line-bulk" title={`Оптовая цена от ${activeBulk.minQty}${line.weightKg != null ? ' г' : ' шт'}`}>
+                          Опт от {activeBulk.minQty}{line.weightKg != null ? ' г' : ' шт'} · было {retailBase.toFixed(2)}
+                        </span>
                       ) : null}
                       {lineDisc > 0 ? <span className="line-disc">было {line.price.toFixed(2)} · −{lineDisc}%</span> : null}
                     </div>
@@ -8593,6 +8604,7 @@ export default function CashierModule({
                     </button>
                   <div className="price">
                     {lineDisc > 0 ? <span className="old">{gross.toFixed(2)}</span> : null}
+                    {!lineDisc && activeBulk ? <span className="old">{bulkRetailGross.toFixed(2)}</span> : null}
                     {net.toFixed(2)}
                   </div>
                   <button type="button" className="rm" onClick={e => { e.stopPropagation(); removeLine(line.key); if (selectedLineKey === line.key) setSelectedLineKey(null) }}>✕</button>
