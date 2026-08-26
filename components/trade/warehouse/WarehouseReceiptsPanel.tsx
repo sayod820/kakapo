@@ -1247,7 +1247,7 @@ export default function WarehouseReceiptsPanel({
                     <strong>{fmtMoney(totals.costTotal)}</strong>
                   </div>
                   <div className="k-field">
-                    <label>Оплачено</label>
+                    <label>Оплачено сейчас</label>
                     <input
                       className="k-inp"
                       type="text"
@@ -1256,30 +1256,52 @@ export default function WarehouseReceiptsPanel({
                       onChange={e => setDraftPatch({ paidNow: sanitizeDecimalInput(e.target.value) })}
                       placeholder="0"
                     />
+                    {totals.costTotal > 0.001 && (
+                      <button
+                        type="button"
+                        className="k-btn k-btn-s"
+                        style={{ marginTop: 8, fontSize: 12, width: '100%' }}
+                        onClick={() => setDraftPatch({ paidNow: String(roundMoney(totals.costTotal)) })}
+                      >
+                        Оплатить всё ({fmtMoney(totals.costTotal)})
+                      </button>
+                    )}
                   </div>
-                  {(Number(paidNow) || 0) > 0.001 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <MoneySourceFields
-                        compact
-                        value={{
-                          payFrom: payFrom || 'shift',
-                          method: method || 'cash',
-                        }}
-                        onChange={v => setDraftPatch({ payFrom: v.payFrom, method: v.method })}
-                        hideShift={!resolveOpenShift()}
-                        shiftCash={(() => {
-                          const sh = resolveOpenShift()
-                          return sh ? shiftExpectedCashLocal(sh) : 0
-                        })()}
-                        shiftCard={(() => {
-                          const sh = resolveOpenShift()
-                          return sh ? Math.round((Number(sh.salesCard) || 0) * 100) / 100 : 0
-                        })()}
-                        vaultCash={vaultAvailableLocal('cash')}
-                        vaultCard={vaultAvailableLocal('card')}
-                      />
+                  <div style={{
+                    marginBottom: 10,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: '1px solid var(--border)',
+                    background: 'rgba(255,255,255,.03)',
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                      Откуда списать оплату
                     </div>
-                  )}
+                    <MoneySourceFields
+                      compact
+                      value={{
+                        payFrom: payFrom || 'shift',
+                        method: method || 'cash',
+                      }}
+                      onChange={v => setDraftPatch({ payFrom: v.payFrom, method: v.method })}
+                      hideShift={!resolveOpenShift()}
+                      shiftCash={(() => {
+                        const sh = resolveOpenShift()
+                        return sh ? shiftExpectedCashLocal(sh) : 0
+                      })()}
+                      shiftCard={(() => {
+                        const sh = resolveOpenShift()
+                        return sh ? Math.round((Number(sh.salesCard) || 0) * 100) / 100 : 0
+                      })()}
+                      vaultCash={vaultAvailableLocal('cash')}
+                      vaultCard={vaultAvailableLocal('card')}
+                    />
+                    {(Number(paidNow) || 0) < 0.001 && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                        Пока «Оплачено» = 0 — деньги не списываем, только долг поставщику.
+                      </div>
+                    )}
+                  </div>
                   <div className={`k-rcpt-side-debt${totals.debt > 0 ? ' due' : ''}`}>
                     Остаток к оплате <b>{fmtMoney(totals.debt)}</b>
                   </div>
