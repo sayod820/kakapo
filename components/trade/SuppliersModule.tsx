@@ -35,12 +35,25 @@ type PaymentFormState = {
   supplierName: string
   amount: string
   note: string
+  /** book = только учёт; shift/vault = с деньгами */
+  mode: 'book' | 'shift' | 'vault'
+  method: 'cash' | 'card'
   saving: boolean
   msg: string
 }
 
 function emptyPaymentForm(): PaymentFormState {
-  return { open: false, supplierId: '', supplierName: '', amount: '', note: '', saving: false, msg: '' }
+  return {
+    open: false,
+    supplierId: '',
+    supplierName: '',
+    amount: '',
+    note: '',
+    mode: 'book',
+    method: 'cash',
+    saving: false,
+    msg: '',
+  }
 }
 
 export default function SuppliersModule() {
@@ -242,7 +255,17 @@ export default function SuppliersModule() {
   }
 
   function openPayForm(s: PosSupplier) {
-    setPayForm({ open: true, supplierId: s.id, supplierName: s.name, amount: '', note: '', saving: false, msg: '' })
+    setPayForm({
+      open: true,
+      supplierId: s.id,
+      supplierName: s.name,
+      amount: '',
+      note: '',
+      mode: 'book',
+      method: 'cash',
+      saving: false,
+      msg: '',
+    })
   }
 
   function closePayForm() {
@@ -259,21 +282,40 @@ export default function SuppliersModule() {
     }
     setPayForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      const res = await createSupplierPaymentSafe(payForm.supplierId, {
-        amount,
-        note: payForm.note.trim() || undefined,
-      })
-      if (res.offline) {
-        setPayments(prev => {
-          const next = [res.data, ...(prev[payForm.supplierId] || [])]
-          void import('@/lib/offline').then(({ cacheData }) => {
-            void cacheData(`supplier_payments_${payForm.supplierId}`, next)
-          })
-          return { ...prev, [payForm.supplierId]: next }
+      if (payForm.mode === 'book') {
+        const res = await createSupplierPaymentSafe(payForm.supplierId, {
+          amount,
+          note: payForm.note.trim() || undefined,
         })
+        if (res.offline) {
+          setPayments(prev => {
+            const next = [res.data, ...(prev[payForm.supplierId] || [])]
+            void import('@/lib/offline').then(({ cacheData }) => {
+              void cacheData(`supplier_payments_${payForm.supplierId}`, next)
+            })
+            return { ...prev, [payForm.supplierId]: next }
+          })
+        } else {
+          void refreshAll()
+          void loadPayments(payForm.supplierId)
+        }
       } else {
-        void refreshAll()
-        void loadPayments(payForm.supplierId)
+        const { financeMoveSafe } = await import('@/lib/offlinePosOps')
+        const res = await financeMoveSafe({
+          type: 'withdraw',
+          amount,
+          supplierId: payForm.supplierId,
+          note: payForm.note.trim() || `Оплата · ${payForm.supplierName}`,
+          payFrom: payForm.mode,
+          method: payForm.method,
+          reason: `Оплата поставщику · ${payForm.supplierName}`,
+        })
+        if (!res.offline) {
+          void refreshAll()
+          void loadPayments(payForm.supplierId)
+        } else {
+          void loadPayments(payForm.supplierId)
+        }
       }
       closePayForm()
     } catch (e) {
@@ -479,6 +521,58 @@ export default function SuppliersModule() {
                   </div>
                 )}
               </div>
+              <div className="k-field">
+                <label>Как оплатить</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`k-subtab ${payForm.mode === 'book' ? 'active' : ''}`}
+                    onClick={() => setPayForm(prev => ({ ...prev, mode: 'book' }))}
+                  >
+                    Только учёт
+                  </button>
+                  <button
+                    type="button"
+                    className={`k-subtab ${payForm.mode === 'shift' ? 'active' : ''}`}
+                    onClick={() => setPayForm(prev => ({ ...prev, mode: 'shift' }))}
+                  >
+                    Из кассы смены
+                  </button>
+                  <button
+                    type="button"
+                    className={`k-subtab ${payForm.mode === 'vault' ? 'active' : ''}`}
+                    onClick={() => setPayForm(prev => ({ ...prev, mode: 'vault' }))}
+                  >
+                    Из основного
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                  {payForm.mode === 'book'
+                    ? 'Долг уменьшится, деньги в ящиках не трогаем'
+                    : 'Долг уменьшится и спишем деньги из выбранного ящика'}
+                </div>
+              </div>
+              {payForm.mode !== 'book' && (
+                <div className="k-field">
+                  <label>Чем</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className={`k-subtab ${payForm.method === 'cash' ? 'active' : ''}`}
+                      onClick={() => setPayForm(prev => ({ ...prev, method: 'cash' }))}
+                    >
+                      Нал
+                    </button>
+                    <button
+                      type="button"
+                      className={`k-subtab ${payForm.method === 'card' ? 'active' : ''}`}
+                      onClick={() => setPayForm(prev => ({ ...prev, method: 'card' }))}
+                    >
+                      Карта
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="k-field">
                 <label>Сумма оплаты *</label>
                 <input

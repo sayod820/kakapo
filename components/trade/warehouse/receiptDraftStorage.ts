@@ -21,6 +21,10 @@ export type ReceiptDraft = {
   editingId: string | null
   supplierId: string
   paidNow: string
+  /** Откуда оплата: касса смены или основной ящик */
+  payFrom: 'shift' | 'vault'
+  /** Чем: нал или карта */
+  method: 'cash' | 'card'
   lines: ReceiptDraftLine[]
   activeLineKey: string | null
   scrollTop: number
@@ -48,6 +52,8 @@ export function defaultReceiptDraft(): ReceiptDraft {
     editingId: null,
     supplierId: '',
     paidNow: '',
+    payFrom: 'shift',
+    method: 'cash',
     lines: [emptyReceiptLine()],
     activeLineKey: null,
     scrollTop: 0,
@@ -69,6 +75,8 @@ export function loadReceiptDraft(): ReceiptDraft {
       activeLineKey: parsed.activeLineKey ?? null,
       scrollTop: Number(parsed.scrollTop) || 0,
       formStep,
+      payFrom: parsed.payFrom === 'vault' ? 'vault' : 'shift',
+      method: parsed.method === 'card' ? 'card' : 'cash',
       lines: Array.isArray(parsed.lines) && parsed.lines.length
         ? parsed.lines.map(l => ({
           ...emptyReceiptLine(),
@@ -172,6 +180,8 @@ export function receiptToDraft(receipt: import('@/lib/types').StockReceipt): Rec
     editingId: receipt.id,
     supplierId: receipt.supplierId || '',
     paidNow: String(receipt.paidNow ?? ''),
+    payFrom: receipt.payFrom === 'vault' ? 'vault' : 'shift',
+    method: receipt.method === 'card' ? 'card' : 'cash',
     lines: receiptItemsToDraftLines(receipt, 'edit'),
     activeLineKey: null,
     scrollTop: 0,
@@ -189,6 +199,8 @@ export function receiptToNewDraft(receipt: import('@/lib/types').StockReceipt): 
     editingId: null,
     supplierId: receipt.supplierId || '',
     paidNow: '',
+    payFrom: 'shift',
+    method: 'cash',
     lines: receiptItemsToDraftLines(receipt, 'copy'),
     activeLineKey: null,
     scrollTop: 0,

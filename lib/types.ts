@@ -339,6 +339,11 @@ export interface CashBoxSnapshot {
   transfers: CashVaultTransfer[]
 }
 
+/** Откуда / куда деньги: касса открытой смены или основной ящик */
+export type MoneyPayFrom = 'shift' | 'vault'
+/** Чем платим / двигаем: нал или карта */
+export type MoneyPayMethod = 'cash' | 'card'
+
 /** Вклад в кассу / снятие денег владельцем */
 export interface FinanceMove {
   id: string
@@ -352,6 +357,10 @@ export interface FinanceMove {
   supplierId?: string
   supplierName?: string
   clientRef?: string
+  /** По умолчанию shift — как раньше */
+  payFrom?: MoneyPayFrom
+  /** По умолчанию cash — как раньше */
+  method?: MoneyPayMethod
 }
 
 /** Запись audit / денежного журнала (источник правды) */
@@ -473,6 +482,11 @@ export interface SupplierPayment {
   paidAtIso: string
   note?: string
   clientRef?: string
+  /** book = только учёт; иначе списали из ящика */
+  payFrom?: MoneyPayFrom | 'book'
+  method?: MoneyPayMethod
+  financeMoveId?: string
+  shiftId?: string
 }
 
 export interface PosExpense {
@@ -530,6 +544,10 @@ export interface StockReceipt {
   /** Смена, с которой списали оплату закупа */
   shiftId?: string
   posId?: string
+  /** Откуда оплатили paidNow (по умолчанию shift) */
+  payFrom?: MoneyPayFrom
+  /** Чем оплатили paidNow (по умолчанию cash) */
+  method?: MoneyPayMethod
   /** Служебный слой корректировки остатка (ревизия, возврат) — не закупка */
   stockAdjustment?: boolean
 }

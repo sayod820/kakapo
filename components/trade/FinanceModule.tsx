@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { USE_API } from '@/lib/config'
-import type { MoneyLedgerEntry } from '@/lib/types'
+import type { MoneyLedgerEntry, MoneyPayFrom, MoneyPayMethod } from '@/lib/types'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
-import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe, vaultCardToCashSafe, vaultCashToCardSafe } from '@/lib/offlinePosOps'
+import { expenseCreateSafe, expenseDeleteSafe, financeMoveDeleteSafe, financeMoveSafe, vaultCardToCashSafe, vaultCashToCardSafe, shiftExpectedCashLocal, vaultAvailableLocal, resolveOpenShift } from '@/lib/offlinePosOps'
+import MoneySourceFields from '@/components/trade/MoneySourceFields'
 import { useOfflineSync } from '@/lib/offlineSync'
 import {
   buildLocalFinanceTruth,
@@ -28,7 +29,6 @@ import {
   type ReportPeriod,
   ymdLocal,
 } from './reportsHelpers'
-import { resolveOpenShift, shiftExpectedCashLocal } from '@/lib/offlinePosOps'
 import { getBoundPosIdSync } from '@/lib/tradeDevice'
 
 const EXPENSE_CATS = ['Аренда', 'Зарплата', 'Коммунальные', 'Транспорт', 'Реклама', 'Хозтовары', 'Прочее']
@@ -93,6 +93,8 @@ export default function FinanceModule() {
   const [depAmount, setDepAmount] = useState('')
   const [depNote, setDepNote] = useState('')
   const [depShiftId, setDepShiftId] = useState('')
+  const [depPayFrom, setDepPayFrom] = useState<MoneyPayFrom>('shift')
+  const [depMethod, setDepMethod] = useState<MoneyPayMethod>('cash')
 
   const [delMoveId, setDelMoveId] = useState<string | null>(null)
   const [delExpId, setDelExpId] = useState<string | null>(null)
@@ -277,32 +279,57 @@ export default function FinanceModule() {
       const amount = Number(depAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму')
       if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
+      const payFrom: MoneyPayFrom = openShifts.length === 0 ? 'vault' : depPayFrom
+      const method = depMethod
       const boundPosId = getBoundPosIdSync() || undefined
-      const open = depShiftId
-        ? shifts.find(s => s.id === depShiftId && s.status === 'open')
-        : resolveOpenShift(boundPosId)
-      if (!open && openShifts.length > 0) throw new Error('Выберите открытую смену')
-      if (!open) throw new Error('Нет открытой смены — откройте смену на кассе')
-      if (depType === 'withdraw') {
-        const expected = shiftExpectedCashLocal(open)
-        if (amount > expected + 0.009) {
-          throw new Error(`В кассе недостаточно (доступно ${expected.toFixed(2)} сом)`)
+      const open = payFrom === 'shift'
+        ? (depShiftId
+          ? shifts.find(s => s.id === depShiftId && s.status === 'open')
+          : resolveOpenShift(boundPosId))
+        : null
+      if (payFrom === 'shift') {
+        if (!open && openShifts.length > 0) throw new Error('Выберите открытую смену')
+        if (!open) throw new Error('Нет открытой смены — выберите «Основной ящик»')
+        if (depType === 'withdraw') {
+          const expected = method === 'card'
+            ? round2(Number(open.salesCard) || 0)
+            : shiftExpectedCashLocal(open)
+          if (amount > expected + 0.009) {
+            throw new Error(
+              method === 'card'
+                ? `На карте смены только ${expected.toFixed(2)} сом`
+                : `В кассе недостаточно (доступно ${expected.toFixed(2)} сом)`,
+            )
+          }
+        }
+      } else if (depType === 'withdraw') {
+        const have = vaultAvailableLocal(method)
+        if (amount > have + 0.009) {
+          throw new Error(
+            method === 'card'
+              ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+              : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+          )
         }
       }
       const res = await financeMoveSafe({
         type: depType,
         amount,
         note: depNote.trim() || undefined,
-        shiftId: open.id,
-        posId: open.posId,
-        cashierId: open.cashierId,
-        cashierName: open.cashierName,
+        shiftId: open?.id,
+        posId: open?.posId || boundPosId,
+        cashierId: open?.cashierId,
+        cashierName: open?.cashierName,
+        payFrom,
+        method,
       })
       await afterFinanceMutation(!!res.offline)
       setDepOpen(false)
       setDepAmount('')
       setDepNote('')
       setDepShiftId('')
+      setDepPayFrom('shift')
+      setDepMethod('cash')
       if (res.offline) setMsg('Движение сохранено · отправится при связи')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
@@ -1166,7 +1193,7 @@ export default function FinanceModule() {
         <div className="k-modal-bg" onClick={() => !busy && setDepOpen(false)}>
           <div className="k-modal" onClick={e => e.stopPropagation()}>
             <div className="k-modal-h">
-              <b>{depType === 'deposit' ? 'Вклад в кассу' : 'Снятие из кассы'}</b>
+              <b>{depType === 'deposit' ? 'Внесение' : 'Снятие'}</b>
               <button type="button" onClick={() => setDepOpen(false)}>×</button>
             </div>
             <div className="k-modal-b" style={{ padding: 16 }}>
@@ -1177,7 +1204,17 @@ export default function FinanceModule() {
                   <button type="button" className={`k-subtab ${depType === 'withdraw' ? 'active' : ''}`} onClick={() => setDepType('withdraw')}>Снятие</button>
                 </div>
               </div>
-              {openShifts.length > 1 && (
+              <MoneySourceFields
+                value={{ payFrom: openShifts.length === 0 ? 'vault' : depPayFrom, method: depMethod }}
+                onChange={v => { setDepPayFrom(v.payFrom); setDepMethod(v.method) }}
+                hideShift={openShifts.length === 0}
+                shiftCash={openShifts[0] ? shiftExpectedCashLocal(openShifts[0]) : 0}
+                shiftCard={openShifts[0] ? round2(Number(openShifts[0].salesCard) || 0) : 0}
+                vaultCash={round2(Number(cashVault?.cashTotal) || 0)}
+                vaultCard={round2(Number(cashVault?.cardTotal) || 0)}
+                label={depType === 'deposit' ? 'Куда' : 'Откуда'}
+              />
+              {depPayFrom === 'shift' && openShifts.length > 1 && (
                 <div className="k-field">
                   <label>Смена / касса</label>
                   <select
@@ -1187,23 +1224,10 @@ export default function FinanceModule() {
                   >
                     {openShifts.map(s => (
                       <option key={s.id} value={s.id}>
-                        {s.cashierName || 'Кассир'} · {posLabel(s.posId)} · {fmtMoney(shiftExpectedCashLocal(s))} в кассе
+                        {s.cashierName || 'Кассир'} · {posLabel(s.posId)} · нал {fmtMoney(shiftExpectedCashLocal(s))} · карта {fmtMoney(Number(s.salesCard) || 0)}
                       </option>
                     ))}
                   </select>
-                </div>
-              )}
-              {openShifts.length === 1 && (
-                <div className="k-field">
-                  <label>Касса</label>
-                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    {openShifts[0].cashierName || 'Кассир'} · {posLabel(openShifts[0].posId)} · в кассе {fmtMoney(shiftExpectedCashLocal(openShifts[0]))}
-                  </div>
-                </div>
-              )}
-              {openShifts.length === 0 && (
-                <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>
-                  Нет открытой смены — откройте смену на кассе
                 </div>
               )}
               <div className="k-field">
@@ -1215,7 +1239,7 @@ export default function FinanceModule() {
                 <input className="k-inp" value={depNote} onChange={e => setDepNote(e.target.value)} placeholder="Откуда / зачем…" />
               </div>
               {msg && <div className="k-alert" style={{ marginBottom: 12, background: '#2a1420', color: '#FF8A8A' }}>{msg}</div>}
-              <button type="button" className="k-btn k-btn-g" style={{ width: '100%' }} disabled={busy || openShifts.length === 0} onClick={() => void submitDeposit()}>
+              <button type="button" className="k-btn k-btn-g" style={{ width: '100%' }} disabled={busy} onClick={() => void submitDeposit()}>
                 {busy ? 'Сохраняем…' : 'Сохранить'}
               </button>
             </div>

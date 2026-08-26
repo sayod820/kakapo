@@ -5,6 +5,8 @@ import { USE_API } from '@/lib/config'
 import { resolveLocalId } from '@/lib/offline'
 import { useBackClose } from '@/lib/hardwareBack'
 import { serializeBulkPricing } from '@/lib/productBulkPricing'
+import MoneySourceFields from '@/components/trade/MoneySourceFields'
+import { resolveOpenShift, shiftExpectedCashLocal, vaultAvailableLocal } from '@/lib/offlinePosOps'
 import {
   createStockReceiptSafe,
   deleteStockReceiptSafe,
@@ -412,7 +414,7 @@ export default function WarehouseReceiptsPanel({
   /** Черновик заполнен копированием прихода — подсказка про остатки */
   const [copiedFromHint, setCopiedFromHint] = useState(false)
 
-  const { open, supplierId, paidNow, lines, activeLineKey, editingId } = draft
+  const { open, supplierId, paidNow, payFrom, method, lines, activeLineKey, editingId } = draft
 
   useEffect(() => {
     setDraft(loadReceiptDraft())
@@ -793,6 +795,8 @@ export default function WarehouseReceiptsPanel({
       const payload = {
         supplierId: supplierId || undefined,
         paidNow: Number(paidNow) || 0,
+        payFrom: (Number(paidNow) || 0) > 0.001 ? (payFrom || 'shift') : undefined,
+        method: (Number(paidNow) || 0) > 0.001 ? (method || 'cash') : undefined,
         items,
       }
       const editId = draft.editingId || editingId
@@ -1253,6 +1257,29 @@ export default function WarehouseReceiptsPanel({
                       placeholder="0"
                     />
                   </div>
+                  {(Number(paidNow) || 0) > 0.001 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <MoneySourceFields
+                        compact
+                        value={{
+                          payFrom: payFrom || 'shift',
+                          method: method || 'cash',
+                        }}
+                        onChange={v => setDraftPatch({ payFrom: v.payFrom, method: v.method })}
+                        hideShift={!resolveOpenShift()}
+                        shiftCash={(() => {
+                          const sh = resolveOpenShift()
+                          return sh ? shiftExpectedCashLocal(sh) : 0
+                        })()}
+                        shiftCard={(() => {
+                          const sh = resolveOpenShift()
+                          return sh ? Math.round((Number(sh.salesCard) || 0) * 100) / 100 : 0
+                        })()}
+                        vaultCash={vaultAvailableLocal('cash')}
+                        vaultCard={vaultAvailableLocal('card')}
+                      />
+                    </div>
+                  )}
                   <div className={`k-rcpt-side-debt${totals.debt > 0 ? ' due' : ''}`}>
                     Остаток к оплате <b>{fmtMoney(totals.debt)}</b>
                   </div>

@@ -1032,6 +1032,8 @@ async function sendOp(row: PendingOp): Promise<string> {
         supplierId: p.supplierId,
         reason: p.reason,
         createdAtIso: p.createdAtIso,
+        payFrom: p.payFrom,
+        method: p.method,
       } as any)
       return String((move as any)?.id || '')
     }
@@ -1062,6 +1064,8 @@ async function sendOp(row: PendingOp): Promise<string> {
         supplierId: supplierId || undefined,
         createdBy: p.createdBy,
         paidNow: Number(p.paidNow) || 0,
+        payFrom: p.payFrom,
+        method: p.method,
         items,
         createdAtIso: p.createdAtIso,
       } as any)
@@ -1075,6 +1079,8 @@ async function sendOp(row: PendingOp): Promise<string> {
         clientRef: p.clientRef,
         supplierId: supplierId || undefined,
         paidNow: Number(p.paidNow) || 0,
+        payFrom: p.payFrom,
+        method: p.method,
         items,
       } as any)
       return String((receipt as any)?.id || '')

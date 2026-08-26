@@ -1660,22 +1660,47 @@ export function createFinanceMove(db, data = {}) {
   const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
+  const payFrom = data.payFrom === 'vault' ? 'vault' : 'shift'
+  const method = data.method === 'card' ? 'card' : 'cash'
 
   let shift = null
   if (data.shiftId) {
     shift = db.posShifts.find(s => s.id === data.shiftId)
     if (!shift) throw new Error('Смена не найдена')
     if (shift.status !== 'open') throw new Error('Смена уже закрыта')
-  } else {
-    // Вклады/снятия из Финансов всегда цепляем к открытой смене — иначе сверка кассы врёт
+  } else if (payFrom === 'shift') {
+    // Вклады/снятия из кассы смены цепляем к открытой смене
     shift = findOpenShift(db, data.posId)
   }
 
-  if (type === 'withdraw' && shift) {
-    const expected = shiftExpectedCash(shift)
-    if (amount > expected + 0.009) {
-      throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+  if (type === 'withdraw') {
+    if (payFrom === 'vault') {
+      const have = method === 'card'
+        ? round2(Number(db.cashVault.cardTotal) || 0)
+        : round2(Number(db.cashVault.cashTotal) || 0)
+      if (amount > have + 0.009) {
+        throw new Error(
+          method === 'card'
+            ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+            : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+        )
+      }
+    } else if (shift) {
+      const expected = method === 'card'
+        ? round2(Number(shift.salesCard) || 0)
+        : shiftExpectedCash(shift)
+      if (amount > expected + 0.009) {
+        throw new Error(
+          method === 'card'
+            ? `На карте смены только ${expected.toFixed(2)} сом`
+            : `В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`,
+        )
+      }
+    } else {
+      throw new Error('Нет открытой смены — откройте смену или снимите из основного ящика')
     }
+  } else if (payFrom === 'shift' && !shift) {
+    throw new Error('Нет открытой смены — откройте смену или внесите в основной ящик')
   }
 
   const cashierName = String(data.createdBy || data.cashierName || shift?.cashierName || '').trim()
@@ -1690,12 +1715,14 @@ export function createFinanceMove(db, data = {}) {
   }
 
   const note = String(data.note || '').trim()
+  const fromLabel = payFrom === 'vault' ? 'основной ящик' : 'касса смены'
+  const methodLabel = method === 'card' ? 'карта' : 'нал'
   const reason = String(data.reason || '').trim()
     || (type === 'deposit'
-      ? 'Внесение в кассу'
+      ? `Внесение · ${fromLabel} · ${methodLabel}`
       : supplier
-        ? `Оплата поставщику · ${supplier.name}`
-        : 'Снятие из кассы')
+        ? `Оплата поставщику · ${supplier.name} · ${fromLabel} · ${methodLabel}`
+        : `Снятие · ${fromLabel} · ${methodLabel}`)
 
   const row = {
     id: nextId('FIN'),
@@ -1709,12 +1736,32 @@ export function createFinanceMove(db, data = {}) {
     supplierId: supplier?.id,
     supplierName: supplier?.name,
     clientRef: data.clientRef || undefined,
+    payFrom,
+    method,
   }
   db.financeMoves.unshift(row)
 
-  if (shift) {
+  if (payFrom === 'vault') {
     if (type === 'withdraw') {
-      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+      if (method === 'card') {
+        db.cashVault.cardTotal = round2(Math.max(0, (Number(db.cashVault.cardTotal) || 0) - amount))
+      } else {
+        db.cashVault.cashTotal = round2(Math.max(0, (Number(db.cashVault.cashTotal) || 0) - amount))
+      }
+    } else if (method === 'card') {
+      db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + amount)
+    } else {
+      db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
+    }
+  } else if (shift) {
+    if (type === 'withdraw') {
+      if (method === 'card') {
+        shift.salesCard = round2(Math.max(0, (Number(shift.salesCard) || 0) - amount))
+      } else {
+        shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+      }
+    } else if (method === 'card') {
+      shift.salesCard = round2((Number(shift.salesCard) || 0) + amount)
     } else {
       shift.cashInTotal = round2((Number(shift.cashInTotal) || 0) + amount)
     }
@@ -1730,9 +1777,11 @@ export function createFinanceMove(db, data = {}) {
       supplierName: supplier.name,
       amount,
       paidAtIso: row.createdAtIso,
-      note: note || `С кассы · ${shift?.id || ''}`,
+      note: note || `С ${fromLabel} · ${methodLabel}`,
       financeMoveId: row.id,
       shiftId: shift?.id,
+      payFrom,
+      method,
     }
     if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
     db.supplierPayments.unshift(payment)
@@ -1742,7 +1791,7 @@ export function createFinanceMove(db, data = {}) {
     type: type === 'deposit' ? 'deposit' : 'withdraw',
     amount,
     direction: type === 'deposit' ? 'in' : 'out',
-    cashAffect: true,
+    cashAffect: method === 'cash',
     posId: row.posId || '',
     shiftId: row.shiftId || '',
     cashierId,
@@ -1751,7 +1800,11 @@ export function createFinanceMove(db, data = {}) {
     refId: row.id,
     reason,
     note,
-    meta: supplier ? { supplierId: supplier.id, supplierName: supplier.name, paymentId: payment?.id } : {},
+    meta: {
+      payFrom,
+      method,
+      ...(supplier ? { supplierId: supplier.id, supplierName: supplier.name, paymentId: payment?.id } : {}),
+    },
   })
   return { ...row, payment }
 }
@@ -1907,14 +1960,40 @@ function reverseStockReceipt(db, receipt) {
   }
   const paid = round2(receipt.paidNow)
   if (paid > 0.001) {
-    const ledgers = (db.moneyLedger || []).filter(
-      e => e.type === 'purchase_pay' && e.refType === 'receipt' && String(e.refId) === String(receipt.id),
-    )
-    for (const e of ledgers) {
-      if (e.shiftId) {
-        const shift = db.posShifts.find(s => s.id === e.shiftId)
+    const payFrom = receipt.payFrom === 'vault' ? 'vault' : 'shift'
+    const method = receipt.method === 'card' ? 'card' : 'cash'
+    if (payFrom === 'vault') {
+      if (method === 'card') {
+        db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + paid)
+      } else {
+        db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + paid)
+      }
+    } else {
+      const ledgers = (db.moneyLedger || []).filter(
+        e => e.type === 'purchase_pay' && e.refType === 'receipt' && String(e.refId) === String(receipt.id),
+      )
+      for (const e of ledgers) {
+        if (e.shiftId) {
+          const shift = db.posShifts.find(s => s.id === e.shiftId)
+          if (shift) {
+            if (method === 'card') {
+              shift.salesCard = round2((Number(shift.salesCard) || 0) + paid)
+            } else {
+              shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - paid))
+            }
+            touchShift(shift)
+          }
+        }
+      }
+      // fallback: shiftId on receipt
+      if (!ledgers.length && receipt.shiftId) {
+        const shift = db.posShifts.find(s => s.id === receipt.shiftId)
         if (shift) {
-          shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - paid))
+          if (method === 'card') {
+            shift.salesCard = round2((Number(shift.salesCard) || 0) + paid)
+          } else {
+            shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - paid))
+          }
           touchShift(shift)
         }
       }
@@ -1972,6 +2051,8 @@ function buildStockReceipt(db, data = {}, meta = {}) {
     totalCost,
     paidNow,
     debtAdded: round2(Math.max(0, totalCost - paidNow)),
+    payFrom: paidNow > 0.001 ? (data.payFrom === 'vault' ? 'vault' : 'shift') : undefined,
+    method: paidNow > 0.001 ? (data.method === 'card' ? 'card' : 'cash') : undefined,
     items: items.map(row => ({
       productId: row.product.id,
       productName: row.product.name,
@@ -1989,43 +2070,83 @@ function buildStockReceipt(db, data = {}, meta = {}) {
   return receipt
 }
 
+function applyReceiptPaidNow(db, receipt, data = {}) {
+  const paid = round2(Number(receipt.paidNow) || 0)
+  if (!(paid > 0.001)) return receipt
+  const payFrom = receipt.payFrom === 'vault' ? 'vault' : 'shift'
+  const method = receipt.method === 'card' ? 'card' : 'cash'
+  let shift = null
+  if (payFrom === 'vault') {
+    const have = method === 'card'
+      ? round2(Number(db.cashVault.cardTotal) || 0)
+      : round2(Number(db.cashVault.cashTotal) || 0)
+    if (paid > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+          : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+      )
+    }
+    if (method === 'card') {
+      db.cashVault.cardTotal = round2(have - paid)
+    } else {
+      db.cashVault.cashTotal = round2(have - paid)
+    }
+  } else {
+    if (data.shiftId) {
+      shift = db.posShifts.find(s => s.id === data.shiftId && s.status === 'open') || null
+    }
+    if (!shift) shift = findOpenShift(db, data.posId)
+    if (!shift) {
+      throw new Error('Нет открытой смены — откройте смену или оплатите из основного ящика')
+    }
+    const expected = method === 'card'
+      ? round2(Number(shift.salesCard) || 0)
+      : shiftExpectedCash(shift)
+    if (paid > expected + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `На карте смены только ${expected.toFixed(2)} сом`
+          : `В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`,
+      )
+    }
+    if (method === 'card') {
+      shift.salesCard = round2(expected - paid)
+    } else {
+      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + paid)
+    }
+    touchShift(shift)
+    receipt.shiftId = shift.id
+    receipt.posId = shift.posId || ''
+  }
+  appendMoneyLedger(db, {
+    type: 'purchase_pay',
+    amount: paid,
+    direction: 'out',
+    cashAffect: method === 'cash',
+    posId: receipt.posId || shift?.posId || data.posId || '',
+    shiftId: shift?.id || '',
+    cashierName: receipt.createdBy || shift?.cashierName || '',
+    cashierId: shift?.cashierId || '',
+    refType: 'receipt',
+    refId: receipt.id,
+    reason: `Оплата закупа · ${receipt.supplierName || 'поставщик'} · ${payFrom === 'vault' ? 'основной' : 'касса'} · ${method === 'card' ? 'карта' : 'нал'}`,
+    note: '',
+    meta: { payFrom, method },
+  })
+  return receipt
+}
+
 export function createStockReceipt(db, data = {}) {
   ensurePosCollections(db)
   const meta = {}
   if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
   const receipt = buildStockReceipt(db, data, meta)
-  if ((Number(receipt.paidNow) || 0) > 0) {
-    let shift = null
-    if (data.shiftId) {
-      shift = db.posShifts.find(s => s.id === data.shiftId && s.status === 'open') || null
-    }
-    if (!shift) shift = findOpenShift(db, data.posId)
-    if (shift) {
-      const expected = shiftExpectedCash(shift)
-      if (receipt.paidNow > expected + 0.009) {
-        // откат прихода — иначе касса уйдёт в минус без предупреждения
-        reverseStockReceipt(db, receipt)
-        throw new Error(`В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`)
-      }
-      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + receipt.paidNow)
-      touchShift(shift)
-      receipt.shiftId = shift.id
-      receipt.posId = shift.posId || ''
-    }
-    appendMoneyLedger(db, {
-      type: 'purchase_pay',
-      amount: receipt.paidNow,
-      direction: 'out',
-      cashAffect: true,
-      posId: receipt.posId || shift?.posId || data.posId || '',
-      shiftId: shift?.id || '',
-      cashierName: receipt.createdBy || shift?.cashierName || '',
-      cashierId: shift?.cashierId || '',
-      refType: 'receipt',
-      refId: receipt.id,
-      reason: `Оплата закупа · ${receipt.supplierName || 'поставщик'}`,
-      note: '',
-    })
+  try {
+    applyReceiptPaidNow(db, receipt, data)
+  } catch (e) {
+    reverseStockReceipt(db, receipt)
+    throw e
   }
   return receipt
 }
@@ -2034,22 +2155,6 @@ export function updateStockReceipt(db, id, data = {}) {
   ensurePosCollections(db)
   const receipt = (db.stockReceipts || []).find(r => r.id === id)
   if (!receipt) throw new Error('Приход не найден')
-  const newPaid = round2(data.paidNow)
-  if (newPaid > 0) {
-    let shift = null
-    if (data.shiftId) {
-      shift = db.posShifts.find(s => s.id === data.shiftId && s.status === 'open') || null
-    }
-    if (!shift) shift = findOpenShift(db, data.posId)
-    if (shift) {
-      // Учитываем, что старая оплата уже в expenseTotal и reverse её вернёт
-      const oldPaid = round2(receipt.paidNow)
-      const expected = round2(shiftExpectedCash(shift) + oldPaid)
-      if (newPaid > expected + 0.009) {
-        throw new Error(`В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`)
-      }
-    }
-  }
   const meta = {
     id: receipt.id,
     createdAtIso: receipt.createdAtIso,
@@ -2057,32 +2162,11 @@ export function updateStockReceipt(db, id, data = {}) {
   }
   reverseStockReceipt(db, receipt)
   const next = buildStockReceipt(db, data, meta)
-  if ((Number(next.paidNow) || 0) > 0) {
-    let shift = null
-    if (data.shiftId) {
-      shift = db.posShifts.find(s => s.id === data.shiftId && s.status === 'open') || null
-    }
-    if (!shift) shift = findOpenShift(db, data.posId)
-    if (shift) {
-      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + next.paidNow)
-      touchShift(shift)
-      next.shiftId = shift.id
-      next.posId = shift.posId || ''
-    }
-    appendMoneyLedger(db, {
-      type: 'purchase_pay',
-      amount: next.paidNow,
-      direction: 'out',
-      cashAffect: true,
-      posId: next.posId || shift?.posId || data.posId || '',
-      shiftId: shift?.id || '',
-      cashierName: next.createdBy || shift?.cashierName || '',
-      cashierId: shift?.cashierId || '',
-      refType: 'receipt',
-      refId: next.id,
-      reason: `Оплата закупа · ${next.supplierName || 'поставщик'}`,
-      note: '',
-    })
+  try {
+    applyReceiptPaidNow(db, next, data)
+  } catch (e) {
+    reverseStockReceipt(db, next)
+    throw e
   }
   return next
 }

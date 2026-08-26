@@ -16,7 +16,7 @@ import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
 import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
-import type { FinanceMove, PosExpense, PosSale, PosShift } from './types'
+import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 
 export type SaleCartLine = {
   productId: number
@@ -429,6 +429,153 @@ export async function vaultCashToCardSafe(input: {
   )
 }
 
+/** Сколько доступно в основном ящике */
+export function vaultAvailableLocal(method: MoneyPayMethod = 'cash'): number {
+  const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+  return round2(method === 'card'
+    ? (Number(vault.cardTotal) || 0)
+    : (Number(vault.cashTotal) || 0))
+}
+
+/** Сколько доступно в открытой смене (нал или карта) */
+export function shiftAvailableLocal(
+  shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'salesCard'>,
+  method: MoneyPayMethod = 'cash',
+): number {
+  if (method === 'card') return round2(Number(shift.salesCard) || 0)
+  return shiftExpectedCashLocal(shift)
+}
+
+/**
+ * Списать / вернуть деньги из кассы смены или основного ящика.
+ * dir=1 — списание (оплата/снятие), dir=-1 — вернуть обратно.
+ */
+export function applyMoneyOutLocal(opts: {
+  amount: number
+  payFrom?: MoneyPayFrom
+  method?: MoneyPayMethod
+  dir?: 1 | -1
+  posId?: string
+  shiftId?: string
+}): { shiftId?: string; payFrom: MoneyPayFrom; method: MoneyPayMethod } {
+  const amt = round2(opts.amount)
+  const payFrom: MoneyPayFrom = opts.payFrom === 'vault' ? 'vault' : 'shift'
+  const method: MoneyPayMethod = opts.method === 'card' ? 'card' : 'cash'
+  const dir = opts.dir === -1 ? -1 : 1
+  if (!(amt > 0.001)) return { payFrom, method }
+
+  if (payFrom === 'vault') {
+    const have = vaultAvailableLocal(method)
+    if (dir > 0 && amt > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+          : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+      )
+    }
+    usePosStore.setState(s => {
+      const v = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+      if (method === 'card') {
+        return {
+          cashVault: {
+            ...v,
+            cardTotal: round2(Math.max(0, (Number(v.cardTotal) || 0) - dir * amt)),
+          },
+        }
+      }
+      return {
+        cashVault: {
+          ...v,
+          cashTotal: round2(Math.max(0, (Number(v.cashTotal) || 0) - dir * amt)),
+        },
+      }
+    })
+    void persistPosSnapshot()
+    return { payFrom, method }
+  }
+
+  const open = opts.shiftId
+    ? shiftById(opts.shiftId)
+    : resolveOpenShift(opts.posId)
+  if (!open) {
+    if (dir > 0) throw new Error('Нет открытой смены — откройте смену или оплатите из основного ящика')
+    return { payFrom, method }
+  }
+  if (dir > 0) {
+    const have = shiftAvailableLocal(open, method)
+    if (amt > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `На карте смены только ${have.toFixed(2)} сом`
+          : `В кассе недостаточно наличных (доступно ${have.toFixed(2)} сом)`,
+      )
+    }
+  }
+  if (method === 'card') {
+    patchShift(open.id, {
+      salesCard: round2(Math.max(0, (Number(open.salesCard) || 0) - dir * amt)),
+    })
+  } else {
+    applyExpenseToShift(open.id, amt, dir)
+  }
+  void persistPosSnapshot()
+  return { shiftId: open.id, payFrom, method }
+}
+
+/**
+ * Внести деньги в кассу смены или основной ящик.
+ */
+export function applyMoneyInLocal(opts: {
+  amount: number
+  payFrom?: MoneyPayFrom
+  method?: MoneyPayMethod
+  posId?: string
+  shiftId?: string
+}): { shiftId?: string; payFrom: MoneyPayFrom; method: MoneyPayMethod } {
+  const amt = round2(opts.amount)
+  const payFrom: MoneyPayFrom = opts.payFrom === 'vault' ? 'vault' : 'shift'
+  const method: MoneyPayMethod = opts.method === 'card' ? 'card' : 'cash'
+  if (!(amt > 0.001)) return { payFrom, method }
+
+  if (payFrom === 'vault') {
+    usePosStore.setState(s => {
+      const v = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+      if (method === 'card') {
+        return {
+          cashVault: {
+            ...v,
+            cardTotal: round2((Number(v.cardTotal) || 0) + amt),
+          },
+        }
+      }
+      return {
+        cashVault: {
+          ...v,
+          cashTotal: round2((Number(v.cashTotal) || 0) + amt),
+        },
+      }
+    })
+    void persistPosSnapshot()
+    return { payFrom, method }
+  }
+
+  const open = opts.shiftId
+    ? shiftById(opts.shiftId)
+    : resolveOpenShift(opts.posId)
+  if (!open) throw new Error('Нет открытой смены — откройте смену или внесите в основной ящик')
+  if (method === 'card') {
+    patchShift(open.id, {
+      salesCard: round2((Number(open.salesCard) || 0) + amt),
+    })
+  } else {
+    patchShift(open.id, {
+      cashInTotal: round2((Number(open.cashInTotal) || 0) + amt),
+    })
+  }
+  void persistPosSnapshot()
+  return { shiftId: open.id, payFrom, method }
+}
+
 // ── Движение по кассе ──
 
 const financeMoveInflight = new Map<string, Promise<OfflineResult<FinanceMove | null>>>()
@@ -444,30 +591,59 @@ export async function financeMoveSafe(input: {
   posId?: string
   supplierId?: string
   reason?: string
+  /** shift (по умолчанию) | vault */
+  payFrom?: MoneyPayFrom
+  /** cash (по умолчанию) | card */
+  method?: MoneyPayMethod
 }): Promise<OfflineResult<FinanceMove | null>> {
+  const payFrom: MoneyPayFrom = input.payFrom === 'vault' ? 'vault' : 'shift'
+  const method: MoneyPayMethod = input.method === 'card' ? 'card' : 'cash'
   const open = resolveOpenShift(input.posId)
-  const shiftId = input.shiftId || open?.id
+  const shiftId = payFrom === 'vault'
+    ? (input.shiftId || undefined)
+    : (input.shiftId || open?.id)
   const posId = input.posId || open?.posId || undefined
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
 
-  if (input.type === 'withdraw' && shiftId) {
-    const shift = shiftById(shiftId)
-    if (shift) {
-      const expected = shiftExpectedCashLocal(shift)
-      if (amount > expected + 0.009) {
-        throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+  if (input.type === 'withdraw') {
+    if (payFrom === 'vault') {
+      const have = vaultAvailableLocal(method)
+      if (amount > have + 0.009) {
+        throw new Error(
+          method === 'card'
+            ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+            : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+        )
       }
+    } else if (shiftId) {
+      const shift = shiftById(shiftId)
+      if (shift) {
+        const expected = shiftAvailableLocal(shift, method)
+        if (amount > expected + 0.009) {
+          throw new Error(
+            method === 'card'
+              ? `На карте смены только ${expected.toFixed(2)} сом`
+              : `В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`,
+          )
+        }
+      }
+    } else {
+      throw new Error('Нет открытой смены — откройте смену или снимите из основного ящика')
     }
+  } else if (payFrom === 'shift' && !shiftId) {
+    throw new Error('Нет открытой смены — откройте смену или внесите в основной ящик')
   }
 
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
   const payload = {
     ...input,
+    payFrom,
+    method,
     clientRef,
     amount,
-    shiftId,
+    shiftId: payFrom === 'shift' ? shiftId : (shiftId || undefined),
     posId,
     createdAtIso,
     createdBy: input.createdBy || input.cashierName || open?.cashierName,
@@ -475,7 +651,7 @@ export async function financeMoveSafe(input: {
     cashierName: input.cashierName || open?.cashierName,
   }
 
-  const inflightKey = ['fin', payload.type, amount, String(shiftId || ''), String(payload.note || '').trim()].join('|')
+  const inflightKey = ['fin', payload.type, amount, payFrom, method, String(payload.shiftId || ''), String(payload.note || '').trim(), String(payload.supplierId || '')].join('|')
   const existing = financeMoveInflight.get(inflightKey)
   if (existing) return existing
 
@@ -496,11 +672,27 @@ export async function financeMoveSafe(input: {
       const queued = await useOfflineSync.getState().queueOp('finance_move', payload, { localId, clientRef })
       const already = queued.clientRef !== clientRef || queued.localId !== localId
       if (already) {
-        const existing = usePosStore.getState().financeMoves.find(m =>
+        const existingMove = usePosStore.getState().financeMoves.find(m =>
           m.clientRef === queued.clientRef || m.id === queued.localId,
         )
-        if (existing) return existing
+        if (existingMove) return existingMove
       }
+      const applied = payload.type === 'withdraw'
+        ? applyMoneyOutLocal({
+          amount: payload.amount,
+          payFrom,
+          method,
+          dir: 1,
+          shiftId: payload.shiftId,
+          posId: payload.posId,
+        })
+        : applyMoneyInLocal({
+          amount: payload.amount,
+          payFrom,
+          method,
+          shiftId: payload.shiftId,
+          posId: payload.posId,
+        })
       const move: FinanceMove = {
         id: localId,
         type: payload.type,
@@ -508,21 +700,15 @@ export async function financeMoveSafe(input: {
         note: payload.note,
         createdBy: payload.createdBy,
         createdAtIso,
-        shiftId: payload.shiftId,
+        shiftId: applied.shiftId || payload.shiftId,
         posId: payload.posId,
         supplierId: payload.supplierId,
         clientRef,
+        payFrom,
+        method,
       }
       usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
       shadowMirrorPut('finance_move', move.id, move)
-      if (payload.shiftId) {
-        const shift = shiftById(payload.shiftId)
-        if (shift) {
-          patchShift(payload.shiftId, payload.type === 'withdraw'
-            ? { expenseTotal: round2((shift.expenseTotal || 0) + payload.amount) }
-            : { cashInTotal: round2((shift.cashInTotal || 0) + payload.amount) })
-        }
-      }
       if (payload.supplierId && payload.type === 'withdraw') {
         usePosStore.setState(s => ({
           suppliers: s.suppliers.map(sup => {
@@ -1374,20 +1560,21 @@ function applyExpenseToShift(shiftId: string | undefined, amount: number, dir: 1
   patchShift(shiftId, { expenseTotal: next })
 }
 
-/** Оплата закупа налом с открытой смены (локально). */
-export function applyPurchasePayToOpenShift(amount: number, dir: 1 | -1 = 1, posId?: string): string | undefined {
-  const amt = round2(amount)
-  if (!(amt > 0.001)) return undefined
-  const open = resolveOpenShift(posId)
-  if (!open) return undefined
-  if (dir > 0) {
-    const expected = shiftExpectedCashLocal(open)
-    if (amt > expected + 0.009) {
-      throw new Error(`В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`)
-    }
-  }
-  applyExpenseToShift(open.id, amt, dir)
-  return open.id
+/** Оплата закупа с открытой смены или основного ящика (локально). */
+export function applyPurchasePayToOpenShift(
+  amount: number,
+  dir: 1 | -1 = 1,
+  posId?: string,
+  opts?: { payFrom?: MoneyPayFrom; method?: MoneyPayMethod },
+): string | undefined {
+  const applied = applyMoneyOutLocal({
+    amount,
+    dir,
+    posId,
+    payFrom: opts?.payFrom,
+    method: opts?.method,
+  })
+  return applied.shiftId
 }
 
 export async function expenseCreateSafe(input: {
@@ -1535,17 +1722,55 @@ function isFinanceTwin(a: FinanceMove, b: FinanceMove): boolean {
 
 function applyFinanceCashReverse(move: FinanceMove) {
   const amount = round2(Number(move.amount) || 0)
-  if (move.shiftId && amount > 0) {
-    const shift = shiftById(move.shiftId)
-    if (shift) {
-      if (move.type === 'withdraw') {
-        patchShift(move.shiftId, {
-          expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
-        })
-      } else {
-        patchShift(move.shiftId, {
-          cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
-        })
+  if (!(amount > 0)) return
+  const payFrom = move.payFrom === 'vault' ? 'vault' as const : 'shift' as const
+  const method = move.method === 'card' ? 'card' as const : 'cash' as const
+  try {
+    if (move.type === 'withdraw') {
+      // вернуть деньги туда, откуда сняли
+      applyMoneyOutLocal({
+        amount,
+        payFrom,
+        method,
+        dir: -1,
+        shiftId: move.shiftId,
+        posId: move.posId,
+      })
+    } else if (payFrom === 'vault') {
+      // убрать внесённое из основного
+      applyMoneyOutLocal({
+        amount,
+        payFrom: 'vault',
+        method,
+        dir: 1,
+      })
+    } else if (move.shiftId) {
+      const shift = shiftById(move.shiftId)
+      if (shift) {
+        if (method === 'card') {
+          patchShift(move.shiftId, {
+            salesCard: round2(Math.max(0, (Number(shift.salesCard) || 0) - amount)),
+          })
+        } else {
+          patchShift(move.shiftId, {
+            cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
+          })
+        }
+      }
+    }
+  } catch {
+    if (move.shiftId) {
+      const shift = shiftById(move.shiftId)
+      if (shift) {
+        if (move.type === 'withdraw') {
+          patchShift(move.shiftId, {
+            expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
+          })
+        } else {
+          patchShift(move.shiftId, {
+            cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
+          })
+        }
       }
     }
   }

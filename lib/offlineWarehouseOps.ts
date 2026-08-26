@@ -39,6 +39,8 @@ export type ReceiptPayload = {
   supplierId?: string
   createdBy?: string
   paidNow?: number
+  payFrom?: 'shift' | 'vault'
+  method?: 'cash' | 'card'
   items: ReceiptItemInput[]
 }
 
@@ -135,6 +137,8 @@ function buildLocalReceipt(
 
   const totalCost = round2(items.reduce((s, it) => s + (Number(it.purchaseTotal) || it.qty * it.costPrice), 0))
   const paidNow = round2(payload.paidNow || 0)
+  const payFrom = payload.payFrom === 'vault' ? 'vault' as const : 'shift' as const
+  const method = payload.method === 'card' ? 'card' as const : 'cash' as const
   const supplier = payload.supplierId
     ? usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)
     : undefined
@@ -151,6 +155,8 @@ function buildLocalReceipt(
     paidNow,
     debtAdded: round2(Math.max(0, totalCost - paidNow)),
     items,
+    payFrom: paidNow > 0.001 ? payFrom : undefined,
+    method: paidNow > 0.001 ? method : undefined,
   }
 }
 
@@ -204,7 +210,15 @@ export async function createStockReceiptSafe(
   const supplierName = payload.supplierId
     ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
     : ''
-  const body = { ...payload, clientRef, createdAtIso, paidNow: round2(payload.paidNow || 0), supplierName }
+  const body = {
+    ...payload,
+    clientRef,
+    createdAtIso,
+    paidNow: round2(payload.paidNow || 0),
+    payFrom: payload.payFrom === 'vault' ? 'vault' : 'shift',
+    method: payload.method === 'card' ? 'card' : 'cash',
+    supplierName,
+  }
 
   const applyLocal = async () => {
     const localId = newLocalId('rec')
@@ -212,7 +226,10 @@ export async function createStockReceiptSafe(
     receipt = await enrichReceiptNames(receipt)
     const paid = round2(receipt.paidNow || 0)
     if (paid > 0.001) {
-      const shiftId = applyPurchasePayToOpenShift(paid, 1)
+      const shiftId = applyPurchasePayToOpenShift(paid, 1, undefined, {
+        payFrom: receipt.payFrom,
+        method: receipt.method,
+      })
       if (shiftId) receipt = { ...receipt, shiftId }
     }
     await useOfflineSync.getState().queueOp('stock_receipt_create', body, { localId })
@@ -237,14 +254,27 @@ export async function updateStockReceiptSafe(
   const supplierName = payload.supplierId
     ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
     : ''
-  const body = { ...payload, clientRef, id: persistId, paidNow: round2(payload.paidNow || 0), supplierName }
+  const body = {
+    ...payload,
+    clientRef,
+    id: persistId,
+    paidNow: round2(payload.paidNow || 0),
+    payFrom: payload.payFrom === 'vault' ? 'vault' : 'shift',
+    method: payload.method === 'card' ? 'card' : 'cash',
+    supplierName,
+  }
   const nowIso = new Date().toISOString()
 
   const applyLocal = async () => {
     const old = findReceipt(id) || findReceipt(persistId)
     if (old) {
       const oldPaid = round2(old.paidNow || 0)
-      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
+      if (oldPaid > 0.001) {
+        applyPurchasePayToOpenShift(oldPaid, -1, undefined, {
+          payFrom: old.payFrom,
+          method: old.method,
+        })
+      }
       await applyReceiptStock(old, -1)
     }
     const liveId = old?.id || persistId
@@ -258,7 +288,10 @@ export async function updateStockReceiptSafe(
     receipt = await enrichReceiptNames(receipt)
     const paid = round2(receipt.paidNow || 0)
     if (paid > 0.001) {
-      const shiftId = applyPurchasePayToOpenShift(paid, 1)
+      const shiftId = applyPurchasePayToOpenShift(paid, 1, undefined, {
+        payFrom: receipt.payFrom,
+        method: receipt.method,
+      })
       if (shiftId) receipt = { ...receipt, shiftId }
     }
     await applyReceiptStock(receipt, 1)
@@ -288,7 +321,12 @@ export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<
     const old = findReceipt(id) || findReceipt(persistId)
     if (old) {
       const oldPaid = round2(old.paidNow || 0)
-      if (oldPaid > 0.001) applyPurchasePayToOpenShift(oldPaid, -1)
+      if (oldPaid > 0.001) {
+        applyPurchasePayToOpenShift(oldPaid, -1, undefined, {
+          payFrom: old.payFrom,
+          method: old.method,
+        })
+      }
       await applyReceiptStock(old, -1)
     }
     await useOfflineSync.getState().queueOp('stock_receipt_delete', body)
