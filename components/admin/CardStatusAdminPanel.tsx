@@ -83,7 +83,7 @@ function TierEditor({
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
       <NI lbl="Название уровня" val={tier.label} set={v => onChange({ label: v })} />
       <NI
-        lbl="Кэшбэк, %"
+        lbl="Кэшбэк за покупку налом, %"
         val={String(tier.bonusPercent ?? 0)}
         set={v => onChange({ bonusPercent: Math.max(0, parseFloat(v) || 0) })}
         ph="2"
@@ -138,9 +138,10 @@ function CashDepositTiersEditor({
 
   return (
     <div style={{ background: '#0A140C', border: '1px solid var(--b1)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 6 }}>💵 Наличные в магазин (Торговля)</div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 6 }}>💵 Купил бонусы (Тип 2)</div>
       <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.45 }}>
-        Пороги бонусов при внесении наличных: чем больше сумма — тем выше процент. Используется в разделе «Клиенты → Наличные».
+        Клиент вносит наличные → на баланс идут <b>деньги + %</b> (например 500 + 1% = 505 ⭐).
+        Используется в кассе «Пополнить бонусы» и в «Клиенты → Наличные». На покупки товаров не влияет.
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
         {sorted.map((tier, idx) => (
@@ -402,7 +403,7 @@ export default function CardStatusAdminPanel() {
         >
           <div>
             <div className="ub" style={{ fontSize: 14, fontWeight: 900 }}>⚙️ Программа лояльности</div>
-            <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 3 }}>Бонусы, пороги уровней и условия VIP</div>
+            <div style={{ fontSize: 11, color: 'var(--t2)', marginTop: 3 }}>Уровни, кэшбэк за покупки и «купил бонусы»</div>
           </div>
           <span style={{ fontSize: 12, color: 'var(--t2)' }}>{showProgram ? '▲ Свернуть' : '▼ Настроить'}</span>
         </button>
@@ -424,9 +425,29 @@ export default function CardStatusAdminPanel() {
               </div>
             )}
 
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(31,215,96,.06)', border: '1px solid rgba(31,215,96,.18)', fontSize: 11, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 16 }}>
+              <b style={{ color: '#1FD760' }}>Два типа бонусов</b>
+              <div style={{ marginTop: 6 }}>
+                <b>Тип 1 — покупка налом:</b> кэшбэк по уровню статуса (Бронза / Серебро…). До порога Бронзы — 0%.
+                Долг и погашение — 0 бонусов. Статус авто: 30 дней с даты получения.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <b>Тип 2 — купил бонусы:</b> пороги наличных ниже (деньги + % на баланс, тратить только в покупке).
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
               <NI lbl="Бонус при регистрации ⭐" val={String(draft.welcomeBonus)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, welcomeBonus: Math.max(0, parseInt(v, 10) || 0) })); setSaved(false) }} type="number" />
-              <NI lbl="Порог Бронзы, ЅМ" val={String(draft.bronzeMinSpent)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, bronzeMinSpent: Math.max(0, parseFloat(v) || 0) })); setSaved(false) }} type="number" />
+              <NI lbl="Порог Бронзы, ЅМ (Тип 1)" val={String(draft.bronzeMinSpent)} set={v => {
+                const min = Math.max(0, parseFloat(v) || 0)
+                draftDirtyRef.current = true
+                setDraft(p => ({
+                  ...p,
+                  bronzeMinSpent: min,
+                  tiers: p.tiers.map(t => (t.id === 'bronze' ? { ...t, minSpent: min } : t)),
+                }))
+                setSaved(false)
+              }} type="number" />
               <NI lbl="VIP: мин. заказов" val={String(draft.vipRules.minOrders)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minOrders: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
               <NI lbl="VIP: мин. отзывов" val={String(draft.vipRules.minReviews)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minReviews: Math.max(0, parseInt(v, 10) || 0) } })); setSaved(false) }} type="number" />
               <NI lbl="VIP: мин. траты, ЅМ" val={String(draft.vipRules.minSpent)} set={v => { draftDirtyRef.current = true; setDraft(p => ({ ...p, vipRules: { ...p.vipRules, minSpent: Math.max(0, parseFloat(v) || 0) } })); setSaved(false) }} type="number" />
@@ -441,7 +462,10 @@ export default function CardStatusAdminPanel() {
               }}
             />
 
-            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 10 }}>Уровни</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 6 }}>Уровни статуса (Тип 1 — кэшбэк за покупку налом)</div>
+            <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10, lineHeight: 1.45 }}>
+              «Мин. траты» — порог уровня. «Кэшбэк %» — процент бонусов за наличную часть покупки в этом диапазоне трат.
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 14 }}>
               {allTiers.map(t => (
                 <button

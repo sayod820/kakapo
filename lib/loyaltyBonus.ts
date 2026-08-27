@@ -117,7 +117,7 @@ function marginalBandsFromConfig(cfg: LoyaltyStatusConfig): MarginalBand[] {
   ]
 }
 
-/** Кэшбэк по «ступенькам»: до 500 SM — 0%, сверх порога — % соответствующего уровня. */
+/** Кэшбэк по «ступенькам»: до порога Бронзы из админки — 0%, далее % уровня на каждый диапазон. */
 export function calcMarginalBonusEarned(
   priorEligibleSpent: number,
   orderEligible: number,

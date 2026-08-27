@@ -4,6 +4,9 @@ import {
   isLevelLocked,
   isLoyaltyPeriodCurrent,
   inferLevelAssignMode,
+  AUTO_LEVEL_DEFAULT_TERM_DAYS,
+  vipUntilAfterDays,
+  isAutoLevelActive,
 } from './loyaltyLock.js'
 
 export const DEFAULT_LOYALTY = {
@@ -172,16 +175,39 @@ function parseOrderDate(order) {
   return new Date()
 }
 
-/** Скользящее окно статуса/кэшбэка клиента (вместо календарного месяца). */
-export const LOYALTY_WINDOW_DAYS = 30
+/** @deprecated скользящее окно — статус считается по периоду levelValidUntil */
+export const LOYALTY_WINDOW_DAYS = AUTO_LEVEL_DEFAULT_TERM_DAYS
+
+export function autoStatusValidUntilIso(from = new Date(), days = AUTO_LEVEL_DEFAULT_TERM_DAYS) {
+  return vipUntilAfterDays(days, from)
+}
+
+export function isAutoStatusPeriodActive(levelValidUntil, now = Date.now()) {
+  return isAutoLevelActive({ levelAssignMode: 'auto', levelValidUntil }, now)
+}
+
+/** С какого момента считать нал-траты для статуса и маржинального кэшбэка. */
+export function cashSpendAnchorMs(opts = {}, now = Date.now()) {
+  const levelValidUntil = opts.levelValidUntil
+  const bonusEligibleFrom = opts.bonusEligibleFrom
+  if (levelValidUntil) {
+    const end = new Date(levelValidUntil).getTime()
+    if (!Number.isNaN(end)) {
+      if (now <= end) {
+        return end - AUTO_LEVEL_DEFAULT_TERM_DAYS * 86400000
+      }
+      return end
+    }
+  }
+  if (bonusEligibleFrom) {
+    const from = new Date(bonusEligibleFrom).getTime()
+    if (!Number.isNaN(from)) return from
+  }
+  return 0
+}
 
 export function loyaltyWindowStartMs(days = LOYALTY_WINDOW_DAYS, now = Date.now()) {
   return now - days * 86400000
-}
-
-function orderInLoyaltyWindow(order, days = LOYALTY_WINDOW_DAYS, now = Date.now()) {
-  const t = parseOrderDate(order).getTime()
-  return t >= loyaltyWindowStartMs(days, now) && t <= now
 }
 
 function orderItemsSubtotal(order) {
@@ -232,22 +258,37 @@ export function bonusEligibleTotal(order) {
   return fromItems
 }
 
-/** Статистика клиента за скользящее окно (по умолчанию — последние 30 дней). */
-export function rollingWindowDeliveredStats(db, phone, now = Date.now(), excludeOrderId = null, client = null) {
-  const key = normalizePhoneDigits(phone)
+/** Статистика нал-трат в текущем периоде статуса (30 дней с даты получения уровня). */
+export function periodDeliveredStats(
+  db,
+  phone,
+  client = null,
+  card = null,
+  now = Date.now(),
+  excludeOrderId = null,
+) {
   const resolved = client || findClientByPhone(db, phone)
-  const delivered = (db.orders || []).filter(o => {
-    if (o.status !== 'delivered') return false
-    if (normalizePhoneDigits(o.client?.phone) !== key) return false
-    if (resolved && !orderBelongsToClientAccount(o, resolved)) return false
+  const anchor = cashSpendAnchorMs({
+    levelValidUntil: client?.levelValidUntil || card?.levelValidUntil,
+    bonusEligibleFrom: client?.bonusEligibleFrom || card?.bonusEligibleFrom,
+  }, now)
+  const delivered = deliveredOrdersForClient(db, phone, resolved).filter(o => {
     if (excludeOrderId && String(o.id) === String(excludeOrderId)) return false
     if (!(cashEligibleTotal(o) > 0.001)) return false
-    return orderInLoyaltyWindow(o, LOYALTY_WINDOW_DAYS, now)
+    return orderSortKey(o) >= anchor
   })
   return {
     orderCount: delivered.length,
     spent: Math.round(delivered.reduce((s, o) => s + orderSpentContribution(o), 0) * 10) / 10,
   }
+}
+
+/** @deprecated используйте periodDeliveredStats */
+export function rollingWindowDeliveredStats(db, phone, now = Date.now(), excludeOrderId = null, client = null) {
+  const card = client?.card
+    ? (db.cards || []).find(c => String(c.num).toUpperCase() === String(client.card).toUpperCase())
+    : null
+  return periodDeliveredStats(db, phone, client, card, now, excludeOrderId)
 }
 
 export function lifetimeDeliveredStats(db, phone, client = null) {
@@ -286,12 +327,19 @@ export function earnedLevelForPeriod(spent, orderCount, loyalty = DEFAULT_LOYALT
 }
 
 /**
- * Эффективный уровень: ручной (закреплённый админом) держится, пока не истёк срок;
- * автоматический — всегда живая функция от трат за скользящее окно, без «сброса».
+ * Эффективный уровень: ручной держится по сроку; авто — по нал-тратам периода;
+ * если levelValidUntil истёк → снова Базовый.
  */
 export function resolveEffectiveLevel(spent, orderCount, storedLevel, lock, loyalty) {
   const stored = storedLevel && storedLevel !== 'new' ? storedLevel : 'basic'
   if (isLevelLocked(lock)) return stored
+  if (
+    lock?.levelAssignMode !== 'manual'
+    && lock?.levelValidUntil
+    && !isAutoStatusPeriodActive(lock.levelValidUntil)
+  ) {
+    return 'basic'
+  }
   return hasEarnedBronze(spent, orderCount, loyalty) ? suggestLevel(spent, loyalty) : 'basic'
 }
 
@@ -316,7 +364,7 @@ function marginalBandsFromLoyalty(loyalty = DEFAULT_LOYALTY) {
   const bronzeMin = Number(loyalty.bronzeMinSpent) || t.bronze || 500
   return [
     { from: 0, to: bronzeMin, percent: 0 },
-    { from: t.bronze, to: t.silver, percent: Number(loyalty.bronze?.bonusPercent) || 1 },
+    { from: bronzeMin, to: t.silver, percent: Number(loyalty.bronze?.bonusPercent) || 1 },
     { from: t.silver, to: t.gold, percent: Number(loyalty.silver?.bonusPercent) || 2 },
     { from: t.gold, to: t.platinum, percent: Number(loyalty.gold?.bonusPercent) || 3 },
     { from: t.platinum, to: Infinity, percent: Number(loyalty.platinum?.bonusPercent) || 5 },
@@ -348,18 +396,21 @@ export function calcMarginalBonusEarned(priorEligibleSpent, orderEligible, loyal
   return earned
 }
 
-/** Доставленные заказы за скользящие 30 дней ДО этого заказа (для маржинального кэшбэка). */
+/** Нал-траты по доставленным заказам ДО этого заказа (в текущем периоде статуса). */
 function priorBonusEligibleSpent(db, phone, order, client = null, card = null) {
   const orderKey = orderSortKey(order)
-  const windowStart = loyaltyWindowStartMs(LOYALTY_WINDOW_DAYS, orderKey)
   const orderId = String(order.id)
+  const anchor = cashSpendAnchorMs({
+    levelValidUntil: client?.levelValidUntil || card?.levelValidUntil,
+    bonusEligibleFrom: client?.bonusEligibleFrom || card?.bonusEligibleFrom,
+  }, orderKey)
   const delivered = deliveredOrdersForClient(db, phone, client)
   return delivered
     .filter(o => {
       if (!isOrderMarginalBonusEligible(o, client, card)) return false
       if (String(o.id) === orderId) return false
       const k = orderSortKey(o)
-      if (k < windowStart) return false
+      if (k < anchor) return false
       if (k < orderKey) return true
       if (k > orderKey) return false
       return String(o.id) < orderId
@@ -385,25 +436,57 @@ function findClientForOrder(db, order, hooks) {
   return null
 }
 
-/** Авто-уровень — живой пересчёт из трат за скользящие 30 дней, без «срока действия». */
-export function applyLevelUpgrade(db, phone, client, card, loyalty, now = Date.now()) {
+/** Авто-уровень: 30 дней с даты получения; при новой Бронзе — новый период. */
+export function applyLevelUpgrade(db, phone, client, card, loyalty, now = Date.now(), excludeOrderId = null) {
   if (client.vip && isForcedVipActive(client)) return
 
   const lock = loyaltyLockRecord(client, card)
   if (lock.levelAssignMode === 'manual' || isLevelLocked(lock)) return
 
-  const stats = rollingWindowDeliveredStats(db, phone, now, null, client)
-  const nextLevel = earnedLevelForPeriod(stats.spent, stats.orderCount, loyalty)
-  if (nextLevel === (client.level || 'basic')) return
+  const statsAfter = periodDeliveredStats(db, phone, client, card, now, null)
+  const statsBefore = excludeOrderId
+    ? periodDeliveredStats(db, phone, client, card, now, excludeOrderId)
+    : { spent: 0, orderCount: 0 }
 
+  const hadBronze = hasEarnedBronze(statsBefore.spent, statsBefore.orderCount, loyalty)
+  const hasBronzeAfter = hasEarnedBronze(statsAfter.spent, statsAfter.orderCount, loyalty)
+  const prevValidUntil = client.levelValidUntil || card?.levelValidUntil || null
+  const periodActive = isAutoStatusPeriodActive(prevValidUntil, now)
+
+  let levelValidUntil = prevValidUntil
+  if (!hadBronze && hasBronzeAfter) {
+    levelValidUntil = autoStatusValidUntilIso(new Date(now))
+  } else if (!periodActive && hasBronzeAfter) {
+    levelValidUntil = autoStatusValidUntilIso(new Date(now))
+  } else if (!periodActive && !hasBronzeAfter) {
+    levelValidUntil = undefined
+  }
+
+  const nextLock = { ...lock, levelValidUntil: levelValidUntil || undefined }
+  const nextLevel = resolveEffectiveLevel(
+    statsAfter.spent,
+    statsAfter.orderCount,
+    client.level,
+    nextLock,
+    loyalty,
+  )
+
+  const prevLevel = client.level || 'basic'
   client.level = nextLevel
+  client.levelAssignMode = client.levelAssignMode || 'auto'
+  client.levelValidUntil = levelValidUntil || undefined
   client.loyaltyPeriod = currentLoyaltyPeriod(new Date(now))
+
   if (card) {
     card.level = nextLevel === 'basic' ? '' : nextLevel
+    card.levelValidUntil = levelValidUntil || undefined
     card.loyaltyPeriod = client.loyaltyPeriod
-    if (client.levelAssignMode) card.levelAssignMode = client.levelAssignMode
+    card.levelAssignMode = client.levelAssignMode || 'auto'
   }
-  applyAutoDebtSection(client, card, loyalty)
+
+  if (nextLevel !== prevLevel || levelValidUntil !== prevValidUntil) {
+    applyAutoDebtSection(client, card, loyalty)
+  }
 }
 
 function isForcedVipActive(client) {
@@ -414,7 +497,7 @@ function isForcedVipActive(client) {
   return Date.now() <= until
 }
 
-/** Снять истёкшую РУЧНУЮ блокировку статуса и откатить на авто-расчёт по скользящему окну. */
+/** Снять истёкшую ручную блокировку статуса и откатить на авто-расчёт по периоду. */
 export function clearExpiredManualLoyaltyLock(db, phone, client, card, loyalty, now = Date.now()) {
   if (client.vip && isForcedVipActive(client)) return
   if (inferLevelAssignMode(client, card) !== 'manual') return
@@ -425,8 +508,14 @@ export function clearExpiredManualLoyaltyLock(db, phone, client, card, loyalty, 
   const periodLockExpired = !!(levelLockedPeriod && !isLoyaltyPeriodCurrent(levelLockedPeriod))
   if (!untilExpired && !periodLockExpired) return
 
-  const stats = rollingWindowDeliveredStats(db, phone, now, null, client)
-  const nextLevel = earnedLevelForPeriod(stats.spent, stats.orderCount, loyalty)
+  const stats = periodDeliveredStats(db, phone, client, card, now, null)
+  const nextLevel = resolveEffectiveLevel(
+    stats.spent,
+    stats.orderCount,
+    client.level,
+    { ...loyaltyLockRecord(client, card), levelAssignMode: 'auto' },
+    loyalty,
+  )
 
   client.level = nextLevel
   client.loyaltyPeriod = currentLoyaltyPeriod(new Date(now))
@@ -444,8 +533,8 @@ export function clearExpiredManualLoyaltyLock(db, phone, client, card, loyalty, 
   applyAutoDebtSection(client, card, loyalty)
 }
 
-function syncClientRollingStats(db, client, phone, now = Date.now()) {
-  const stats = rollingWindowDeliveredStats(db, phone, now, null, client)
+function syncClientRollingStats(db, client, phone, card = null, now = Date.now()) {
+  const stats = periodDeliveredStats(db, phone, client, card, now, null)
   client.orders = stats.orderCount
   client.spent = stats.spent
   const lifetime = lifetimeDeliveredStats(db, phone, client)
@@ -568,10 +657,6 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
   const loyalty = ensureLoyaltySettings(db)
   clearExpiredManualLoyaltyLock(db, phone, client, card, loyalty)
 
-  if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
-    applyLevelUpgrade(db, phone, client, card, loyalty)
-  }
-
   applyAutoDebtSection(client, card, loyalty)
 
   const earned = earnBonusForOrder(db, phone, order, client, card, loyalty)
@@ -581,7 +666,11 @@ export function creditClientBonusOnDelivery(db, order, hooks) {
     client.bonus = card.bonus
   }
 
-  syncClientRollingStats(db, client, phone)
+  if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
+    applyLevelUpgrade(db, phone, client, card, loyalty, Date.now(), order.id)
+  }
+
+  syncClientRollingStats(db, client, phone, card)
   hooks.syncClientFromCardRow(card)
 
   order.bonusCredited = true
@@ -784,7 +873,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
       card.bonus = expectedBonus
       client.bonus = expectedBonus
     }
-    syncClientRollingStats(db, client, phone)
+    syncClientRollingStats(db, client, phone, card)
     if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
       applyLevelUpgrade(db, phone, client, card, loyalty)
     }
@@ -811,7 +900,7 @@ export function reconcileClientBonuses(db, phone, hooks) {
     client.bonus = finalBonus
   }
 
-  syncClientRollingStats(db, client, phone)
+  syncClientRollingStats(db, client, phone, card)
   if (inferLevelAssignMode(client, card) === 'auto' && !isLevelLocked(loyaltyLockRecord(client, card))) {
     applyLevelUpgrade(db, phone, client, card, loyalty)
   }
