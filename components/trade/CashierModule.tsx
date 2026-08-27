@@ -78,6 +78,7 @@ import {
   type PosLoyaltyClientMeta,
 } from '@/lib/posLoyaltySale'
 import { resolveCardAuthoritativeLevel } from '@/lib/loyaltyAdminLock'
+import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
