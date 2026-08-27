@@ -195,9 +195,8 @@ export function formatClientLevelPeriod(
     }
   }
 
-  // Авто-режим — статус живой, пересчитывается по тратам за последние 30 дней,
-  // без фиксированной даты окончания (в отличие от ручного назначения выше).
-  return { periodLabel, periodEnds: '', periodSubtitle: 'Автоматически · по покупкам за последние 30 дней' }
+  // Авто-режим — статус выдаётся при достижении порога и действует 30 дней с даты получения.
+  return { periodLabel, periodEnds: '', periodSubtitle: 'Автоматически · 30 дней с даты получения статуса' }
 }
 
 /** Ручной статус активен (закреплён админом, авторасчёт не применяется). */
@@ -278,6 +277,65 @@ export const VIP_PERMANENT_DAYS = -1
 
 /** Срок авто-статуса по умолчанию с момента получения уровня */
 export const AUTO_LEVEL_DEFAULT_TERM_DAYS = 30
+
+/** Дата окончания статуса: +N дней с момента получения (конец дня локально). */
+export function autoStatusValidUntilIso(
+  from = new Date(),
+  days = AUTO_LEVEL_DEFAULT_TERM_DAYS,
+): string {
+  const d = new Date(from)
+  d.setDate(d.getDate() + Math.max(1, days))
+  d.setHours(23, 59, 59, 999)
+  return d.toISOString()
+}
+
+/** Начало текущего периода статуса (если levelValidUntil ещё активен). */
+export function statusPeriodStartMs(
+  levelValidUntil?: string | null,
+  days = AUTO_LEVEL_DEFAULT_TERM_DAYS,
+  now = Date.now(),
+): number | null {
+  if (!levelValidUntil) return null
+  const end = new Date(levelValidUntil).getTime()
+  if (Number.isNaN(end)) return null
+  if (now > end) return null
+  return end - days * 86400000
+}
+
+/** С какого момента считать нал-траты для статуса/кэшбэка. */
+export function cashSpendAnchorMs(opts: {
+  levelValidUntil?: string | null
+  bonusEligibleFrom?: string | null
+  now?: number
+}): number {
+  const now = opts.now ?? Date.now()
+  if (opts.levelValidUntil) {
+    const end = new Date(opts.levelValidUntil).getTime()
+    if (!Number.isNaN(end)) {
+      if (now <= end) {
+        return end - AUTO_LEVEL_DEFAULT_TERM_DAYS * 86400000
+      }
+      // Период истёк — копить заново только после конца срока
+      return end
+    }
+  }
+  if (opts.bonusEligibleFrom) {
+    const from = new Date(opts.bonusEligibleFrom).getTime()
+    if (!Number.isNaN(from)) return from
+  }
+  return 0
+}
+
+/** Период авто-статуса ещё действует. */
+export function isAutoStatusPeriodActive(
+  levelValidUntil?: string | null,
+  now = Date.now(),
+): boolean {
+  if (!levelValidUntil) return false
+  const until = new Date(levelValidUntil).getTime()
+  if (Number.isNaN(until)) return false
+  return now <= until
+}
 
 export function vipUntilForTermDays(days: number): string | null | undefined {
   if (days === VIP_PERMANENT_DAYS) return null

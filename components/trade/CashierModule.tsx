@@ -38,7 +38,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { CARD_STATUS_LABELS, cardNumsMatch, effectiveDebt } from '@/lib/cardCrm'
+import { CARD_STATUS_LABELS, cardNumsMatch, effectiveDebt, type AdminCard } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   buildDebtOrderBalances,
@@ -72,7 +72,12 @@ import {
   cashDepositTierLabel,
   resolveEffectiveDebtLimit,
 } from '@/lib/loyaltyStatusConfig'
-import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import {
+  previewPosStatusCashBonus,
+  statusFieldsAfterPosCashPurchase,
+  type PosLoyaltyClientMeta,
+} from '@/lib/posLoyaltySale'
+import { resolveCardAuthoritativeLevel } from '@/lib/loyaltyAdminLock'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
@@ -101,7 +106,7 @@ import {
 } from '@/lib/desktopBridge'
 import { hideTradeHardwareUi, isTradeMobileUi } from '@/lib/tradeAndroid'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
-import { useProducts } from '@/lib/store'
+import { useProducts, useOrders } from '@/lib/store'
 import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
   categorySlug,
@@ -248,6 +253,23 @@ function groupStockLayersByRetail(layers: ProductStockLayer[], productPrice = 0)
     return a.retailPrice - b.retailPrice
   })
   return groups
+}
+
+function buildPosLoyaltyMeta(client: AdminClient, cardList: AdminCard[]): PosLoyaltyClientMeta {
+  const card = (client.card
+    ? cardList.find(c => cardNumsMatch(c.num, client.card!) && c.status !== 'unlinked')
+    : undefined)
+    || cardList.find(c => c.clientId === client.id && c.status !== 'unlinked')
+  return {
+    id: client.id,
+    phone: client.phone,
+    level: resolveCardAuthoritativeLevel(card, client),
+    vip: !!(card?.vip ?? client.vip),
+    levelValidUntil: card?.levelValidUntil ?? client.levelValidUntil,
+    bonusEligibleFrom: card?.bonusEligibleFrom ?? client.bonusEligibleFrom,
+    levelAssignMode: card?.levelAssignMode ?? client.levelAssignMode,
+    accountGeneration: client.accountGeneration,
+  }
 }
 
 type PosTicket = {
@@ -1039,6 +1061,7 @@ export default function CashierModule({
   const hideHardware = hideTradeHardwareUi()
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
+  const orders = useOrders(s => s.orders)
   const clients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   // online/syncing — только в CashierNetChip, иначе каждый тик sync перерисовывает поиск
@@ -6422,8 +6445,14 @@ export default function CashierModule({
       const discountTotal = Math.round((itemDiscAmount + discAmount) * 100) / 100
       const bonusBalanceBefore = loyalty ? Math.max(0, Math.floor(Number(loyalty.bonus) || 0)) : undefined
       let earnedBonusPreview = 0
-      if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
-        earnedBonusPreview = calcCashDepositBonus(cashPaid)
+      if (cashPaid > 0.001 && client?.phone && client.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
+        earnedBonusPreview = previewPosStatusCashBonus(
+          client.phone,
+          orders,
+          cashPaid,
+          buildPosLoyaltyMeta(client, cards),
+          sales,
+        )
       }
       const bonusBalanceAfter = bonusBalanceBefore != null
         ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
@@ -6551,20 +6580,36 @@ export default function CashierModule({
         }
         setHistTick(t => t + 1)
       }
-      let earnedBonus = 0
-      if (cashPaid > 0 && client?.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
-        earnedBonus = calcCashDepositBonus(cashPaid)
-      }
-      // Бонусы уже учтены в createSaleSafe / очереди — без прямого api.updateCard
-      if (earnedBonus > 0 && client?.phone) {
-        try {
-          recordBalanceTopup(
+      const earnedBonus = earnedBonusPreview
+      if (cashPaid > 0.001 && client?.phone && client.card) {
+        const meta = buildPosLoyaltyMeta(client, cards)
+        if (meta.levelAssignMode !== 'manual') {
+          const statusFields = statusFieldsAfterPosCashPurchase(
             client.phone,
+            orders,
             cashPaid,
-            earnedBonus,
-            apiMethod === 'mixed' ? 'Смешанная оплата (нал)' : 'Оплата наличными (касса)',
+            meta,
+            sales,
           )
-        } catch { /* ignore */ }
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            {
+              level: statusFields.level,
+              levelValidUntil: statusFields.levelValidUntil ?? undefined,
+              levelAssignMode: statusFields.levelAssignMode,
+            },
+            { skipApi: true },
+          )
+          useClientStore.getState().updateClient(
+            client.id,
+            {
+              level: statusFields.level,
+              levelValidUntil: statusFields.levelValidUntil ?? undefined,
+              levelAssignMode: statusFields.levelAssignMode,
+            },
+            { skipApi: true },
+          )
+        }
       }
       // Исходящая очередь + входящие чеки с сервера (браузер → ПК)
       void softSyncPosAfterSale({ force: true })
@@ -6924,7 +6969,6 @@ export default function CashierModule({
         prevDebt,
       })
       const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - payAmt)
-      const repayBonus = Number(repaid.data.bonusEarned) || 0
       if (repaid.data.duplicate) {
         const freshDup = useClientStore.getState().clients.find(c => c.id === client.id)
         if (freshDup) setClient(freshDup)
@@ -6972,9 +7016,6 @@ export default function CashierModule({
             },
           ).checkCount
         }
-        if (repayBonus > 0 && client.phone) {
-          recordBalanceTopup(client.phone, payAmt, repayBonus, 'Погашение долга наличными')
-        }
       }
       if (!repaid.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
@@ -6988,12 +7029,11 @@ export default function CashierModule({
       const fifoNote = !target && fifoChecks > 0
         ? ` · с ${fifoChecks} чек${fifoChecks === 1 ? 'а' : 'ов'} (со старых)`
         : ''
-      const bonusNote = repayBonus > 0 ? ` · +${repayBonus} ⭐` : ''
       const tillNote = repayMethod === 'cash' ? ' · в кассу' : ''
       const offlineNote = repaid.offline ? ' · отправится в фоне' : ''
       showToast(
         'Долг погашен',
-        `${client.name}: −${fmtMoney(payAmt)}${targetNote} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${bonusNote}${fifoNote}${offlineNote}`,
+        `${client.name}: −${fmtMoney(payAmt)}${targetNote} · ${repayMethod === 'cash' ? 'нал' : 'карта'} · остаток ${fmtMoney(nextDebt)}${tillNote}${fifoNote}${offlineNote}`,
       )
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
@@ -8165,8 +8205,9 @@ export default function CashierModule({
   const cashRemain = Math.max(0, Math.round((total - cashReceived) * 100) / 100)
   const splitCardAmt = Math.min(cashRemain, Math.max(0, Number(splitCardBuf) || 0))
   const splitDebtRemain = Math.max(0, Math.round((cashRemain - splitCardAmt) * 100) / 100)
-  const cashSaleBonus = client?.card && total > 0 ? calcCashDepositBonus(total) : 0
-  const cashSaleTier = client?.card && total > 0 ? cashDepositTierForAmount(total) : null
+  const cashSaleBonus = client?.card && client.phone && total > 0.001
+    ? previewPosStatusCashBonus(client.phone, orders, total, buildPosLoyaltyMeta(client, cards), sales)
+    : 0
   const topupCash = Number(topupBuf) || 0
   const topupPrincipal = Math.max(0, Math.round(topupCash * 100) / 100)
   const topupPercentBonus = calcCashDepositBonus(topupCash)
@@ -8175,9 +8216,6 @@ export default function CashierModule({
   const repayAmount = Number(repayBuf) || 0
   const repayRemain = Math.max(0, clientDebt - repayAmount)
   const chargeAmount = Number(chargeBuf) || 0
-  const repayCashBonus = repayMethod === 'cash' && repayAmount > 0 ? calcCashDepositBonus(repayAmount) : 0
-  const repayCashTier = repayMethod === 'cash' && repayAmount > 0 ? cashDepositTierForAmount(repayAmount) : null
-
   return (
     <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
       <style>{POS_MOCK_CSS}</style>
@@ -9910,7 +9948,7 @@ export default function CashierModule({
                   <div className="cash-change-bonus">Ниже: Карта или Долг</div>
                 )}
                 {client?.card && cashSaleBonus > 0 && cashChange >= -0.001 && (
-                  <div className="cash-change-bonus">На карту +{cashSaleBonus} ⭐{cashSaleTier ? ` · ${cashDepositTierLabel(cashSaleTier)}` : ''}</div>
+                  <div className="cash-change-bonus">Кэшбэк статуса +{cashSaleBonus} ⭐</div>
                 )}
               </div>
 
@@ -10434,16 +10472,6 @@ export default function CashierModule({
               <button type="button" className={`repay-m ${repayMethod === 'cash' ? 'on' : ''}`} onClick={() => setRepayMethod('cash')}>💵 Наличные</button>
               <button type="button" className={`repay-m ${repayMethod === 'card' ? 'on' : ''}`} onClick={() => setRepayMethod('card')}>💳 Карта</button>
             </div>
-            {repayMethod === 'cash' && (
-              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 12, textAlign: 'center' }}>
-                {repayCashBonus > 0 ? (
-                  <>За наличные на карту <b style={{ color: 'var(--gd)' }}>+{repayCashBonus} ⭐</b>
-                    {repayCashTier ? ` · ${cashDepositTierLabel(repayCashTier)}` : ''}</>
-                ) : (
-                  <>Бонус по порогам наличных (если сумма ниже порога — 0)</>
-                )}
-              </div>
-            )}
             <div className="modal-card-actions">
               <button
                 type="button"

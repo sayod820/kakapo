@@ -4798,15 +4798,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       card.debt = nextDebt
     }
 
-    let bonusEarned = 0
-    if (method === 'cash') {
-      const loyalty = ensureLoyaltySettings(db)
-      bonusEarned = calcCashDepositBonusServer(amount, loyalty)
-      if (bonusEarned > 0) {
-        card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + bonusEarned) * 100) / 100
-        card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + bonusEarned) * 100) / 100
-      }
-    }
+    const bonusEarned = 0
     syncClientFromCardRow(card)
 
     const till = applyDebtRepayToShift(db, {

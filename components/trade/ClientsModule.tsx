@@ -17,6 +17,8 @@ import {
   loyaltySummaryForClient,
 } from '@/lib/clientCardSync'
 import { deleteClientSafe, provisionLoyaltyCardSafe, saveClientSafe, toggleClientBlockSafe } from '@/lib/offlineClientOps'
+import { cardTopupSafe } from '@/lib/offlinePosOps'
+import { useOfflineSync } from '@/lib/offlineSync'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import { saveCardLoyaltySafe } from '@/lib/offlineLoyaltyOps'
 import {
@@ -238,6 +240,8 @@ export default function ClientsModule() {
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   const sales = usePosStore(s => s.sales)
+  const shifts = usePosStore(s => s.shifts)
+  const openShift = useMemo(() => shifts.find(s => s.status === 'open') ?? null, [shifts])
   const orders = useOrders(s => s.orders)
   const apiSyncing = useClientStore(s => s.apiSyncing)
 
@@ -310,12 +314,15 @@ export default function ClientsModule() {
     return sorted
   }, [clients, cards, q, sort, filter])
 
-  const cashBonusPreview = useMemo(() => {
-    if (!cashForm.open) return 0
+  const cashTopupPreview = useMemo(() => {
+    if (!cashForm.open) return { principal: 0, percent: 0, credit: 0 }
     void loyaltyCfgTick
     const cash = Number(cashForm.cashAmount) || 0
-    if (cash <= 0) return 0
-    return calcCashDepositBonus(cash)
+    if (cash <= 0) return { principal: 0, percent: 0, credit: 0 }
+    const principal = Math.max(0, Math.round(cash * 100) / 100)
+    const percent = calcCashDepositBonus(cash)
+    const credit = Math.round((principal + percent) * 100) / 100
+    return { principal, percent, credit }
   }, [cashForm.open, cashForm.cashAmount, loyaltyCfgTick])
 
   function salesFor(client: EnrichedClient): PosSale[] {
@@ -493,21 +500,42 @@ export default function ClientsModule() {
     const client = clients.find(c => c.id === cashForm.clientId)
     if (!client) return
     const cash = Number(cashForm.cashAmount) || 0
-    const bonus = cashBonusPreview
+    const { principal, percent, credit } = cashTopupPreview
     if (!(cash > 0)) {
       setCashForm(prev => ({ ...prev, msg: 'Укажите сумму наличных' }))
       return
     }
-    if (!(bonus > 0)) {
+    if (!(credit > 0)) {
       setCashForm(prev => ({ ...prev, msg: 'Сумма не достигает порога — бонусы не начисляются. Настройте пороги в админке.' }))
+      return
+    }
+    if (!openShift) {
+      setCashForm(prev => ({ ...prev, msg: 'Откройте смену в кассе, чтобы принять наличные в кассу' }))
       return
     }
 
     setCashForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
-      const prevBonus = Number(client.bonus) || 0
-      await saveLoyaltyForClient(client, { bonus: prevBonus + bonus })
-      if (client.phone) recordBalanceTopup(client.phone, cash, bonus)
+      let card = cardForClient(client, cards)
+      if (!card) {
+        const res = await provisionLoyaltyCardSafe(client)
+        if (!res.offline) void refreshAll()
+        card = cardForClient(res.data, useCardStore.getState().cards)
+      }
+      if (!card) throw new Error('Не удалось получить карту лояльности')
+      const note = String(cashForm.note || '').trim()
+      const topup = await cardTopupSafe(card.num, {
+        cash: principal,
+        credit,
+        note: note || `Пополнение бонусов · ${client.name}`,
+        cashierId: openShift.cashierId,
+        cashierName: openShift.cashierName,
+        shiftId: openShift.id,
+        posId: openShift.posId,
+      })
+      if (client.phone) recordBalanceTopup(client.phone, principal, percent, note || 'Пополнение бонусов')
+      if (!topup.offline) void refreshAll()
+      else void useOfflineSync.getState().syncNow()
       closeCashForm()
     } catch (e) {
       setCashForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка пополнения' }))
@@ -785,7 +813,7 @@ export default function ClientsModule() {
             </div>
             <div className="k-modal-b" style={{ padding: 16 }}>
               <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 12, background: '#1a2a1a', border: '1px solid #2a4032', fontSize: 12 }}>
-                Клиент внёс наличные — бонусы считаются по порогам из админки «Статус карты»
+                Клиент внёс наличные — на баланс идут деньги + % (как «купил бонусы» в кассе)
                 {Number(cashForm.cashAmount) > 0 && (
                   <span> · <b>{cashTierHint(cashForm.cashAmount)}</b></span>
                 )}
@@ -808,27 +836,29 @@ export default function ClientsModule() {
                 />
               </div>
               <div className="k-field">
-                <label>Бонусы к начислению ⭐</label>
+                <label>На баланс ⭐ (деньги + %)</label>
                 <div style={{
                   padding: '12px 14px',
                   borderRadius: 10,
                   background: 'var(--card)',
-                  border: `1px solid ${cashBonusPreview > 0 ? 'var(--green)' : 'var(--border)'}`,
+                  border: `1px solid ${cashTopupPreview.credit > 0 ? 'var(--green)' : 'var(--border)'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 10,
                 }}>
-                  <span style={{ fontWeight: 900, fontSize: 22, color: cashBonusPreview > 0 ? 'var(--gold)' : 'var(--muted)' }}>
-                    {cashBonusPreview > 0 ? `+${cashBonusPreview.toLocaleString()} ⭐` : '—'}
+                  <span style={{ fontWeight: 900, fontSize: 22, color: cashTopupPreview.credit > 0 ? 'var(--gold)' : 'var(--muted)' }}>
+                    {cashTopupPreview.credit > 0 ? `+${cashTopupPreview.credit.toLocaleString()} ⭐` : '—'}
                   </span>
-                  {Number(cashForm.cashAmount) > 0 && (
+                  {Number(cashForm.cashAmount) > 0 && cashTopupPreview.credit > 0 && (
                     <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}>
+                      {cashTopupPreview.principal.toFixed(2)} + {cashTopupPreview.percent.toFixed(2)}%
+                      <br />
                       {cashTierHint(cashForm.cashAmount)}
                     </span>
                   )}
                 </div>
-                {Number(cashForm.cashAmount) > 0 && cashBonusPreview <= 0 && (
+                {Number(cashForm.cashAmount) > 0 && cashTopupPreview.credit <= 0 && (
                   <div style={{ fontSize: 11, color: 'var(--gold)', marginTop: 6 }}>
                     Сумма ниже минимального порога — бонусы не начисляются
                   </div>
@@ -841,8 +871,8 @@ export default function ClientsModule() {
               {cashForm.msg && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, fontSize: 13, background: 'var(--alert-error-bg)', color: 'var(--red)', border: '1px solid var(--alert-error-border)' }}>{cashForm.msg}</div>}
             </div>
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={cashForm.saving || cashBonusPreview <= 0} onClick={() => void submitCash()}>
-                {cashForm.saving ? 'Сохранение…' : cashBonusPreview > 0 ? `Начислить +${cashBonusPreview} ⭐` : 'Начислить бонусы'}
+              <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={cashForm.saving || cashTopupPreview.credit <= 0 || !openShift} onClick={() => void submitCash()}>
+                {cashForm.saving ? 'Сохранение…' : cashTopupPreview.credit > 0 ? `Начислить +${cashTopupPreview.credit} ⭐` : 'Начислить бонусы'}
               </button>
               <button type="button" className="k-btn k-btn-s" disabled={cashForm.saving} onClick={closeCashForm}>Отмена</button>
             </div>

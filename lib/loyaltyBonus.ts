@@ -18,7 +18,7 @@ import {
 } from './loyaltyStatusConfig'
 import { useCardStore } from './cardStore'
 import { useClientStore } from './clientStore'
-import { inferLevelAssignMode } from './loyaltyAdminLock'
+import { inferLevelAssignMode, cashSpendAnchorMs, autoStatusValidUntilIso, isAutoStatusPeriodActive } from './loyaltyAdminLock'
 import { onBonusCredited } from './pushService'
 import { currentLoyaltyPeriod, LOYALTY_WINDOW_DAYS, loyaltyWindowStartMs } from './loyaltyPeriod'
 import { findMergedClientByPhone } from './clientProfileSync'
@@ -70,16 +70,20 @@ function orderSortKey(order: Order): number {
   return Number.isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
-/** Доставленные заказы за скользящие 30 дней ДО этого заказа (для маржинального кэшбэка). */
-function priorDeliveredOrders(phone: string, allDelivered: Order[], order: Order): Order[] {
+/** Доставленные заказы ДО этого заказа (для маржинального кэшбэка). */
+function priorDeliveredOrders(
+  phone: string,
+  allDelivered: Order[],
+  order: Order,
+  spendAnchorMs = 0,
+): Order[] {
   const orderKey = orderSortKey(order)
-  const windowStart = loyaltyWindowStartMs(LOYALTY_WINDOW_DAYS, orderKey)
   const orderId = String(order.id)
   return allDelivered.filter(o => {
     if (!phonesMatch(o.client?.phone || '', phone)) return false
     if (String(o.id) === orderId) return false
     const k = orderSortKey(o)
-    if (k < windowStart) return false
+    if (k < spendAnchorMs) return false
     if (k < orderKey) return true
     if (k > orderKey) return false
     return String(o.id) < orderId
@@ -214,10 +218,14 @@ export function priorBonusEligibleSpent(
   phone: string,
   allDelivered: Order[],
   order: Order,
-  merged?: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string },
-  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string } | null,
+  merged?: { bonusEligibleFrom?: string; vip?: boolean; loyaltyPeriod?: string; levelValidUntil?: string | null },
+  card?: { bonusEligibleFrom?: string; loyaltyPeriod?: string; levelValidUntil?: string | null } | null,
 ): number {
-  return priorDeliveredOrders(phone, allDelivered, order)
+  const anchor = cashSpendAnchorMs({
+    levelValidUntil: merged?.levelValidUntil ?? card?.levelValidUntil,
+    bonusEligibleFrom: merged?.bonusEligibleFrom ?? card?.bonusEligibleFrom,
+  })
+  return priorDeliveredOrders(phone, allDelivered, order, anchor)
     .filter(o => !merged || isOrderMarginalBonusEligible(o, merged, card))
     .reduce((sum, o) => sum + cashEligibleTotal(o), 0)
 }

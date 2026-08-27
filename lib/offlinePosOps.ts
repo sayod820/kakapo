@@ -1468,7 +1468,8 @@ export async function createSaleSafe(
         const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
         const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
         const nextBonus = Math.max(0, base - spend + earn)
-        const nextPos = Math.max(0, prevPos - spend + earn)
+        // posCashBonus — только «купил бонусы» (пополнение), не кэшбэк статуса за покупку
+        const nextPos = Math.max(0, prevPos - spend)
         useCardStore.getState().updateCardLoyalty(
           client.card,
           {

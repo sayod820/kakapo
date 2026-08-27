@@ -5,9 +5,15 @@ import { isPhoneDeleted } from './clientTombstones'
 import { isDemoSeedClient } from './clientDemoSeed'
 import { loadLoyaltyStatusConfig, DEFAULT_LOYALTY_STATUS_CONFIG, tierThresholdsFromConfig } from './loyaltyStatusConfig'
 import { orderInLoyaltyWindow, LOYALTY_WINDOW_DAYS } from './loyaltyPeriod'
-import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields } from './loyaltyAdminLock'
+import { isLevelLocked, loyaltyLockFromRecord, type LoyaltyLockFields, isAutoStatusPeriodActive, cashSpendAnchorMs } from './loyaltyAdminLock'
 import { orderBelongsToClientAccount } from './clientAccountLifecycle'
 import { cashEligibleTotal, orderSpentContribution } from './orderLoyaltyAmount'
+
+function orderTimeKey(order: Pick<Order, 'deliveredAtIso' | 'createdAtIso' | 'createdAt'>): number {
+  const raw = order.deliveredAtIso || order.createdAtIso || order.createdAt || ''
+  const d = new Date(String(raw))
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime()
+}
 
 export type ClientLevel = 'basic' | 'bronze' | 'silver' | 'gold' | 'platinum'
 
@@ -282,17 +288,22 @@ export function hasEarnedBronze(spent: number, _orderCount = 0): boolean {
   return spent >= min
 }
 
-/** Доставленные заказы клиента за скользящее окно (по умолчанию — последние 30 дней). */
+/** Доставленные заказы клиента с наличной оплатой в текущем периоде статуса. */
 export function loyaltyOrdersForClient(
   orders: Order[],
   phone: string,
-  account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration'> | null,
+  account?: Pick<AdminClient, 'id' | 'phone' | 'accountGeneration' | 'levelValidUntil' | 'bonusEligibleFrom'> | null,
   now = Date.now(),
 ): Order[] {
+  const anchor = cashSpendAnchorMs({
+    levelValidUntil: account?.levelValidUntil,
+    bonusEligibleFrom: account?.bonusEligibleFrom,
+    now,
+  })
   return orders.filter(
     o => phonesMatch(o.client?.phone || '', phone)
       && o.status === 'delivered'
-      && orderInLoyaltyWindow(o, LOYALTY_WINDOW_DAYS, now)
+      && orderTimeKey(o) >= anchor
       && (!account || orderBelongsToClientAccount(o, account))
       && cashEligibleTotal(o) > 0.001,
   )
@@ -324,8 +335,8 @@ export function maxClientLevel(a: ClientLevel, b: ClientLevel): ClientLevel {
 
 /**
  * Эффективный уровень клиента: ручной статус (закреплённый админом) держится, пока не истёк срок;
- * автоматический — всегда живая функция от трат за скользящее окно (LOYALTY_WINDOW_DAYS), без
- * привязки к календарному месяцу и без отдельного «сброса».
+ * автоматический — по нал-тратам; если задан levelValidUntil и срок вышел → снова Базовый
+ * (30 дней с момента получения статуса, см. AUTO_LEVEL_DEFAULT_TERM_DAYS).
  */
 export function resolveEffectiveClientLevel(
   spent: number,
@@ -338,6 +349,15 @@ export function resolveEffectiveClientLevel(
 
   if (isLevelLocked(effectiveLock)) {
     return normalizedStored || 'basic'
+  }
+
+  // Авто: срок статуса истёк → Базовый (нужно заново набрать порог)
+  if (
+    effectiveLock.levelAssignMode !== 'manual'
+    && effectiveLock.levelValidUntil
+    && !isAutoStatusPeriodActive(effectiveLock.levelValidUntil)
+  ) {
+    return 'basic'
   }
 
   return hasEarnedBronze(spent, orderCount) ? suggestLevel(spent) : 'basic'
