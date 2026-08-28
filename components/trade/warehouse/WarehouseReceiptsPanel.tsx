@@ -18,7 +18,7 @@ import type { PosSupplier, Product, StockReceipt } from '@/lib/types'
 import BulkPricingFields, { type BulkPricingRow } from '@/components/trade/products/BulkPricingFields'
 import WarehouseNewProductModal from './WarehouseNewProductModal'
 import WarehouseNewSupplierModal from './WarehouseNewSupplierModal'
-import WarehousePeriodFilter from './WarehousePeriodFilter'
+import WarehousePeriodFilter, { periodPresetSinceMs, type WarehousePeriodPreset } from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import WarehouseSupplierSelect from './WarehouseSupplierSelect'
 import ReceiptLabelPrintModal from './ReceiptLabelPrintModal'
@@ -396,9 +396,11 @@ export default function WarehouseReceiptsPanel({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
-  // По умолчанию фильтр "День": меньше вычислений и быстрее вход в раздел "Склад → Приход"
-  const [dateFrom, setDateFrom] = useState(() => todayInputDate())
+  // По умолчанию фильтр "День" (последние 24 часа)
+  const [dateFrom, setDateFrom] = useState(() => toInputDate(new Date(periodPresetSinceMs('day'))))
   const [dateTo, setDateTo] = useState(() => todayInputDate())
+  const [periodPreset, setPeriodPreset] = useState<WarehousePeriodPreset>('day')
+  const [supplierFilter, setSupplierFilter] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [newProductOpen, setNewProductOpen] = useState(false)
   const [newProductName, setNewProductName] = useState('')
@@ -847,9 +849,41 @@ export default function WarehouseReceiptsPanel({
   }, [products])
 
   const filteredReceipts = useMemo(() => {
-    if (!dateFrom && !dateTo) return receipts
-    return receipts.filter(r => matchesDateRange(r.createdAtIso, dateFrom, dateTo))
-  }, [receipts, dateFrom, dateTo])
+    const now = Date.now()
+    const sinceMs = periodPreset ? periodPresetSinceMs(periodPreset, now) : null
+    return receipts.filter(r => {
+      if (supplierFilter) {
+        const sid = String(r.supplierId || '').trim()
+        const noSupplier = supplierFilter === '__none__'
+        if (noSupplier) {
+          if (sid) return false
+        } else if (sid !== supplierFilter) {
+          return false
+        }
+      }
+      if (sinceMs != null) {
+        const t = new Date(r.createdAtIso).getTime()
+        if (Number.isNaN(t) || t < sinceMs || t > now) return false
+        return true
+      }
+      if (!dateFrom && !dateTo) return true
+      return matchesDateRange(r.createdAtIso, dateFrom, dateTo)
+    })
+  }, [receipts, dateFrom, dateTo, periodPreset, supplierFilter])
+
+  const supplierFilterOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const s of suppliers) {
+      if (s.id) byId.set(s.id, s.name || s.id)
+    }
+    for (const r of receipts) {
+      const id = String(r.supplierId || '').trim()
+      if (id && !byId.has(id)) byId.set(id, r.supplierName || id)
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }, [suppliers, receipts])
 
   function receiptRetailTotal(r: StockReceipt) {
     return r.items.reduce((sum, it) => sum + (Number(it.qty) || 0) * (Number(it.retailPrice) || 0), 0)
@@ -904,10 +938,32 @@ export default function WarehouseReceiptsPanel({
             to={dateTo}
             onFromChange={setDateFrom}
             onToChange={setDateTo}
-            // "Сбросить" возвращает в дефолт "День", а не убирает фильтр целиком
-            onClear={() => { setDateFrom(todayInputDate()); setDateTo(todayInputDate()) }}
+            preset={periodPreset}
+            onPresetChange={setPeriodPreset}
+            // "Сбросить" возвращает в дефолт "День" (24 часа)
+            onClear={() => {
+              const now = new Date()
+              setDateFrom(toInputDate(new Date(periodPresetSinceMs('day', now.getTime()))))
+              setDateTo(todayInputDate())
+              setPeriodPreset('day')
+              setSupplierFilter('')
+            }}
           />
-          {(dateFrom || dateTo) && (
+          <select
+            className="k-inp"
+            style={{ width: 'auto', minWidth: 160, maxWidth: 220, fontSize: 12, padding: '8px 10px' }}
+            value={supplierFilter}
+            onChange={e => setSupplierFilter(e.target.value)}
+            title="Поставщик"
+            aria-label="Фильтр по поставщику"
+          >
+            <option value="">Все поставщики</option>
+            <option value="__none__">Без поставщика</option>
+            {supplierFilterOptions.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          {(dateFrom || dateTo || supplierFilter || periodPreset) && (
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
               <b style={{ color: 'var(--text)' }}>{filteredReceipts.length}</b> / {receipts.length}
             </span>
