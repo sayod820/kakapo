@@ -42,6 +42,8 @@ export type DebtHistoryEntry = {
   type: 'debt' | 'pay' | 'purchase'
   /** Откуда запись: manual — правка в разделе Долги; pos — чек кассы; order — заказ магазина; cashier — погашение на кассе */
   source?: 'manual' | 'pos' | 'order' | 'cashier'
+  /** Одна оплата клиента, разбитая по нескольким чекам (FIFO) */
+  batchId?: string
   /** Срок погашения (ISO) — с серверного ledger */
   dueAtIso?: string
   /** Человекочитаемый срок */
@@ -927,10 +929,13 @@ export function debtBalanceDeltaForHistoryChange(
   return Math.round((contrib(after) - contrib(before)) * 100) / 100
 }
 
-function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'date' | 'time' | 'ts'>) {
+function pushDebtHistory(
+  phone: string,
+  entry: Omit<DebtHistoryEntry, 'id' | 'date' | 'time' | 'ts'> & { ts?: number },
+) {
   const prev = loadDebtHistory(phone)
-  const now = new Date()
-  const id = `D-${now.getTime()}`
+  const now = entry.ts != null && Number.isFinite(entry.ts) ? new Date(entry.ts) : new Date()
+  const id = `D-${now.getTime()}-${Math.random().toString(36).slice(2, 7)}`
   // Наличная выдача без чека — свой orderId, чтобы погашать по одной строке
   let orderId = entry.orderId
   if (
@@ -941,8 +946,9 @@ function pushDebtHistory(phone: string, entry: Omit<DebtHistoryEntry, 'id' | 'da
   ) {
     orderId = `cash-${id}`
   }
+  const { ts: _omitTs, ...rest } = entry
   const row: DebtHistoryEntry = {
-    ...entry,
+    ...rest,
     id,
     orderId,
     date: now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
@@ -1009,6 +1015,10 @@ export function recordStoreDebtRepayment(
     source?: DebtHistoryEntry['source']
     /** Привязка к чеку/заказу — погашение именно этой позиции */
     orderId?: string
+    /** Общий id одной оплаты (несколько чеков) */
+    batchId?: string
+    /** Общее время пакета (чтобы FIFO не разъезжался) */
+    ts?: number
   },
 ): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
@@ -1024,12 +1034,15 @@ export function recordStoreDebtRepayment(
     type: 'pay',
     source,
     orderId: meta?.orderId,
+    batchId: meta?.batchId,
+    ts: meta?.ts,
   })
 }
 
 /**
  * Погашение со списанием со старых чеков (FIFO).
  * Пишет отдельные оплаты с orderId — остатки по чекам уменьшаются сразу.
+ * Все части одной оплаты связаны через batchId.
  */
 export function recordStoreDebtRepaymentFifo(
   phone: string,
@@ -1044,6 +1057,8 @@ export function recordStoreDebtRepaymentFifo(
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0, checkCount: 0 }
 
+  const batchId = `payb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const ts = Date.now()
   let left = pay
   let appliedToChecks = 0
   let checkCount = 0
@@ -1057,6 +1072,8 @@ export function recordStoreDebtRepaymentFifo(
       method: meta?.method,
       source: meta?.source,
       orderId: oid || undefined,
+      batchId,
+      ts,
       desc: t.label
         ? `Погашение · ${t.label}`
         : (meta?.desc || undefined),
@@ -1069,6 +1086,8 @@ export function recordStoreDebtRepaymentFifo(
     recordStoreDebtRepayment(phone, left, {
       method: meta?.method,
       source: meta?.source,
+      batchId,
+      ts,
       desc: meta?.desc || 'Погашение долга (сверх чеков)',
     })
   }

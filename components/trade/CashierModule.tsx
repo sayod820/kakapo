@@ -1410,6 +1410,16 @@ export default function CashierModule({
   const [histOpen, setHistOpen] = useState(false)
   const [histTab, setHistTab] = useState<'history' | 'pos' | 'cash' | 'pay'>('pos')
   const [histDetail, setHistDetail] = useState<ClientHistRow | null>(null)
+  const [payGroupDetail, setPayGroupDetail] = useState<{
+    id: string
+    when: string
+    ts: number
+    amount: number
+    isReturn: boolean
+    parts: { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean }[]
+    checkCount: number
+    methodHint: string
+  } | null>(null)
   const [histTick, setHistTick] = useState(0)
   const [payPickOpen, setPayPickOpen] = useState(false)
   const [creditNoteOpen, setCreditNoteOpen] = useState(false)
@@ -1519,8 +1529,9 @@ export default function CashierModule({
       if (topupOpen) { setTopupOpen(false); return true }
       if (repayOpen) { setRepayOpen(false); setRepayTarget(null); return true }
       if (chargeOpen) { setChargeOpen(false); return true }
+      if (payGroupDetail) { setPayGroupDetail(null); return true }
       if (histDetail) { setHistDetail(null); return true }
-      if (histOpen) { setHistOpen(false); setHistDetail(null); return true }
+      if (histOpen) { setHistOpen(false); setHistDetail(null); setPayGroupDetail(null); return true }
       if (creditNoteOpen) { setCreditNoteOpen(false); return true }
       if (openShiftModal) { setOpenShiftModal(false); return true }
       if (createPosModal) { setCreatePosModal(false); return true }
@@ -2775,7 +2786,17 @@ export default function CashierModule({
         isResidual?: boolean
       }[],
       payRows: [] as DebtHistoryEntry[],
-      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean }[],
+      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; batchId?: string; ts: number; source?: string }[],
+      payGroups: [] as {
+        id: string
+        when: string
+        ts: number
+        amount: number
+        isReturn: boolean
+        parts: { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean }[]
+        checkCount: number
+        methodHint: string
+      }[],
       feed: [] as { key: string; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; balance: number; saleId?: string }[],
       creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; paid: number; status: 'open' | 'partial' | 'paid'; ts: number }[],
     }
@@ -2944,8 +2965,80 @@ export default function CashierModule({
         items: sale?.items || r.itemsSummary || undefined,
         saleId: sale?.id || (sid && !sid.startsWith('cash-') ? sid.replace(/^sale-/, '') : undefined),
         isReturn,
+        batchId: r.batchId || undefined,
+        ts: Number(r.ts) || 0,
+        source: r.source,
       }
     })
+
+    // Одна оплата клиента (100 сом) → одна строка; внутри — разбивка по чекам.
+    // Новые записи: batchId. Старые FIFO без batchId: склеиваем по времени (~2.5 с).
+    type PayPart = typeof payView[number]
+    type PayGroup = {
+      id: string
+      when: string
+      ts: number
+      amount: number
+      isReturn: boolean
+      parts: PayPart[]
+      checkCount: number
+      methodHint: string
+    }
+    const PAY_CLUSTER_MS = 2500
+    const paySortedAsc = [...payView].sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id))
+    const payGroups: PayGroup[] = []
+    let cluster: PayPart[] = []
+    const flushCluster = () => {
+      if (!cluster.length) return
+      const parts = [...cluster]
+      cluster = []
+      const amount = Math.round(parts.reduce((s, p) => s + p.amount, 0) * 100) / 100
+      const newest = parts[parts.length - 1]
+      const checks = parts.filter(p => !p.isReturn)
+      const methodHint = /карта/i.test(parts.map(p => p.desc).join(' '))
+        ? 'карта'
+        : /наличн/i.test(parts.map(p => p.desc).join(' '))
+          ? 'наличные'
+          : ''
+      payGroups.push({
+        id: parts[0].batchId || `cluster-${parts[0].id}`,
+        when: newest.when,
+        ts: newest.ts,
+        amount,
+        isReturn: parts.every(p => p.isReturn),
+        parts,
+        checkCount: new Set(checks.map(p => p.checkLabel)).size || checks.length,
+        methodHint,
+      })
+    }
+    for (const row of paySortedAsc) {
+      if (row.isReturn) {
+        flushCluster()
+        payGroups.push({
+          id: row.id,
+          when: row.when,
+          ts: row.ts,
+          amount: row.amount,
+          isReturn: true,
+          parts: [row],
+          checkCount: 1,
+          methodHint: '',
+        })
+        continue
+      }
+      const last = cluster[cluster.length - 1]
+      const sameBatch = !!(row.batchId && last?.batchId && row.batchId === last.batchId)
+      const closeInTime = !row.batchId && !last?.batchId && last
+        && Math.abs(row.ts - last.ts) <= PAY_CLUSTER_MS
+      if (!cluster.length || sameBatch || closeInTime) {
+        cluster.push(row)
+      } else {
+        flushCluster()
+        cluster.push(row)
+      }
+    }
+    flushCluster()
+    payGroups.sort((a, b) => b.ts - a.ts)
 
     const cashRemainById = new Map(cashView.filter(c => !c.isResidual).map(c => [c.id, c.remain]))
     const feedSrc: { key: string; ts: number; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; saleId?: string }[] = [
@@ -3037,6 +3130,7 @@ export default function CashierModule({
       cashView,
       payRows,
       payView,
+      payGroups,
       feed,
       creditSales,
     }
@@ -6998,6 +7092,7 @@ export default function CashierModule({
             method: repayMethod,
             orderId: target.orderId,
             desc: `Погашение · ${target.label}`,
+            batchId: `payb-${Date.now()}`,
           })
         } else {
           const checkTargets = histActiveDebts
@@ -10591,7 +10686,7 @@ export default function CashierModule({
       )}
 
       {histOpen && client && loyalty && (
-        <div className="overlay hist-fs-overlay" {...backdropCloseProps(() => { setHistOpen(false); setHistDetail(null) })}>
+        <div className="overlay hist-fs-overlay" {...backdropCloseProps(() => { setHistOpen(false); setHistDetail(null); setPayGroupDetail(null) })}>
           <div className="modal-card hist-card hist-card-fs cashier-debts-panel" onClick={e => e.stopPropagation()}>
             <div className="cashier-debts-head">
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0, flex: 1 }}>
@@ -10626,7 +10721,7 @@ export default function CashierModule({
                   </div>
                 </div>
               </div>
-              <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => { setHistOpen(false); setHistDetail(null) }}>✕</button>
+              <button type="button" className="hist-fs-x" aria-label="Закрыть" onClick={() => { setHistOpen(false); setHistDetail(null); setPayGroupDetail(null) }}>✕</button>
                 </div>
 
             <div className="cashier-debts-hero">
@@ -10669,7 +10764,7 @@ export default function CashierModule({
             <div className="cashier-debts-subtabs" role="tablist">
               {([
                 ['pos', `Чеки (${cashierDebtPanel.openChecks})`],
-                ['pay', `Оплаты (${cashierDebtPanel.payView.length})`],
+                ['pay', `Оплаты (${cashierDebtPanel.payGroups.length})`],
                 ['cash', `Нал. (${cashierDebtPanel.cashView.length})`],
                 ['history', 'Лента'],
               ] as const).map(([id, label]) => (
@@ -10756,33 +10851,37 @@ export default function CashierModule({
               {histTab === 'pay' && (
                 <>
                   <div className="cashier-debt-hint">
-                    Кто платил: сумма и по какому чеку. Зелёным — сколько списали с долга.
+                    Одна оплата — одна строка. Нажмите, чтобы увидеть, какие чеки закрыты.
                   </div>
-                  {!cashierDebtPanel.payView.length ? (
+                  {!cashierDebtPanel.payGroups.length ? (
                     <div className="hist-empty">Пока нет оплат</div>
                   ) : (
                     <div className="cashier-debt-pays">
-                      {cashierDebtPanel.payView.map(r => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          className="cashier-debt-pay"
-                          disabled={!r.saleId}
-                          onClick={() => {
-                            if (!r.saleId) return
-                            const match = histActiveDebts.find(x => x.saleId === r.saleId)
-                              || histPaidDebts.find(x => x.saleId === r.saleId)
-                            if (match) setHistDetail(match)
-                          }}
-                        >
-                          <span className="cashier-debt-pay-main">
-                            <b>{r.isReturn ? 'Возврат' : 'Оплата'} {fmtMoney(r.amount)}</b>
-                            <em>по {r.checkLabel}</em>
-                            <i>{r.when}</i>
-                          </span>
-                          <span className="cashier-debt-pay-amt">−{fmtMoney(r.amount)}</span>
-                        </button>
-                      ))}
+                      {cashierDebtPanel.payGroups.map(g => {
+                        const checksLabel = g.isReturn
+                          ? (g.parts[0]?.checkLabel || 'возврат')
+                          : g.checkCount <= 1
+                            ? (g.parts[0]?.checkLabel || 'без чека')
+                            : `${g.checkCount} чек${g.checkCount === 1 ? '' : g.checkCount < 5 ? 'а' : 'ов'}`
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            className="cashier-debt-pay"
+                            onClick={() => setPayGroupDetail(g)}
+                          >
+                            <span className="cashier-debt-pay-main">
+                              <b>{g.isReturn ? 'Возврат' : 'Оплата'} {fmtMoney(g.amount)}</b>
+                              <em>
+                                {g.isReturn || g.checkCount <= 1 ? `по ${checksLabel}` : `по ${checksLabel}`}
+                                {g.methodHint ? ` · ${g.methodHint}` : ''}
+                              </em>
+                              <i>{g.when}</i>
+                            </span>
+                            <span className="cashier-debt-pay-amt">−{fmtMoney(g.amount)}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   )}
                 </>
@@ -10967,6 +11066,57 @@ export default function CashierModule({
                 onClick={() => openCashCharge()}
               >
                 Выдать наличные
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {payGroupDetail && (
+        <div className="overlay hist-detail-overlay" {...backdropCloseProps(() => setPayGroupDetail(null))}>
+          <div className="modal-card hist-detail-card" onClick={e => e.stopPropagation()}>
+            <div className="hist-detail-head">
+              <button type="button" className="hist-back" onClick={() => setPayGroupDetail(null)}>← Назад</button>
+              <h3>Оплата</h3>
+            </div>
+            <div className="hist-detail-body">
+              <div className="hist-title-row" style={{ marginBottom: 8 }}>
+                <b style={{ fontSize: 14 }}>
+                  {payGroupDetail.isReturn ? 'Возврат' : 'Оплата'} {fmtMoney(payGroupDetail.amount)}
+                </b>
+              </div>
+              <div className="hist-when" style={{ marginBottom: 6 }}>{payGroupDetail.when}</div>
+              <div className="hist-sub" style={{ marginBottom: 12 }}>
+                {payGroupDetail.methodHint ? `${payGroupDetail.methodHint} · ` : ''}
+                {payGroupDetail.checkCount > 1
+                  ? `Распределено по ${payGroupDetail.checkCount} чекам`
+                  : 'По одному чеку / позиции'}
+              </div>
+              <div className="hist-detail-sum" style={{ color: 'var(--accent)', marginBottom: 14 }}>
+                −{fmtMoney(payGroupDetail.amount)}
+              </div>
+              <div className="hist-detail-items">
+                <div className="hist-section-h">
+                  {payGroupDetail.isReturn ? 'По чеку' : 'Какие чеки закрыты'} · {payGroupDetail.parts.length}
+                </div>
+                <div className="hist-lines">
+                  {payGroupDetail.parts.map((p, i) => (
+                    <div key={p.id || `${p.checkLabel}-${i}`} className="hist-line">
+                      <div className="hist-line-main">
+                        <b>{p.checkLabel}</b>
+                        {p.items ? <span className="hist-line-qty" style={{ display: 'block', marginTop: 2 }}>{p.items}</span> : null}
+                      </div>
+                      <div className="hist-line-sum" style={{ color: 'var(--accent)' }}>
+                        −{fmtMoney(p.amount)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="hist-detail-foot">
+              <button type="button" className="btn-cancel" style={{ width: '100%' }} onClick={() => setPayGroupDetail(null)}>
+                Закрыть
               </button>
             </div>
           </div>
