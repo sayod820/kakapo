@@ -280,7 +280,7 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
   }
 }
 
-/** Минимум покупок за месяц для уровня Бронза (ниже — «Базовый», без кэшбэка) */
+/** Минимум покупок для уровня Бронза (ниже — «Базовый», без кэшбэка) */
 export const BRONZE_MIN_SPENT = 500
 
 export function hasEarnedBronze(spent: number, _orderCount = 0): boolean {
@@ -288,7 +288,7 @@ export function hasEarnedBronze(spent: number, _orderCount = 0): boolean {
   return spent >= min
 }
 
-/** Доставленные заказы клиента с наличной оплатой в текущем периоде статуса. */
+/** Доставленные заказы клиента с оплатой нал/картой в текущем периоде статуса. */
 export function loyaltyOrdersForClient(
   orders: Order[],
   phone: string,
@@ -335,7 +335,7 @@ export function maxClientLevel(a: ClientLevel, b: ClientLevel): ClientLevel {
 
 /**
  * Эффективный уровень клиента: ручной статус (закреплённый админом) держится, пока не истёк срок;
- * автоматический — по нал-тратам; если задан levelValidUntil и срок вышел → снова Базовый
+ * автоматический — по тратам нал/картой; если задан levelValidUntil и срок вышел → снова Базовый
  * (30 дней с момента получения статуса, см. AUTO_LEVEL_DEFAULT_TERM_DAYS).
  */
 export function resolveEffectiveClientLevel(

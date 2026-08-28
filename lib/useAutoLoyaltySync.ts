@@ -13,7 +13,7 @@ import { useClientStore } from './clientStore'
 import { filterOrdersForStoreUser } from './clientAccountLifecycle'
 
 /**
- * Авто-статус — живой пересчёт по тратам за скользящие 30 дней (см. resolveEffectiveClientLevel),
+ * Авто-статус — пересчёт по тратам (нал+карта) за период статуса (30 дней с получения),
  * без привязки к календарному месяцу. Плюс снятие истёкшей ручной блокировки статуса.
  */
 export function useAutoLoyaltySync(
@@ -58,7 +58,7 @@ export function useAutoLoyaltySync(
     }
 
     const scoped = filterOrdersForStoreUser(orders, base)
-    const { orderCount, spent } = loyaltyStatsFromOrders(scoped, base.phone)
+    const { orderCount, spent } = loyaltyStatsFromOrders(scoped, base.phone, base)
     const effective = resolveEffectiveClientLevel(spent, orderCount, base.level, lockRecord)
 
     if (effective === base.level && !unlocked) return

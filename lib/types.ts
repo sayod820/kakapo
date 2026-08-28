@@ -36,11 +36,15 @@ export interface Order {
   total: number
   /** Сумма товаров без доставки (если задана явно при оформлении) */
   goodsTotal?: number
-  /** cash | card | credit (VIP-кредит: товары в долг, доставка наличными) */
+  /** cash | card | credit (VIP-кредит: товары в долг, доставка наличными) | mixed | wallet | balance */
   payment_method?: string
   pay?: string
   /** Сумма товаров, списанная в VIP-долг */
+  creditAmount?: number
+  /** Оплачено наличными (касса) */
   paidCash?: number
+  /** Оплачено картой (касса) */
+  paidCard?: number
   comment?: string
   /** Заметка сборщика при изменении заказа */
   assemblerNote?: string

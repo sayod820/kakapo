@@ -22,10 +22,15 @@ export type PosLoyaltyClientMeta = {
   accountGeneration?: number
 }
 
-/** POS-чеки как delivered-заказы для расчёта нал-трат. */
+/** POS-чеки как delivered-заказы для расчёта трат (нал + карта, без долга). */
 export function posSalesToLoyaltyOrders(sales: PosSale[], phone: string): Order[] {
   return sales
-    .filter(s => phonesMatch(s.clientPhone || '', phone) && (Number(s.paidCash) || 0) > 0.001)
+    .filter(s => {
+      if (!phonesMatch(s.clientPhone || '', phone)) return false
+      const cash = Number(s.paidCash) || 0
+      const card = Number(s.paidCard) || 0
+      return cash + card > 0.001
+    })
     .map(s => ({
       id: String(s.orderId || s.id),
       type: 'market' as const,
@@ -36,6 +41,7 @@ export function posSalesToLoyaltyOrders(sales: PosSale[], phone: string): Order[
       createdAtIso: s.createdAtIso,
       deliveredAtIso: s.createdAtIso,
       paidCash: Number(s.paidCash) || 0,
+      paidCard: Number(s.paidCard) || 0,
       pay: s.paymentMethod,
       payment_method: s.paymentMethod,
       total: Number(s.total) || 0,
@@ -59,34 +65,34 @@ export function loyaltyOrdersWithPos(
   return [...fromPos, ...apiOrders.filter(o => !ids.has(o.id))]
 }
 
-/** Тип 1: кэшбэк статуса за наличную часть покупки (до порога статуса = 0). */
+/** Тип 1: кэшбэк статуса за нал/карту (долг не входит; до порога статуса = 0). */
 export function previewPosStatusCashBonus(
   phone: string,
   apiOrders: Order[],
-  cashAmount: number,
+  eligibleAmount: number,
   meta: PosLoyaltyClientMeta = {},
   posSales: PosSale[] = [],
 ): number {
-  const cash = Math.max(0, Number(cashAmount) || 0)
-  if (!(cash > 0) || !phone.trim()) return 0
+  const eligible = Math.max(0, Number(eligibleAmount) || 0)
+  if (!(eligible > 0) || !phone.trim()) return 0
   const orders = loyaltyOrdersWithPos(apiOrders, posSales, phone)
   const { spent } = loyaltyStatsFromOrders(orders, phone, meta)
-  return calcMarginalBonusEarned(spent, cash, !!meta.vip, loadLoyaltyStatusConfig())
+  return calcMarginalBonusEarned(spent, eligible, !!meta.vip, loadLoyaltyStatusConfig())
 }
 
-/** После наличной покупки: уровень и при необходимости новый 30-дневный период. */
+/** После покупки нал/картой: уровень и при необходимости новый 30-дневный период. */
 export function statusFieldsAfterPosCashPurchase(
   phone: string,
   apiOrders: Order[],
-  cashAmount: number,
+  eligibleAmount: number,
   meta: PosLoyaltyClientMeta = {},
   posSales: PosSale[] = [],
 ): { level: ClientLevel; levelValidUntil?: string | null; levelAssignMode: 'auto' } {
-  const cash = Math.max(0, Number(cashAmount) || 0)
+  const eligible = Math.max(0, Number(eligibleAmount) || 0)
   const orders = loyaltyOrdersWithPos(apiOrders, posSales, phone)
   const { spent, orderCount } = loyaltyStatsFromOrders(orders, phone, meta)
-  const totalAfter = Math.round((spent + cash) * 10) / 10
-  const countAfter = orderCount + (cash > 0 ? 1 : 0)
+  const totalAfter = Math.round((spent + eligible) * 10) / 10
+  const countAfter = orderCount + (eligible > 0 ? 1 : 0)
   const hadBronze = hasEarnedBronze(spent, orderCount)
   const hasBronzeAfter = hasEarnedBronze(totalAfter, countAfter)
   const periodActive = isAutoStatusPeriodActive(meta.levelValidUntil)

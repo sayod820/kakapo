@@ -220,15 +220,31 @@ function orderItemsSubtotal(order) {
 
 export function cashEligibleTotal(order) {
   const pay = String(order?.pay || order?.payment_method || '').toLowerCase()
-  if (pay === 'credit') return 0
-  const posCash = Number(order?.paidCash)
-  if (order?.channel === 'pos' || order?.posSaleId) {
-    if (Number.isFinite(posCash)) return Math.max(0, Math.round(posCash * 100) / 100)
-    if (pay && pay !== 'cash' && pay !== 'mixed') return 0
-  }
-  if (pay === 'card' || pay === 'wallet') return 0
+  // Долг / кошелёк / полная оплата бонусами — без прогресса и кэшбэка статуса
+  if (pay === 'credit' || pay === 'wallet' || pay === 'balance') return 0
+
   const credit = Number(order?.creditAmount) || 0
   const base = bonusEligibleTotal(order)
+
+  if (order?.channel === 'pos' || order?.posSaleId) {
+    const rawCash = Number(order?.paidCash)
+    const rawCard = Number(order?.paidCard)
+    const hasCash = Number.isFinite(rawCash)
+    const hasCard = Number.isFinite(rawCard)
+    if (hasCash || hasCard) {
+      const cash = hasCash ? Math.max(0, rawCash) : 0
+      const card = hasCard ? Math.max(0, rawCard) : 0
+      const sum = Math.round((cash + card) * 100) / 100
+      // Старые чеки «только карта»: paidCash=0 без paidCard
+      if (sum < 0.001 && pay === 'card') {
+        return Math.max(0, Math.round((base - credit) * 100) / 100)
+      }
+      return Math.max(0, sum)
+    }
+    if (pay && pay !== 'cash' && pay !== 'card' && pay !== 'mixed') return 0
+  }
+
+  // Приложение и прочее: нал и карта считаются, сумма в долг вычитается
   return Math.max(0, Math.round((base - credit) * 100) / 100)
 }
 

@@ -6446,11 +6446,12 @@ export default function CashierModule({
       const discountTotal = Math.round((itemDiscAmount + discAmount) * 100) / 100
       const bonusBalanceBefore = loyalty ? Math.max(0, Math.floor(Number(loyalty.bonus) || 0)) : undefined
       let earnedBonusPreview = 0
-      if (cashPaid > 0.001 && client?.phone && client.card && (apiMethod === 'cash' || apiMethod === 'mixed')) {
+      const statusEligiblePaid = Math.round(((Number(cashPaid) || 0) + (Number(cardPaid) || 0)) * 100) / 100
+      if (statusEligiblePaid > 0.001 && client?.phone && client.card && apiMethod !== 'credit') {
         earnedBonusPreview = previewPosStatusCashBonus(
           client.phone,
           orders,
-          cashPaid,
+          statusEligiblePaid,
           buildPosLoyaltyMeta(client, cards),
           sales,
         )
@@ -6562,12 +6563,21 @@ export default function CashierModule({
       if (client?.id) {
         const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
         const histKey = debtAccountKey(client)
-        const purchaseAmt = Math.round((Number(cashPaid) || 0) * 100) / 100
-        if (histKey && purchaseAmt > 0.001) {
+        const purchaseCash = Math.round((Number(cashPaid) || 0) * 100) / 100
+        const purchaseCard = Math.round((Number(cardPaid) || 0) * 100) / 100
+        if (histKey && purchaseCash > 0.001) {
           recordStorePurchase(
             histKey,
-            purchaseAmt,
+            purchaseCash,
             'Покупка в магазине · нал',
+            { orderId: created?.orderId || created?.id || undefined, itemsSummary },
+          )
+        }
+        if (histKey && purchaseCard > 0.001) {
+          recordStorePurchase(
+            histKey,
+            purchaseCard,
+            'Покупка в магазине · карта',
             { orderId: created?.orderId || created?.id || undefined, itemsSummary },
           )
         }
@@ -6582,13 +6592,14 @@ export default function CashierModule({
         setHistTick(t => t + 1)
       }
       const earnedBonus = earnedBonusPreview
-      if (cashPaid > 0.001 && client?.phone && client.card) {
+      const statusEligibleAfter = Math.round(((Number(cashPaid) || 0) + (Number(cardPaid) || 0)) * 100) / 100
+      if (statusEligibleAfter > 0.001 && client?.phone && client.card) {
         const meta = buildPosLoyaltyMeta(client, cards)
         if (meta.levelAssignMode !== 'manual') {
           const statusFields = statusFieldsAfterPosCashPurchase(
             client.phone,
             orders,
-            cashPaid,
+            statusEligibleAfter,
             meta,
             sales,
           )
@@ -9486,6 +9497,9 @@ export default function CashierModule({
               </div>
               {saleConfirm.clientName && (
                 <div><span>Клиент</span><b>{saleConfirm.clientName}</b></div>
+              )}
+              {client?.card && cashSaleBonus > 0 && saleConfirm.method !== 'credit' && saleConfirm.method !== 'wallet' && saleConfirm.method !== 'balance' && (Number(saleConfirm.debtAmt) || 0) < 0.001 && (
+                <div><span>Кэшбэк статуса</span><b style={{ color: 'var(--gr)' }}>+{cashSaleBonus} ⭐</b></div>
               )}
             </div>
             <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>

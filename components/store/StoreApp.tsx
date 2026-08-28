@@ -840,7 +840,7 @@ function ruCount(n: number, one: string, few: string, many: string) {
 
 function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
   const scoped = user ? filterOrdersForStoreUser(apiOrders, user) : apiOrders
-  return loyaltyStatsFromOrders(scoped, user?.phone || '')
+  return loyaltyStatsFromOrders(scoped, user?.phone || '', user)
 }
 
 function countClientSpent(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
@@ -1163,7 +1163,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               border: '1px solid rgba(143,184,151,.2)', color: 'var(--t2)',
             }}>
               <span style={{ color: theme.accent, fontWeight: 800 }}>Привилегий пока нет.</span>
-              {' '}Сделайте первый заказ — откроется уровень {LOYALTY_TIERS[0].emoji} {LOYALTY_TIERS[0].label} с бонусами.
+              {' '}Купите налом или картой (магазин или приложение) — откроется уровень {LOYALTY_TIERS[0].emoji} {LOYALTY_TIERS[0].label} с бонусами.
             </div>
             {nextTier && (
               <>
@@ -1453,8 +1453,8 @@ const FAQ = () => {
   {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
   {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
   {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
-  {q:"Как работает бонусная программа?",     a:`Бронза ${bronze?.bonusPercent ?? 1}%, Серебро ${silver?.bonusPercent ?? 2}%, Золото ${gold?.bonusPercent ?? 3}%, Platinum ${platinum?.bonusPercent ?? 5}% кешбэк за месяц. 1 бонус = 1 ЅМ.`},
-  {q:"Как стать VIP клиентом?",              a:`${vip.minOrders}+ заказов, ${vip.minReviews} отзывов, траты от ${vip.minSpent.toLocaleString()} ЅМ за месяц. VIP даёт кредитный лимит и ${cfg.vip.bonusPercent}% кешбэк.`},
+  {q:"Как работает бонусная программа?",     a:`Кэшбэк за покупки налом или картой (не за долг): Бронза ${bronze?.bonusPercent ?? 1}%, Серебро ${silver?.bonusPercent ?? 2}%, Золото ${gold?.bonusPercent ?? 3}%, Platinum ${platinum?.bonusPercent ?? 5}%. Статус действует 30 дней. Бонусы тратятся в магазине и в приложении. 1 бонус = 1 ЅМ.`},
+  {q:"Как стать VIP клиентом?",              a:`${vip.minOrders}+ заказов, ${vip.minReviews} отзывов, траты от ${vip.minSpent.toLocaleString()} ЅМ. VIP даёт кредитный лимит и ${cfg.vip.bonusPercent}% кешбэк.`},
   {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
   {q:"Гарантия свежести?",                   a:"Если товар плохого качества — полный возврат в течение 24 часов без вопросов."},
   {q:"Как зарегистрироваться?",              a:`Телефон → SMS код → имя. 1 минута. +${welcome} бонусов за регистрацию!`},
@@ -3140,7 +3140,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <span style={{ fontSize:18 }}>⭐</span>
               <div>
                 <div style={{ fontSize:13, fontWeight:800, color:"var(--t1)" }}>Бонусы</div>
-                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 сом · оплата на кассе</div>
+                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 сом · магазин и приложение</div>
               </div>
             </div>
             <div className="bank-num" style={{ fontSize:22, fontWeight:900, color:profileTheme.accent }} title={bonusBank}>

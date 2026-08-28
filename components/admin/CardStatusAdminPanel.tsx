@@ -83,7 +83,7 @@ function TierEditor({
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
       <NI lbl="Название уровня" val={tier.label} set={v => onChange({ label: v })} />
       <NI
-        lbl="Кэшбэк за покупку налом, %"
+        lbl="Кэшбэк за покупку нал/картой, %"
         val={String(tier.bonusPercent ?? 0)}
         set={v => onChange({ bonusPercent: Math.max(0, parseFloat(v) || 0) })}
         ph="2"
@@ -141,7 +141,7 @@ function CashDepositTiersEditor({
       <div style={{ fontSize: 13, fontWeight: 800, color: '#1FD760', marginBottom: 6 }}>💵 Купил бонусы (Тип 2)</div>
       <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 12, lineHeight: 1.45 }}>
         Клиент вносит наличные → на баланс идут <b>деньги + %</b> (например 500 + 1% = 505 ⭐).
-        Используется в кассе «Пополнить бонусы» и в «Клиенты → Наличные». На покупки товаров не влияет.
+        Касса «Пополнить бонусы» и «Клиенты → Наличные». Тратить в магазине и приложении, обналичить нельзя.
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
         {sorted.map((tier, idx) => (
@@ -428,11 +428,11 @@ export default function CardStatusAdminPanel() {
             <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(31,215,96,.06)', border: '1px solid rgba(31,215,96,.18)', fontSize: 11, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 16 }}>
               <b style={{ color: '#1FD760' }}>Два типа бонусов</b>
               <div style={{ marginTop: 6 }}>
-                <b>Тип 1 — покупка налом:</b> кэшбэк по уровню статуса (Бронза / Серебро…). До порога Бронзы — 0%.
-                Долг и погашение — 0 бонусов. Статус авто: 30 дней с даты получения.
+                <b>Тип 1 — покупка налом или картой:</b> кэшбэк по уровню статуса (Бронза / Серебро…). До порога Бронзы — 0%.
+                Долг и погашение — 0 бонусов и без прогресса. Статус авто: 30 дней с даты получения.
               </div>
               <div style={{ marginTop: 6 }}>
-                <b>Тип 2 — купил бонусы:</b> пороги наличных ниже (деньги + % на баланс, тратить только в покупке).
+                <b>Тип 2 — купил бонусы:</b> пороги наличных ниже (деньги + % на баланс). Тратить в магазине и в приложении, обналичить нельзя.
               </div>
             </div>
 
@@ -462,9 +462,9 @@ export default function CardStatusAdminPanel() {
               }}
             />
 
-            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 6 }}>Уровни статуса (Тип 1 — кэшбэк за покупку налом)</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--t2)', marginBottom: 6 }}>Уровни статуса (Тип 1 — кэшбэк за нал/карту)</div>
             <div style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 10, lineHeight: 1.45 }}>
-              «Мин. траты» — порог уровня. «Кэшбэк %» — процент бонусов за наличную часть покупки в этом диапазоне трат.
+              «Мин. траты» — порог уровня. «Кэшбэк %» — процент бонусов за оплату налом или картой в этом диапазоне трат. Долг не считается.
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 14 }}>
               {allTiers.map(t => (

@@ -2744,6 +2744,7 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
     pay,
     creditAmount: debtAdded > 0 ? debtAdded : undefined,
     paidCash: round2(Number(sale.paidCash) || 0),
+    paidCard: round2(Number(sale.paidCard) || 0),
     vip: client?.vip === true,
     priority: 'normal',
     client: {
