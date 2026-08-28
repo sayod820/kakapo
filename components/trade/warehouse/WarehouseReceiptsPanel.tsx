@@ -869,12 +869,12 @@ export default function WarehouseReceiptsPanel({
       if (!dateFrom && !dateTo) return true
       return matchesDateRange(r.createdAtIso, dateFrom, dateTo)
     })
-    // Раньше по дате/времени — сверху
+    // Последний добавленный — сверху
     return list.slice().sort((a, b) => {
       const ta = new Date(a.createdAtIso).getTime()
       const tb = new Date(b.createdAtIso).getTime()
-      if (ta !== tb) return ta - tb
-      return String(a.id).localeCompare(String(b.id))
+      if (ta !== tb) return tb - ta
+      return String(b.id).localeCompare(String(a.id))
     })
   }, [receipts, dateFrom, dateTo, periodPreset, supplierFilter])
 
