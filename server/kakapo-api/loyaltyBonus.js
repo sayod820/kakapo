@@ -235,8 +235,8 @@ export function cashEligibleTotal(order) {
       const cash = hasCash ? Math.max(0, rawCash) : 0
       const card = hasCard ? Math.max(0, rawCard) : 0
       const sum = Math.round((cash + card) * 100) / 100
-      // Старые чеки «только карта»: paidCash=0 без paidCard
-      if (sum < 0.001 && pay === 'card') {
+      // Старые чеки «только карта» без поля paidCard (не путать с оплатой бонусами: paidCard=0)
+      if (sum < 0.001 && pay === 'card' && !hasCard) {
         return Math.max(0, Math.round((base - credit) * 100) / 100)
       }
       return Math.max(0, sum)
