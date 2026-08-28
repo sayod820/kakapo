@@ -851,7 +851,7 @@ export default function WarehouseReceiptsPanel({
   const filteredReceipts = useMemo(() => {
     const now = Date.now()
     const sinceMs = periodPreset ? periodPresetSinceMs(periodPreset, now) : null
-    return receipts.filter(r => {
+    const list = receipts.filter(r => {
       if (supplierFilter) {
         const sid = String(r.supplierId || '').trim()
         const noSupplier = supplierFilter === '__none__'
@@ -868,6 +868,13 @@ export default function WarehouseReceiptsPanel({
       }
       if (!dateFrom && !dateTo) return true
       return matchesDateRange(r.createdAtIso, dateFrom, dateTo)
+    })
+    // Раньше по дате/времени — сверху
+    return list.slice().sort((a, b) => {
+      const ta = new Date(a.createdAtIso).getTime()
+      const tb = new Date(b.createdAtIso).getTime()
+      if (ta !== tb) return ta - tb
+      return String(a.id).localeCompare(String(b.id))
     })
   }, [receipts, dateFrom, dateTo, periodPreset, supplierFilter])
 
