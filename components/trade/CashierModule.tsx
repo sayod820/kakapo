@@ -10668,7 +10668,7 @@ export default function CashierModule({
 
             <div className="cashier-debts-subtabs" role="tablist">
               {([
-                ['pos', `Чеки (${cashierDebtPanel.totalChecks})`],
+                ['pos', `Чеки (${cashierDebtPanel.openChecks})`],
                 ['pay', `Оплаты (${cashierDebtPanel.payView.length})`],
                 ['cash', `Нал. (${cashierDebtPanel.cashView.length})`],
                 ['history', 'Лента'],
@@ -10690,10 +10690,10 @@ export default function CashierModule({
               {histTab === 'pos' && (
                 <>
                   {(() => {
+                    // Только чеки с остатком долга (открытые + частичные). Погашенные скрыты.
                     const openRows = cashierDebtPanel.creditSales.filter(s => s.remain > 0.001)
-                    const paidRows = cashierDebtPanel.creditSales.filter(s => s.remain <= 0.001)
-                    if (!cashierDebtPanel.creditSales.length) {
-                      return <div className="hist-empty">Нет чеков в долг</div>
+                    if (!openRows.length) {
+                      return <div className="hist-empty">Нет чеков к оплате</div>
                     }
                     const renderSale = (s: typeof cashierDebtPanel.creditSales[number]) => {
                       const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'Должен'
@@ -10745,18 +10745,8 @@ export default function CashierModule({
                     }
                     return (
                       <>
-                        {openRows.length > 0 && (
-                          <>
-                            <div className="cashier-debt-sec">Ещё должен · {fmtMoney(cashierDebtPanel.posRemain)}</div>
-                            {openRows.map(renderSale)}
-                          </>
-                        )}
-                        {paidRows.length > 0 && (
-                          <>
-                            <div className="cashier-debt-sec">Уже погашены ({paidRows.length})</div>
-                            {paidRows.map(renderSale)}
-                          </>
-                        )}
+                        <div className="cashier-debt-sec">Ещё должен · {fmtMoney(cashierDebtPanel.posRemain)}</div>
+                        {openRows.map(renderSale)}
                       </>
                     )
                   })()}
