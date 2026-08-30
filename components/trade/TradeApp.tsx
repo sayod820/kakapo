@@ -3110,6 +3110,10 @@ function TradeAppInner({
       : current === 'suppliers'
         ? 'Поиск: название, телефон, категория…'
         : 'Поиск по названию, артикулу, штрихкоду…'
+
+  const searchHasScan =
+    current === 'warehouse'
+    || (current === 'products' && productsSub === 'product')
   useEffect(() => {
     if (current === 'products' && (productsSub === 'category' || productsSub === 'labels')) {
       setSearch('')
@@ -3377,7 +3381,7 @@ function TradeAppInner({
                 <div className="k-top-search-net">
                   <NetworkStatus compact />
                 </div>
-                <div className="k-search has-scan">
+                <div className={`k-search${searchHasScan ? ' has-scan' : ''}`}>
                 <span className="mag">🔍</span>
                 <input
                     ref={searchInputRef}
@@ -3400,6 +3404,7 @@ function TradeAppInner({
                       ✕
                     </button>
                   ) : null}
+                  {searchHasScan ? (
                   <button
                     type="button"
                     className="k-top-scan-btn k-cam-scan-btn"
@@ -3409,6 +3414,7 @@ function TradeAppInner({
                   >
                     📷
                   </button>
+                  ) : null}
               </div>
               </div>
             ) : (
