@@ -1079,16 +1079,8 @@ export default function CashierModule({
   const apiReady = usePosStore(s => s.apiReady)
   const { categories, roots, childrenOf } = useCategories()
   const [settings, setSettings] = useState<PosSettings>(loadSettings)
-  const [themeLocal, setThemeLocal] = useState<ThemeName>(loadTheme)
+  const [themeLocal] = useState<ThemeName>(loadTheme)
   const theme = themeProp ?? themeLocal
-
-  function applyTheme(next: ThemeName) {
-    if (onThemeChange) onThemeChange(next)
-    else {
-      setThemeLocal(next)
-      localStorage.setItem(THEME_KEY, next)
-    }
-  }
   const [q, setQ] = useState('')
   const qRef = useRef('')
   const scanCommitTimer = useRef<number | null>(null)

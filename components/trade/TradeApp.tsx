@@ -3324,7 +3324,10 @@ function TradeAppInner({
               <div className="k-store">
                 <div className="name">Магазин KAKAPO</div>
                 <NetworkStatus />
-                <Clock theme={theme} onThemeChange={applyTheme} />
+                <Clock
+                  theme={current === 'sales' ? undefined : theme}
+                  onThemeChange={current === 'sales' ? undefined : applyTheme}
+                />
                 <DesktopUpdateButton />
                 <button
                   type="button"
