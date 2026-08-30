@@ -5509,9 +5509,12 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
 
   const deleteManualHistory = async (row: DebtHistoryEntry) => {
     if (!detail?.phone || !isManualDebtHistoryEntry(row)) return;
+    if (row.type === 'pay') {
+      setSaveErr('Погашение нельзя удалить');
+      return;
+    }
     const abs = Math.abs(Number(row.amount) || 0);
-    const label = row.type === 'pay' ? 'погашение' : 'начисление';
-    if (!window.confirm(`Удалить ручное ${label} ${abs.toLocaleString()} ЅМ?\nЧеки не затрагиваются.`)) return;
+    if (!window.confirm(`Удалить ручное начисление ${abs.toLocaleString()} ЅМ?\nЧеки не затрагиваются.`)) return;
     const removed = removeDebtHistoryEntry(detail.phone, row.id);
     if (!removed) {
       setSaveErr('Эту запись нельзя удалить');
@@ -5534,6 +5537,11 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     if (!detail?.phone || !histEdit) return;
     const before = loadDebtHistory(detail.phone).find(r => r.id === histEdit.id);
     if (!before || !isManualDebtHistoryEntry(before)) {
+      setHistEdit(null);
+      return;
+    }
+    if (before.type === 'pay') {
+      setSaveErr('Погашение нельзя изменить');
       setHistEdit(null);
       return;
     }
@@ -5832,7 +5840,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                           <div className="ub" style={{ fontSize: 13, fontWeight: 900, color: isPay ? '#1FD760' : '#FF8080' }}>
                             {isPay ? '+' : '−'}{Math.abs(row.amount).toLocaleString()} ЅМ
                           </div>
-                          {manual && !editing && (
+                          {manual && !editing && row.type !== 'pay' && (
                             <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
                               <button
                                 type="button"
@@ -5858,6 +5866,9 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
                                 Удалить
                               </button>
                             </div>
+                          )}
+                          {manual && !editing && row.type === 'pay' && (
+                            <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 6 }}>Погашение нельзя удалить</div>
                           )}
                         </div>
                       </div>

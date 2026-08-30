@@ -127,6 +127,7 @@ import {
   createFinanceMove,
   applyDebtRepayToShift,
   deleteFinanceMove,
+  isCardTopupFinanceMove,
   listStockReceipts,
   createStockReceipt,
   updateStockReceipt,
@@ -1057,6 +1058,8 @@ app.post('/products', async (req, res) => {
       photo: req.body.photo ? String(req.body.photo) : undefined,
       photoThumb: req.body.photoThumb ? String(req.body.photoThumb) : undefined,
       bulkPricing: Array.isArray(req.body.bulkPricing) ? req.body.bulkPricing : undefined,
+      docVersion: 1,
+      updatedAtIso: new Date().toISOString(),
     }
     db.products.push(p)
     if (Number(p.stock) > 0) {
@@ -1092,6 +1095,17 @@ app.patch('/products/:id', async (req, res) => {
     const before = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     const body = { ...req.body }
     delete body.clientRef
+    const expectedDoc = body.expectedDocVersion
+    delete body.expectedDocVersion
+    if (expectedDoc != null && expectedDoc !== '') {
+      const cur = Number(p.docVersion) || 0
+      const exp = Number(expectedDoc)
+      if (Number.isFinite(exp) && exp !== cur) {
+        return res.status(409).json({
+          detail: `Товар уже меняли (версия ${cur}, ожидали ${exp})`,
+        })
+      }
+    }
     const artTouched = Object.prototype.hasOwnProperty.call(body, 'art')
     const pluTouched = Object.prototype.hasOwnProperty.call(body, 'plu')
     const sellTouched = Object.prototype.hasOwnProperty.call(body, 'sellType')
@@ -1120,7 +1134,10 @@ app.patch('/products/:id', async (req, res) => {
     const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')
     const nextStock = stockTouched ? Math.max(0, Number(body.stock) || 0) : null
     delete body.stock
+    delete body.docVersion
     Object.assign(p, body)
+    p.docVersion = (Number(p.docVersion) || 0) + 1
+    p.updatedAtIso = new Date().toISOString()
     if (stockTouched && Math.abs(nextStock - sumProductLayers(db, p.id)) > 0.0001) {
       setProductStockExact(db, p.id, nextStock, {
         reason: 'Правка остатка',
@@ -1253,6 +1270,17 @@ app.delete('/products/:id', (req, res) => {
   if (replyIfKnownOp(res, 'product_delete', clientRef)) return
   const id = Number(req.params.id)
   const existing = db.products.find(x => x.id === id)
+  if (!existing) return res.status(404).json({ detail: 'Не найдено' })
+  try {
+    const layers = sumProductLayers(db, id)
+    if (layers > 0.009 || (Number(existing.stock) || 0) > 0.009) {
+      return res.status(409).json({
+        detail: `Нельзя удалить товар со складом (остаток ${Math.max(layers, Number(existing.stock) || 0).toFixed(2)})`,
+      })
+    }
+  } catch (e) {
+    return res.status(400).json({ detail: e?.message || 'Не удалось проверить склад' })
+  }
   if (existing?.photo) deleteManagedProductPhoto(existing.photo)
   if (existing) {
     auditFromReq(db, req, {
@@ -3051,7 +3079,7 @@ app.delete('/suppliers/:id/payments/:paymentId', (req, res) => {
   try {
     const clientRef = takeClientRef(req)
     if (replyIfKnownOp(res, 'supplier_payment_delete', clientRef)) return
-    const row = deleteSupplierPayment(db, req.params.id, req.params.paymentId)
+    const row = deleteSupplierPayment(db, req.params.id, req.params.paymentId, req.body || {})
     if (clientRef) rememberKnownOp('supplier_payment_delete', clientRef, row)
     persist()
     broadcastPosUpdate({ kind: 'supplier_payment', id: row.id, deleted: true })
@@ -3130,6 +3158,10 @@ app.delete('/finance/moves/:id', (req, res) => {
   try {
     const clientRef = takeClientRef(req)
     if (replyIfKnownOp(res, 'finance_move_delete', clientRef)) return
+    const existing = (db.financeMoves || []).find(r => String(r.id) === String(req.params.id))
+    if (existing && isCardTopupFinanceMove(existing)) {
+      return res.status(409).json({ detail: 'Пополнение бонусов нельзя удалить' })
+    }
     const row = deleteFinanceMove(db, req.params.id)
     if (clientRef) rememberKnownOp('finance_move_delete', clientRef, row)
     persist()
@@ -3413,6 +3445,8 @@ function normalizeClientRow(raw) {
     wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
     addresses: Array.isArray(raw.addresses) ? raw.addresses : [],
     addressesUpdatedAt: raw.addressesUpdatedAt || undefined,
+    docVersion: Math.max(1, Number(raw.docVersion) || 1),
+    updatedAtIso: raw.updatedAtIso || new Date().toISOString(),
   }
 }
 
@@ -3506,11 +3540,23 @@ app.patch('/clients/:id', (req, res) => {
     debt: c.debt, bonus: c.bonus, debtEnabled: c.debtEnabled, blocked: c.blocked,
   }
   const { purge, allowBonusDecrease, ...patch } = req.body || {}
+  const expectedDoc = patch.expectedDocVersion
+  delete patch.expectedDocVersion
+  if (expectedDoc != null && expectedDoc !== '') {
+    const cur = Number(c.docVersion) || 0
+    const exp = Number(expectedDoc)
+    if (Number.isFinite(exp) && exp !== cur) {
+      return res.status(409).json({
+        detail: `Клиента уже меняли (версия ${cur}, ожидали ${exp})`,
+      })
+    }
+  }
   // Долг НЕ присваиваем напрямую — проводим через единую логику (ledger + лимит + карта).
   const debtRequested = patch.debt != null ? Number(patch.debt) || 0 : null
   const debtNoteReq = patch.debtNote
   delete patch.debt
   delete patch.debtNote
+  delete patch.docVersion
   if (patch.debtEnabled === false && (Number(c.debt) || 0) > 0.001) {
     const nextDebtProbe = debtRequested != null ? debtRequested : Number(c.debt) || 0
     if (nextDebtProbe > 0.001) {
@@ -3559,6 +3605,8 @@ app.patch('/clients/:id', (req, res) => {
     }
   }
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
+  c.docVersion = (Number(c.docVersion) || 0) + 1
+  c.updatedAtIso = new Date().toISOString()
   syncCardIdentityFromClient(c)
   // Долг: единая логика — запись в ledger, проверка лимита, синхронизация карты.
   // В связке «карта+клиент» (saveCardLoyalty) карта обновляется первой, поэтому
@@ -3578,6 +3626,8 @@ app.patch('/clients/:id', (req, res) => {
         if (linkedCard) {
           linkedCard.debt = debtRequested
           if (debtRequested > prevDebt) linkedCard.debtEnabled = true
+          // Ручная правка → лента погашений (риск 2.3)
+          linkedCard.debtPayVersion = (Number(linkedCard.debtPayVersion) || 0) + 1
         }
         deliverDebtNotifications(notifications)
       } catch (e) {
@@ -3591,6 +3641,13 @@ app.patch('/clients/:id', (req, res) => {
   // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
   if (bonusManuallySet && patch.bonus != null) {
     alignPosCashBonusToTarget(db, c.phone, Number(c.bonus) || 0, loyaltyHooks())
+    const linkedCard = (db.cards || []).find(card =>
+      (c.card && String(card.num || '').toUpperCase() === String(c.card).toUpperCase())
+      || (c.phone && normalizePhoneDigits(card.phone) === normalizePhoneDigits(c.phone)),
+    )
+    if (linkedCard) {
+      linkedCard.bonusPayVersion = (Number(linkedCard.bonusPayVersion) || 0) + 1
+    }
   }
   const afterSnap = {
     name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
@@ -4162,6 +4219,8 @@ function normalizeCardRow(raw) {
     posCashBonus: Math.max(0, Number(raw.posCashBonus) || 0),
     debtLimit: Number(raw.debtLimit) || 0,
     debt: Number(raw.debt) || 0,
+    debtPayVersion: Math.max(0, Number(raw.debtPayVersion) || 0),
+    bonusPayVersion: Math.max(0, Number(raw.bonusPayVersion) || 0),
     issued: raw.issued || new Date().toISOString().slice(0, 10),
     note: raw.note || '',
     vip: !!raw.vip || vipFromNote(raw.note),
@@ -4532,6 +4591,9 @@ app.patch('/cards/:num', (req, res) => {
     const body = { ...req.body }
     const allowDecrease = body.allowBonusDecrease === true
     delete body.allowBonusDecrease
+    // Версию погашений / бонусов ставит только сервер
+    delete body.debtPayVersion
+    delete body.bonusPayVersion
     const prevDebt = Number(card.debt) || 0
     const enforceDebtLimit = !isStaffRequest(req) // лимит только для приложения клиента
     if (body.debt != null && enforceDebtLimit) {
@@ -4626,11 +4688,17 @@ app.patch('/cards/:num', (req, res) => {
         card.debtEnabled = true
         if (linkedClient) linkedClient.debtEnabled = true
       }
+      // Ручная правка долга → та же лента, что у погашения с кассы (риск 2.3)
+      if (Math.abs((Number(card.debt) || 0) - prevDebt) > 0.001) {
+        card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+      }
     }
     syncClientFromCardRow(card)
     // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
     if (bonusManuallySet && body.bonus != null && card.phone) {
       alignPosCashBonusToTarget(db, card.phone, Number(card.bonus) || 0, loyaltyHooks())
+      // Риск 3.3: ручная правка ⭐ → та же лента, что у пополнения
+      card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
     }
     const afterSnap = {
       client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
@@ -4685,20 +4753,36 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const clientRef = String(req.body?.clientRef || '').trim()
     const dup = findOpRef('card_topup', clientRef)
     if (dup) return res.json({ ...dup, card })
-    // cash — внесённые деньги (идут в Кошелёк). credit оставлен для обратной совместимости.
+    // cash — внесённые деньги. credit — устаревшее поле (игнор для баланса).
     const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
     if (!(cash > 0)) {
       return res.status(400).json({ detail: 'Укажите сумму пополнения' })
     }
+
+    // Риск 3.1: версия пополнений бонусов
+    const expectedPayVer = req.body?.expectedBonusPayVersion ?? req.body?.bonusPayVersion
+    if (expectedPayVer != null && expectedPayVer !== '') {
+      const exp = Math.max(0, Number(expectedPayVer) || 0)
+      const current = Number(card.bonusPayVersion) || 0
+      if (exp !== current) {
+        return res.status(409).json({
+          detail: `Бонусы уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Пополнение не приняли — обновите данные.`,
+        })
+      }
+    }
+
     const loyalty = ensureLoyaltySettings(db)
     const bonusEarned = calcCashDepositBonusServer(cash, loyalty)
+    const addToBonus = Math.round((cash + bonusEarned) * 100) / 100
 
     const move = createFinanceMove(db, {
       type: 'deposit',
       amount: cash,
       note: String(req.body?.note || `Пополнение бонусов · ${card.client || card.phone || card.num}`),
       reason: 'Пополнение бонусов клиента',
+      refType: 'card_topup',
+      cardNum: num,
       createdBy: req.body?.cashierName,
       cashierId: req.body?.cashierId,
       cashierName: req.body?.cashierName,
@@ -4708,16 +4792,10 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       createdAtIso: req.body?.createdAtIso,
     })
 
-    const addToBonus = Math.round((cash + bonusEarned) * 100) / 100
-    if (appliedLocal && req.body?.bonusAfter != null) {
-      card.bonus = Math.round((Number(req.body.bonusAfter) || 0) * 100) / 100
-      if (req.body?.posCashBonusAfter != null) {
-        card.posCashBonus = Math.round((Number(req.body.posCashBonusAfter) || 0) * 100) / 100
-      }
-    } else {
-      card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
-      card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
-    }
+    // Риск 3.2: сервер всегда плюсует сам, не берёт bonusAfter с кассы
+    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
+    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
+    card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
     card.wallet = 0
     syncClientFromCardRow(card)
     auditFromReq(db, req, {
@@ -4729,7 +4807,7 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       summary: `Пополнение бонусов ${num} · +${addToBonus}⭐`
         + (bonusEarned > 0 ? ` (деньги +${cash} + бонус +${bonusEarned})` : ` (деньги +${cash})`)
         + ` · касса +${cash}`,
-      after: { cash, bonusEarned, addToBonus, bonus: card.bonus },
+      after: { cash, bonusEarned, addToBonus, bonus: card.bonus, bonusPayVersion: card.bonusPayVersion },
     })
     rememberOpRef('card_topup', clientRef, { financeMove: move, bonusEarned, addToBonus })
     persist()
@@ -4766,12 +4844,25 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       Number(card.debt) || 0,
       Number(linkedClient?.debt) || 0,
     )
+    const expectedPayVer = req.body?.expectedDebtPayVersion ?? req.body?.debtPayVersion
+    if (expectedPayVer !== undefined && expectedPayVer !== null && expectedPayVer !== '') {
+      const exp = Number(expectedPayVer)
+      if (Number.isFinite(exp)) {
+        const current = Number(card.debtPayVersion) || 0
+        if (exp !== current) {
+          return res.status(400).json({
+            detail: `Долг клиента уже погашали на другой кассе (версия ${current}, ожидали ${exp}). Погашение не приняли — обновите данные.`,
+          })
+        }
+      }
+    }
     if (!appliedLocal && amount > prevDebt + 0.001) {
       return res.status(400).json({ detail: `Долг клиента ${prevDebt.toFixed(2)} ЅМ` })
     }
-    const nextDebt = appliedLocal && req.body?.nextDebt != null
-      ? Math.round(Math.max(0, Number(req.body.nextDebt)) * 100) / 100
-      : Math.round(Math.max(0, prevDebt - amount) * 100) / 100
+    // Всегда от текущего долга на сервере − сумма. nextDebt с кассы не берём:
+    // иначе офлайн «долг=0» сотрёт параллельную продажу в долг (риск 2.2).
+    const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
+    const repaidTowardDebt = Math.round(Math.max(0, prevDebt - nextDebt) * 100) / 100
 
     if (linkedClient) {
       if (!appliedLocal) {
@@ -4784,9 +4875,9 @@ app.post('/cards/:num/debt-repay', (req, res) => {
         } catch (e) {
           return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось погасить долг' })
         }
-      } else {
+      } else if (repaidTowardDebt > 0.001) {
         try {
-          applyDebtRepayment(linkedClient, card, amount, {
+          applyDebtRepayment(linkedClient, card, repaidTowardDebt, {
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch { /* журнал чеков; баланс уже на кассе */ }
@@ -4797,6 +4888,8 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     } else {
       card.debt = nextDebt
     }
+    card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+    Object.assign(card, normalizeCardRow(card))
 
     const bonusEarned = 0
     syncClientFromCardRow(card)

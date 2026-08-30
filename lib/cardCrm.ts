@@ -20,6 +20,10 @@ export interface AdminCard {
   posCashBonus?: number
   debtLimit: number
   debt: number
+  /** Лента погашений долга (офлайн-дубли); отдельно от продаж в долг */
+  debtPayVersion?: number
+  /** Лента пополнений бонусов (нал→⭐); отдельно от долга и поставщиков */
+  bonusPayVersion?: number
   issued?: string
   note?: string
   vip?: boolean
@@ -142,6 +146,8 @@ export function normalizeCard(raw: Partial<AdminCard> & { num: string }): AdminC
     posCashBonus: Math.max(0, Number(raw.posCashBonus) || 0),
     debtLimit: Number(raw.debtLimit) || 0,
     debt: Number(raw.debt) || 0,
+    debtPayVersion: Math.max(0, Number(raw.debtPayVersion) || 0),
+    bonusPayVersion: Math.max(0, Number(raw.bonusPayVersion) || 0),
     issued: raw.issued,
     note: raw.note || '',
     vip,

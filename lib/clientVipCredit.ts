@@ -44,6 +44,8 @@ export type DebtHistoryEntry = {
   source?: 'manual' | 'pos' | 'order' | 'cashier'
   /** Одна оплата клиента, разбитая по нескольким чекам (FIFO) */
   batchId?: string
+  /** Ключ офлайн-операции — для отката при отказе сервера */
+  clientRef?: string
   /** Срок погашения (ISO) — с серверного ledger */
   dueAtIso?: string
   /** Человекочитаемый срок */
@@ -854,7 +856,7 @@ export async function syncDebtHistoryFromLedger(phone: string): Promise<DebtLedg
   return run
 }
 
-/** Удалить запись истории. Возвращает удалённую строку или null. */
+/** Удалить запись истории. Погашения (type=pay) удалять нельзя. Возвращает удалённую строку или null. */
 export function removeDebtHistoryEntry(phone: string, id: string): DebtHistoryEntry | null {
   if (!phone.trim() || !id) return null
   const prev = loadDebtHistory(phone)
@@ -862,7 +864,28 @@ export function removeDebtHistoryEntry(phone: string, id: string): DebtHistoryEn
   if (idx < 0) return null
   const removed = prev[idx]
   if (!isManualDebtHistoryEntry(removed)) return null
+  // Риск 2.4: погашенный долг нельзя стереть из истории
+  if (removed.type === 'pay') return null
   saveDebtHistoryList(phone, prev.filter(r => r.id !== id))
+  return removed
+}
+
+/**
+ * Системный откат истории при отказе сервера (риск 2.5).
+ * Не для UI — снимает pay по clientRef / batchId операции.
+ */
+export function dropDebtHistoryByClientRef(phone: string, clientRef: string): number {
+  const ref = String(clientRef || '').trim()
+  if (!phone.trim() || !ref) return 0
+  const prev = loadDebtHistory(phone)
+  const next = prev.filter(r => {
+    if (r.type !== 'pay') return true
+    const rowRef = String(r.clientRef || '').trim()
+    const batch = String(r.batchId || '').trim()
+    return rowRef !== ref && batch !== ref
+  })
+  const removed = prev.length - next.length
+  if (removed > 0) saveDebtHistoryList(phone, next)
   return removed
 }
 
@@ -894,7 +917,9 @@ export function updateDebtHistoryEntry(
   if (idx < 0) return null
   const row = prev[idx]
   if (!isManualDebtHistoryEntry(row)) return null
-  if (row.type !== 'debt' && row.type !== 'pay') return null
+  // Погашения не правятся и не удаляются
+  if (row.type === 'pay') return null
+  if (row.type !== 'debt') return null
 
   const next = { ...row }
   if (patch.desc != null) {
@@ -904,7 +929,7 @@ export function updateDebtHistoryEntry(
   if (patch.amountAbs != null) {
     const abs = Math.max(0, Math.round(Number(patch.amountAbs) * 100) / 100)
     if (!(abs > 0)) return null
-    next.amount = row.type === 'pay' ? abs : -abs
+    next.amount = -abs
   }
   const list = [...prev]
   list[idx] = next
@@ -1017,6 +1042,8 @@ export function recordStoreDebtRepayment(
     orderId?: string
     /** Общий id одной оплаты (несколько чеков) */
     batchId?: string
+    /** Ключ офлайн-операции для отката при отказе сервера */
+    clientRef?: string
     /** Общее время пакета (чтобы FIFO не разъезжался) */
     ts?: number
   },
@@ -1028,13 +1055,15 @@ export function recordStoreDebtRepayment(
     || (methodLabel ? `Погашение долга · ${methodLabel}` : 'Погашение долга')
   const source = meta?.source
     ?? (meta?.method ? 'cashier' : 'manual')
+  const clientRef = String(meta?.clientRef || '').trim() || undefined
   pushDebtHistory(phone, {
     desc,
     amount: pay,
     type: 'pay',
     source,
     orderId: meta?.orderId,
-    batchId: meta?.batchId,
+    batchId: meta?.batchId || clientRef,
+    clientRef,
     ts: meta?.ts,
   })
 }
@@ -1052,12 +1081,14 @@ export function recordStoreDebtRepaymentFifo(
     desc?: string
     method?: 'cash' | 'card'
     source?: DebtHistoryEntry['source']
+    clientRef?: string
   },
 ): { appliedToChecks: number; residual: number; checkCount: number } {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0, checkCount: 0 }
 
-  const batchId = `payb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  const clientRef = String(meta?.clientRef || '').trim() || undefined
+  const batchId = clientRef || `payb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   const ts = Date.now()
   let left = pay
   let appliedToChecks = 0
@@ -1073,6 +1104,7 @@ export function recordStoreDebtRepaymentFifo(
       source: meta?.source,
       orderId: oid || undefined,
       batchId,
+      clientRef,
       ts,
       desc: t.label
         ? `Погашение · ${t.label}`
@@ -1087,6 +1119,7 @@ export function recordStoreDebtRepaymentFifo(
       method: meta?.method,
       source: meta?.source,
       batchId,
+      clientRef,
       ts,
       desc: meta?.desc || 'Погашение долга (сверх чеков)',
     })
@@ -1175,6 +1208,7 @@ export type BalanceTopupEntry = {
   cash: number
   bonus: number
   desc: string
+  clientRef?: string
 }
 
 export function emitBalanceTopupChange() {
@@ -1199,12 +1233,19 @@ export function loadBalanceTopups(phone: string): BalanceTopupEntry[] {
   }))
 }
 
-export function recordBalanceTopup(phone: string, cash: number, bonus: number, desc = 'Пополнение баланса'): void {
+export function recordBalanceTopup(
+  phone: string,
+  cash: number,
+  bonus: number,
+  desc = 'Пополнение баланса',
+  meta?: { clientRef?: string },
+): void {
   const cashAmt = Math.max(0, Math.round(cash * 100) / 100)
   const bonusAmt = Math.max(0, Math.round(bonus * 100) / 100)
   if (!phone.trim() || cashAmt <= 0) return
   const prev = loadBalanceTopups(phone)
   const now = new Date()
+  const clientRef = String(meta?.clientRef || '').trim() || undefined
   const row: BalanceTopupEntry = {
     id: `T-${now.getTime()}`,
     date: now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }),
@@ -1213,9 +1254,24 @@ export function recordBalanceTopup(phone: string, cash: number, bonus: number, d
     cash: cashAmt,
     bonus: bonusAmt,
     desc: String(desc || 'Пополнение баланса').trim() || 'Пополнение баланса',
+    clientRef,
   }
   saveAccountJson(TOPUP_HIST, [row, ...prev].slice(0, 100), phone)
   emitBalanceTopupChange()
+}
+
+/** Системный откат истории пополнения при отказе сервера (риск 3.5). */
+export function dropBalanceTopupByClientRef(phone: string, clientRef: string): number {
+  const ref = String(clientRef || '').trim()
+  if (!phone.trim() || !ref) return 0
+  const prev = loadBalanceTopups(phone)
+  const next = prev.filter(r => String(r.clientRef || '').trim() !== ref)
+  const removed = prev.length - next.length
+  if (removed > 0) {
+    saveAccountJson(TOPUP_HIST, next, phone)
+    emitBalanceTopupChange()
+  }
+  return removed
 }
 
 /** Сколько ⭐ реально должно быть на балансе по записи истории кассы. */

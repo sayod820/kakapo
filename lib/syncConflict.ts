@@ -20,6 +20,13 @@ function stampOf(row: unknown): string {
 
 /** true = взять remote */
 export function shouldTakeRemoteLww(local: unknown, remote: unknown): boolean {
+  const lo = (local && typeof local === 'object') ? local as Record<string, unknown> : null
+  const ro = (remote && typeof remote === 'object') ? remote as Record<string, unknown> : null
+  const lv = lo && lo.docVersion != null ? Number(lo.docVersion) : NaN
+  const rv = ro && ro.docVersion != null ? Number(ro.docVersion) : NaN
+  if (Number.isFinite(lv) && Number.isFinite(rv) && (lv > 0 || rv > 0)) {
+    if (rv !== lv) return rv > lv
+  }
   const la = Date.parse(stampOf(local) || '')
   const ra = Date.parse(stampOf(remote) || '')
   if (!Number.isFinite(ra)) return false

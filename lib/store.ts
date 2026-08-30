@@ -824,7 +824,12 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           'stock_layer_update',
           'stock_layer_delete',
         ])
-        const protectStock = pending.some(r => !r.failed && STOCK_KINDS.has(r.kind))
+        const protectStock = pending.some(r => {
+          if (!STOCK_KINDS.has(r.kind)) return false
+          if (!r.failed) return true
+          // Failed чек/возврат: не подменять локальный остаток, пока не откатим
+          return r.kind === 'sale' || r.kind === 'sale_return'
+        })
         if (protectStock) {
           const localById = new Map(get().products.map(p => [p.id, p]))
           products = products.map(p => {

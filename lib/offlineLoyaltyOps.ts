@@ -60,14 +60,22 @@ export async function saveCardLoyaltySafe(
     const nextDebt = Math.max(0, Number(form.debt) || 0)
     const phone = (form.phone || card.phone || '').trim()
 
+    const prevBonus = Math.max(0, Number(card.bonus) || 0)
+    const nextBonus = Math.max(0, Number(form.bonus) || 0)
     const patch = {
       debt: nextDebt,
       debtEnabled: nextDebt > 0.001 ? true : !!form.debtEnabled,
       debtLimit: Math.max(0, Number(form.debtLimit) || 0),
-      bonus: Math.max(0, Number(form.bonus) || 0),
+      bonus: nextBonus,
       level: form.level,
       vip: !!form.vip,
       allowBonusDecrease: true as const,
+      ...(Math.abs(nextDebt - prevDebt) > 0.001
+        ? { debtPayVersion: (Number(card.debtPayVersion) || 0) + 1 }
+        : {}),
+      ...(Math.abs(nextBonus - prevBonus) > 0.001
+        ? { bonusPayVersion: (Number(card.bonusPayVersion) || 0) + 1 }
+        : {}),
     }
     useCardStore.getState().updateCardLoyalty(card.num, patch as any, { skipApi: true })
     if (form.clientId) {

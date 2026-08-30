@@ -15,6 +15,20 @@ function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
 }
 
+/** Лента оплат (с миграцией со старого debtVersion) */
+export function supplierPayVersion(sup?: Pick<PosSupplier, 'payVersion' | 'debtVersion'> | null): number {
+  if (!sup) return 0
+  if (sup.payVersion != null && Number.isFinite(Number(sup.payVersion))) return Number(sup.payVersion) || 0
+  return Number(sup.debtVersion) || 0
+}
+
+/** Лента приходов (с миграцией со старого debtVersion) */
+export function supplierSupplyVersion(sup?: Pick<PosSupplier, 'supplyVersion' | 'debtVersion'> | null): number {
+  if (!sup) return 0
+  if (sup.supplyVersion != null && Number.isFinite(Number(sup.supplyVersion))) return Number(sup.supplyVersion) || 0
+  return Number(sup.debtVersion) || 0
+}
+
 export type { OfflineResult }
 
 export type SupplierPayload = {
@@ -48,8 +62,27 @@ function applyPaymentToSupplier(supplierId: string, amountDelta: number) {
       ...sup,
       totalPaid,
       payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+      payVersion: supplierPayVersion(sup) + 1,
     }
   }))
+}
+
+/** Откат локальной оплаты, если сервер отклонил из‑за версии оплат */
+export function revertLocalSupplierPaymentOnReject(supplierId: string, amount: number) {
+  const amt = round2(amount)
+  if (!supplierId || !(amt > 0)) return
+  patchSuppliers(usePosStore.getState().suppliers.map(sup => {
+    if (sup.id !== supplierId) return sup
+    const totalPaid = round2(Math.max(0, (Number(sup.totalPaid) || 0) - amt))
+    const totalSupplied = Number(sup.totalSupplied) || 0
+    return {
+      ...sup,
+      totalPaid,
+      payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+      payVersion: Math.max(0, supplierPayVersion(sup) - 1),
+    }
+  }))
+  shadowMirrorPut('supplier', supplierId, usePosStore.getState().suppliers.find(s => s.id === supplierId))
 }
 
 /** Создать / обновить поставщика. При V2=on — без сети. */
@@ -90,6 +123,8 @@ export async function saveSupplierSafe(
         payableAmount: prev?.payableAmount || 0,
         totalSupplied: prev?.totalSupplied || 0,
         totalPaid: prev?.totalPaid || 0,
+        payVersion: supplierPayVersion(prev),
+        supplyVersion: supplierSupplyVersion(prev),
         lastDeliveryAtIso: prev?.lastDeliveryAtIso,
       }
       patchSuppliers(suppliers.map(s => (s.id === editingId ? supplier : s)))
@@ -105,6 +140,8 @@ export async function saveSupplierSafe(
         payableAmount: 0,
         totalSupplied: 0,
         totalPaid: 0,
+        payVersion: 0,
+        supplyVersion: 0,
       }
       patchSuppliers([supplier, ...suppliers])
     }
@@ -168,22 +205,30 @@ export async function createSupplierPaymentSafe(
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
 
+  const snapPayVersion = () => {
+    const s = usePosStore.getState().suppliers.find(x => x.id === supplierId)
+    return supplierPayVersion(s)
+  }
+
   if (!isTradeLocalFirst()) {
     const pay = await api.createSupplierPayment(supplierId, {
       amount,
       note: input.note,
+      expectedPayVersion: snapPayVersion(),
     })
     return { offline: false, data: pay }
   }
 
   const clientRef = newClientRef()
   const paidAtIso = new Date().toISOString()
+  const expectedPayVersion = snapPayVersion()
   const payload = {
     clientRef,
     supplierId,
     amount,
     note: input.note,
     paidAtIso,
+    expectedPayVersion,
   }
 
   const applyLocal = async () => {
@@ -213,7 +258,8 @@ export async function createSupplierPaymentSafe(
         amount,
         note: input.note,
         clientRef,
-      } as any)
+        expectedPayVersion,
+      })
       applyPaymentToSupplier(supplierId, amount)
       return pay
     },
@@ -222,21 +268,104 @@ export async function createSupplierPaymentSafe(
   )
 }
 
+/** Откат локального удаления оплаты, если сервер отклонил по payVersion */
+export function revertLocalSupplierPaymentDeleteOnReject(
+  supplierId: string,
+  amount: number,
+  payment?: Partial<SupplierPayment> | null,
+) {
+  const amt = round2(amount)
+  if (!supplierId || !(amt > 0)) return
+  // удаление локально: totalPaid−, payVersion+1 → откат: totalPaid+, payVersion−1
+  patchSuppliers(usePosStore.getState().suppliers.map(sup => {
+    if (sup.id !== supplierId) return sup
+    const totalPaid = round2((Number(sup.totalPaid) || 0) + amt)
+    const totalSupplied = Number(sup.totalSupplied) || 0
+    return {
+      ...sup,
+      totalPaid,
+      payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+      payVersion: Math.max(0, supplierPayVersion(sup) - 1),
+    }
+  }))
+  shadowMirrorPut('supplier', supplierId, usePosStore.getState().suppliers.find(s => s.id === supplierId))
+  if (payment?.id) {
+    void import('./offline').then(({ cacheData, readCachedData }) => {
+      void (async () => {
+        const key = `supplier_payments_${supplierId}`
+        const prev = (await readCachedData<SupplierPayment[]>(key)) || []
+        if (prev.some(p => p.id === payment.id)) return
+        const row: SupplierPayment = {
+          id: String(payment.id),
+          supplierId,
+          supplierName: String(payment.supplierName || ''),
+          amount: amt,
+          paidAtIso: String(payment.paidAtIso || new Date().toISOString()),
+          note: payment.note,
+          clientRef: payment.clientRef,
+          payFrom: payment.payFrom,
+          method: payment.method,
+          financeMoveId: payment.financeMoveId,
+          shiftId: payment.shiftId,
+        }
+        await cacheData(key, [row, ...prev])
+      })()
+    })
+  }
+}
+
 export async function deleteSupplierPaymentSafe(
   supplierId: string,
   paymentId: string,
   amountHint?: number,
 ): Promise<OfflineResult<{ id: string }>> {
+  const snapPay = () => {
+    const s = usePosStore.getState().suppliers.find(x => x.id === supplierId)
+    return supplierPayVersion(s)
+  }
+
   if (!isTradeLocalFirst()) {
-    await api.deleteSupplierPayment(supplierId, paymentId)
+    await api.deleteSupplierPayment(supplierId, paymentId, {
+      expectedPayVersion: snapPay(),
+    })
     return { offline: false, data: { id: paymentId } }
   }
 
   const clientRef = newClientRef()
-  const payload = { clientRef, supplierId, paymentId }
+  const expectedPayVersion = snapPay()
+  const amount = round2(Number(amountHint) || 0)
+  let paymentSnap: Partial<SupplierPayment> | undefined
+  try {
+    const { readCachedData } = await import('./offline')
+    const list = (await readCachedData<SupplierPayment[]>(`supplier_payments_${supplierId}`)) || []
+    paymentSnap = list.find(p => p.id === paymentId)
+  } catch { /* ignore */ }
+
+  const payload = {
+    clientRef,
+    supplierId,
+    paymentId,
+    expectedPayVersion,
+    amount,
+    payment: paymentSnap
+      ? {
+          id: paymentSnap.id,
+          supplierName: paymentSnap.supplierName,
+          amount: paymentSnap.amount ?? amount,
+          paidAtIso: paymentSnap.paidAtIso,
+          note: paymentSnap.note,
+          clientRef: paymentSnap.clientRef,
+          payFrom: paymentSnap.payFrom,
+          method: paymentSnap.method,
+          financeMoveId: paymentSnap.financeMoveId,
+          shiftId: paymentSnap.shiftId,
+        }
+      : amount > 0
+        ? { id: paymentId, amount, supplierId }
+        : undefined,
+  }
 
   const applyLocal = async () => {
-    const amount = round2(Number(amountHint) || 0)
     await useOfflineSync.getState().queueOp('supplier_payment_delete', payload, { clientRef })
     if (amount > 0) applyPaymentToSupplier(supplierId, -amount)
     shadowMirrorPut('supplier', supplierId, usePosStore.getState().suppliers.find(s => s.id === supplierId))
@@ -251,8 +380,10 @@ export async function deleteSupplierPaymentSafe(
 
   return raceOp(
     async () => {
-      await api.deleteSupplierPayment(supplierId, paymentId)
-      const amount = round2(Number(amountHint) || 0)
+      await api.deleteSupplierPayment(supplierId, paymentId, {
+        clientRef,
+        expectedPayVersion,
+      })
       if (amount > 0) applyPaymentToSupplier(supplierId, -amount)
       return { id: paymentId }
     },

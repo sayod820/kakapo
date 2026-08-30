@@ -64,12 +64,14 @@ export async function saveProductSafe(
         ? existingId
         : newLocalProductId(products)
 
+    const prev = editing ? products.find(p => p.id === existingId) : undefined
+    const expectedDocVersion = prev ? (Number(prev.docVersion) || 0) : undefined
     // Уже серверный id, но нет сети — правим локально и ставим upsert в очередь
     const product: Product = {
-      ...(editing ? products.find(p => p.id === existingId) : null),
+      ...(prev || null),
       ...cleaned,
       id: localId,
-      art: String(cleaned.art || (editing ? products.find(p => p.id === existingId)?.art : '') || localId),
+      art: String(cleaned.art || prev?.art || localId),
       e: cleaned.e || '📦',
       name: String(cleaned.name || '').trim() || 'Товар',
       price: Number(cleaned.price) || 0,
@@ -80,13 +82,16 @@ export async function saveProductSafe(
       hot: !!cleaned.hot,
       old: null,
       discount: 0,
+      docVersion: (expectedDocVersion != null ? expectedDocVersion : 0) + 1,
       updatedAtIso: new Date().toISOString(),
     } as Product
 
     const payload = {
       clientRef,
       localId: String(localId),
+      expectedDocVersion,
       product: { ...product },
+      _prev: prev ? { ...prev } : null,
     }
     await useOfflineSync.getState().queueOp('product_upsert', payload, {
       localId: String(localId),
@@ -126,6 +131,23 @@ export async function saveProductSafe(
 
 export async function deleteProductSafe(id: number): Promise<OfflineResult<{ id: number }>> {
   const clientRef = newClientRef()
+  const product = useProducts.getState().products.find(p => p.id === id)
+  if (product && (Number(product.stock) || 0) > 0.009) {
+    throw new Error(`Нельзя удалить товар со складом (остаток ${Number(product.stock).toFixed(2)})`)
+  }
+  try {
+    const { getPending } = await import('./offline')
+    const pending = await getPending()
+    const inQueue = pending.some(r => {
+      if (r.failed) return false
+      if (r.kind !== 'sale' && r.kind !== 'sale_return') return false
+      const items = (r.payload as any)?.items || (r.payload as any)?.cart || []
+      return Array.isArray(items) && items.some((it: any) => Number(it.productId) === Number(id))
+    })
+    if (inQueue) throw new Error('Нельзя удалить: товар ещё в очереди чеков')
+  } catch (e) {
+    if (e instanceof Error && /нельзя удалить/i.test(e.message)) throw e
+  }
 
   if (!isTradeLocalFirst()) {
     await useProducts.getState().removeProduct(id)
@@ -146,8 +168,22 @@ export async function deleteProductSafe(id: number): Promise<OfflineResult<{ id:
   }
 
   return raceProductOp(async () => {
-    await api.deleteProduct(id)
+    await api.deleteProduct(id, { clientRef })
     persistLocalCatalog(useProducts.getState().products.filter(p => p.id !== id))
     return { id }
   }, applyLocal)
+}
+
+/** Откат локального upsert товара при конфликте версии */
+export function revertLocalProductUpsertOnReject(payload: Record<string, unknown>) {
+  const prev = payload._prev as Product | null | undefined
+  const localId = String(payload.localId || (payload.product as any)?.id || '')
+  const products = useProducts.getState().products
+  if (prev && prev.id != null) {
+    persistLocalCatalog(products.map(p => (Number(p.id) === Number(prev.id) || String(p.id) === localId ? { ...prev } : p)))
+    return
+  }
+  if (localId) {
+    persistLocalCatalog(products.filter(p => String(p.id) !== localId && Number(p.id) !== Number(localId)))
+  }
 }

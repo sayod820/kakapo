@@ -197,11 +197,20 @@ export function enqueueStockRevisionV2(db, data = {}, extras = {}) {
 export function processRevisionQueue(db) {
   ensurePosCollections(db)
   let changed = false
+  const STALE_MS = 12 * 60 * 60 * 1000
   const list = [...(db.stockRevisions || [])]
     .filter(isPendingRevision)
     .sort(compareRevisionOrder)
 
   for (const rev of list) {
+    const submittedAt = Date.parse(String(rev.submittedAtIso || rev.createdAtIso || '')) || 0
+    if (submittedAt > 0 && (Date.now() - submittedAt) > STALE_MS) {
+      rev.status = 'failed'
+      rev.lastError = 'Ревизия слишком долго ждала устройства — отмените или проведите снова'
+      changed = true
+      continue
+    }
+
     const hasOlder = (db.stockRevisions || []).some(r =>
       r.id !== rev.id
       && isPendingRevision(r)

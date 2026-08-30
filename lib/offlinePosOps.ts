@@ -6,12 +6,13 @@ import { api, isNetworkError } from './api'
 import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
-import { debtAccountKey, recordStoreDebtRepayment } from './clientVipCredit'
+import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtRepayment } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { markMoneyPending } from './loyaltySaveGuard'
+import { markMoneyPending, clearMoneyPending } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore, noteInboundDeletedIds } from './posStore'
+import { supplierPayVersion } from './offlineSupplierOps'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
@@ -135,6 +136,15 @@ export async function openShiftSafe(input: {
   posId?: string
   note?: string
 }): Promise<OfflineResult<PosShift>> {
+  const posId = String(input.posId || '').trim()
+  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  if (posId && opens.some(s => String(s.posId || '') === posId)) {
+    throw new Error('На этой точке продаж уже открыта сессия')
+  }
+  if (opens.some(s => String(s.cashierId || '') === String(input.cashierId))) {
+    throw new Error('У кассира уже открыта смена')
+  }
+
   const clientRef = newClientRef()
   const payload = {
     clientRef,
@@ -179,6 +189,24 @@ export async function closeShiftSafe(
   shiftId: string,
   input: { closingCash: number; closingCard?: number; note?: string },
 ): Promise<OfflineResult<PosShift | null>> {
+  const pending = await getPending()
+  const shiftBusy = pending.some(r => {
+    if (r.failed) return false
+    if (!['sale', 'sale_return', 'finance_move', 'expense_create', 'debt_repay', 'card_topup'].includes(r.kind)) {
+      return false
+    }
+    return String((r.payload as any)?.shiftId || '') === String(shiftId)
+  })
+  if (shiftBusy) {
+    throw new Error('Сначала дождитесь отправки чеков и движений этой смены')
+  }
+  const localSaleBusy = usePosStore.getState().sales.some(s =>
+    String(s.shiftId || '') === String(shiftId) && isLocalId(String(s.id || '')),
+  )
+  if (localSaleBusy) {
+    throw new Error('Сначала дождитесь отправки чеков этой смены')
+  }
+
   const clientRef = newClientRef()
   const payload = {
     clientRef,
@@ -282,9 +310,38 @@ export function applyLocalVaultTransfer(shift: PosShift) {
     cashVault: {
       cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) + cashAmount),
       cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) + cardAmount),
+      vaultVersion: (Number(s.cashVault?.vaultVersion) || 0) + 1,
       transfers: [transfer, ...(s.cashVault?.transfers || [])],
+      converts: s.cashVault?.converts,
     },
   }))
+}
+
+function vaultVersionLocal(): number {
+  return Number(usePosStore.getState().cashVault?.vaultVersion) || 0
+}
+
+function bumpVaultVersionLocal() {
+  usePosStore.setState(s => ({
+    cashVault: {
+      ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+      vaultVersion: (Number(s.cashVault?.vaultVersion) || 0) + 1,
+    },
+  }))
+}
+
+type VaultConvertShiftSlice = {
+  shiftId: string
+  amount: number
+  fromIn?: number
+  fromSales?: number
+  fromOpening?: number
+}
+
+type VaultConvertSlice = {
+  dir: 'card_to_cash' | 'cash_to_card'
+  fromMain: number
+  fromShifts: VaultConvertShiftSlice[]
 }
 
 /** Карта → нал в ящике (основной, потом открытые смены). */
@@ -305,23 +362,35 @@ export async function vaultCardToCashSafe(input: {
   }
 
   const clientRef = newClientRef()
-  const payload = { clientRef, amount, note: input.note }
+  const expectedVaultVersion = vaultVersionLocal()
+  const payload: Record<string, unknown> = {
+    clientRef,
+    amount,
+    note: input.note,
+    expectedVaultVersion,
+  }
 
   const applyLocal = async () => {
     const localId = newLocalId('vcc')
-    await useOfflineSync.getState().queueOp('vault_card_to_cash', payload, { localId })
-    applyLocalCardToCash(amount)
+    const slice = applyLocalCardToCash(amount)
+    payload._revert = slice
+    await useOfflineSync.getState().queueOp('vault_card_to_cash', payload, { localId, clientRef })
     void persistPosSnapshot()
     return { id: localId, amount }
   }
 
   return raceCashierOp(
-    () => api.convertVaultCardToCash(payload),
+    () => api.convertVaultCardToCash({
+      clientRef,
+      amount,
+      note: input.note,
+      expectedVaultVersion,
+    }),
     applyLocal,
   )
 }
 
-function applyLocalCardToCash(amount: number) {
+function applyLocalCardToCash(amount: number): VaultConvertSlice {
   let left = round2(amount)
   const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
   const mainCard = round2(Number(vault.cardTotal) || 0)
@@ -332,26 +401,33 @@ function applyLocalCardToCash(amount: number) {
         ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
         cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) - fromMain),
         cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) + fromMain),
+        vaultVersion: (Number(s.cashVault?.vaultVersion) || 0) + 1,
       },
     }))
     left = round2(left - fromMain)
+  } else {
+    bumpVaultVersionLocal()
   }
-  if (left <= 0.001) return
-  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
-  for (const sh of opens) {
-    if (left <= 0.001) break
-    const have = round2(Number(sh.salesCard) || 0)
-    if (!(have > 0.001)) continue
-    const take = Math.min(left, have)
-    patchShift(sh.id, {
-      salesCard: round2(have - take),
-      cashInTotal: round2((Number(sh.cashInTotal) || 0) + take),
-    })
-    left = round2(left - take)
+  const fromShifts: VaultConvertShiftSlice[] = []
+  if (left > 0.001) {
+    const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+    for (const sh of opens) {
+      if (left <= 0.001) break
+      const have = round2(Number(sh.salesCard) || 0)
+      if (!(have > 0.001)) continue
+      const take = Math.min(left, have)
+      patchShift(sh.id, {
+        salesCard: round2(have - take),
+        cashInTotal: round2((Number(sh.cashInTotal) || 0) + take),
+      })
+      fromShifts.push({ shiftId: sh.id, amount: take })
+      left = round2(left - take)
+    }
   }
+  return { dir: 'card_to_cash', fromMain, fromShifts }
 }
 
-function applyLocalCashToCard(amount: number) {
+function applyLocalCashToCard(amount: number): VaultConvertSlice {
   let left = round2(amount)
   const vault = usePosStore.getState().cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
   const mainCash = round2(Number(vault.cashTotal) || 0)
@@ -362,36 +438,115 @@ function applyLocalCashToCard(amount: number) {
         ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
         cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) - fromMain),
         cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) + fromMain),
+        vaultVersion: (Number(s.cashVault?.vaultVersion) || 0) + 1,
       },
     }))
     left = round2(left - fromMain)
+  } else {
+    bumpVaultVersionLocal()
   }
-  if (left <= 0.001) return
-  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
-  for (const sh of opens) {
-    if (left <= 0.001) break
-    const have = shiftExpectedCashLocal(sh)
-    if (!(have > 0.001)) continue
-    const take = Math.min(left, have)
-    let rest = take
-    const fromIn = Math.min(rest, round2(Number(sh.cashInTotal) || 0))
-    const patch: Partial<PosShift> = {
-      salesCard: round2((Number(sh.salesCard) || 0) + take),
+  const fromShifts: VaultConvertShiftSlice[] = []
+  if (left > 0.001) {
+    const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+    for (const sh of opens) {
+      if (left <= 0.001) break
+      const have = shiftExpectedCashLocal(sh)
+      if (!(have > 0.001)) continue
+      const take = Math.min(left, have)
+      let rest = take
+      const fromIn = Math.min(rest, round2(Number(sh.cashInTotal) || 0))
+      const patch: Partial<PosShift> = {
+        salesCard: round2((Number(sh.salesCard) || 0) + take),
+      }
+      if (fromIn > 0.001) {
+        patch.cashInTotal = round2((Number(sh.cashInTotal) || 0) - fromIn)
+        rest = round2(rest - fromIn)
+      }
+      const fromSales = Math.min(rest, round2(Number(sh.salesCash) || 0))
+      if (fromSales > 0.001) {
+        patch.salesCash = round2((Number(sh.salesCash) || 0) - fromSales)
+        rest = round2(rest - fromSales)
+      }
+      const fromOpening = rest > 0.001 ? rest : 0
+      if (fromOpening > 0.001) {
+        patch.openingCash = round2(Math.max(0, (Number(sh.openingCash) || 0) - fromOpening))
+      }
+      patchShift(sh.id, patch)
+      fromShifts.push({ shiftId: sh.id, amount: take, fromIn, fromSales, fromOpening })
+      left = round2(left - take)
     }
-    if (fromIn > 0.001) {
-      patch.cashInTotal = round2((Number(sh.cashInTotal) || 0) - fromIn)
-      rest = round2(rest - fromIn)
+  }
+  return { dir: 'cash_to_card', fromMain, fromShifts }
+}
+
+function revertVaultConvertSlice(slice: VaultConvertSlice | Record<string, unknown> | undefined) {
+  if (!slice || typeof slice !== 'object') return
+  const dir = String((slice as VaultConvertSlice).dir || '')
+  const fromMain = round2(Number((slice as VaultConvertSlice).fromMain) || 0)
+  const fromShifts = Array.isArray((slice as VaultConvertSlice).fromShifts)
+    ? (slice as VaultConvertSlice).fromShifts
+    : []
+
+  const decVault = () => {
+    usePosStore.setState(s => ({
+      cashVault: {
+        ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+        vaultVersion: Math.max(0, (Number(s.cashVault?.vaultVersion) || 0) - 1),
+      },
+    }))
+  }
+
+  if (dir === 'card_to_cash') {
+    if (fromMain > 0.001) {
+      usePosStore.setState(s => ({
+        cashVault: {
+          ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+          cardTotal: round2((Number(s.cashVault?.cardTotal) || 0) + fromMain),
+          cashTotal: round2(Math.max(0, (Number(s.cashVault?.cashTotal) || 0) - fromMain)),
+          vaultVersion: Math.max(0, (Number(s.cashVault?.vaultVersion) || 0) - 1),
+        },
+      }))
+    } else {
+      decVault()
     }
-    const fromSales = Math.min(rest, round2(Number(sh.salesCash) || 0))
-    if (fromSales > 0.001) {
-      patch.salesCash = round2((Number(sh.salesCash) || 0) - fromSales)
-      rest = round2(rest - fromSales)
+    for (const part of fromShifts) {
+      const sh = shiftById(String(part.shiftId || ''))
+      if (!sh) continue
+      const take = round2(Number(part.amount) || 0)
+      if (!(take > 0.001)) continue
+      patchShift(sh.id, {
+        salesCard: round2((Number(sh.salesCard) || 0) + take),
+        cashInTotal: round2(Math.max(0, (Number(sh.cashInTotal) || 0) - take)),
+      })
     }
-    if (rest > 0.001) {
-      patch.openingCash = round2(Math.max(0, (Number(sh.openingCash) || 0) - rest))
+  } else if (dir === 'cash_to_card') {
+    if (fromMain > 0.001) {
+      usePosStore.setState(s => ({
+        cashVault: {
+          ...(s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }),
+          cashTotal: round2((Number(s.cashVault?.cashTotal) || 0) + fromMain),
+          cardTotal: round2(Math.max(0, (Number(s.cashVault?.cardTotal) || 0) - fromMain)),
+          vaultVersion: Math.max(0, (Number(s.cashVault?.vaultVersion) || 0) - 1),
+        },
+      }))
+    } else {
+      decVault()
     }
-    patchShift(sh.id, patch)
-    left = round2(left - take)
+    for (const part of fromShifts) {
+      const sh = shiftById(String(part.shiftId || ''))
+      if (!sh) continue
+      const take = round2(Number(part.amount) || 0)
+      if (!(take > 0.001)) continue
+      const fromIn = round2(Number(part.fromIn) || 0)
+      const fromSales = round2(Number(part.fromSales) || 0)
+      const fromOpening = round2(Number(part.fromOpening) || 0)
+      patchShift(sh.id, {
+        salesCard: round2(Math.max(0, (Number(sh.salesCard) || 0) - take)),
+        cashInTotal: round2((Number(sh.cashInTotal) || 0) + fromIn),
+        salesCash: round2((Number(sh.salesCash) || 0) + fromSales),
+        openingCash: round2((Number(sh.openingCash) || 0) + fromOpening),
+      })
+    }
   }
 }
 
@@ -413,20 +568,38 @@ export async function vaultCashToCardSafe(input: {
   }
 
   const clientRef = newClientRef()
-  const payload = { clientRef, amount, note: input.note }
+  const expectedVaultVersion = vaultVersionLocal()
+  const payload: Record<string, unknown> = {
+    clientRef,
+    amount,
+    note: input.note,
+    expectedVaultVersion,
+  }
 
   const applyLocal = async () => {
     const localId = newLocalId('vct')
-    await useOfflineSync.getState().queueOp('vault_cash_to_card', payload, { localId })
-    applyLocalCashToCard(amount)
+    const slice = applyLocalCashToCard(amount)
+    payload._revert = slice
+    await useOfflineSync.getState().queueOp('vault_cash_to_card', payload, { localId, clientRef })
     void persistPosSnapshot()
     return { id: localId, amount }
   }
 
   return raceCashierOp(
-    () => api.convertVaultCashToCard(payload),
+    () => api.convertVaultCashToCard({
+      clientRef,
+      amount,
+      note: input.note,
+      expectedVaultVersion,
+    }),
     applyLocal,
   )
+}
+
+/** Откат локального перевода ящика, если сервер отказал */
+export function revertLocalVaultConvertOnReject(payload: Record<string, unknown>) {
+  revertVaultConvertSlice((payload._revert || payload) as VaultConvertSlice)
+  void persistPosSnapshot()
 }
 
 /** Сколько доступно в основном ящике */
@@ -475,11 +648,15 @@ export function applyMoneyOutLocal(opts: {
     }
     usePosStore.setState(s => {
       const v = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+      const nextVer = dir > 0
+        ? (Number(v.vaultVersion) || 0) + 1
+        : Math.max(0, (Number(v.vaultVersion) || 0) - 1)
       if (method === 'card') {
         return {
           cashVault: {
             ...v,
             cardTotal: round2(Math.max(0, (Number(v.cardTotal) || 0) - dir * amt)),
+            vaultVersion: nextVer,
           },
         }
       }
@@ -487,6 +664,7 @@ export function applyMoneyOutLocal(opts: {
         cashVault: {
           ...v,
           cashTotal: round2(Math.max(0, (Number(v.cashTotal) || 0) - dir * amt)),
+          vaultVersion: nextVer,
         },
       }
     })
@@ -545,6 +723,7 @@ export function applyMoneyInLocal(opts: {
           cashVault: {
             ...v,
             cardTotal: round2((Number(v.cardTotal) || 0) + amt),
+            vaultVersion: (Number(v.vaultVersion) || 0) + 1,
           },
         }
       }
@@ -552,6 +731,7 @@ export function applyMoneyInLocal(opts: {
         cashVault: {
           ...v,
           cashTotal: round2((Number(v.cashTotal) || 0) + amt),
+          vaultVersion: (Number(v.vaultVersion) || 0) + 1,
         },
       }
     })
@@ -637,6 +817,10 @@ export async function financeMoveSafe(input: {
 
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
+  const expectedPayVersion = input.supplierId
+    ? supplierPayVersion(usePosStore.getState().suppliers.find(s => s.id === input.supplierId))
+    : undefined
+  const expectedVaultVersion = payFrom === 'vault' ? vaultVersionLocal() : undefined
   const payload = {
     ...input,
     payFrom,
@@ -649,6 +833,8 @@ export async function financeMoveSafe(input: {
     createdBy: input.createdBy || input.cashierName || open?.cashierName,
     cashierId: input.cashierId || open?.cashierId,
     cashierName: input.cashierName || open?.cashierName,
+    ...(input.supplierId && expectedPayVersion != null ? { expectedPayVersion } : {}),
+    ...(expectedVaultVersion != null ? { expectedVaultVersion } : {}),
   }
 
   const inflightKey = ['fin', payload.type, amount, payFrom, method, String(payload.shiftId || ''), String(payload.note || '').trim(), String(payload.supplierId || '')].join('|')
@@ -719,6 +905,7 @@ export async function financeMoveSafe(input: {
               ...sup,
               totalPaid,
               payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+              payVersion: supplierPayVersion(sup) + 1,
             }
           }),
         }))
@@ -795,13 +982,26 @@ export async function cardTopupSafe(
     shiftId: string
     posId?: string
   },
-): Promise<OfflineResult<null>> {
+): Promise<OfflineResult<{ clientRef: string }>> {
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
-  const payload = { ...input, clientRef, createdAtIso, cash: round2(input.cash), credit: round2(input.credit), num }
+  const cardNow = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
+  const expectedBonusPayVersion = Number(cardNow?.bonusPayVersion) || 0
+  const prevBonus = round2(Number(cardNow?.bonus) || 0)
+  const prevPosCashBonus = round2(Number(cardNow?.posCashBonus) || 0)
+  const payload = {
+    ...input,
+    clientRef,
+    createdAtIso,
+    cash: round2(input.cash),
+    credit: round2(input.credit),
+    num,
+    expectedBonusPayVersion,
+    prevBonus,
+    prevPosCashBonus,
+  }
 
   const applyLocal = async () => {
-    const { useCardStore } = await import('./cardStore')
     const card = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
     const nextBonus = round2((Number(card?.bonus) || 0) + payload.credit)
     const nextPos = round2((Number(card?.posCashBonus) || 0) + payload.credit)
@@ -820,6 +1020,9 @@ export async function cardTopupSafe(
           type: 'deposit',
           amount: payload.cash,
           note: input.note,
+          reason: 'Пополнение бонусов клиента',
+          refType: 'card_topup',
+          cardNum: num,
           createdBy: input.cashierName,
           createdAtIso,
           shiftId: shift.id,
@@ -830,12 +1033,15 @@ export async function cardTopupSafe(
     }
     useCardStore.getState().updateCardLoyalty(
       num,
-      { bonus: nextBonus, posCashBonus: nextPos },
+      {
+        bonus: nextBonus,
+        posCashBonus: nextPos,
+        bonusPayVersion: expectedBonusPayVersion + 1,
+      },
       { skipApi: true },
     )
-    const { markMoneyPending } = await import('./loyaltySaveGuard')
     markMoneyPending({ cardNum: num, clientId: card?.clientId })
-    return null
+    return { clientRef }
   }
 
   return raceCashierOp(
@@ -850,11 +1056,71 @@ export async function cardTopupSafe(
         shiftId: input.shiftId,
         posId: input.posId,
         createdAtIso,
+        expectedBonusPayVersion,
       })
-      return null
+      return { clientRef }
     },
     applyLocal,
   )
+}
+
+/** Откат локального пополнения бонусов при отказе сервера (риск 3.5). */
+export function revertLocalCardTopupOnReject(payload: {
+  num?: string
+  cash?: number
+  credit?: number
+  shiftId?: string
+  clientRef?: string
+  expectedBonusPayVersion?: number
+  prevBonus?: number
+  prevPosCashBonus?: number
+  localId?: string
+}) {
+  const num = String(payload.num || '')
+  const cash = round2(Number(payload.cash) || 0)
+  const credit = round2(Number(payload.credit) || 0)
+  if (!num || !(cash > 0 || credit > 0)) return
+  const ver = Math.max(0, Number(payload.expectedBonusPayVersion) || 0)
+  const prevBonus = payload.prevBonus != null
+    ? round2(Number(payload.prevBonus))
+    : round2(Math.max(0, (Number(useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.bonus) || 0) - credit))
+  const prevPos = payload.prevPosCashBonus != null
+    ? round2(Number(payload.prevPosCashBonus))
+    : round2(Math.max(0, (Number(useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.posCashBonus) || 0) - credit))
+
+  if (payload.shiftId) {
+    const shift = shiftById(payload.shiftId)
+    if (shift && cash > 0) {
+      patchShift(shift.id, {
+        cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - cash)),
+      })
+    }
+  }
+
+  const ref = String(payload.clientRef || '').trim()
+  if (ref) {
+    usePosStore.setState(s => ({
+      financeMoves: s.financeMoves.filter(m => String(m.clientRef || '') !== ref),
+    }))
+  }
+
+  useCardStore.getState().updateCardLoyalty(
+    num,
+    { bonus: prevBonus, posCashBonus: prevPos, bonusPayVersion: ver },
+    { skipApi: true },
+  )
+
+  const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+  if (card?.clientId) {
+    useClientStore.getState().updateClient(card.clientId, { bonus: prevBonus }, { skipApi: true })
+  }
+  if (card?.phone) {
+    void import('./clientVipCredit').then(({ dropBalanceTopupByClientRef }) => {
+      dropBalanceTopupByClientRef(card.phone, ref)
+    })
+  }
+
+  clearMoneyPending({ cardNum: num, clientId: card?.clientId })
 }
 
 // ── Погашение долга ──
@@ -864,6 +1130,8 @@ export type DebtRepayResult = {
   bonusEarned: number
   /** Повтор того же погашения — касса и история уже записаны */
   duplicate?: boolean
+  /** Ключ операции — привязать историю для отката при отказе сервера */
+  clientRef?: string
 }
 
 const debtRepayInflight = new Map<string, Promise<OfflineResult<DebtRepayResult>>>()
@@ -959,7 +1227,15 @@ export async function debtRepaySafe(
     return { offline: first.offline, data: { ...first.data, duplicate: true } }
   }
 
+  const cardNow = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+  const expectedDebtPayVersion = Number(cardNow?.debtPayVersion) || 0
+
   const clientRef = newClientRef()
+  const histKey = debtAccountKey({
+    id: input.clientId,
+    phone: useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
+      || useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.phone,
+  })
   const payload = {
     clientRef,
     num,
@@ -971,6 +1247,9 @@ export async function debtRepaySafe(
     shiftId: input.shiftId,
     posId: input.posId,
     clientId: input.clientId,
+    prevDebt: round2(input.prevDebt),
+    expectedDebtPayVersion,
+    histKey: histKey || undefined,
   }
 
   const applyLocal = async (): Promise<DebtRepayResult> => {
@@ -988,6 +1267,7 @@ export async function debtRepaySafe(
         nextDebt: liveDebtNow(num, input.clientId, round2(Math.max(0, input.prevDebt - amount))),
         bonusEarned: 0,
         duplicate: true,
+        clientRef: String((dup.payload as any)?.clientRef || clientRef),
       }
     }
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
@@ -1002,12 +1282,17 @@ export async function debtRepaySafe(
         }
       }
     }
-    useCardStore.getState().updateCardLoyalty(num, { debt: nextDebt }, { skipApi: true })
+    const nextVer = expectedDebtPayVersion + 1
+    useCardStore.getState().updateCardLoyalty(
+      num,
+      { debt: nextDebt, debtPayVersion: nextVer },
+      { skipApi: true },
+    )
     if (input.clientId) {
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
     markMoneyPending({ clientId: input.clientId, cardNum: num })
-    return { nextDebt, bonusEarned: 0 }
+    return { nextDebt, bonusEarned: 0, clientRef }
   }
 
   const run = localFirstOp(applyLocal)
@@ -1017,6 +1302,61 @@ export async function debtRepaySafe(
   } finally {
     debtRepayInflight.delete(key)
   }
+}
+
+/** Откат локального погашения, если сервер отклонил по debtPayVersion (риск 2.5). */
+export function revertLocalDebtRepayOnReject(payload: {
+  num?: string
+  amount?: number
+  method?: string
+  shiftId?: string
+  clientId?: string
+  prevDebt?: number
+  nextDebt?: number
+  expectedDebtPayVersion?: number
+  histKey?: string
+  clientRef?: string
+}) {
+  const num = String(payload.num || '')
+  const amount = round2(Number(payload.amount) || 0)
+  if (!num || !(amount > 0)) return
+  const prevDebt = payload.prevDebt != null
+    ? round2(Number(payload.prevDebt))
+    : round2((Number(payload.nextDebt) || 0) + amount)
+  const ver = Math.max(0, Number(payload.expectedDebtPayVersion) || 0)
+
+  if (payload.shiftId) {
+    const shift = shiftById(payload.shiftId)
+    if (shift) {
+      const method = payload.method === 'card' ? 'card' : 'cash'
+      if (method === 'card') {
+        patchShift(shift.id, { salesCard: round2(Math.max(0, (Number(shift.salesCard) || 0) - amount)) })
+      } else {
+        patchShift(shift.id, { salesCash: round2(Math.max(0, (Number(shift.salesCash) || 0) - amount)) })
+      }
+    }
+  }
+  useCardStore.getState().updateCardLoyalty(
+    num,
+    { debt: prevDebt, debtPayVersion: ver },
+    { skipApi: true },
+  )
+  if (payload.clientId) {
+    useClientStore.getState().updateClient(String(payload.clientId), { debt: prevDebt }, { skipApi: true })
+  }
+
+  const histKey = String(payload.histKey || '').trim()
+    || debtAccountKey({
+      id: payload.clientId,
+      phone: useClientStore.getState().clients.find(c => c.id === payload.clientId)?.phone
+        || useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.phone,
+    })
+  const clientRef = String(payload.clientRef || '').trim()
+  if (histKey && clientRef) {
+    dropDebtHistoryByClientRef(histKey, clientRef)
+  }
+
+  clearMoneyPending({ clientId: payload.clientId, cardNum: num })
 }
 
 // ── Возврат чека ──
@@ -1029,45 +1369,111 @@ export async function returnSaleSafe(
     items?: { index?: number; productId?: number; qty: number }[]
   },
 ): Promise<OfflineResult<PosSale>> {
+  // Риск 5.4: возврат чека, который ещё не на сервере — ломает цепочку
+  if (isLocalId(sale.id)) {
+    throw new Error('Чек ещё не ушёл на сервер — дождитесь отправки, потом возвращайте')
+  }
+  const pending = await getPending()
+  const saleStillQueued = pending.some(r =>
+    !r.failed
+    && r.kind === 'sale'
+    && (
+      String(r.localId || '') === String(sale.id)
+      || String((r.payload as any)?.clientRef || '') === String(sale.clientRef || '')
+    ),
+  )
+  if (saleStillQueued) {
+    throw new Error('Чек ещё в очереди на отправку — дождитесь, потом возвращайте')
+  }
+  const dupReturn = pending.some(r =>
+    !r.failed
+    && r.kind === 'sale_return'
+    && String((r.payload as any)?.saleId || '') === String(sale.id),
+  )
+  if (dupReturn) {
+    throw new Error('Возврат по этому чеку уже в очереди')
+  }
+
   const clientRef = newClientRef()
+  const party = resolveSaleClientAndCard({
+    clientId: sale.clientId,
+    clientPhone: sale.clientPhone,
+    cardNum: sale.cardNum,
+  })
+  const cardNow = party.card
+    || (party.resolvedCardNum
+      ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, party.resolvedCardNum!))
+      : undefined)
+  const expectedDebtPayVersion = Number(cardNow?.debtPayVersion) || 0
+  const expectedBonusPayVersion = Number(cardNow?.bonusPayVersion) || 0
+  const prevDebt = round2(effectiveDebt(party.cl, cardNow))
+  const prevWallet = round2(Number(cardNow?.wallet) || Number(party.cl?.wallet) || 0)
+  const prevBonus = round2(Number(cardNow?.bonus) || Number(party.cl?.bonus) || 0)
+  const prevPosCashBonus = round2(Number(cardNow?.posCashBonus) || 0)
+  const saleBefore = {
+    items: (sale.items || []).map(it => ({ ...it })),
+    status: sale.status,
+    debtAdded: sale.debtAdded,
+    paidCash: sale.paidCash,
+    paidCard: sale.paidCard,
+    paidWallet: sale.paidWallet,
+    bonusSpent: sale.bonusSpent,
+    total: sale.total,
+    returns: Array.isArray(sale.returns) ? [...sale.returns] : [],
+  }
 
   const applyAndQueue = async () => {
     const debtBefore = saleDebtBeforeReturn(sale)
     const returned = applyLocalReturn(sale, input.items)
-    const party = resolveSaleClientAndCard({
+    const partyAfter = resolveSaleClientAndCard({
       clientId: returned.clientId || sale.clientId,
       clientPhone: returned.clientPhone || sale.clientPhone,
       cardNum: returned.cardNum || sale.cardNum,
     })
-    const clientDebtAfter = (party.cl || party.card)
-      ? round2(effectiveDebt(party.cl, party.card))
-      : undefined
+    const lastRet = Array.isArray(returned.returns) && returned.returns.length
+      ? returned.returns[returned.returns.length - 1]
+      : null
     const cutDebt = Math.max(0, round2(debtBefore - (Number(returned.debtAdded) || 0)))
+    const cutCash = round2(Number(lastRet?.cutCash) || 0)
+    const cutCard = round2(Number(lastRet?.cutCard) || 0)
+    const cutWallet = round2(Number(lastRet?.cutWallet) || 0)
+    const cutBonus = round2(Number(lastRet?.cutBonus) || 0)
     await useOfflineSync.getState().queueOp('sale_return', {
       clientRef,
       saleId: sale.id,
       note: input.note,
       cashierId: input.cashierId,
       items: input.items,
-      clientId: party.cl?.id || returned.clientId || sale.clientId,
-      cardNum: party.resolvedCardNum || returned.cardNum || sale.cardNum,
-      clientDebtAfter,
+      clientId: partyAfter.cl?.id || returned.clientId || sale.clientId,
+      cardNum: partyAfter.resolvedCardNum || returned.cardNum || sale.cardNum,
       cutDebt,
+      expectedDebtPayVersion: cutDebt > 0.001 ? expectedDebtPayVersion : undefined,
+      expectedBonusPayVersion: cutBonus > 0.001 ? expectedBonusPayVersion : undefined,
+      _revert: {
+        saleId: sale.id,
+        saleBefore,
+        shiftId: sale.shiftId,
+        cutCash,
+        cutCard,
+        cutDebt,
+        cutWallet,
+        cutBonus,
+        fullyReturned: returned.status === 'returned',
+        prevDebt,
+        prevWallet,
+        prevBonus,
+        prevPosCashBonus,
+        expectedDebtPayVersion,
+        expectedBonusPayVersion,
+        clientId: partyAfter.cl?.id || sale.clientId,
+        cardNum: partyAfter.resolvedCardNum || sale.cardNum,
+        restoreLines: lastRet?.items || [],
+      },
     })
     return returned
   }
 
-  if (isLocalId(sale.id)) {
-    const returned = await applyAndQueue()
-    shadowMirrorSale(returned)
-    void useOfflineSync.getState().syncNow()
-    return { offline: true, data: returned }
-  }
-
-  const res = await raceCashierOp(
-    () => api.returnPosSale(sale.id, { clientRef }),
-    applyAndQueue,
-  )
+  const res = await localFirstOp(applyAndQueue)
   if (res.data) shadowMirrorSale(res.data)
   return res
 }
@@ -1350,6 +1756,17 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
       useCardStore.getState().updateCardLoyalty(num, cardPatch as any, { skipApi: true })
     }
   }
+  // Версию бампаем один раз на основной карте (не в цикле nums)
+  const primaryNum = String(resolvedCardNum || sale.cardNum || cl?.card || '').trim()
+  if (primaryNum && (cuts.cutDebt > 0 || cuts.cutBonus > 0)) {
+    const cur = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, primaryNum))
+    if (cur) {
+      useCardStore.getState().updateCardLoyalty(primaryNum, {
+        ...(cuts.cutDebt > 0 ? { debtPayVersion: (Number(cur.debtPayVersion) || 0) + 1 } : {}),
+        ...(cuts.cutBonus > 0 ? { bonusPayVersion: (Number(cur.bonusPayVersion) || 0) + 1 } : {}),
+      } as any, { skipApi: true })
+    }
+  }
 
   if (cuts.cutDebt > 0) {
     const histKey = debtAccountKey(cl || { id: sale.clientId, phone: sale.clientPhone })
@@ -1362,6 +1779,118 @@ function applyReturnClientMoneySync(sale: PosSale, cuts: ReturnType<typeof compu
       })
     }
   }
+}
+
+/** Откат локального возврата при отказе сервера (риск 5.1 / 5.5). */
+export function revertLocalSaleReturnOnReject(payload: Record<string, unknown>) {
+  const rev = (payload._revert || {}) as Record<string, unknown>
+  const saleId = String(rev.saleId || payload.saleId || '').trim()
+  if (!saleId) return
+
+  const saleBefore = rev.saleBefore as Partial<PosSale> | undefined
+  if (saleBefore && Array.isArray(saleBefore.items)) {
+    usePosStore.setState(s => ({
+      sales: s.sales.map(x => {
+        if (x.id !== saleId) return x
+        return {
+          ...x,
+          items: saleBefore.items as PosSale['items'],
+          status: (saleBefore.status as PosSale['status']) || x.status,
+          debtAdded: saleBefore.debtAdded as number | undefined,
+          paidCash: saleBefore.paidCash as number | undefined,
+          paidCard: saleBefore.paidCard as number | undefined,
+          paidWallet: saleBefore.paidWallet as number | undefined,
+          bonusSpent: saleBefore.bonusSpent as number | undefined,
+          total: saleBefore.total as number | undefined,
+          returns: (saleBefore.returns as PosSale['returns']) || [],
+          lastReturnTotal: undefined,
+        }
+      }),
+    }))
+  }
+
+  const cutCash = round2(Number(rev.cutCash) || 0)
+  const cutCard = round2(Number(rev.cutCard) || 0)
+  const cutDebt = round2(Number(rev.cutDebt) || 0)
+  const cutWallet = round2(Number(rev.cutWallet) || 0)
+  const cutBonus = round2(Number(rev.cutBonus) || 0)
+  const shiftId = String(rev.shiftId || '').trim()
+  const fullyReturned = !!rev.fullyReturned
+
+  if (shiftId) {
+    const shift = shiftById(shiftId)
+    if (shift) {
+      patchShift(shiftId, {
+        ...(fullyReturned ? { salesCount: (Number(shift.salesCount) || 0) + 1 } : {}),
+        salesCash: round2((Number(shift.salesCash) || 0) + cutCash),
+        salesCard: round2((Number(shift.salesCard) || 0) + cutCard),
+        salesCredit: round2((Number(shift.salesCredit) || 0) + cutDebt),
+        ...(cutWallet > 0.001
+          ? { salesWallet: round2((Number((shift as any).salesWallet) || 0) + cutWallet) }
+          : {}),
+      })
+    }
+  }
+
+  // Склад: снова списать то, что вернули
+  const restoreLines = Array.isArray(rev.restoreLines) ? rev.restoreLines as Array<{ productId?: number; qty?: number }> : []
+  if (restoreLines.length) {
+    void (async () => {
+      try {
+        const lines = restoreLines
+          .map(l => ({ productId: Number(l.productId) || 0, qty: Number(l.qty) || 0 }))
+          .filter(l => l.productId && l.qty > 0)
+        if (!lines.length) return
+        const { useProducts } = await import('./store')
+        const ps = useProducts.getState()
+        for (const l of lines) {
+          const p = ps.products.find(x => x.id === l.productId)
+          if (!p) continue
+          ps.updateProduct(l.productId, { stock: Math.max(0, round2((Number(p.stock) || 0) - l.qty)) })
+        }
+        const { consumeLocalLayersFifoBatch } = await import('./stockLayersLocal')
+        await consumeLocalLayersFifoBatch(lines)
+      } catch { /* ignore */ }
+    })()
+  }
+
+  const cardNum = String(rev.cardNum || '').trim()
+  const clientId = String(rev.clientId || '').trim()
+  const prevDebt = rev.prevDebt != null ? round2(Number(rev.prevDebt)) : null
+  const prevWallet = rev.prevWallet != null ? round2(Number(rev.prevWallet)) : null
+  const prevBonus = rev.prevBonus != null ? round2(Number(rev.prevBonus)) : null
+  const prevPos = rev.prevPosCashBonus != null ? round2(Number(rev.prevPosCashBonus)) : null
+  const debtVer = Math.max(0, Number(rev.expectedDebtPayVersion) || 0)
+  const bonusVer = Math.max(0, Number(rev.expectedBonusPayVersion) || 0)
+
+  if (cardNum && (cutDebt > 0.001 || cutWallet > 0.001 || cutBonus > 0.001)) {
+    const patch: Record<string, unknown> = {}
+    if (prevDebt != null && cutDebt > 0.001) {
+      patch.debt = prevDebt
+      patch.debtPayVersion = debtVer
+    }
+    if (prevWallet != null && cutWallet > 0.001) patch.wallet = prevWallet
+    if (prevBonus != null && cutBonus > 0.001) {
+      patch.bonus = prevBonus
+      if (prevPos != null) patch.posCashBonus = prevPos
+      patch.bonusPayVersion = bonusVer
+    }
+    if (Object.keys(patch).length) {
+      useCardStore.getState().updateCardLoyalty(cardNum, patch as any, { skipApi: true })
+    }
+  }
+  if (clientId && (cutDebt > 0.001 || cutWallet > 0.001 || cutBonus > 0.001)) {
+    const patch: Record<string, unknown> = {}
+    if (prevDebt != null && cutDebt > 0.001) patch.debt = prevDebt
+    if (prevWallet != null && cutWallet > 0.001) patch.wallet = prevWallet
+    if (prevBonus != null && cutBonus > 0.001) patch.bonus = prevBonus
+    if (Object.keys(patch).length) {
+      useClientStore.getState().updateClient(clientId, patch as any, { skipApi: true })
+    }
+  }
+
+  // Убрать локальную запись погашения долга от возврата (если писали с clientRef нет — по orderId+desc сложно; пропуск)
+  clearMoneyPending({ clientId, cardNum })
 }
 
 // ── Продажа (касса) ──
@@ -1392,6 +1921,10 @@ export async function createSaleSafe(
   }
 
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
+    // Флаг ДО markOffline: иначе любой local-first чек считался бы «офлайн» для ревизии
+    const { browserSaysOffline } = await import('./apiReachability')
+    const syncOnline = useOfflineSync.getState().online
+    const queuedOffline = browserSaysOffline() || syncOnline === false
     useOfflineSync.getState().markOffline()
     const offlineSaleId = newLocalId('sale')
     const linkedCard = client?.card
@@ -1400,6 +1933,12 @@ export async function createSaleSafe(
     const nextDebt = client
       ? round2(effectiveDebt(client, linkedCard) + (debtAdded > 0.001 ? debtAdded : 0))
       : 0
+    const expectedDebtPayVersion = Number(linkedCard?.debtPayVersion) || 0
+    const expectedBonusPayVersion = Number(linkedCard?.bonusPayVersion) || 0
+    if (queuedOffline) {
+      salePayload.queuedOffline = true
+      salePayload.skipStockAfterRevision = true
+    }
     if (client) {
       const nextWallet = walletPaid > 0.001
         ? round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
@@ -1410,6 +1949,36 @@ export async function createSaleSafe(
       salePayload.walletAfter = nextWallet
       if (salePayload.bonusBalanceAfter != null) {
         salePayload.bonusAfter = salePayload.bonusBalanceAfter
+      }
+      if (debtAdded > 0.001) salePayload.expectedDebtPayVersion = expectedDebtPayVersion
+      if (spend > 0) salePayload.expectedBonusPayVersion = expectedBonusPayVersion
+      // Снимки для отката при отказе сервера (риск 4.1 / 4.5)
+      salePayload._revert = {
+        prevDebt: round2(effectiveDebt(client, linkedCard)),
+        prevWallet: round2(Number(client.wallet) || Number(linkedCard?.wallet) || 0),
+        prevBonus: round2(Number(linkedCard?.bonus) || Number(client.bonus) || 0),
+        prevPosCashBonus: round2(Number(linkedCard?.posCashBonus) || 0),
+        expectedDebtPayVersion,
+        expectedBonusPayVersion,
+        cashPaid,
+        cardPaid,
+        debtAdded,
+        walletPaid,
+        bonusSpend: spend,
+        bonusEarn: earn,
+        clientId: client.id,
+        cardNum: client.card,
+        shiftId: input.shiftId,
+        cart: input.cart,
+      }
+    } else {
+      salePayload._revert = {
+        cashPaid,
+        cardPaid,
+        debtAdded,
+        walletPaid: 0,
+        shiftId: input.shiftId,
+        cart: input.cart,
       }
     }
     await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
@@ -1423,8 +1992,6 @@ export async function createSaleSafe(
         const dec = l.weightKg != null ? l.weightKg : l.qty
         ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
       }
-      // Партии — в фоне: раньше await entityPut по всем слоям на каждую позицию
-      // держал «Пробиваем…» на секунды.
       const layerLines = input.cart.map(l => ({
         productId: l.productId,
         qty: l.weightKg != null ? l.weightKg : l.qty,
@@ -1444,7 +2011,11 @@ export async function createSaleSafe(
         if (client.card) {
           useCardStore.getState().updateCardLoyalty(
             client.card,
-            { debt: nextDebt, debtEnabled: true },
+            {
+              debt: nextDebt,
+              debtEnabled: true,
+              debtPayVersion: expectedDebtPayVersion + 1,
+            },
             { skipApi: true },
           )
         }
@@ -1468,28 +2039,32 @@ export async function createSaleSafe(
         const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
         const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
         const nextBonus = Math.max(0, base - spend + earn)
-        // posCashBonus — только «купил бонусы» (пополнение), не кэшбэк статуса за покупку
         const nextPos = Math.max(0, prevPos - spend)
         useCardStore.getState().updateCardLoyalty(
           client.card,
           {
             bonus: nextBonus,
             posCashBonus: nextPos,
-            ...(spend > 0 ? { allowBonusDecrease: true } : {}),
+            ...(spend > 0
+              ? {
+                  allowBonusDecrease: true,
+                  bonusPayVersion: expectedBonusPayVersion + 1,
+                }
+              : {}),
           } as any,
           { skipApi: true },
         )
         useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
       }
       if (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0) {
-        const { markMoneyPending } = await import('./loyaltySaveGuard')
         markMoneyPending({ clientId: client.id, cardNum: client.card })
       }
     }
 
     const display = await allocateLocalSaleDisplay()
+    const { _revert: _omitRevert, ...saleFields } = salePayload as Record<string, unknown>
     const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
-      ...(salePayload as unknown as PosSale),
+      ...(saleFields as unknown as PosSale),
       id: offlineSaleId,
       number: display.number,
       orderId: display.orderId,
@@ -1545,6 +2120,111 @@ export async function createSaleSafe(
 
   // Всегда local-first: нал и карта сразу, сервер из очереди в фоне
   return localFirstOp(applyLocal)
+}
+
+/**
+ * Откат локального чека, если сервер отклонил (нет остатка / версия долга или бонусов).
+ * Риск 4.1 / 4.5 / 4.8.
+ */
+export function revertLocalSaleOnReject(payload: Record<string, unknown>, localId?: string) {
+  const rev = (payload._revert || {}) as Record<string, unknown>
+  const cashPaid = round2(Number(rev.cashPaid ?? payload.paidCash) || 0)
+  const cardPaid = round2(Number(rev.cardPaid ?? payload.paidCard) || 0)
+  const debtAdded = round2(Number(rev.debtAdded ?? payload.debtAdded) || 0)
+  const walletPaid = round2(Number(rev.walletPaid ?? payload.paidWallet) || 0)
+  const spend = Math.max(0, Math.floor(Number(rev.bonusSpend ?? payload.bonusSpent) || 0))
+  const earn = Math.max(0, Math.floor(Number(rev.bonusEarn ?? payload.bonusEarned) || 0))
+  const shiftId = String(rev.shiftId || payload.shiftId || '')
+  const clientId = String(rev.clientId || payload.clientId || '')
+  const cardNum = String(rev.cardNum || payload.cardNum || '')
+  const cart = Array.isArray(rev.cart)
+    ? (rev.cart as SaleCartLine[])
+    : Array.isArray(payload.items)
+      ? (payload.items as any[]).map(it => ({
+          productId: Number(it.productId) || 0,
+          qty: Number(it.qty) || 0,
+          weightKg: it.weightKg != null ? Number(it.weightKg) : null,
+        }))
+      : []
+
+  const saleId = String(localId || payload.id || '').trim()
+  if (saleId) {
+    usePosStore.setState(s => ({ sales: s.sales.filter(x => x.id !== saleId) }))
+    noteInboundDeletedIds([saleId])
+  }
+
+  if (shiftId) {
+    const shift = shiftById(shiftId)
+    if (shift) {
+      patchShift(shiftId, {
+        salesCash: round2(Math.max(0, (Number(shift.salesCash) || 0) - cashPaid)),
+        salesCard: round2(Math.max(0, (Number(shift.salesCard) || 0) - cardPaid)),
+        salesCredit: round2(Math.max(0, (Number(shift.salesCredit) || 0) - debtAdded)),
+        salesCount: Math.max(0, (Number(shift.salesCount) || 0) - 1),
+        ...(walletPaid > 0.001
+          ? { salesWallet: round2(Math.max(0, (Number((shift as any).salesWallet) || 0) - walletPaid)) }
+          : {}),
+      })
+    }
+  }
+
+  // Склад обратно
+  if (cart.length) {
+    void (async () => {
+      try {
+        const { useProducts } = await import('./store')
+        const ps = useProducts.getState()
+        for (const l of cart) {
+          if (!l.productId) continue
+          const p = ps.products.find(x => x.id === l.productId)
+          if (!p) continue
+          const add = l.weightKg != null ? Number(l.weightKg) : Number(l.qty) || 0
+          if (!(add > 0)) continue
+          ps.updateProduct(l.productId, { stock: round2((Number(p.stock) || 0) + add) })
+        }
+        const { restoreLocalLayersFifoBatch } = await import('./stockLayersLocal')
+        await restoreLocalLayersFifoBatch(cart.map(l => ({
+          productId: l.productId,
+          qty: l.weightKg != null ? Number(l.weightKg) : Number(l.qty) || 0,
+        })))
+      } catch { /* ignore */ }
+    })()
+  }
+
+  const prevDebt = rev.prevDebt != null ? round2(Number(rev.prevDebt)) : null
+  const prevWallet = rev.prevWallet != null ? round2(Number(rev.prevWallet)) : null
+  const prevBonus = rev.prevBonus != null ? round2(Number(rev.prevBonus)) : null
+  const prevPos = rev.prevPosCashBonus != null ? round2(Number(rev.prevPosCashBonus)) : null
+  const debtVer = Math.max(0, Number(rev.expectedDebtPayVersion) || 0)
+  const bonusVer = Math.max(0, Number(rev.expectedBonusPayVersion) || 0)
+
+  if (cardNum && (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0)) {
+    const patch: Record<string, unknown> = {}
+    if (prevDebt != null && debtAdded > 0.001) {
+      patch.debt = prevDebt
+      patch.debtPayVersion = debtVer
+    }
+    if (prevWallet != null && walletPaid > 0.001) patch.wallet = prevWallet
+    if (prevBonus != null && (spend > 0 || earn > 0)) {
+      patch.bonus = prevBonus
+      if (prevPos != null) patch.posCashBonus = prevPos
+      if (spend > 0) patch.bonusPayVersion = bonusVer
+    }
+    if (Object.keys(patch).length) {
+      useCardStore.getState().updateCardLoyalty(cardNum, patch as any, { skipApi: true })
+    }
+  }
+  if (clientId && (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0)) {
+    const patch: Record<string, unknown> = {}
+    if (prevDebt != null && debtAdded > 0.001) patch.debt = prevDebt
+    if (prevWallet != null && walletPaid > 0.001) patch.wallet = prevWallet
+    if (prevBonus != null && (spend > 0 || earn > 0)) patch.bonus = prevBonus
+    if (Object.keys(patch).length) {
+      useClientStore.getState().updateClient(clientId, patch as any, { skipApi: true })
+    }
+  }
+
+  clearMoneyPending({ clientId, cardNum })
 }
 
 // ── Расход (FinanceModule, Offline V2) ──
@@ -1721,7 +2401,10 @@ function isFinanceTwin(a: FinanceMove, b: FinanceMove): boolean {
   return sameFinanceFingerprint(a, b)
 }
 
-function applyFinanceCashReverse(move: FinanceMove) {
+function applyFinanceCashReverse(
+  move: FinanceMove,
+  opts?: { payVersionDelta?: number },
+) {
   const amount = round2(Number(move.amount) || 0)
   if (!(amount > 0)) return
   const payFrom = move.payFrom === 'vault' ? 'vault' as const : 'shift' as const
@@ -1738,12 +2421,25 @@ function applyFinanceCashReverse(move: FinanceMove) {
         posId: move.posId,
       })
     } else if (payFrom === 'vault') {
-      // убрать внесённое из основного
-      applyMoneyOutLocal({
-        amount,
-        payFrom: 'vault',
-        method,
-        dir: 1,
+      // убрать внесённое из основного (без +версии — это откат)
+      usePosStore.setState(s => {
+        const v = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+        if (method === 'card') {
+          return {
+            cashVault: {
+              ...v,
+              cardTotal: round2(Math.max(0, (Number(v.cardTotal) || 0) - amount)),
+              vaultVersion: Math.max(0, (Number(v.vaultVersion) || 0) - 1),
+            },
+          }
+        }
+        return {
+          cashVault: {
+            ...v,
+            cashTotal: round2(Math.max(0, (Number(v.cashTotal) || 0) - amount)),
+            vaultVersion: Math.max(0, (Number(v.vaultVersion) || 0) - 1),
+          },
+        }
       })
     } else if (move.shiftId) {
       const shift = shiftById(move.shiftId)
@@ -1781,17 +2477,34 @@ function applyFinanceCashReverse(move: FinanceMove) {
         if (sup.id !== move.supplierId) return sup
         const totalPaid = round2(Math.max(0, (Number(sup.totalPaid) || 0) - amount))
         const totalSupplied = Number(sup.totalSupplied) || 0
+        const verDelta = opts?.payVersionDelta ?? 1
         return {
           ...sup,
           totalPaid,
           payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+          payVersion: Math.max(0, supplierPayVersion(sup) + verDelta),
         }
       }),
     }))
   }
 }
 
-function reverseFinanceMoveLocal(id: string, extraIds: Array<string | undefined | null> = []) {
+/** Откат локального finance_move, если сервер отклонил */
+export function revertLocalFinanceMoveOnReject(id: string) {
+  reverseFinanceMoveLocal(id, [], { payVersionDelta: -1 })
+}
+
+/** Откат локального расхода при отказе сервера */
+export function revertLocalExpenseOnReject(id: string) {
+  reverseExpenseLocal(id)
+  void persistPosSnapshot()
+}
+
+function reverseFinanceMoveLocal(
+  id: string,
+  extraIds: Array<string | undefined | null> = [],
+  opts?: { payVersionDelta?: number },
+) {
   const moves = usePosStore.getState().financeMoves
   const target = moves.find(m => m.id === id)
   if (!target) {
@@ -1804,7 +2517,7 @@ function reverseFinanceMoveLocal(id: string, extraIds: Array<string | undefined 
   const serverTwin = isLocalId(id)
     ? moves.find(m => !isLocalId(m.id) && isFinanceTwin(m, target))
     : undefined
-  if (!serverTwin) applyFinanceCashReverse(target)
+  if (!serverTwin) applyFinanceCashReverse(target, opts)
   usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => !drop.has(m.id)) }))
   noteInboundDeletedIds([...drop, serverTwin?.id, ...extraIds])
 }
@@ -1827,9 +2540,12 @@ async function dropPendingFinanceCreates(target: FinanceMove | undefined, localI
 }
 
 export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{ id: string }>> {
+  const target = usePosStore.getState().financeMoves.find(m => m.id === id)
+  if (target && isLocalCardTopupMove(target)) {
+    throw new Error('Пополнение бонусов нельзя удалить')
+  }
   const deleteRef = newClientRef()
   const mapped = isLocalId(id) ? await resolveLocalId(id) : id
-  const target = usePosStore.getState().financeMoves.find(m => m.id === id)
   const localIds = [
     id,
     ...usePosStore.getState().financeMoves
@@ -1872,6 +2588,13 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
     void persistPosSnapshot()
     return { id: queueServerId }
   }, applyLocal)
+}
+
+function isLocalCardTopupMove(row: FinanceMove): boolean {
+  if (String((row as any).refType || '') === 'card_topup') return true
+  const reason = String((row as any).reason || '')
+  const note = String(row.note || '')
+  return /пополнение бонусов/i.test(reason) || /пополнение бонусов/i.test(note)
 }
 
 // ── Точки продаж / кассиры (мгновенно локально) ──

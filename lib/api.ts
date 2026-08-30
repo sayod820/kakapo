@@ -698,7 +698,7 @@ export const api = {
     request<{ ok: boolean; removed: number }>('/clients/purge-demo', { method: 'POST' }),
   createClient: (data: Partial<AdminClient>) =>
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
-  updateClient: (id: string, data: Partial<AdminClient>) =>
+  updateClient: (id: string, data: Partial<AdminClient> & { expectedDocVersion?: number; clientRef?: string }) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   purgeClient: (id: string) =>
     request<{ ok: boolean } | AdminClient>(`/clients/${id}`, {
@@ -805,6 +805,9 @@ export const api = {
     skipBalances?: boolean
     bonusAfter?: number
     posCashBonusAfter?: number
+    /** Снимок bonusPayVersion; отказ, если бонусы уже меняли */
+    expectedBonusPayVersion?: number
+    createdAtIso?: string
   }) => request<{ card: AdminCard; financeMove: FinanceMove }>(
     `/cards/${encodeURIComponent(num.trim())}/cash-topup`,
     { method: 'POST', body: JSON.stringify(data) },
@@ -821,6 +824,8 @@ export const api = {
     appliedLocal?: boolean
     skipBalances?: boolean
     nextDebt?: number
+    /** Снимок debtPayVersion; отказ, если погашения уже меняли */
+    expectedDebtPayVersion?: number
   }) => request<{
     card: AdminCard
     amount: number
@@ -1073,6 +1078,8 @@ export const api = {
       paidCard?: number
       paidWallet?: number
       debtAdded?: number
+      expectedDebtPayVersion?: number
+      expectedBonusPayVersion?: number
       cashReceived?: number
       changeGiven?: number
       bonusSpent?: number
@@ -1106,6 +1113,8 @@ export const api = {
     queuedOffline?: boolean
     clientDebtAfter?: number
     cutDebt?: number
+    expectedDebtPayVersion?: number
+    expectedBonusPayVersion?: number
   }) =>
     request<PosSale>(`/pos/sales/${encodeURIComponent(id)}/return`, {
       method: 'POST',
@@ -1118,12 +1127,14 @@ export const api = {
     createdBy?: string
     paidNow?: number
     createdAtIso?: string
+    expectedSupplyVersion?: number
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>('/stock/receipts', { method: 'POST', body: JSON.stringify(data) }),
   updateStockReceipt: (id: string, data: {
     clientRef?: string
     supplierId?: string
     paidNow?: number
+    expectedSupplyVersion?: number
     items: { productId: number; qty: number; costPrice?: number; retailPrice?: number; bulkPricing?: { minQty: number; price: number }[]; expiryDate?: string | null }[]
   }) => request<StockReceipt>(`/stock/receipts/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteStockReceipt: (id: string, data?: { clientRef?: string }) =>
@@ -1215,9 +1226,18 @@ export const api = {
     }),
   getSupplierPayments: (id: string) =>
     request<SupplierPayment[]>(`/suppliers/${encodeURIComponent(id)}/payments`),
-  createSupplierPayment: (id: string, data: { amount: number; note?: string; clientRef?: string }) =>
+  createSupplierPayment: (id: string, data: {
+    amount: number
+    note?: string
+    clientRef?: string
+    /** Снимок payVersion; сервер отклонит, если оплаты уже меняли */
+    expectedPayVersion?: number
+  }) =>
     request<SupplierPayment>(`/suppliers/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteSupplierPayment: (id: string, paymentId: string, data?: { clientRef?: string }) =>
+  deleteSupplierPayment: (id: string, paymentId: string, data?: {
+    clientRef?: string
+    expectedPayVersion?: number
+  }) =>
     request<{ id: string }>(`/suppliers/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`, {
       method: 'DELETE',
       body: data ? JSON.stringify(data) : undefined,
@@ -1242,6 +1262,12 @@ export const api = {
     shiftId?: string
     posId?: string
     supplierId?: string
+    /** Снимок payVersion при оплате поставщику с кассы */
+    expectedPayVersion?: number
+    /** Снимок vaultVersion при движении из основного ящика */
+    expectedVaultVersion?: number
+    payFrom?: 'shift' | 'vault'
+    method?: 'cash' | 'card'
     reason?: string
   }) => request<FinanceMove>('/finance/moves', { method: 'POST', body: JSON.stringify(data) }),
   deleteFinanceMove: (id: string, data?: { clientRef?: string }) =>
@@ -1279,12 +1305,12 @@ export const api = {
     return request<import('./types').FinanceTruthBundle['alerts']>(`/finance/alerts${qs ? `?${qs}` : ''}`)
   },
   getCashVault: () => request<import('./types').CashVault>('/finance/vault'),
-  convertVaultCardToCash: (data: { amount: number; note?: string; clientRef?: string }) =>
+  convertVaultCardToCash: (data: { amount: number; note?: string; clientRef?: string; expectedVaultVersion?: number }) =>
     request<{ id: string; amount: number }>(
       '/finance/vault/card-to-cash',
       { method: 'POST', body: JSON.stringify(data) },
     ),
-  convertVaultCashToCard: (data: { amount: number; note?: string; clientRef?: string }) =>
+  convertVaultCashToCard: (data: { amount: number; note?: string; clientRef?: string; expectedVaultVersion?: number }) =>
     request<{ id: string; amount: number }>(
       '/finance/vault/cash-to-card',
       { method: 'POST', body: JSON.stringify(data) },

@@ -372,6 +372,15 @@ export default function FinanceModule() {
 
   function removeMove(id: string) {
     if (!isTradeLocalFirst() && !guardMutation()) return
+    const row = financeMoves.find(m => m.id === id)
+    if (row && (
+      String((row as any).refType || '') === 'card_topup'
+      || /пополнение бонусов/i.test(String((row as any).reason || ''))
+      || /пополнение бонусов/i.test(String(row.note || ''))
+    )) {
+      setMsg('Пополнение бонусов нельзя удалить')
+      return
+    }
     setDelMoveId(id)
   }
 
@@ -1054,11 +1063,15 @@ export default function FinanceModule() {
               <div className="k-empty">Нет движений за период</div>
             ) : (
               <div className="k-fin-list">
-                {periodMoves.map(m => (
+                {periodMoves.map(m => {
+                  const isBonusTopup = String((m as any).refType || '') === 'card_topup'
+                    || /пополнение бонусов/i.test(String((m as any).reason || ''))
+                    || /пополнение бонусов/i.test(String(m.note || ''))
+                  return (
                   <div key={m.id} className="k-fin-row">
                     <div className="k-fin-row-txt">
                       <b style={{ color: m.type === 'deposit' ? 'var(--green)' : 'var(--red)' }}>
-                        {m.type === 'deposit' ? 'Вклад' : 'Снятие'}
+                        {isBonusTopup ? 'Пополнение бонусов' : (m.type === 'deposit' ? 'Вклад' : 'Снятие')}
                       </b>
                       <small>
                         {fmtDateTime(m.createdAtIso)}
@@ -1068,10 +1081,13 @@ export default function FinanceModule() {
                     </div>
                     <div className="k-fin-amt-col">
                       <b>{fmtMoney(m.amount)}</b>
-                      <button type="button" className="k-btn k-btn-s k-fin-del" onClick={() => void removeMove(m.id)}>✕</button>
+                      {!isBonusTopup && (
+                        <button type="button" className="k-btn k-btn-s k-fin-del" onClick={() => void removeMove(m.id)}>✕</button>
+                      )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

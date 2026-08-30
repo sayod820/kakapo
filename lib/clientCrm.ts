@@ -54,6 +54,9 @@ export interface AdminClient {
   vipUntil?: string
   /** С какого момента (ISO) начислять кэшбэк после ручной смены статуса */
   bonusEligibleFrom?: string
+  /** Версия карточки клиента (конфликт правок) */
+  docVersion?: number
+  updatedAtIso?: string
   /** Поколение аккаунта: после полного удаления и новой регистрации +1 */
   accountGeneration?: number
   /** До какой даты можно восстановить аккаунт (recovery) */
@@ -277,6 +280,8 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
     wishedUpdatedAt: raw.wishedUpdatedAt || undefined,
     addresses: Array.isArray(raw.addresses) ? raw.addresses : undefined,
     addressesUpdatedAt: raw.addressesUpdatedAt || undefined,
+    docVersion: raw.docVersion != null ? Math.max(0, Number(raw.docVersion) || 0) : undefined,
+    updatedAtIso: raw.updatedAtIso || undefined,
   }
 }
 

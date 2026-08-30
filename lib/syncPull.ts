@@ -41,7 +41,25 @@ export async function pullSyncChanges(opts?: {
     const delta = await api.getSyncChanges(since || undefined)
 
     const del = Array.isArray(delta.deletes) ? delta.deletes : []
-    const delOf = (kind: string) => del.filter(d => d.kind === kind).map(d => String(d.id))
+    let pendingProtect = new Set<string>()
+    try {
+      const pending = await getPending()
+      for (const r of pending) {
+        if (r.failed) continue
+        if (r.kind === 'product_upsert') {
+          const id = String((r.payload as any)?.localId || (r.payload as any)?.product?.id || '')
+          if (id) pendingProtect.add(`product:${id}`)
+        }
+        if (r.kind === 'client_upsert') {
+          const id = String((r.payload as any)?.localId || (r.payload as any)?.client?.id || '')
+          if (id) pendingProtect.add(`client:${id}`)
+        }
+      }
+    } catch { /* ignore */ }
+    const delOf = (kind: string) => del
+      .filter(d => d.kind === kind)
+      .map(d => String(d.id))
+      .filter(id => !pendingProtect.has(`${kind}:${id}`))
     const dropById = <T extends { id?: string | number }>(list: T[], ids: string[]): T[] => {
       if (!ids.length) return list
       const s = new Set(ids)

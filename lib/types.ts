@@ -116,6 +116,8 @@ export interface Product {
   discount?: number
   /** Метка для LWW при двустороннем синке */
   updatedAtIso?: string
+  /** Версия карточки: конфликт правок без часов устройства */
+  docVersion?: number
   photo?: string | null
   /** Миниатюра WebP (списки / касса) */
   photoThumb?: string | null
@@ -320,8 +322,10 @@ export interface CashVaultTransfer {
 export interface CashVault {
   cashTotal: number
   cardTotal: number
+  /** Версия ящика: конфликт при параллельных движениях */
+  vaultVersion?: number
   transfers: CashVaultTransfer[]
-  converts?: { id: string; amount: number; createdAtIso: string; note?: string }[]
+  converts?: { id: string; amount: number; createdAtIso: string; note?: string; clientRef?: string }[]
 }
 
 /** Свод ящика для UI: основной + точки сейчас */
@@ -361,6 +365,10 @@ export interface FinanceMove {
   supplierId?: string
   supplierName?: string
   clientRef?: string
+  /** Пополнение бонусов карты — удалять нельзя */
+  refType?: string
+  reason?: string
+  cardNum?: string
   /** По умолчанию shift — как раньше */
   payFrom?: MoneyPayFrom
   /** По умолчанию cash — как раньше */
@@ -475,6 +483,12 @@ export interface PosSupplier {
   payableAmount: number
   totalSupplied: number
   totalPaid: number
+  /** Лента оплат (отдельно от приходов) */
+  payVersion?: number
+  /** Лента приходов (отдельно от оплат) */
+  supplyVersion?: number
+  /** @deprecated старый общий счётчик; читаем только для миграции */
+  debtVersion?: number
   lastDeliveryAtIso?: string | null
 }
 

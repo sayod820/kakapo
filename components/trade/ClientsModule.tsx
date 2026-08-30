@@ -533,7 +533,9 @@ export default function ClientsModule() {
         shiftId: openShift.id,
         posId: openShift.posId,
       })
-      if (client.phone) recordBalanceTopup(client.phone, principal, percent, note || 'Пополнение бонусов')
+      if (client.phone) recordBalanceTopup(client.phone, principal, percent, note || 'Пополнение бонусов', {
+        clientRef: topup.data?.clientRef,
+      })
       if (!topup.offline) void refreshAll()
       else void useOfflineSync.getState().syncNow()
       closeCashForm()

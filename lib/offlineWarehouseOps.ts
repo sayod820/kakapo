@@ -6,6 +6,7 @@ import { api, isNetworkError } from './api'
 import { isLocalId, newClientRef, newLocalId, resolveLocalId } from './offline'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { applyPurchasePayToOpenShift } from './offlinePosOps'
+import { supplierSupplyVersion, supplierPayVersion } from './offlineSupplierOps'
 import { shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
@@ -76,14 +77,146 @@ async function bumpProductStock(
   ps.updateProduct(productId, patch as any)
 }
 
-function patchSupplierDebt(supplierId: string | undefined, debtDelta: number) {
-  if (!supplierId || !(Math.abs(debtDelta) > 0.001)) return
+/** Применить/откатить суммы прихода к долгу поставщика (+ bump supplyVersion). */
+async function applySupplierReceiptTotals(
+  supplierId: string | undefined,
+  receiptTotal: number,
+  paidNow: number,
+  sign: 1 | -1,
+  opts?: { supplyVersionDelta?: number },
+) {
+  if (!supplierId) return
+  const total = round2(receiptTotal)
+  const paid = round2(Math.max(0, paidNow))
+  if (!(Math.abs(total) > 0.001) && !(Math.abs(paid) > 0.001)) return
+  const verDelta = opts?.supplyVersionDelta ?? 1
   usePosStore.setState(s => ({
     suppliers: s.suppliers.map(sup => {
       if (sup.id !== supplierId) return sup
-      return { ...sup, debt: round2(Math.max(0, (Number(sup.debt) || 0) + debtDelta)) }
+      const totalSupplied = round2(Math.max(0, (Number(sup.totalSupplied) || 0) + sign * total))
+      const totalPaid = round2(Math.max(0, (Number(sup.totalPaid) || 0) + sign * paid))
+      return {
+        ...sup,
+        totalSupplied,
+        totalPaid,
+        payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+        supplyVersion: Math.max(0, supplierSupplyVersion(sup) + verDelta),
+        ...(sign > 0 ? { lastDeliveryAtIso: new Date().toISOString() } : {}),
+      }
     }),
   }))
+  if (sign < 0) await trimLocalSupplierOverpay(supplierId)
+}
+
+/**
+ * После отката прихода убрать лишние отдельные оплаты (totalPaid > totalSupplied)
+ * и вернуть кассу — как будто оплату не записывали.
+ */
+async function trimLocalSupplierOverpay(supplierId: string) {
+  const { cacheData, readCachedData, persistPosSnapshot } = await import('./offline')
+  const key = `supplier_payments_${supplierId}`
+  let payments = ((await readCachedData<import('./types').SupplierPayment[]>(key)) || [])
+    .slice()
+    .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
+
+  let changed = false
+
+  const restoreCash = async (payment: import('./types').SupplierPayment, amount: number) => {
+    if (!(amount > 0.001)) return
+    const fromCash = (payment.payFrom && payment.payFrom !== 'book') || !!payment.financeMoveId
+    if (!fromCash) return
+    const { applyMoneyOutLocal } = await import('./offlinePosOps')
+    applyMoneyOutLocal({
+      amount,
+      payFrom: payment.payFrom === 'vault' ? 'vault' : 'shift',
+      method: payment.method === 'card' ? 'card' : 'cash',
+      dir: -1,
+      shiftId: payment.shiftId,
+    })
+    if (payment.financeMoveId) {
+      usePosStore.setState(s => ({
+        financeMoves: s.financeMoves.filter(m => m.id !== payment.financeMoveId),
+      }))
+    }
+  }
+
+  while (true) {
+    const sup = usePosStore.getState().suppliers.find(s => s.id === supplierId)
+    if (!sup) break
+    const excess = round2((Number(sup.totalPaid) || 0) - (Number(sup.totalSupplied) || 0))
+    if (!(excess > 0.001)) break
+
+    if (!payments.length) {
+      usePosStore.setState(s => ({
+        suppliers: s.suppliers.map(x => {
+          if (x.id !== supplierId) return x
+          const totalSupplied = Number(x.totalSupplied) || 0
+          return {
+            ...x,
+            totalPaid: totalSupplied,
+            payableAmount: 0,
+          }
+        }),
+      }))
+      changed = true
+      break
+    }
+
+    const payment = payments[0]
+    const amt = round2(Number(payment.amount) || 0)
+    if (!(amt > 0.001)) {
+      payments = payments.slice(1)
+      changed = true
+      continue
+    }
+
+    if (amt <= excess + 0.009) {
+      await restoreCash(payment, amt)
+      payments = payments.slice(1)
+      usePosStore.setState(s => ({
+        suppliers: s.suppliers.map(x => {
+          if (x.id !== supplierId) return x
+          const totalPaid = round2(Math.max(0, (Number(x.totalPaid) || 0) - amt))
+          const totalSupplied = Number(x.totalSupplied) || 0
+          return {
+            ...x,
+            totalPaid,
+            payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+          }
+        }),
+      }))
+      changed = true
+    } else {
+      await restoreCash(payment, excess)
+      payment.amount = round2(amt - excess)
+      payments = [payment, ...payments.slice(1)]
+      usePosStore.setState(s => ({
+        suppliers: s.suppliers.map(x => {
+          if (x.id !== supplierId) return x
+          const totalPaid = round2(Math.max(0, (Number(x.totalPaid) || 0) - excess))
+          const totalSupplied = Number(x.totalSupplied) || 0
+          return {
+            ...x,
+            totalPaid,
+            payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+          }
+        }),
+      }))
+      changed = true
+      break
+    }
+  }
+
+  if (changed) {
+    usePosStore.setState(s => ({
+      suppliers: s.suppliers.map(x => {
+        if (x.id !== supplierId) return x
+        return { ...x, payVersion: supplierPayVersion(x) + 1 }
+      }),
+    }))
+    await cacheData(key, payments)
+    void persistPosSnapshot()
+  }
 }
 
 function findReceipt(id: string): StockReceipt | undefined {
@@ -172,7 +305,11 @@ async function enrichReceiptNames(receipt: StockReceipt): Promise<StockReceipt> 
   }
 }
 
-async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
+async function applyReceiptStock(
+  receipt: StockReceipt,
+  sign: 1 | -1,
+  opts?: { supplyVersionDelta?: number },
+) {
   const { useProducts } = await import('./store')
   const ps = useProducts.getState()
   const bumps = new Map<number, {
@@ -203,11 +340,63 @@ async function applyReceiptStock(receipt: StockReceipt, sign: 1 | -1) {
     }
     ps.updateProduct(productId, patch as any)
   }
-  patchSupplierDebt(receipt.supplierId || undefined, sign * (Number(receipt.debtAdded) || 0))
+  await applySupplierReceiptTotals(
+    receipt.supplierId || undefined,
+    Number(receipt.totalCost) || 0,
+    Number(receipt.paidNow) || 0,
+    sign,
+    opts,
+  )
   try {
     const { applyLocalReceiptLayers } = await import('./stockLayersLocal')
     await applyLocalReceiptLayers(receipt, sign)
   } catch { /* ignore */ }
+}
+
+/** Откат локального прихода, если сервер отклонил из‑за версии долга */
+export async function revertLocalStockReceiptCreateOnReject(localId: string) {
+  const receipt = findReceipt(localId)
+  if (!receipt) return
+  const paid = round2(Number(receipt.paidNow) || 0)
+  if (paid > 0.001) {
+    applyPurchasePayToOpenShift(paid, -1, undefined, {
+      payFrom: receipt.payFrom,
+      method: receipt.method,
+    })
+  }
+  await applyReceiptStock(receipt, -1, { supplyVersionDelta: -1 })
+  usePosStore.setState(s => ({
+    receipts: s.receipts.filter(r => r.id !== localId && r.id !== receipt.id),
+  }))
+}
+
+/** Откат локального списания при отказе сервера */
+export async function revertLocalStockWriteoffCreateOnReject(localId: string) {
+  const writeoff = usePosStore.getState().writeoffs.find(w => w.id === localId)
+  if (!writeoff) return
+  await applyWriteoffStock(writeoff.items, -1)
+  usePosStore.setState(s => ({
+    writeoffs: s.writeoffs.filter(w => w.id !== localId && w.id !== writeoff.id),
+  }))
+}
+
+/** Откат локальной ревизии при отказе сервера (координатор / версия / ошибка) */
+export async function revertLocalStockRevisionCreateOnReject(localId: string) {
+  const rev = usePosStore.getState().revisions.find(r => r.id === localId)
+  if (!rev) return
+  const coordinated = revisionUsesCoordinator({ waitDevices: rev.waitDevices })
+  const appliedLocally = !coordinated || String(rev.status || '') === 'done'
+  if (appliedLocally && Array.isArray(rev.items) && rev.items.length) {
+    await reverseRevision(rev.items)
+  }
+  usePosStore.setState(s => ({
+    revisions: s.revisions.filter(r => r.id !== localId && r.id !== rev.id),
+  }))
+}
+
+function hasBlockingRevisionLocal(): boolean {
+  const pendingStatus = new Set(['pending_queues', 'pending_older', 'applying'])
+  return usePosStore.getState().revisions.some(r => pendingStatus.has(String(r.status || '')))
 }
 
 export async function createStockReceiptSafe(
@@ -218,6 +407,9 @@ export async function createStockReceiptSafe(
   const supplierName = payload.supplierId
     ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
     : ''
+  const expectedSupplyVersion = payload.supplierId
+    ? supplierSupplyVersion(usePosStore.getState().suppliers.find(s => s.id === payload.supplierId))
+    : undefined
   const body = {
     ...payload,
     clientRef,
@@ -226,6 +418,7 @@ export async function createStockReceiptSafe(
     payFrom: payload.payFrom === 'vault' ? 'vault' : 'shift',
     method: payload.method === 'card' ? 'card' : 'cash',
     supplierName,
+    ...(payload.supplierId ? { expectedSupplyVersion } : {}),
   }
 
   const applyLocal = async () => {
@@ -270,6 +463,15 @@ export async function updateStockReceiptSafe(
     payFrom: payload.payFrom === 'vault' ? 'vault' : 'shift',
     method: payload.method === 'card' ? 'card' : 'cash',
     supplierName,
+    ...(payload.supplierId || findReceipt(id)?.supplierId
+      ? {
+          expectedSupplyVersion: supplierSupplyVersion(
+            usePosStore.getState().suppliers.find(
+              s => s.id === (payload.supplierId || findReceipt(id)?.supplierId || ''),
+            ),
+          ),
+        }
+      : {}),
   }
   const nowIso = new Date().toISOString()
 
@@ -560,6 +762,19 @@ async function buildLocalRevision(
 export async function createStockRevisionSafe(
   payload: RevisionPayload,
 ): Promise<OfflineResult<StockRevision>> {
+  if (hasBlockingRevisionLocal()) {
+    throw new Error('Дождитесь завершения текущей ревизии')
+  }
+  try {
+    const { getPending } = await import('./offline')
+    const pending = await getPending()
+    if (pending.some(r => !r.failed && (r.kind === 'stock_revision_create' || r.kind === 'stock_revision_update'))) {
+      throw new Error('Дождитесь отправки текущей ревизии')
+    }
+  } catch (e) {
+    if (e instanceof Error && /дождитесь/i.test(e.message)) throw e
+  }
+
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
   const waitDevices = payload.waitDevices?.length
@@ -839,18 +1054,25 @@ export async function deleteStockLayerSafe(
 
     if (receipt) {
       if (deletedReceipt) {
-        const debtDelta = -round2(Number(receipt.debtAdded) || 0)
-        patchSupplierDebt(receipt.supplierId || undefined, debtDelta)
+        await applySupplierReceiptTotals(
+          receipt.supplierId || undefined,
+          Number(receipt.totalCost) || 0,
+          Number(receipt.paidNow) || 0,
+          -1,
+        )
         usePosStore.setState(s => ({ receipts: s.receipts.filter(r => r.id !== receiptId) }))
       } else {
-        const oldDebt = round2(Number(receipt.debtAdded) || 0)
+        const oldTotal = round2(Number(receipt.totalCost) || 0)
+        const oldPaid = round2(Number(receipt.paidNow) || 0)
         const newTotal = round2(itemsLeft.reduce(
           (s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0),
           0,
         ))
         const newPaid = round2(Math.min(Number(receipt.paidNow) || 0, newTotal))
         const newDebt = round2(Math.max(0, newTotal - newPaid))
-        patchSupplierDebt(receipt.supplierId || undefined, newDebt - oldDebt)
+        // откат старых сумм + применение новых (две bump-версии, как reverse+update на сервере)
+        await applySupplierReceiptTotals(receipt.supplierId || undefined, oldTotal, oldPaid, -1)
+        await applySupplierReceiptTotals(receipt.supplierId || undefined, newTotal, newPaid, 1)
         usePosStore.setState(s => ({
           receipts: s.receipts.map(r => (
             r.id !== receiptId

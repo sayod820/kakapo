@@ -6768,7 +6768,16 @@ export default function CashierModule({
         const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
         debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
         try {
-            // Списываем со старых чеков (FIFO), чтобы остатки в «Чеки» сразу уменьшились
+          const repaid = await debtRepaySafe(cardClient.card, {
+            amount: payAmt,
+            method,
+            cashierId: activeShift.cashierId,
+            shiftId: activeShift.id,
+            posId: activeShift.posId || activePosPoint?.id,
+            clientId: cardClient.id,
+            prevDebt,
+          })
+          if (!repaid.data.duplicate) {
             const histKey = debtAccountKey(client)
             const history = loadDebtHistoryForClient(client)
             const creditSales = sales
@@ -6802,22 +6811,15 @@ export default function CashierModule({
                 method,
                 source: 'cashier',
                 desc: 'Погашение долга с чеком',
+                clientRef: repaid.data.clientRef,
               })
               if (fifo.appliedToChecks > 0.001) {
                 debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
               }
             }
             setHistTick(t => t + 1)
+          }
         } catch { /* ignore */ }
-        void debtRepaySafe(cardClient.card, {
-          amount: payAmt,
-          method,
-          cashierId: activeShift.cashierId,
-          shiftId: activeShift.id,
-          posId: activeShift.posId || activePosPoint?.id,
-          clientId: cardClient.id,
-          prevDebt,
-        }).catch(() => {})
         }
       }
 
@@ -7028,7 +7030,9 @@ export default function CashierModule({
         shiftId: activeShift.id,
         posId: activeShift.posId || activePosPoint?.id,
       })
-      if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение бонусов')
+      if (client.phone) recordBalanceTopup(client.phone, cash, percentBonus, 'Пополнение бонусов', {
+        clientRef: topup.data?.clientRef,
+      })
       if (!topup.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       const fresh = useClientStore.getState().clients.find(c => c.id === client.id)
@@ -7120,7 +7124,8 @@ export default function CashierModule({
             method: repayMethod,
             orderId: target.orderId,
             desc: `Погашение · ${target.label}`,
-            batchId: `payb-${Date.now()}`,
+            batchId: repaid.data.clientRef || `payb-${Date.now()}`,
+            clientRef: repaid.data.clientRef,
           })
         } else {
           const checkTargets = histActiveDebts
@@ -7148,6 +7153,7 @@ export default function CashierModule({
             {
               method: repayMethod,
               source: 'cashier',
+              clientRef: repaid.data.clientRef,
             },
           ).checkCount
         }

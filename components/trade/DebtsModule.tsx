@@ -700,6 +700,7 @@ export default function DebtsModule({
         desc: `Погашение · ${saleLabel(s)}`,
         orderId: linkOrderId,
         method,
+        clientRef: repaid.data.clientRef,
       })
       const nextRemain = Math.round((maxPay - amount) * 100) / 100
       setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
@@ -771,11 +772,13 @@ export default function DebtsModule({
               method,
               source: 'cashier',
               desc: histAdd.desc.trim() || undefined,
+              clientRef: res.data.clientRef,
             })
           } else {
             recordStoreDebtRepayment(histKey, amount, {
               method,
               desc: histAdd.desc.trim() || undefined,
+              clientRef: res.data.clientRef,
             })
           }
         }
@@ -850,9 +853,12 @@ export default function DebtsModule({
   async function deleteManualHistory(row: DebtHistoryEntry) {
     const histKey = debtAccountKey(detailClient)
     if (!histKey || !isManualDebtHistoryEntry(row)) return
+    if (row.type === 'pay') {
+      setHistMsg('Погашение нельзя удалить')
+      return
+    }
     const abs = Math.abs(Number(row.amount) || 0)
-    const label = row.type === 'pay' ? 'оплату' : 'начисление'
-    if (!window.confirm(`Удалить ${label} ${fmtMoney(abs)}? Чеки не затрагиваются.`)) return
+    if (!window.confirm(`Удалить начисление ${fmtMoney(abs)}? Чеки не затрагиваются.`)) return
     const removed = removeDebtHistoryEntry(histKey, row.id)
     if (!removed) {
       setHistMsg('Эту запись нельзя удалить')
@@ -873,6 +879,11 @@ export default function DebtsModule({
     if (!histKey || !histEdit) return
     const before = loadDebtHistory(histKey).find(r => r.id === histEdit.id)
     if (!before || !isManualDebtHistoryEntry(before)) {
+      setHistEdit(null)
+      return
+    }
+    if (before.type === 'pay') {
+      setHistMsg('Погашение нельзя изменить')
       setHistEdit(null)
       return
     }
@@ -923,7 +934,7 @@ export default function DebtsModule({
             <div style={{ fontWeight: 900, color: isPay ? 'var(--green)' : 'var(--gold)' }}>
               {isPay ? '−' : '+'}{fmtMoney(Math.abs(row.amount))}
       </div>
-            {!editing && (
+            {!editing && !isPay && (
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
                 <button
                   type="button"
@@ -948,6 +959,9 @@ export default function DebtsModule({
                 </button>
         </div>
       )}
+            {!editing && isPay && (
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>Погашение нельзя удалить</div>
+            )}
         </div>
           </div>
         {editing && histEdit && (

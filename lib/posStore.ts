@@ -79,11 +79,18 @@ function mergeCashVault(local: CashVault | undefined, server: CashVault): CashVa
   const serverTransfers = server.transfers || []
   const serverShiftIds = new Set(serverTransfers.map(t => String(t.shiftId)))
   const localOnly = (local?.transfers || []).filter(t => t.shiftId && !serverShiftIds.has(String(t.shiftId)))
+  const vaultVersion = Math.max(
+    Number(local?.vaultVersion) || 0,
+    Number(server.vaultVersion) || 0,
+  )
+  const converts = Array.isArray(server.converts) ? server.converts : (local?.converts || [])
   if (!localOnly.length) {
     return {
       cashTotal: Number(server.cashTotal) || 0,
       cardTotal: Number(server.cardTotal) || 0,
+      vaultVersion,
       transfers: serverTransfers,
+      converts,
     }
   }
   const extraCash = localOnly.reduce((a, t) => a + (Number(t.cashAmount) || 0), 0)
@@ -91,9 +98,11 @@ function mergeCashVault(local: CashVault | undefined, server: CashVault): CashVa
   return {
     cashTotal: Math.round(((Number(server.cashTotal) || 0) + extraCash) * 100) / 100,
     cardTotal: Math.round(((Number(server.cardTotal) || 0) + extraCard) * 100) / 100,
+    vaultVersion,
     transfers: [...localOnly, ...serverTransfers].sort((a, b) =>
       String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
     ),
+    converts,
   }
 }
 

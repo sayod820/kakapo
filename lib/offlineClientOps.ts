@@ -95,10 +95,27 @@ export async function saveClientSafe(input: {
     let client: AdminClient
 
     if (editingId) {
-      useClientStore.getState().updateClient(editingId, patch, { skipApi: true })
+      const prev = findClient(editingId)
+      const expectedDocVersion = Number(prev?.docVersion) || 0
+      useClientStore.getState().updateClient(editingId, {
+        ...patch,
+        docVersion: expectedDocVersion + 1,
+        updatedAtIso: new Date().toISOString(),
+      }, { skipApi: true })
       client = findClient(editingId)!
       markClientIdentityPending(editingId)
       syncLinkedCardIdentity(client)
+      await useOfflineSync.getState().queueOp(
+        'client_upsert',
+        {
+          clientRef,
+          localId: client.id,
+          expectedDocVersion,
+          client: { ...client },
+          _prev: prev ? { ...prev } : null,
+        },
+        { localId: client.id, clientRef },
+      )
     } else {
       const localId = newLocalId('cli')
       const registration = withCard ? newClientRegistrationDefaults() : {}
@@ -112,16 +129,18 @@ export async function saveClientSafe(input: {
         debtLimit: 0,
         orders: 0,
         spent: 0,
+        docVersion: 1,
+        updatedAtIso: new Date().toISOString(),
         createdAt: new Date().toISOString().slice(0, 10),
       })
       useClientStore.setState(s => ({ clients: [...s.clients, client] }))
+      await useOfflineSync.getState().queueOp(
+        'client_upsert',
+        { clientRef, localId: client.id, client: { ...client }, _prev: null },
+        { localId: client.id, clientRef },
+      )
     }
 
-    await useOfflineSync.getState().queueOp(
-      'client_upsert',
-      { clientRef, localId: client.id, client: { ...client } },
-      { localId: client.id, clientRef },
-    )
     persistClients()
     shadowMirrorPut('client', client.id, client)
     return client
@@ -342,4 +361,21 @@ export async function provisionLoyaltyCardSafe(client: AdminClient): Promise<Off
     const updated = await provisionLoyaltyCardForClient(client)
     return updated
   }, applyLocal)
+}
+
+/** Откат локального upsert клиента при конфликте версии */
+export function revertLocalClientUpsertOnReject(payload: Record<string, unknown>) {
+  const prev = payload._prev as AdminClient | null | undefined
+  const localId = String(payload.localId || (payload.client as any)?.id || '')
+  if (prev && prev.id) {
+    useClientStore.getState().updateClient(String(prev.id), { ...prev }, { skipApi: true })
+    persistClients()
+    return
+  }
+  if (localId) {
+    useClientStore.setState(s => ({
+      clients: s.clients.filter(c => String(c.id) !== localId),
+    }))
+    persistClients()
+  }
 }

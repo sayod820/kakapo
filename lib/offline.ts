@@ -434,11 +434,16 @@ const STOCK_LAYER_PULL_BLOCK_KINDS = new Set<QueueKind>([
   'stock_revision_delete',
 ])
 
-/** true — партии с сервера не подтягиваем (правило 1: стабильный остаток на кассе). */
+/** true — партии с сервера не подтягиваем (правило 1: стабильный остаток на кассе).
+ *  Failed sale/return тоже блокируют: локальный остаток ещё «продан», пока не откатим. */
 export async function pendingBlocksStockLayerPull(): Promise<boolean> {
   try {
     const pending = await getPending()
-    return pending.some(r => !r.failed && STOCK_LAYER_PULL_BLOCK_KINDS.has(r.kind))
+    return pending.some(r => {
+      if (!STOCK_LAYER_PULL_BLOCK_KINDS.has(r.kind)) return false
+      if (!r.failed) return true
+      return r.kind === 'sale' || r.kind === 'sale_return'
+    })
   } catch {
     return false
   }
@@ -587,6 +592,8 @@ function sameCashierOpFingerprint(kind: QueueKind, a: Record<string, unknown>, b
   if (String(a.shiftId || '') !== String(b.shiftId || '')) return false
   if (String(a.note || '').trim() !== String(b.note || '').trim()) return false
   if (kind === 'finance_move' && String(a.type || '') !== String(b.type || '')) return false
+  if (kind === 'finance_move' && String(a.payFrom || 'shift') !== String(b.payFrom || 'shift')) return false
+  if (kind === 'finance_move' && String(a.method || 'cash') !== String(b.method || 'cash')) return false
   if (kind === 'expense_create' && String(a.category || '') !== String(b.category || '')) return false
   if (kind === 'card_topup' && String(a.num || '') !== String(b.num || '')) return false
   return true
@@ -615,12 +622,19 @@ export async function enqueueOp<P>(
   const createdAtIso = opts.createdAtIso || (payload as any)?.createdAtIso || new Date().toISOString()
   const queuedOffline = browserSaysOffline()
     || (typeof navigator !== 'undefined' && navigator.onLine === false)
+    || !!(payload as any)?.queuedOffline
 
   if (kind === 'debt_repay') {
     const dup = await findDuplicateDebtRepay(payload as any)
     if (dup) return dup as PendingOp<P>
   }
-  if (kind === 'finance_move' || kind === 'expense_create' || kind === 'card_topup') {
+  if (
+    kind === 'finance_move'
+    || kind === 'expense_create'
+    || kind === 'card_topup'
+    || kind === 'vault_card_to_cash'
+    || kind === 'vault_cash_to_card'
+  ) {
     const dup = await findDuplicateCashierOp(kind, payload as any)
     if (dup) return dup as PendingOp<P>
   }
@@ -632,7 +646,7 @@ export async function enqueueOp<P>(
       ...(payload as any),
       clientRef,
       createdAtIso,
-      ...(kind === 'sale' && queuedOffline ? { queuedOffline: true } : {}),
+      ...(kind === 'sale' && queuedOffline ? { queuedOffline: true, skipStockAfterRevision: true } : {}),
       ...((kind === 'sale' || kind === 'sale_return' || kind === 'debt_repay' || kind === 'card_topup')
         ? { appliedLocal: true, skipBalances: true } : {}),
     },
@@ -909,6 +923,11 @@ async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
     case 'sale': {
       let payload = await resolveSalePayload(row.payload)
+      // Служебные поля только для локального отката — на сервер не шлём
+      if (payload && typeof payload === 'object' && '_revert' in payload) {
+        const { _revert: _drop, ...rest } = payload as Record<string, unknown>
+        payload = rest
+      }
       try {
         const sale = await api.createPosSale(payload, { mode: 'sync' })
         return String((sale as any)?.id || '')
@@ -967,17 +986,18 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'sale_return': {
       const p = await resolveRefs(row.payload, ['saleId'])
-      const sale = await api.returnPosSale(String(p.saleId), {
-        clientRef: p.clientRef,
-        note: p.note,
-        cashierId: p.cashierId,
-        items: p.items,
+      const { _revert: _drop, ...rest } = (p || {}) as Record<string, unknown>
+      const sale = await api.returnPosSale(String(rest.saleId), {
+        clientRef: rest.clientRef,
+        note: rest.note,
+        cashierId: rest.cashierId,
+        items: rest.items,
         appliedLocal: true,
-        // Остаток возвращает сервер (как при продаже списывает). Локально уже вернули партии для UI.
         skipBalances: true,
-        queuedOffline: !!p.queuedOffline,
-        clientDebtAfter: p.clientDebtAfter,
-        cutDebt: p.cutDebt,
+        queuedOffline: !!rest.queuedOffline,
+        cutDebt: rest.cutDebt,
+        expectedDebtPayVersion: rest.expectedDebtPayVersion != null ? Number(rest.expectedDebtPayVersion) : undefined,
+        expectedBonusPayVersion: rest.expectedBonusPayVersion != null ? Number(rest.expectedBonusPayVersion) : undefined,
       } as any)
       return String((sale as any)?.id || '')
     }
@@ -995,8 +1015,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         createdAtIso: p.createdAtIso,
         appliedLocal: true,
         skipBalances: true,
-        bonusAfter: p.bonusAfter,
-        posCashBonusAfter: p.posCashBonusAfter,
+        expectedBonusPayVersion: p.expectedBonusPayVersion != null ? Number(p.expectedBonusPayVersion) : undefined,
       } as any)
       return String((res as any)?.financeMove?.id || '')
     }
@@ -1014,44 +1033,52 @@ async function sendOp(row: PendingOp): Promise<string> {
         appliedLocal: true,
         skipBalances: true,
         nextDebt: p.nextDebt,
+        expectedDebtPayVersion: p.expectedDebtPayVersion != null ? Number(p.expectedDebtPayVersion) : undefined,
       } as any)
       return ''
     }
     case 'finance_move': {
       const p = await resolveRefs(row.payload, ['shiftId'])
+      const { _revert: _omitRevert, ...fields } = p as Record<string, unknown>
       const move = await api.createFinanceMove({
-        clientRef: p.clientRef,
-        type: p.type,
-        amount: Number(p.amount) || 0,
-        note: p.note,
-        createdBy: p.createdBy,
-        cashierId: p.cashierId,
-        cashierName: p.cashierName,
-        shiftId: p.shiftId,
-        posId: p.posId,
-        supplierId: p.supplierId,
-        reason: p.reason,
-        createdAtIso: p.createdAtIso,
-        payFrom: p.payFrom,
-        method: p.method,
+        clientRef: fields.clientRef,
+        type: fields.type,
+        amount: Number(fields.amount) || 0,
+        note: fields.note,
+        createdBy: fields.createdBy,
+        cashierId: fields.cashierId,
+        cashierName: fields.cashierName,
+        shiftId: fields.shiftId,
+        posId: fields.posId,
+        supplierId: fields.supplierId,
+        expectedPayVersion: fields.expectedPayVersion != null ? Number(fields.expectedPayVersion) : undefined,
+        expectedVaultVersion: fields.expectedVaultVersion != null ? Number(fields.expectedVaultVersion) : undefined,
+        reason: fields.reason,
+        createdAtIso: fields.createdAtIso,
+        payFrom: fields.payFrom,
+        method: fields.method,
       } as any)
       return String((move as any)?.id || '')
     }
     case 'vault_card_to_cash': {
       const p = row.payload || {}
+      const { _revert: _omitRevert, ...fields } = p as Record<string, unknown>
       const rowOut = await api.convertVaultCardToCash({
-        clientRef: p.clientRef,
-        amount: Number(p.amount) || 0,
-        note: p.note,
+        clientRef: fields.clientRef,
+        amount: Number(fields.amount) || 0,
+        note: fields.note as string | undefined,
+        expectedVaultVersion: fields.expectedVaultVersion != null ? Number(fields.expectedVaultVersion) : undefined,
       })
       return String((rowOut as any)?.id || '')
     }
     case 'vault_cash_to_card': {
       const p = row.payload || {}
+      const { _revert: _omitRevert, ...fields } = p as Record<string, unknown>
       const rowOut = await api.convertVaultCashToCard({
-        clientRef: p.clientRef,
-        amount: Number(p.amount) || 0,
-        note: p.note,
+        clientRef: fields.clientRef,
+        amount: Number(fields.amount) || 0,
+        note: fields.note as string | undefined,
+        expectedVaultVersion: fields.expectedVaultVersion != null ? Number(fields.expectedVaultVersion) : undefined,
       })
       return String((rowOut as any)?.id || '')
     }
@@ -1068,6 +1095,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         method: p.method,
         items,
         createdAtIso: p.createdAtIso,
+        expectedSupplyVersion: p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined,
       } as any)
       return String((receipt as any)?.id || '')
     }
@@ -1082,6 +1110,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         payFrom: p.payFrom,
         method: p.method,
         items,
+        expectedSupplyVersion: p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined,
       } as any)
       return String((receipt as any)?.id || '')
     }
@@ -1185,14 +1214,18 @@ async function sendOp(row: PendingOp): Promise<string> {
         amount: Number(p.amount) || 0,
         note: p.note,
         clientRef: p.clientRef,
-      } as any)
+        expectedPayVersion: p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined,
+      })
       return String((pay as any)?.id || '')
     }
     case 'supplier_payment_delete': {
       const p = await resolveRefs(row.payload, ['supplierId', 'paymentId'])
       const paymentId = String(p.paymentId || p.id || '')
       if (paymentId && !isLocalId(paymentId)) {
-        await api.deleteSupplierPayment(String(p.supplierId), paymentId, { clientRef: p.clientRef })
+        await api.deleteSupplierPayment(String(p.supplierId), paymentId, {
+          clientRef: p.clientRef,
+          expectedPayVersion: p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined,
+        })
       }
       return paymentId
     }
@@ -1202,14 +1235,21 @@ async function sendOp(row: PendingOp): Promise<string> {
       const body = { ...(p.product || p) }
       delete body.localId
       delete body.clientRef
+      delete body._prev
       const rawId = Number(body.id)
       const isLocal = !Number.isFinite(rawId) || rawId <= 0
       let saved: any
       if (isLocal) {
-        const { id: _drop, ...createBody } = body
+        const { id: _drop, docVersion: _dv, ...createBody } = body
         saved = await api.createProduct({ ...createBody, clientRef: p.clientRef })
       } else {
-        saved = await api.updateProduct(rawId, { ...body, clientRef: p.clientRef })
+        saved = await api.updateProduct(rawId, {
+          ...body,
+          clientRef: p.clientRef,
+          expectedDocVersion: p.expectedDocVersion != null
+            ? Number(p.expectedDocVersion)
+            : (body.docVersion != null ? Number(body.docVersion) - 1 : undefined),
+        })
       }
       const serverId = String(saved?.id || '')
       if (localId && serverId && localId !== serverId) {
@@ -1243,14 +1283,21 @@ async function sendOp(row: PendingOp): Promise<string> {
       const body = { ...(p.client || p) }
       delete body.localId
       delete body.clientRef
+      delete body._prev
       const rawId = String(body.id || '')
       const isLocal = !rawId || isLocalId(rawId)
       let saved: any
       if (isLocal) {
-        const { id: _drop, ...createBody } = body
+        const { id: _drop, docVersion: _dv, ...createBody } = body
         saved = await api.createClient({ ...createBody, clientRef: p.clientRef })
       } else {
-        saved = await api.updateClient(rawId, { ...body, clientRef: p.clientRef })
+        saved = await api.updateClient(rawId, {
+          ...body,
+          clientRef: p.clientRef,
+          expectedDocVersion: p.expectedDocVersion != null
+            ? Number(p.expectedDocVersion)
+            : (body.docVersion != null ? Number(body.docVersion) - 1 : undefined),
+        } as any)
       }
       const serverId = String(saved?.id || '')
       if (localId && serverId && localId !== serverId) {
@@ -1287,6 +1334,9 @@ async function sendOp(row: PendingOp): Promise<string> {
       delete body.payableAmount
       delete body.totalSupplied
       delete body.totalPaid
+      delete body.payVersion
+      delete body.supplyVersion
+      delete body.debtVersion
       delete body.lastDeliveryAtIso
       const rawId = String(body.id || '')
       const isLocal = !rawId || isLocalId(rawId)
@@ -1608,6 +1658,163 @@ export async function flushQueue(
         live.attempts += 1
         live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
         live.failed = true
+        // Конфликт версии / нет остатка / нет денег — откатить локально, чтобы UI не врал
+        const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
+        if (rejectRe.test(live.lastError)) {
+          try {
+            if (live.kind === 'supplier_payment_create') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
+              revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
+            } else if (live.kind === 'supplier_payment_delete') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')
+              revertLocalSupplierPaymentDeleteOnReject(
+                String(p.supplierId || ''),
+                Number(p.amount) || Number((p.payment as any)?.amount) || 0,
+                (p.payment as any) || null,
+              )
+            } else if (live.kind === 'debt_repay') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              if (!p.clientRef) p.clientRef = live.clientRef
+              const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
+              revertLocalDebtRepayOnReject(p as any)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'card_topup') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              if (!p.clientRef) p.clientRef = live.clientRef
+              const { revertLocalCardTopupOnReject } = await import('./offlinePosOps')
+              revertLocalCardTopupOnReject(p as any)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'sale') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalSaleOnReject } = await import('./offlinePosOps')
+              revertLocalSaleOnReject(p, live.localId)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'sale_return') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalSaleReturnOnReject } = await import('./offlinePosOps')
+              revertLocalSaleReturnOnReject(p)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'finance_move') {
+              const { revertLocalFinanceMoveOnReject } = await import('./offlinePosOps')
+              const id = String(live.localId || '')
+              if (id) revertLocalFinanceMoveOnReject(id)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'vault_card_to_cash' || live.kind === 'vault_cash_to_card') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalVaultConvertOnReject } = await import('./offlinePosOps')
+              revertLocalVaultConvertOnReject(p)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'expense_create') {
+              const { revertLocalExpenseOnReject } = await import('./offlinePosOps')
+              const id = String(live.localId || '')
+              if (id) revertLocalExpenseOnReject(id)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'stock_receipt_create') {
+              const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
+              const id = String(live.localId || '')
+              if (id) await revertLocalStockReceiptCreateOnReject(id)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'stock_writeoff_create') {
+              const { revertLocalStockWriteoffCreateOnReject } = await import('./offlineWarehouseOps')
+              const id = String(live.localId || '')
+              if (id) await revertLocalStockWriteoffCreateOnReject(id)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'stock_revision_create') {
+              const { revertLocalStockRevisionCreateOnReject } = await import('./offlineWarehouseOps')
+              const id = String(live.localId || '')
+              if (id) await revertLocalStockRevisionCreateOnReject(id)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'product_upsert') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalProductUpsertOnReject } = await import('./offlineProductOps')
+              revertLocalProductUpsertOnReject(p)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'client_upsert') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              const { revertLocalClientUpsertOnReject } = await import('./offlineClientOps')
+              revertLocalClientUpsertOnReject(p)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            } else if (live.kind === 'shift_open') {
+              // Сервер: уже есть открытая смена — убрать локальный дубль
+              const localId = String(live.localId || '')
+              if (localId) {
+                const { usePosStore } = await import('./posStore')
+                usePosStore.setState(s => ({
+                  shifts: s.shifts.filter(sh => sh.id !== localId),
+                }))
+                void persistPosSnapshot()
+              }
+              await deletePending(live.clientRef)
+              failed++
+              done++
+              onProgress?.(done, total)
+              continue
+            }
+            void persistPosSnapshot()
+          } catch { /* ignore */ }
+        }
         await putPending(live)
         failed++
       }

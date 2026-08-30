@@ -85,14 +85,30 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.posPoints)) db.posPoints = []
   if (!Array.isArray(db.revokedPosDevices)) db.revokedPosDevices = []
   if (!db.cashVault || typeof db.cashVault !== 'object') {
-    db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
+    db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [], vaultVersion: 0 }
   }
   if (!Array.isArray(db.cashVault.transfers)) db.cashVault.transfers = []
   if (!Array.isArray(db.cashVault.converts)) db.cashVault.converts = []
   if (db.cashVault.cashTotal == null) db.cashVault.cashTotal = 0
   if (db.cashVault.cardTotal == null) db.cashVault.cardTotal = 0
+  if (db.cashVault.vaultVersion == null) db.cashVault.vaultVersion = 0
   if (!db._seq || typeof db._seq !== 'object') db._seq = {}
   ensureDefaultPosPoint(db)
+}
+
+function bumpVaultVersion(db) {
+  ensurePosCollections(db)
+  db.cashVault.vaultVersion = (Number(db.cashVault.vaultVersion) || 0) + 1
+}
+
+function assertVaultVersion(db, expected) {
+  if (expected == null || expected === '') return
+  const cur = Number(db.cashVault.vaultVersion) || 0
+  const exp = Number(expected)
+  if (!Number.isFinite(exp)) return
+  if (exp !== cur) {
+    throw new Error(`Основной ящик уже меняли (версия ${cur}, ожидали ${exp})`)
+  }
 }
 
 const DEFAULT_POS_ID = 'POS-DEFAULT'
@@ -466,13 +482,15 @@ function stockRowsWithoutConsume(db, items) {
 }
 
 /** Офлайн-чек после ревизии: номер выше среза. Судья — opSeq, не часы кассы.
- *  queuedOffline: чек лежал в очереди без сети; ревизия уже поправила остаток. */
+ *  queuedOffline / skipStockAfterRevision: чек лежал в очереди; ревизия уже поправила остаток. */
 function shouldSkipSaleStock(db, posId, opSeq, productIds, deviceId, queuedOffline) {
   if (!queuedOffline) return null
   const ids = new Set((productIds || []).map(n => Number(n)).filter(n => n > 0))
   if (!ids.size || !(Number(opSeq) > 0)) return null
   const dev = String(deviceId || '')
   for (const rev of db.stockRevisions || []) {
+    const st = String(rev.status || 'done')
+    if (st && st !== 'done' && st !== 'applying') continue
     const cuts = Array.isArray(rev.posCuts) ? rev.posCuts : []
     if (!cuts.length) continue
     const overlap = (rev.items || []).some(it => ids.has(Number(it.productId)))
@@ -480,7 +498,12 @@ function shouldSkipSaleStock(db, posId, opSeq, productIds, deviceId, queuedOffli
     const cut = cuts.find(c =>
       String(c.posId) === String(posId)
       && String(c.deviceId || '') === dev,
-    ) || (!dev ? cuts.find(c => String(c.posId) === String(posId)) : null)
+    )
+      || cuts.find(c =>
+        String(c.posId) === String(posId)
+        && !String(c.deviceId || ''),
+      )
+      || (!dev ? cuts.find(c => String(c.posId) === String(posId)) : null)
     const lastSeq = Number(cut?.lastSeq) || 0
     if (!(Number(opSeq) > lastSeq)) continue
     return { revisionId: String(rev.id || '') }
@@ -579,10 +602,100 @@ function applyDebtToPair(client, card, nextDebt) {
   }
 }
 
+function assertCardDebtPayVersion(card, expected) {
+  if (expected === undefined || expected === null || expected === '') return
+  if (!card) return
+  const exp = Number(expected)
+  if (!Number.isFinite(exp)) return
+  const current = Number(card.debtPayVersion) || 0
+  if (exp !== current) {
+    throw new Error(
+      `Долг клиента уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Чек не приняли — обновите данные.`,
+    )
+  }
+}
+
+function bumpCardDebtPayVersion(card) {
+  if (!card) return
+  card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+}
+
+function assertCardBonusPayVersion(card, expected) {
+  if (expected === undefined || expected === null || expected === '') return
+  if (!card) return
+  const exp = Number(expected)
+  if (!Number.isFinite(exp)) return
+  const current = Number(card.bonusPayVersion) || 0
+  if (exp !== current) {
+    throw new Error(
+      `Бонусы уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Чек не приняли — обновите данные.`,
+    )
+  }
+}
+
 function syncSupplierPayable(supplier) {
   if (!supplier) return supplier
   supplier.payableAmount = round2(Math.max(0, (supplier.totalSupplied || 0) - (supplier.totalPaid || 0)))
   return supplier
+}
+
+/** Версия ленты оплат (оплата / удаление оплаты / оплата с кассы). */
+function bumpSupplierPayVersion(supplier) {
+  if (!supplier) return
+  supplier.payVersion = (Number(supplier.payVersion) || 0) + 1
+}
+
+/** Версия ленты приходов (приход / правка / удаление прихода). */
+function bumpSupplierSupplyVersion(supplier) {
+  if (!supplier) return
+  supplier.supplyVersion = (Number(supplier.supplyVersion) || 0) + 1
+}
+
+function currentPayVersion(supplier) {
+  if (!supplier) return 0
+  const pay = Number(supplier.payVersion)
+  if (Number.isFinite(pay)) return pay
+  // миграция со старого общего debtVersion
+  return Number(supplier.debtVersion) || 0
+}
+
+function currentSupplyVersion(supplier) {
+  if (!supplier) return 0
+  const supply = Number(supplier.supplyVersion)
+  if (Number.isFinite(supply)) return supply
+  return Number(supplier.debtVersion) || 0
+}
+
+/**
+ * Оплата несёт expectedPayVersion — только конфликты с другими оплатами.
+ * Приход сюда не вмешивается.
+ */
+function assertSupplierPayVersion(supplier, expected, actionLabel = 'Оплату') {
+  if (expected === undefined || expected === null || expected === '') return
+  const exp = Number(expected)
+  if (!Number.isFinite(exp)) return
+  const current = currentPayVersion(supplier)
+  if (exp !== current) {
+    throw new Error(
+      `Оплаты уже меняли на другой кассе (версия ${current}, ожидали ${exp}). ${actionLabel} не приняли — обновите данные.`,
+    )
+  }
+}
+
+/**
+ * Приход несёт expectedSupplyVersion — только конфликты с другими приходами.
+ * Оплата сюда не вмешивается.
+ */
+function assertSupplierSupplyVersion(supplier, expected) {
+  if (expected === undefined || expected === null || expected === '') return
+  const exp = Number(expected)
+  if (!Number.isFinite(exp)) return
+  const current = currentSupplyVersion(supplier)
+  if (exp !== current) {
+    throw new Error(
+      `Приходы уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Приход не приняли — обновите данные.`,
+    )
+  }
 }
 
 function updateSupplierDebt(db, supplierId, receiptTotal, paidNow) {
@@ -592,6 +705,7 @@ function updateSupplierDebt(db, supplierId, receiptTotal, paidNow) {
   supplier.totalSupplied = round2((supplier.totalSupplied || 0) + receiptTotal)
   supplier.totalPaid = round2((supplier.totalPaid || 0) + Math.max(0, round2(paidNow)))
   syncSupplierPayable(supplier)
+  bumpSupplierSupplyVersion(supplier)
   supplier.lastDeliveryAtIso = nowIso()
   return supplier
 }
@@ -1142,6 +1256,11 @@ export function listPosShifts(db) {
 
 export function openPosShift(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.posShifts || []).find(s => s.clientRef === clientRef)
+    if (known) return known
+  }
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   if (!cashier) throw new Error('Кассир не найден')
   const named = String(data.cashierName || '').trim()
@@ -1174,6 +1293,7 @@ export function openPosShift(db, data = {}) {
     cashInTotal: 0,
     status: 'open',
     note: String(data.note || '').trim(),
+    clientRef: clientRef || undefined,
   }
   db.posShifts.unshift(row)
   // Разменный фонд уже в кассе — в книгу не добавляем (иначе баланс растёт на каждое открытие)
@@ -1300,6 +1420,7 @@ export function transferClosedShiftToVault(db, shift) {
   db.cashVault.transfers.unshift(transfer)
   db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + cashAmount)
   db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + cardAmount)
+  bumpVaultVersion(db)
 
   if (cashAmount > 0.001) {
     appendMoneyLedger(db, {
@@ -1339,6 +1460,7 @@ export function getCashVault(db) {
   return {
     cashTotal: round2(db.cashVault.cashTotal),
     cardTotal: round2(db.cashVault.cardTotal),
+    vaultVersion: Number(db.cashVault.vaultVersion) || 0,
     transfers: [...(db.cashVault.transfers || [])].sort((a, b) =>
       String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
     ),
@@ -1351,8 +1473,14 @@ export function getCashVault(db) {
 /** Карта → нал: сначала основной ящик, потом открытые смены. */
 export function convertVaultCardToCash(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.cashVault.converts || []).find(c => c.clientRef === clientRef)
+    if (known) return known
+  }
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
+  assertVaultVersion(db, data.expectedVaultVersion)
 
   const openShifts = (db.posShifts || []).filter(s => s.status === 'open')
   const mainCard = round2(db.cashVault.cardTotal)
@@ -1393,6 +1521,7 @@ export function convertVaultCardToCash(db, data = {}) {
     clientRef: data.clientRef || undefined,
   }
   db.cashVault.converts.unshift(row)
+  bumpVaultVersion(db)
 
   appendMoneyLedger(db, {
     type: 'vault_card_to_cash',
@@ -1412,8 +1541,14 @@ export function convertVaultCardToCash(db, data = {}) {
 /** Нал → карта: сначала основной ящик, потом открытые смены. */
 export function convertVaultCashToCard(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.cashVault.converts || []).find(c => c.clientRef === clientRef)
+    if (known) return known
+  }
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
+  assertVaultVersion(db, data.expectedVaultVersion)
 
   const openShifts = (db.posShifts || []).filter(s => s.status === 'open')
   const mainCash = round2(db.cashVault.cashTotal)
@@ -1451,9 +1586,17 @@ export function convertVaultCashToCard(db, data = {}) {
     if (rest > 0.001) {
       s.openingCash = round2(Math.max(0, (Number(s.openingCash) || 0) - rest))
     }
+    const fromOpening = rest > 0.001 ? rest : 0
     s.salesCard = round2((Number(s.salesCard) || 0) + take)
     touchShift(s)
-    fromShifts.push({ shiftId: s.id, posId: s.posId || '', amount: take })
+    fromShifts.push({
+      shiftId: s.id,
+      posId: s.posId || '',
+      amount: take,
+      fromIn,
+      fromSales,
+      fromOpening,
+    })
     left = round2(left - take)
   }
 
@@ -1468,6 +1611,7 @@ export function convertVaultCashToCard(db, data = {}) {
     clientRef: data.clientRef || undefined,
   }
   db.cashVault.converts.unshift(row)
+  bumpVaultVersion(db)
 
   appendMoneyLedger(db, {
     type: 'vault_cash_to_card',
@@ -1503,6 +1647,8 @@ export function createSupplier(db, data = {}) {
     payableAmount: 0,
     totalSupplied: 0,
     totalPaid: 0,
+    payVersion: 0,
+    supplyVersion: 0,
     lastDeliveryAtIso: null,
   }
   db.suppliers.unshift(row)
@@ -1513,7 +1659,16 @@ export function updateSupplier(db, id, patch = {}) {
   ensurePosCollections(db)
   const row = db.suppliers.find(s => s.id === id)
   if (!row) throw new Error('Поставщик не найден')
-  Object.assign(row, patch)
+  const next = { ...patch }
+  // Клиент не должен перезаписывать учёт долга / версию
+  delete next.payableAmount
+  delete next.totalSupplied
+  delete next.totalPaid
+  delete next.payVersion
+  delete next.supplyVersion
+  delete next.debtVersion
+  delete next.id
+  Object.assign(row, next)
   row.name = String(row.name || '').trim()
   return row
 }
@@ -1524,8 +1679,10 @@ export function createSupplierPayment(db, supplierId, data = {}) {
   if (!supplier) throw new Error('Поставщик не найден')
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
+  assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion)
   supplier.totalPaid = round2((supplier.totalPaid || 0) + amount)
   syncSupplierPayable(supplier)
+  bumpSupplierPayVersion(supplier)
   const payment = {
     id: nextId('SPAY'),
     supplierId: supplier.id,
@@ -1545,15 +1702,17 @@ export function listSupplierPayments(db, supplierId) {
     .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
 }
 
-export function deleteSupplierPayment(db, supplierId, paymentId) {
+export function deleteSupplierPayment(db, supplierId, paymentId, data = {}) {
   ensurePosCollections(db)
   const idx = (db.supplierPayments || []).findIndex(p => p.id === paymentId && p.supplierId === supplierId)
   if (idx < 0) throw new Error('Платёж не найден')
   const payment = db.supplierPayments[idx]
   const supplier = db.suppliers.find(s => s.id === supplierId)
   if (supplier) {
+    assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion, 'Удаление')
     supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - payment.amount))
     syncSupplierPayable(supplier)
+    bumpSupplierPayVersion(supplier)
   }
   db.supplierPayments.splice(idx, 1)
   return { id: paymentId }
@@ -1581,6 +1740,11 @@ export function listExpenses(db) {
 
 export function createExpense(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.expenses || []).find(e => e.clientRef === clientRef)
+    if (known) return known
+  }
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму расхода')
   let shift = null
@@ -1605,7 +1769,7 @@ export function createExpense(db, data = {}) {
     createdBy: String(data.createdBy || '').trim(),
     shiftId: shift?.id || undefined,
     createdAtIso: stampFromClient(data, 'createdAtIso'),
-    clientRef: data.clientRef || undefined,
+    clientRef: clientRef || undefined,
   }
   db.expenses.unshift(row)
   if (shift) {
@@ -1657,11 +1821,17 @@ export function listFinanceMoves(db) {
 
 export function createFinanceMove(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.financeMoves || []).find(m => m.clientRef === clientRef)
+    if (known) return { ...known, payment: null }
+  }
   const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
   const payFrom = data.payFrom === 'vault' ? 'vault' : 'shift'
   const method = data.method === 'card' ? 'card' : 'cash'
+  if (payFrom === 'vault') assertVaultVersion(db, data.expectedVaultVersion)
 
   let shift = null
   if (data.shiftId) {
@@ -1712,6 +1882,7 @@ export function createFinanceMove(db, data = {}) {
   if (type === 'withdraw' && supplierId) {
     supplier = db.suppliers.find(s => s.id === supplierId)
     if (!supplier) throw new Error('Поставщик не найден')
+    assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion)
   }
 
   const note = String(data.note || '').trim()
@@ -1735,9 +1906,12 @@ export function createFinanceMove(db, data = {}) {
     posId: shift?.posId || data.posId || '',
     supplierId: supplier?.id,
     supplierName: supplier?.name,
-    clientRef: data.clientRef || undefined,
+    clientRef: clientRef || undefined,
     payFrom,
     method,
+    refType: data.refType ? String(data.refType) : undefined,
+    reason: reason || undefined,
+    cardNum: data.cardNum ? String(data.cardNum).toUpperCase() : undefined,
   }
   db.financeMoves.unshift(row)
 
@@ -1753,6 +1927,7 @@ export function createFinanceMove(db, data = {}) {
     } else {
       db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
     }
+    bumpVaultVersion(db)
   } else if (shift) {
     if (type === 'withdraw') {
       if (method === 'card') {
@@ -1771,6 +1946,7 @@ export function createFinanceMove(db, data = {}) {
   if (supplier) {
     supplier.totalPaid = round2((Number(supplier.totalPaid) || 0) + amount)
     syncSupplierPayable(supplier)
+    bumpSupplierPayVersion(supplier)
     payment = {
       id: nextId('SPAY'),
       supplierId: supplier.id,
@@ -1868,20 +2044,52 @@ export function applyDebtRepayToShift(db, data = {}) {
   }
 }
 
+export function isCardTopupFinanceMove(row) {
+  if (!row) return false
+  if (String(row.refType || '') === 'card_topup') return true
+  const reason = String(row.reason || '')
+  const note = String(row.note || '')
+  return /пополнение бонусов/i.test(reason) || /пополнение бонусов/i.test(note)
+}
+
 export function deleteFinanceMove(db, id) {
   ensurePosCollections(db)
   const idx = db.financeMoves.findIndex(r => r.id === id)
   if (idx < 0) throw new Error('Запись не найдена')
   const row = db.financeMoves[idx]
+  if (isCardTopupFinanceMove(row)) {
+    throw new Error('Пополнение бонусов нельзя удалить')
+  }
   const amount = round2(row.amount)
   const type = row.type === 'withdraw' ? 'withdraw' : 'deposit'
+  const payFrom = row.payFrom === 'vault' ? 'vault' : 'shift'
+  const method = row.method === 'card' ? 'card' : 'cash'
   db.financeMoves.splice(idx, 1)
 
-  if (row.shiftId) {
+  if (payFrom === 'vault') {
+    if (type === 'withdraw') {
+      if (method === 'card') {
+        db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + amount)
+      } else {
+        db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
+      }
+    } else if (method === 'card') {
+      db.cashVault.cardTotal = round2(Math.max(0, (Number(db.cashVault.cardTotal) || 0) - amount))
+    } else {
+      db.cashVault.cashTotal = round2(Math.max(0, (Number(db.cashVault.cashTotal) || 0) - amount))
+    }
+    bumpVaultVersion(db)
+  } else if (row.shiftId) {
     const shift = db.posShifts.find(s => s.id === row.shiftId)
     if (shift) {
       if (type === 'withdraw') {
-        shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+        if (method === 'card') {
+          shift.salesCard = round2((Number(shift.salesCard) || 0) + amount)
+        } else {
+          shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+        }
+      } else if (method === 'card') {
+        shift.salesCard = round2(Math.max(0, (Number(shift.salesCard) || 0) - amount))
       } else {
         shift.cashInTotal = round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount))
       }
@@ -1894,6 +2102,7 @@ export function deleteFinanceMove(db, id) {
     if (supplier) {
       supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - amount))
       syncSupplierPayable(supplier)
+      bumpSupplierPayVersion(supplier)
     }
   }
 
@@ -1913,6 +2122,104 @@ export function listStockReceipts(db) {
   return [...db.stockReceipts].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
 }
 
+/**
+ * После снятия прихода totalPaid может остаться больше totalSupplied
+ * (отдельные оплаты долга). Убираем лишние оплаты с конца, как будто их не было:
+ * книга — просто стереть; с кассы — вернуть деньги.
+ */
+function trimSupplierOverpayAfterSupplyChange(db, supplierId) {
+  if (!supplierId) return
+  const supplier = (db.suppliers || []).find(s => s.id === supplierId)
+  if (!supplier) return
+  let changed = false
+
+  const restorePaymentCash = (payment) => {
+    const amount = round2(payment.amount)
+    if (!(amount > 0.001)) return
+    const payFrom = payment.payFrom === 'vault' ? 'vault' : 'shift'
+    const method = payment.method === 'card' ? 'card' : 'cash'
+    if (payFrom === 'vault') {
+      if (!db.cashVault) db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
+      if (method === 'card') {
+        db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + amount)
+      } else {
+        db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
+      }
+    } else if (payment.shiftId) {
+      const shift = (db.posShifts || []).find(s => s.id === payment.shiftId)
+      if (shift) {
+        if (method === 'card') {
+          shift.salesCard = round2((Number(shift.salesCard) || 0) + amount)
+        } else {
+          shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+        }
+        touchShift(shift)
+      }
+    }
+    const finId = String(payment.financeMoveId || '')
+    if (finId) {
+      db.financeMoves = (db.financeMoves || []).filter(m => String(m.id) !== finId)
+      db.moneyLedger = (db.moneyLedger || []).filter(
+        e => !(e.refType === 'finance_move' && String(e.refId) === finId),
+      )
+    }
+  }
+
+  while (true) {
+    const excess = round2((Number(supplier.totalPaid) || 0) - (Number(supplier.totalSupplied) || 0))
+    if (!(excess > 0.001)) break
+
+    const payments = (db.supplierPayments || [])
+      .filter(p => String(p.supplierId) === String(supplierId))
+      .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
+
+    if (!payments.length) {
+      supplier.totalPaid = round2(Math.max(0, Number(supplier.totalSupplied) || 0))
+      changed = true
+      break
+    }
+
+    const payment = payments[0]
+    const amt = round2(payment.amount)
+    if (!(amt > 0.001)) {
+      db.supplierPayments = (db.supplierPayments || []).filter(p => p.id !== payment.id)
+      changed = true
+      continue
+    }
+
+    if (amt <= excess + 0.009) {
+      // целиком убрать оплату
+      if (payment.payFrom && payment.payFrom !== 'book') {
+        restorePaymentCash(payment)
+      } else if (payment.financeMoveId) {
+        restorePaymentCash(payment)
+      }
+      db.supplierPayments = (db.supplierPayments || []).filter(p => p.id !== payment.id)
+      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - amt))
+      changed = true
+    } else {
+      // уменьшить последнюю оплату на excess
+      const leave = round2(amt - excess)
+      payment.amount = leave
+      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - excess))
+      // частичный возврат кассы по доле
+      if ((payment.payFrom && payment.payFrom !== 'book') || payment.financeMoveId) {
+        const slice = { ...payment, amount: excess }
+        restorePaymentCash(slice)
+        if (payment.financeMoveId) {
+          const move = (db.financeMoves || []).find(m => String(m.id) === String(payment.financeMoveId))
+          if (move) move.amount = leave
+        }
+      }
+      changed = true
+      break
+    }
+  }
+
+  syncSupplierPayable(supplier)
+  if (changed) bumpSupplierPayVersion(supplier)
+}
+
 function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
   if (!supplierId) return null
   const supplier = (db.suppliers || []).find(s => s.id === supplierId)
@@ -1921,6 +2228,8 @@ function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
   supplier.totalSupplied = round2(Math.max(0, (supplier.totalSupplied || 0) - receiptTotal))
   supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - paidNow))
   syncSupplierPayable(supplier)
+  bumpSupplierSupplyVersion(supplier)
+  trimSupplierOverpayAfterSupplyChange(db, supplierId)
   return supplier
 }
 
@@ -2048,6 +2357,7 @@ function buildStockReceipt(db, data = {}, meta = {}) {
     createdAtIso: meta.createdAtIso || nowIso(),
     serverAtIso: nowIso(),
     createdBy: String(meta.createdBy || data.createdBy || '').trim(),
+    clientRef: data.clientRef || meta.clientRef || undefined,
     totalCost,
     paidNow,
     debtAdded: round2(Math.max(0, totalCost - paidNow)),
@@ -2139,6 +2449,20 @@ function applyReceiptPaidNow(db, receipt, data = {}) {
 
 export function createStockReceipt(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.stockReceipts || []).find(r => r.clientRef === clientRef)
+    if (known) return known
+  }
+  const supplierId = String(data.supplierId || '').trim()
+  if (supplierId) {
+    const supplierRow = (db.suppliers || []).find(s => s.id === supplierId)
+    if (!supplierRow) throw new Error('Поставщик не найден')
+    assertSupplierSupplyVersion(
+      supplierRow,
+      data.expectedSupplyVersion ?? data.expectedDebtVersion ?? data.debtVersion,
+    )
+  }
   const meta = {}
   if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
   const receipt = buildStockReceipt(db, data, meta)
@@ -2155,6 +2479,17 @@ export function updateStockReceipt(db, id, data = {}) {
   ensurePosCollections(db)
   const receipt = (db.stockReceipts || []).find(r => r.id === id)
   if (!receipt) throw new Error('Приход не найден')
+  // Проверка версии до отката: иначе reverse уже сдвинет счётчик
+  const supplierIdForCheck = String(data.supplierId || receipt.supplierId || '').trim()
+  if (supplierIdForCheck) {
+    const supplierRow = (db.suppliers || []).find(s => s.id === supplierIdForCheck)
+    if (supplierRow) {
+      assertSupplierSupplyVersion(
+        supplierRow,
+        data.expectedSupplyVersion ?? data.expectedDebtVersion ?? data.debtVersion,
+      )
+    }
+  }
   const meta = {
     id: receipt.id,
     createdAtIso: receipt.createdAtIso,
@@ -2188,6 +2523,7 @@ function buildStockWriteoff(db, data = {}, meta = {}) {
     createdBy: String(meta.createdBy || data.createdBy || '').trim(),
     reason: String(data.reason || '').trim() || 'Списание',
     note: String(data.note || '').trim(),
+    clientRef: data.clientRef || meta.clientRef || undefined,
     totalCost: round2(rows.reduce((sum, row) => sum + (Number(row.product.costPrice) || 0) * row.qty, 0)),
     items: rows.map(row => {
       const unitCost = round2(Number(row.product.costPrice) || 0)
@@ -2211,8 +2547,14 @@ export function listStockWriteoffs(db) {
 
 export function createStockWriteoff(db, data = {}) {
   ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.writeOffs || []).find(w => w.clientRef === clientRef)
+    if (known) return known
+  }
   const meta = {}
   if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
+  if (clientRef) meta.clientRef = clientRef
   return buildStockWriteoff(db, data, meta)
 }
 
@@ -2397,6 +2739,23 @@ export function createPosSale(db, data = {}) {
   const deviceId = String(data.deviceId || '').trim()
   const deviceName = String(data.deviceName || '').trim()
   const opSeq = allocSaleOpSeq(db, posId, data.opSeq, deviceId)
+  const debtAddedEarly = round2(data.debtAdded ?? 0)
+  const bonusSpentEarly = Math.max(0, Math.floor(Number(data.bonusSpent) || 0))
+  const paidWalletEarly = round2(data.paidWallet ?? 0)
+  if (debtAddedEarly > 0 || bonusSpentEarly > 0 || paidWalletEarly > 0) {
+    const { client: earlyClient, card: earlyCard } = resolveSaleClientAndCard(db, data)
+    if (debtAddedEarly > 0) assertCardDebtPayVersion(earlyCard, data.expectedDebtPayVersion)
+    if (bonusSpentEarly > 0) assertCardBonusPayVersion(earlyCard, data.expectedBonusPayVersion)
+    if (paidWalletEarly > 0) {
+      const balance = Math.max(
+        Number(earlyCard?.wallet) || 0,
+        Number(earlyClient?.wallet) || 0,
+      )
+      if (paidWalletEarly > balance + 0.001) {
+        throw new Error('Недостаточно средств на кошельке клиента')
+      }
+    }
+  }
   const skipStock = shouldSkipSaleStock(
     db,
     posId,
@@ -2571,8 +2930,10 @@ export function createPosSale(db, data = {}) {
       const gate = canTakeNewDebt(client, card, debtAdded)
       if (!gate.ok) throw new Error(gate.reason)
     }
+    assertCardDebtPayVersion(card, data.expectedDebtPayVersion)
     const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
     applyDebtToPair(client, card, nextDebt)
+    bumpCardDebtPayVersion(card)
     if (client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
       const { notifications } = addDebtCharge(client, card, {
@@ -2589,15 +2950,38 @@ export function createPosSale(db, data = {}) {
   }
   if (skipBalances) {
     const { client, card } = resolveSaleClientAndCard(db, data)
-    if (data.clientDebtAfter != null) {
-      applyDebtToPair(client, card, data.clientDebtAfter)
+    // Риск 4.2: сервер сам плюсует долг / минусует кошелёк и ⭐, не слепо clientDebtAfter
+    if (debtAdded > 0) {
+      assertCardDebtPayVersion(card, data.expectedDebtPayVersion)
+      const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
+      applyDebtToPair(client, card, nextDebt)
+      bumpCardDebtPayVersion(card)
     }
-    if (data.walletAfter != null) {
-      const w = round2(data.walletAfter)
-      if (client) client.wallet = w
-      if (card) card.wallet = w
+    if (paidWallet > 0) {
+      const balance = Math.max(
+        Number(card?.wallet) || 0,
+        Number(client?.wallet) || 0,
+      )
+      if (paidWallet > balance + 0.001) {
+        throw new Error('Недостаточно средств на кошельке клиента')
+      }
+      const nextW = round2(Math.max(0, balance - paidWallet))
+      if (card) card.wallet = nextW
+      if (client) client.wallet = nextW
     }
-    if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
+    if (bonusSpent > 0 || bonusEarned > 0) {
+      assertCardBonusPayVersion(card, data.expectedBonusPayVersion)
+      const base = Math.max(0, Math.floor(Number(card?.bonus ?? client?.bonus) || 0))
+      const nextB = Math.max(0, base - bonusSpent + bonusEarned)
+      if (card) {
+        card.bonus = nextB
+        if (bonusSpent > 0) {
+          card.posCashBonus = Math.max(0, Math.floor(Number(card.posCashBonus) || 0) - bonusSpent)
+        }
+        card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
+      }
+      if (client) client.bonus = nextB
+    } else if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
       const b = Math.max(0, Math.floor(Number(data.bonusAfter ?? data.bonusBalanceAfter)))
       if (card) card.bonus = b
       if (client) client.bonus = b
@@ -2879,11 +3263,8 @@ export function returnPosSale(db, saleId, meta = {}) {
       debtBefore = round2(Math.max(0, (Number(sale.total) || 0) - paid))
     }
   }
-  // Local-first: доверяем cutDebt с кассы, если он > 0; иначе считаем сами
-  if (skipBalanceRestore && meta.cutDebt != null && Number(meta.cutDebt) > 0.001) {
-    cutDebt = round2(Math.min(debtBefore, remainCashCut, Math.max(0, Number(meta.cutDebt))))
-    remainCashCut = round2(remainCashCut - cutDebt)
-  } else if (debtBefore > 0 && remainCashCut > 0) {
+  // Local-first: cutDebt всегда считаем сами (не слепо meta.cutDebt) — риск 5.2
+  if (debtBefore > 0 && remainCashCut > 0) {
     cutDebt = Math.min(debtBefore, remainCashCut)
     remainCashCut = round2(remainCashCut - cutDebt)
   }
@@ -2928,47 +3309,44 @@ export function returnPosSale(db, saleId, meta = {}) {
   sale.bonusSpent = Math.max(0, round2(bonusBefore - cutBonus))
   sale.total = Math.max(0, round2((Number(sale.total) || 0) - (returnTotal - cutBonus)))
 
-  // Долг клиента: при skipBalances — clientDebtAfter с кассы; иначе −cutDebt
-  if (cutDebt > 0 || (skipBalanceRestore && meta.clientDebtAfter != null)) {
+  // Долг / кошелёк / бонусы: всегда дельты на сервере (риск 5.2 / 5.3)
+  if (cutDebt > 0 || cutWallet > 0 || cutBonus > 0) {
     const { client, card } = resolveSaleClientAndCard(db, sale)
-    if (skipBalanceRestore && meta.clientDebtAfter != null) {
-      applyDebtToPair(client, card, meta.clientDebtAfter)
-    } else if (cutDebt > 0) {
-      applyDebtToPair(client, card, effectiveDebt(client, card) - cutDebt)
+    if (cutDebt > 0) {
+      assertCardDebtPayVersion(card, meta.expectedDebtPayVersion)
+      applyDebtToPair(client, card, Math.max(0, round2(effectiveDebt(client, card) - cutDebt)))
+      bumpCardDebtPayVersion(card)
+      if (client) {
+        applyDebtRepayment(client, card, cutDebt, {
+          desc: `Возврат · ${sale.orderId || sale.number}`,
+          saleId: sale.id,
+          orderId: sale.orderId,
+        })
+      }
     }
-    if (client && cutDebt > 0) {
-      applyDebtRepayment(client, card, cutDebt, {
-        desc: `Возврат · ${sale.orderId || sale.number}`,
-        saleId: sale.id,
-        orderId: sale.orderId,
-      })
+    if (cutWallet > 0) {
+      if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
+      if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
     }
-  }
-
-  // Возврат денег на кошелёк клиента (если платили с кошелька)
-  if (cutWallet > 0 && !skipBalanceRestore) {
-    const { client, card } = resolveSaleClientAndCard(db, sale)
-    if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
-    if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
-  }
-
-  // Возврат бонусов клиенту
-  if (cutBonus > 0 && !skipBalanceRestore) {
-    const { client, card } = resolveSaleClientAndCard(db, sale)
-    if (card) {
-      card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
+    if (cutBonus > 0) {
+      assertCardBonusPayVersion(card, meta.expectedBonusPayVersion)
+      if (card) {
+        card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
+        card.posCashBonus = round2((Number(card.posCashBonus) || 0) + cutBonus)
+        card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
+      }
+      if (client) {
+        client.bonus = card
+          ? card.bonus
+          : round2((Number(client.bonus) || 0) + cutBonus)
+      }
+      const order = (db.orders || []).find(o => String(o.id) === String(sale.orderId || ''))
+      if (order) {
+        order.bonusSpent = Math.max(0, round2((Number(order.bonusSpent) || 0) - cutBonus))
+      }
+      sale._bonusRefunded = cutBonus
+      sale._bonusRefundPhone = client?.phone || sale.clientPhone || ''
     }
-    if (client) {
-      client.bonus = card
-        ? card.bonus
-        : round2((Number(client.bonus) || 0) + cutBonus)
-    }
-    const order = (db.orders || []).find(o => String(o.id) === String(sale.orderId || ''))
-    if (order) {
-      order.bonusSpent = Math.max(0, round2((Number(order.bonusSpent) || 0) - cutBonus))
-    }
-    sale._bonusRefunded = cutBonus
-    sale._bonusRefundPhone = client?.phone || sale.clientPhone || ''
   }
 
   const fullyReturned = items.every(it => {
@@ -2982,6 +3360,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
   }
   const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
+  // Смену на сервере крутим только если касса ещё не крутила (не skipBalances)
   if (shift && shift.status === 'open' && !skipBalanceRestore) {
     if (fullyReturned) shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
     shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))

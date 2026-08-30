@@ -195,7 +195,7 @@ function isTransientFailError(err: string): boolean {
 
 /** Явные ошибки валидации — бессмысленно долбить бесконечно в фоне */
 function isHardValidationError(err: string): boolean {
-  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав/i.test(err)
+  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|уже меняли|уже погашали|не приняли|верси.*ожидали/i.test(err)
     && !isTransientFailError(err)
 }
 
