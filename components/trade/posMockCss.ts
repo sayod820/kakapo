@@ -984,6 +984,14 @@ export const POS_MOCK_CSS = `
   .cart-row .meta .line-bulk{color:var(--red);font-weight:900;flex-shrink:0;}
   .cart-row .meta .line-bulk-unit{color:var(--red);font-weight:900;}
   .cart-row.bulk .price{color:var(--red);}
+  .cart-row.over-stock{border-color:rgba(255,90,90,.55);background:rgba(255,70,70,.08);box-shadow:inset 3px 0 0 var(--red);}
+  .cart-stock-block{
+    margin:8px 0 0;padding:10px 12px;border-radius:12px;
+    background:rgba(255,70,70,.12);border:1px solid rgba(255,90,90,.4);
+    display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.35;
+  }
+  .cart-stock-block b{color:var(--red);font-size:12.5px;}
+  .cart-stock-block-hint{opacity:.85;font-weight:700;}
   .cart-row .codes{display:none;}
   .cart-row .sub{display:none;}
   .qtyctrl{display:flex;align-items:center;gap:7px;background:var(--surface2);border-radius:10px;padding:5px;flex-shrink:0;}

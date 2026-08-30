@@ -2154,8 +2154,7 @@ export default function CashierModule({
         const w = g / 1000
         setCart(prev => prev.map(l => {
           if (l.key !== key || l.weightKg == null) return l
-          const maxW = Number(l.stock) || w
-          return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+          return { ...l, weightKg: w, qty: 1 }
         }))
       }
     }
@@ -3318,6 +3317,13 @@ export default function CashierModule({
   }, [client, loyalty, histTick, cashierDebtPanel.totalChecks])
 
   const subtotalGross = useMemo(() => cart.reduce((s, l) => s + lineGross(l), 0), [cart])
+  const cartStockBlocked = useMemo(
+    () => cartStockShortfalls(cart),
+    // liveStockForProduct зависит от партий и каталога
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cart, products, stockLayersByProduct, stockLayersLoaded],
+  )
+  const payBlockedByStock = cartStockBlocked.length > 0
   const itemDiscAmount = useMemo(() => cart.reduce((s, l) => s + (lineGross(l) - lineNet(l)), 0), [cart])
   const subtotal = useMemo(() => cart.reduce((s, l) => s + lineNet(l), 0), [cart])
   const levelDiscPct = useMemo(() => {
@@ -3377,26 +3383,6 @@ export default function CashierModule({
     return productBarcodes(p)[0] || String(p.art || '').trim()
   }
 
-  function openOutOfStockBlockAlert(p: Product, available: number, inCart?: number) {
-    const unit = displaySellUnit(p)
-    const code = productScanCode(p)
-    if (!(available > 0)) {
-      openScanBlockAlert(
-        'Нет на складе',
-        `${p.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
-        code,
-      )
-      return
-    }
-    const inCheck = inCart != null ? Math.round(inCart * 1000) / 1000 : 0
-    openScanBlockAlert(
-      'Мало на складе',
-      `${p.name} — на складе ${fmtQty(available)} ${unit}${inCheck > 0 ? `, в чеке уже ${fmtQty(inCheck)} ${unit}` : ''}. `
-        + 'Касса остановлена — нажмите «Отмена», затем продолжайте.',
-      code,
-    )
-  }
-
   function cartNeedByProduct(lines: CartLine[]): Map<number, number> {
     const m = new Map<number, number>()
     for (const line of lines) {
@@ -3407,21 +3393,41 @@ export default function CashierModule({
     return m
   }
 
-  function blockIfCartOverLiveStock(lines: CartLine[]): boolean {
+  /** Позиции чека, где в чеке больше, чем живой остаток на складе */
+  function cartStockShortfalls(lines: CartLine[]): Array<{
+    product: Product
+    need: number
+    have: number
+  }> {
     const need = cartNeedByProduct(lines)
+    const out: Array<{ product: Product; need: number; have: number }> = []
     for (const [pid, qty] of need) {
       const p = products.find(x => x.id === pid)
       if (!p) continue
       const have = liveStockForProduct(p)
-      if (qty > have + 0.001) {
-        const inCart = lines
-          .filter(l => l.productId === pid)
-          .reduce((s, l) => s + (l.weightKg != null ? (Number(l.weightKg) || 0) : (Number(l.qty) || 0)), 0)
-        openOutOfStockBlockAlert(p, have, inCart)
-        return true
-      }
+      if (qty > have + 0.001) out.push({ product: p, need: qty, have })
     }
-    return false
+    return out
+  }
+
+  function openPayBlockedStockAlert(shortfalls: ReturnType<typeof cartStockShortfalls>) {
+    const first = shortfalls[0]
+    if (!first) return
+    const unit = displaySellUnit(first.product)
+    const more = shortfalls.length > 1 ? ` · ещё ${shortfalls.length - 1}` : ''
+    openScanBlockAlert(
+      'Не хватает на складе',
+      `${first.product.name}: в чеке ${fmtQty(first.need)} ${unit}, на складе ${fmtQty(first.have)} ${unit}${more}. `
+        + 'В чек уже добавлено. Пробить нельзя, пока не добавят остаток на склад.',
+      productScanCode(first.product),
+    )
+  }
+
+  function blockIfCartOverLiveStock(lines: CartLine[]): boolean {
+    const shortfalls = cartStockShortfalls(lines)
+    if (!shortfalls.length) return false
+    openPayBlockedStockAlert(shortfalls)
+    return true
   }
 
   function closeScanBlockAlert() {
@@ -3459,16 +3465,6 @@ export default function CashierModule({
   }
 
   function confirmBarcodePick(p: Product) {
-    const code = barcodePick?.code || ''
-    if (liveStockForProduct(p) <= 0) {
-      closeBarcodePick()
-      openScanBlockAlert(
-        'Нет на складе',
-        `${p.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
-        code,
-      )
-      return
-    }
     closeBarcodePick()
     addProduct(p, undefined, { fromScanner: true })
     window.setTimeout(focusProductSearch, 0)
@@ -3613,15 +3609,6 @@ export default function CashierModule({
           scanBurstRef.current = false
           return true
         }
-        if (liveStockForProduct(scaleHit as Product) <= 0) {
-          openScanBlockAlert(
-            'Нет на складе',
-            `${scaleHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
-            raw,
-          )
-          scanBurstRef.current = false
-          return true
-        }
         if (!isWeighted(scaleHit)) {
           openScanBlockAlert(
             'Не весовой товар',
@@ -3660,7 +3647,7 @@ export default function CashierModule({
         setQ(scanAccumRef.current)
         scheduleScanCommit(SCAN_IDLE_MS)
       return false
-    }
+      }
       if (fromScanner || looksNumericCode) {
         openScanBlockAlert(
           'Товар не найден',
@@ -3670,20 +3657,6 @@ export default function CashierModule({
         scanBurstRef.current = false
         return true
       }
-      scanBurstRef.current = false
-      return false
-    }
-    if (liveStockForProduct(productHit) <= 0) {
-      if (fromScanner || digits.length >= 6 || raw.length >= 6) {
-        openScanBlockAlert(
-          'Нет на складе',
-          `${productHit.name} — остаток 0. Касса остановлена — нажмите «Отмена», затем продолжайте.`,
-          raw,
-        )
-        scanBurstRef.current = false
-        return true
-      }
-      showToast('Нет на складе', productHit.name)
       scanBurstRef.current = false
       return false
     }
@@ -5213,11 +5186,6 @@ export default function CashierModule({
       setOpenShiftModal(true)
       return
     }
-    const stock = liveStockForProduct(p)
-    if (stock <= 0) {
-      openOutOfStockBlockAlert(p, 0)
-      return
-    }
 
     // После выбора/скана — сразу чистим поиск, как на обычной кассе
     clearProductSearch()
@@ -5430,8 +5398,7 @@ export default function CashierModule({
       const w = g / 1000
       setCart(prev => prev.map(l => {
         if (l.key !== key || l.weightKg == null) return l
-        const maxW = Number(l.stock) || w
-        return { ...l, weightKg: Math.min(w, maxW), qty: 1 }
+        return { ...l, weightKg: w, qty: 1 }
       }))
     }
   }
@@ -5518,22 +5485,10 @@ export default function CashierModule({
     },
   ) {
     const stockTotal = liveStockForProduct(p)
-    if (stockTotal <= 0) {
-      openOutOfStockBlockAlert(p, 0)
-      return
-    }
     const preferRetailPrice = opts?.preferRetailPrice
     const layerStock = opts?.stock != null
       ? Number(opts.stock) || 0
       : (layer ? Number(layer.remainingQty) || 0 : stockTotal)
-    if (layer && !(layerStock > 0)) {
-      showToast('Партия пуста', 'Выберите другую партию')
-      return
-    }
-    if (preferRetailPrice != null && !(layerStock > 0)) {
-      showToast('Нет остатка', 'По этой цене товар закончился')
-      return
-    }
     // При выборе цены — не фиксируем одну партию, списание FIFO внутри цены
     const receiptId = preferRetailPrice != null ? undefined : layer?.receiptId
     const costPrice = opts?.costPrice != null
@@ -5559,6 +5514,8 @@ export default function CashierModule({
         : (layer ? Number(layer.retailPrice) || 0 : 0),
       costPrice,
     })
+    // stock на строке = живой остаток (для подсказки), количество в чек не режем
+    const stockHint = Math.max(0, layerStock > 0 ? layerStock : stockTotal)
 
     if (isWeighted(p) && weightKg == null) {
       const key = cartLineKey(p.id, receiptId, 0, preferRetailPrice)
@@ -5572,7 +5529,7 @@ export default function CashierModule({
         emoji: p.e || '📦',
         price,
         qty: 1,
-        stock: layerStock,
+        stock: stockHint,
         unit: displaySellUnit(p),
         art,
         barcode,
@@ -5619,7 +5576,7 @@ export default function CashierModule({
           emoji: p.e || '📦',
           price,
           qty: 1,
-          stock: layerStock,
+          stock: stockHint,
         unit: displaySellUnit(p),
           art,
           barcode,
@@ -5640,17 +5597,12 @@ export default function CashierModule({
 
     // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
     let revealKey: string | null = null
-    let blockedOverStock = false
     flushSync(() => {
       setTickets(prevTickets => prevTickets.map(t => {
         if (t.id !== activeTicketId) return t
         const prev = dropZeroWeightLines(t.cart)
         const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
       if (idx >= 0) {
-          if (prev[idx].qty >= prev[idx].stock) {
-            blockedOverStock = true
-            return t
-          }
           const nextQty = prev[idx].qty + 1
           const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
           const lineBase = preferRetailPrice != null && preferRetailPrice > 0
@@ -5660,7 +5612,7 @@ export default function CashierModule({
             ...prev[idx],
             qty: nextQty,
             price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
-            stock: layerStock > 0 ? layerStock : prev[idx].stock,
+            stock: stockHint,
             retailBase: lineBase,
             bulkPricing: lineBulk,
             ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
@@ -5687,7 +5639,7 @@ export default function CashierModule({
         emoji: p.e || '📦',
         price,
         qty: 1,
-        stock: layerStock,
+        stock: stockHint,
         unit: displaySellUnit(p),
         art,
         barcode,
@@ -5706,14 +5658,6 @@ export default function CashierModule({
         }
       }))
     })
-    if (blockedOverStock) {
-      const line = cartRef.current.find(l => l.productId === p.id && l.weightKg == null)
-      openOutOfStockBlockAlert(p, line?.stock ?? stockTotal, line?.qty)
-      setLayerPickOpen(false)
-      setLayerPickProduct(null)
-      setLayerPickGroups([])
-      return
-    }
     if (revealKey) {
       // DOM уже обновлён (flushSync) — крутим сразу, потом ещё раз после фокуса поиска
       pinCartToPunched(revealKey)
@@ -5744,16 +5688,15 @@ export default function CashierModule({
     setCart(prev => prev.map(l => {
       if (l.key !== key) return l
       const q = Math.round(Math.max(0, qty) * 1000) / 1000
-      const capped = Math.min(l.stock, q)
       const p = products.find(x => x.id === l.productId)
       const base = l.retailBase ?? l.preferRetailPrice ?? (Number(p?.price) || l.price)
       const bulk = resolveLineBulkPricing(l.bulkPricing, p?.bulkPricing)
       return {
         ...l,
-        qty: capped,
+        qty: q,
         retailBase: base,
         bulkPricing: bulk,
-        price: cartUnitPriceForQty(base, bulk, capped, l.weightKg),
+        price: cartUnitPriceForQty(base, bulk, q, l.weightKg),
       }
     }).filter(l => l.qty > 0 || (l.weightKg != null && l.weightKg > 0)))
   }
@@ -5762,15 +5705,13 @@ export default function CashierModule({
     setCart(prev => prev.map(l => {
       if (l.key !== key) return l
       const w = Math.max(0, Math.round(weightKg * 1000) / 1000)
-      const maxW = l.stock > 0 ? l.stock : w
-      const nextW = Math.min(w, maxW)
       const base = l.retailBase ?? l.preferRetailPrice ?? l.price
       return {
         ...l,
-        weightKg: nextW,
+        weightKg: w,
         qty: 1,
         retailBase: base,
-        price: cartUnitPriceForQty(base, l.bulkPricing, 1, nextW),
+        price: cartUnitPriceForQty(base, l.bulkPricing, 1, w),
       }
     }).filter(l => (l.weightKg != null ? l.weightKg > 0 : l.qty > 0)))
   }
@@ -5834,10 +5775,6 @@ export default function CashierModule({
     const { qty, isWeight } = resolveQtyEdit(line, qtyEditMode, qtyEditBuf)
     if (qty <= 0) {
       showToast('Ошибка', 'Укажите значение больше 0')
-      return
-    }
-    if (qty > line.stock + 0.001) {
-      showToast('Мало на складе', `Доступно ${line.stock}${isWeight ? ' кг' : ' шт'}`)
       return
     }
     if (isWeight) setLineWeight(qtyEditKey, qty)
@@ -6875,6 +6812,7 @@ export default function CashierModule({
       return
     }
     if (!cart.length) return
+    if (blockIfCartOverLiveStock(cart)) return
     setPosMobPanel('cart')
     const zeroWeight = cart.find(l => l.weightKg != null && !(l.weightKg > 0.0005))
     if (zeroWeight) {
@@ -8732,11 +8670,15 @@ export default function CashierModule({
               const bulkRetailGross = activeBulk
                 ? Math.round((line.weightKg != null ? retailBase * line.weightKg : retailBase * line.qty) * 100) / 100
                 : 0
+              const lineNeed = line.weightKg != null ? (Number(line.weightKg) || 0) : (Number(line.qty) || 0)
+              const lineProd = products.find(x => x.id === line.productId)
+              const lineHave = lineProd ? liveStockForProduct(lineProd) : Number(line.stock) || 0
+              const lineOverStock = lineNeed > lineHave + 0.001
               return (
                 <div
                   key={line.key}
                   data-line-key={line.key}
-                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${activeBulk ? 'bulk' : ''}`}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${activeBulk ? 'bulk' : ''} ${lineOverStock ? 'over-stock' : ''}`}
                   onClick={() => setSelectedLineKey(line.key)}
                   ref={selectedLineKey === line.key ? (el) => {
                     if (!el) return
@@ -8826,16 +8768,27 @@ export default function CashierModule({
                 <span>−{usedBonus.toFixed(2)}</span>
               </div>
             )}
+            {payBlockedByStock && (
+              <div className="cart-stock-block" role="alert">
+                <b>Не хватает на складе</b>
+                <span>
+                  {cartStockBlocked.map(s => (
+                    `${s.product.name}: ${fmtQty(s.need)} / ${fmtQty(s.have)} ${displaySellUnit(s.product)}`
+                  )).join(' · ')}
+                </span>
+                <span className="cart-stock-block-hint">Пробить нельзя, пока не добавят остаток</span>
+              </div>
+            )}
             <div className="tot-final"><b>Итого</b><span className="sum">{total.toFixed(2)} ЅМ</span></div>
           </div>
 
           <button
             type="button"
             className="btn-checkout"
-            disabled={!cart.length || busy}
+            disabled={!cart.length || busy || payBlockedByStock}
             onClick={startPay}
           >
-            <span>🖨</span><span>Оплатить</span>
+            <span>🖨</span><span>{payBlockedByStock ? 'Нет остатка' : 'Оплатить'}</span>
           </button>
         </div>
 
@@ -8865,10 +8818,10 @@ export default function CashierModule({
           <button
             type="button"
             className="pms-pay"
-            disabled={!cart.length || busy}
+            disabled={!cart.length || busy || payBlockedByStock}
             onClick={startPay}
           >
-            Оплата
+            {payBlockedByStock ? 'Нет ост.' : 'Оплата'}
           </button>
         </nav>
       </div>
@@ -8941,7 +8894,9 @@ export default function CashierModule({
         if (!line) return null
         const { qty: previewQty, amount: previewSum, price, isWeight } = resolveQtyEdit(line, qtyEditMode, qtyEditBuf)
         const unit = isWeight ? 'кг' : (line.unit || 'шт')
-        const overStock = previewQty > line.stock + 0.001
+        const pLive = products.find(x => x.id === line.productId)
+        const liveHave = pLive ? liveStockForProduct(pLive) : Number(line.stock) || 0
+        const overStock = previewQty > liveHave + 0.001
         return (
           <div className="overlay" {...backdropCloseProps(() => closeQtyEdit())}>
             <PadShell
@@ -8959,7 +8914,7 @@ export default function CashierModule({
                 <div className="qty-edit-av">{line.emoji}</div>
                 <div>
                   <div className="qty-edit-name">{line.name}</div>
-                  <div className="qty-edit-stock">На складе: {line.stock} {unit}</div>
+                  <div className="qty-edit-stock">На складе: {fmtQty(liveHave)} {unit}</div>
                 </div>
               </div>
 
@@ -9080,7 +9035,11 @@ export default function CashierModule({
                     {Number(qtyEditBuf || 0).toFixed(2)} ÷ {price.toFixed(2)} = <b>{fmtQty(previewQty)} {unit}</b>
                   </div>
                 )}
-                {overStock && <div className="qty-edit-warn">Больше остатка на складе ({line.stock})</div>}
+                {overStock && (
+                  <div className="qty-edit-warn">
+                    Больше остатка ({fmtQty(liveHave)} {unit}). В чек можно, пробить — после прихода на склад.
+                  </div>
+                )}
               </div>
 
               <div className="qty-edit-toolbar">
