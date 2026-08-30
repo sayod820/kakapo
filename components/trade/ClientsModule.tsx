@@ -236,7 +236,7 @@ function LoyaltyMiniCard({ client, cards }: { client: EnrichedClient; cards: Adm
   )
 }
 
-export default function ClientsModule() {
+export default function ClientsModule({ search = '' }: { search?: string }) {
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   const sales = usePosStore(s => s.sales)
@@ -247,7 +247,6 @@ export default function ClientsModule() {
 
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
 
-  const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('name')
   const [filter, setFilter] = useState<FilterMode>('all')
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -285,7 +284,7 @@ export default function ClientsModule() {
   }, [clients, cards])
 
   const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase()
+    const query = search.trim().toLowerCase()
     let list = clients
     if (filter === 'debt') list = list.filter(c => clientShownDebt(c, cards) > 0)
     else if (filter === 'vip') list = list.filter(c => !!c.vip)
@@ -312,7 +311,7 @@ export default function ClientsModule() {
     else if (sort === 'bonus') sorted.sort((a, b) => (Number(b.bonus) || 0) - (Number(a.bonus) || 0))
     else sorted.sort((a, b) => String(b.lastOrderAt || b.createdAt || '').localeCompare(String(a.lastOrderAt || a.createdAt || '')))
     return sorted
-  }, [clients, cards, q, sort, filter])
+  }, [clients, cards, search, sort, filter])
 
   const cashTopupPreview = useMemo(() => {
     if (!cashForm.open) return { principal: 0, percent: 0, credit: 0 }
@@ -644,12 +643,6 @@ export default function ClientsModule() {
       </div>
 
       <div className="k-cli-toolbar">
-        <input
-          className="k-inp k-cli-search"
-          placeholder="Поиск: имя, телефон, карта…"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
         <div className="k-subtabs k-clients-chips">
           <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Все</button>
           <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} onClick={() => setFilter('debt')}>С долгом</button>

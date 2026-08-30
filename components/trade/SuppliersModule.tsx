@@ -57,7 +57,7 @@ function emptyPaymentForm(): PaymentFormState {
   }
 }
 
-export default function SuppliersModule() {
+export default function SuppliersModule({ search = '' }: { search?: string }) {
   const canMutateOnline = useCanMutate()
   const canMutate = canMutateOnline || isTradeLocalFirst()
   // Оплаты: онлайн всегда; офлайн — только при V2
@@ -66,7 +66,6 @@ export default function SuppliersModule() {
   const receipts = usePosStore(s => s.receipts)
   const apiSyncing = usePosStore(s => s.apiSyncing)
 
-  const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('debt')
   const [detailId, setDetailId] = useState<string | null>(null)
   const [payments, setPayments] = useState<Record<string, SupplierPayment[]>>({})
@@ -138,7 +137,7 @@ export default function SuppliersModule() {
   }, [suppliers])
 
   const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase()
+    const query = search.trim().toLowerCase()
     let list = suppliers
     if (query) {
       list = list.filter(s =>
@@ -152,7 +151,7 @@ export default function SuppliersModule() {
     else if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     else sorted.sort((a, b) => String(b.lastDeliveryAtIso || '').localeCompare(String(a.lastDeliveryAtIso || '')))
     return sorted
-  }, [suppliers, q, sort])
+  }, [suppliers, search, sort])
 
   function receiptsFor(supplierId: string) {
     return receipts.filter(r => r.supplierId === supplierId)
@@ -390,12 +389,6 @@ export default function SuppliersModule() {
       </div>
 
       <div className="k-sup-toolbar">
-        <input
-          className="k-inp k-sup-search"
-          placeholder="Поиск: название, телефон, категория…"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
         <div className="k-subtabs k-sup-chips">
           <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} onClick={() => setSort('debt')}>По долгу</button>
           <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} onClick={() => setSort('name')}>По имени</button>

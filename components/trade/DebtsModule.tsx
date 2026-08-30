@@ -458,8 +458,10 @@ function withRunningBalance(
 
 export default function DebtsModule({
   onNavigate,
+  search = '',
 }: {
   onNavigate?: (page: string) => void
+  search?: string
 }) {
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
@@ -471,7 +473,6 @@ export default function DebtsModule({
 
   const clients = useMemo(() => mergeClientsWithOrders(storedClients, orders), [storedClients, orders])
 
-  const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('debt')
   const [filter, setFilter] = useState<ListFilter>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -512,7 +513,7 @@ export default function DebtsModule({
   }), [debtClients])
 
   const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase()
+    const query = search.trim().toLowerCase()
     let list = debtClients
     if (filter === 'with_debt') list = list.filter(c => (Number(c.debt) || 0) > 0)
     else if (filter === 'cleared') list = list.filter(c => !(Number(c.debt) > 0))
@@ -527,7 +528,7 @@ export default function DebtsModule({
     if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     else sorted.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
     return sorted
-  }, [debtClients, q, sort, filter])
+  }, [debtClients, search, sort, filter])
 
   const detailClient = useMemo(() => {
     if (!detailId) return null
@@ -1124,16 +1125,9 @@ export default function DebtsModule({
               ))}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                className="k-inp"
-                style={{ flex: 1, minHeight: 34, padding: '6px 8px', fontSize: 13 }}
-                placeholder="Поиск…"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
               <select
                 className="k-sel"
-                style={{ width: 110, minHeight: 34, padding: '6px 8px', fontSize: 12 }}
+                style={{ flex: 1, minHeight: 34, padding: '6px 8px', fontSize: 12 }}
                 value={sort}
                 onChange={e => setSort(e.target.value as SortMode)}
               >

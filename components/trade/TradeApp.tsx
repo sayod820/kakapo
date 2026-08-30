@@ -3091,8 +3091,17 @@ function TradeAppInner({
 
   const showSearch =
     current === 'warehouse'
+    || current === 'clients'
+    || current === 'suppliers'
+    || current === 'debts'
     || (current === 'products' && productsSub === 'product')
 
+  const searchPlaceholder =
+    current === 'clients' || current === 'debts'
+      ? 'Поиск: имя, телефон, карта…'
+      : current === 'suppliers'
+        ? 'Поиск: название, телефон, категория…'
+        : 'Поиск по названию, артикулу, штрихкоду…'
   useEffect(() => {
     if (current === 'products' && (productsSub === 'category' || productsSub === 'labels')) {
       setSearch('')
@@ -3245,9 +3254,9 @@ function TradeAppInner({
       )
     }
     if (current === 'warehouse') return <WarehouseModule products={products} search={search} />
-    if (current === 'suppliers') return <SuppliersModule />
-    if (current === 'clients') return <ClientsModule />
-    if (current === 'debts') return <DebtsModule onNavigate={p => goTo(p as TradePage)} />
+    if (current === 'suppliers') return <SuppliersModule search={search} />
+    if (current === 'clients') return <ClientsModule search={search} />
+    if (current === 'debts') return <DebtsModule search={search} onNavigate={p => goTo(p as TradePage)} />
     if (current === 'reports') return <ReportsModule />
     if (current === 'finance') return <FinanceModule />
     const soon = SOON_PAGES[current]
@@ -3361,7 +3370,7 @@ function TradeAppInner({
                 <span className="mag">🔍</span>
                 <input
                     ref={searchInputRef}
-                  placeholder="Поиск по названию, артикулу, штрихкоду…"
+                  placeholder={searchPlaceholder}
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                     onFocus={e => e.currentTarget.select()}
