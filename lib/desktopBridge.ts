@@ -84,7 +84,7 @@ export type DesktopUpdateStatus = {
 export type KakapoDesktopApi = {
   isDesktop: true
   getInfo: () => Promise<{ isDesktop: boolean; platform: string; version: string }>
-  getPrinters: () => Promise<DesktopPrinter[]>
+  getPrinters: (force?: boolean) => Promise<DesktopPrinter[]>
   getPrinterSettings: () => Promise<DesktopPrinterSettings>
   savePrinterSettings: (data: Partial<DesktopPrinterSettings>) => Promise<DesktopPrinterSettings>
   /** Макет этикеток — файл в userData, переживает обновление UI */

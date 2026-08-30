@@ -150,27 +150,21 @@ function buildMultiLabelTspl({ widthMm, heightMm, gapMm, labelsMono }) {
 }
 
 /**
- * Send RAW bytes to a Windows printer via Win32 WritePrinter (PowerShell).
+ * Persistent PowerShell worker for RAW Win32 WritePrinter.
+ * Cold-start + Add-Type on every cheque was 3–10s; keep one process warm.
  */
-function printRawWindows(printerName, data) {
-  return new Promise((resolve, reject) => {
-    const name = String(printerName || '').trim()
-    if (!name) {
-      reject(new Error('Не выбран принтер'))
-      return
-    }
+let rawPrintWorker = null
+let rawPrintReady = null
+let rawPrintBusy = Promise.resolve()
+let rawPrintScriptPath = ''
+/** In-flight start — не плодим два PowerShell при параллельной печати */
+let rawPrintBoot = null
 
-    const binPath = path.join(os.tmpdir(), `kakapo-tspl-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`)
-    try {
-      fs.writeFileSync(binPath, data)
-    } catch (err) {
-      reject(new Error(`Не удалось записать задание: ${err.message || err}`))
-      return
-    }
-
-    const psScript = `
+const RAW_PRINT_WORKER_PS = `
 $ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @"
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+try {
+  Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class KakapoRawPrint {
@@ -196,67 +190,224 @@ public class KakapoRawPrint {
   public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
 }
 "@
-$printer = ${JSON.stringify(name)}
-$path = ${JSON.stringify(binPath)}
-$bytes = [System.IO.File]::ReadAllBytes($path)
-$hPrinter = [IntPtr]::Zero
-if (-not [KakapoRawPrint]::OpenPrinter($printer, [ref]$hPrinter, [IntPtr]::Zero)) {
-  throw "OpenPrinter failed for $printer (Win32 $($LASTEXITCODE))"
+} catch {
+  # type already loaded in this runspace
 }
-try {
-  $di = New-Object KakapoRawPrint+DOCINFOA
-  $di.pDocName = "KAKAPO Print"
-  $di.pDataType = "RAW"
-  if (-not [KakapoRawPrint]::StartDocPrinter($hPrinter, 1, $di)) { throw "StartDocPrinter failed" }
+Write-Output "READY"
+[Console]::Out.Flush()
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($null -eq $line) { break }
+  if ($line -eq 'QUIT') { break }
   try {
-    if (-not [KakapoRawPrint]::StartPagePrinter($hPrinter)) { throw "StartPagePrinter failed" }
+    $job = $line | ConvertFrom-Json
+    $printer = [string]$job.printer
+    $path = [string]$job.path
+    if (-not $printer) { throw "empty printer" }
+    if (-not $path) { throw "empty path" }
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $hPrinter = [IntPtr]::Zero
+    if (-not [KakapoRawPrint]::OpenPrinter($printer, [ref]$hPrinter, [IntPtr]::Zero)) {
+      throw "OpenPrinter failed for $printer"
+    }
     try {
-      $ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+      $di = New-Object KakapoRawPrint+DOCINFOA
+      $di.pDocName = "KAKAPO Print"
+      $di.pDataType = "RAW"
+      if (-not [KakapoRawPrint]::StartDocPrinter($hPrinter, 1, $di)) { throw "StartDocPrinter failed" }
       try {
-        [System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
-        $written = 0
-        if (-not [KakapoRawPrint]::WritePrinter($hPrinter, $ptr, $bytes.Length, [ref]$written)) {
-          throw "WritePrinter failed"
+        if (-not [KakapoRawPrint]::StartPagePrinter($hPrinter)) { throw "StartPagePrinter failed" }
+        try {
+          $ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+          try {
+            [System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
+            $written = 0
+            if (-not [KakapoRawPrint]::WritePrinter($hPrinter, $ptr, $bytes.Length, [ref]$written)) {
+              throw "WritePrinter failed"
+            }
+          } finally {
+            [System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+          }
+        } finally {
+          [void][KakapoRawPrint]::EndPagePrinter($hPrinter)
         }
       } finally {
-        [System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+        [void][KakapoRawPrint]::EndDocPrinter($hPrinter)
       }
     } finally {
-      [void][KakapoRawPrint]::EndPagePrinter($hPrinter)
+      [void][KakapoRawPrint]::ClosePrinter($hPrinter)
     }
-  } finally {
-    [void][KakapoRawPrint]::EndDocPrinter($hPrinter)
+    Write-Output "OK"
+  } catch {
+    $msg = $_.Exception.Message
+    if (-not $msg) { $msg = "$_" }
+    Write-Output ("ERR:" + ($msg -replace "[\\r\\n]+", " "))
   }
-} finally {
-  [void][KakapoRawPrint]::ClosePrinter($hPrinter)
+  [Console]::Out.Flush()
 }
-Write-Output "OK"
 `
 
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass',
-      '-Command', psScript,
-    ], { windowsHide: true })
+function ensureRawPrintScript() {
+  if (rawPrintScriptPath && fs.existsSync(rawPrintScriptPath)) return rawPrintScriptPath
+  rawPrintScriptPath = path.join(os.tmpdir(), 'kakapo-raw-print-worker.ps1')
+  fs.writeFileSync(rawPrintScriptPath, RAW_PRINT_WORKER_PS, 'utf8')
+  return rawPrintScriptPath
+}
 
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', d => { stdout += d.toString() })
-    child.stderr.on('data', d => { stderr += d.toString() })
-    child.on('error', err => {
-      try { fs.unlinkSync(binPath) } catch { /* ignore */ }
-      reject(err)
-    })
-    child.on('close', code => {
-      try { fs.unlinkSync(binPath) } catch { /* ignore */ }
-      if (code === 0 && /OK/.test(stdout)) {
-        resolve({ ok: true, printerName: name })
-        return
-      }
-      reject(new Error(stderr.trim() || stdout.trim() || `RAW печать ошибка (код ${code})`))
-    })
+function killRawPrintWorker() {
+  const child = rawPrintWorker
+  rawPrintWorker = null
+  rawPrintReady = null
+  rawPrintBoot = null
+  if (!child) return
+  try { child.stdin.end() } catch { /* ignore */ }
+  try { child.kill() } catch { /* ignore */ }
+}
+
+function startRawPrintWorker() {
+  if (rawPrintWorker && !rawPrintWorker.killed && rawPrintReady) return rawPrintReady
+  if (rawPrintBoot) return rawPrintBoot
+
+  killRawPrintWorker()
+  const script = ensureRawPrintScript()
+  const child = spawn('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', script,
+  ], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
+  rawPrintWorker = child
+
+  let buf = ''
+  let resolveReady
+  let rejectReady
+  rawPrintReady = new Promise((resolve, reject) => {
+    resolveReady = resolve
+    rejectReady = reject
+  })
+  rawPrintBoot = rawPrintReady
+  const readyTimer = setTimeout(() => {
+    rejectReady(new Error('RAW print worker: timeout waiting READY'))
+    killRawPrintWorker()
+  }, 20000)
+
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    buf += chunk
+    let idx
+    while ((idx = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, idx).replace(/\r$/, '')
+      buf = buf.slice(idx + 1)
+      if (!line) continue
+      if (line === 'READY' && resolveReady) {
+        clearTimeout(readyTimer)
+        rawPrintBoot = null
+        resolveReady(child)
+        resolveReady = null
+        continue
+      }
+      const waiter = child._kakapoWaiter
+      if (waiter) {
+        child._kakapoWaiter = null
+        if (line === 'OK') waiter.resolve()
+        else if (line.startsWith('ERR:')) waiter.reject(new Error(line.slice(4).trim() || 'RAW print failed'))
+        else waiter.reject(new Error(line))
+      }
+    }
+  })
+  child.stderr.on('data', () => { /* keep draining */ })
+  child.on('error', err => {
+    clearTimeout(readyTimer)
+    rawPrintBoot = null
+    if (resolveReady) rejectReady(err)
+    const waiter = child._kakapoWaiter
+    if (waiter) {
+      child._kakapoWaiter = null
+      waiter.reject(err)
+    }
+    if (rawPrintWorker === child) {
+      rawPrintWorker = null
+      rawPrintReady = null
+    }
+  })
+  child.on('close', code => {
+    clearTimeout(readyTimer)
+    rawPrintBoot = null
+    if (resolveReady) rejectReady(new Error(`RAW print worker exited (${code})`))
+    const waiter = child._kakapoWaiter
+    if (waiter) {
+      child._kakapoWaiter = null
+      waiter.reject(new Error(`RAW print worker exited (${code})`))
+    }
+    if (rawPrintWorker === child) {
+      rawPrintWorker = null
+      rawPrintReady = null
+    }
+  })
+  return rawPrintReady
+}
+
+function sendRawPrintJob(printerName, binPath) {
+  return startRawPrintWorker().then(child => new Promise((resolve, reject) => {
+    if (!child || child.killed || !child.stdin.writable) {
+      reject(new Error('RAW print worker unavailable'))
+      return
+    }
+    child._kakapoWaiter = { resolve, reject }
+    const payload = JSON.stringify({ printer: printerName, path: binPath }) + '\n'
+    try {
+      child.stdin.write(payload, err => {
+        if (err) {
+          child._kakapoWaiter = null
+          reject(err)
+        }
+      })
+    } catch (err) {
+      child._kakapoWaiter = null
+      reject(err)
+    }
+  }))
+}
+
+/**
+ * Send RAW bytes to a Windows printer via Win32 WritePrinter (warm PowerShell worker).
+ */
+function printRawWindows(printerName, data) {
+  const name = String(printerName || '').trim()
+  if (!name) return Promise.reject(new Error('Не выбран принтер'))
+
+  const binPath = path.join(os.tmpdir(), `kakapo-tspl-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`)
+  try {
+    fs.writeFileSync(binPath, data)
+  } catch (err) {
+    return Promise.reject(new Error(`Не удалось записать задание: ${err.message || err}`))
+  }
+
+  const run = async () => {
+    try {
+      await sendRawPrintJob(name, binPath)
+      return { ok: true, printerName: name }
+    } catch (err) {
+      // One retry with a fresh worker (first job after crash / hung process)
+      killRawPrintWorker()
+      await sendRawPrintJob(name, binPath)
+      return { ok: true, printerName: name }
+    } finally {
+      try { fs.unlinkSync(binPath) } catch { /* ignore */ }
+    }
+  }
+
+  const job = rawPrintBusy.then(run, run)
+  rawPrintBusy = job.then(() => undefined, () => undefined)
+  return job
+}
+
+function warmupRawPrintWorker() {
+  if (process.platform !== 'win32') return Promise.resolve()
+  return startRawPrintWorker().then(() => undefined).catch(() => undefined)
 }
 
 module.exports = {
@@ -267,4 +418,5 @@ module.exports = {
   buildTsplBitmapJob,
   buildMultiLabelTspl,
   printRawWindows,
+  warmupRawPrintWorker,
 }

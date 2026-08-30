@@ -243,6 +243,16 @@ export function saveReceiptStore(cfg: ReceiptStoreConfig) {
 export type PosReceiptPrintOpts = Partial<ReceiptStoreConfig> & {
   posLabel?: string
   cashierName?: string
+  /** Уже известное имя принтера — без IPC getPrinterSettings */
+  printerName?: string
+}
+
+/** Кэш имени принтера на сессию UI — не дергаем settings перед каждым чеком */
+let cachedReceiptPrinterName = ''
+
+export function rememberReceiptPrinterName(name: string) {
+  const n = String(name || '').trim()
+  if (n) cachedReceiptPrinterName = n
 }
 
 function esc(s: string) {
@@ -638,32 +648,35 @@ export async function printPosReceipt(
 
   const desktop = getKakapoDesktop()
   if (isKakapoDesktop() && desktop) {
-    // Быстрый путь: сохранённое имя принтера — без опроса Windows (EnumPrinters ~5–15с)
-    const settings = await desktop.getPrinterSettings().catch(() => ({
-      printerName: '',
-      paperWidthMm: XP58C_RECEIPT_MM,
-      labelPrinterName: '',
-      scaleMode: 'plu-label' as const,
-    }))
-
-    let printerName = String(settings.printerName || '').trim()
+    // Быстрый путь: имя из opts / памяти / settings — без EnumPrinters (~5–15с)
+    let printerName = String(opts?.printerName || cachedReceiptPrinterName || '').trim()
     if (!printerName) {
-      const printers = await desktop.getPrinters().catch(() => [])
-      printerName = pickReceiptPrinter(printers)
-      if (!printerName) {
-        const names = printers.map(p => p.displayName || p.name).filter(Boolean)
-        throw new Error(
-          names.length
-            ? `Принтер XP-58C не найден в Windows. Сейчас: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и установите драйвер.`
-            : 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.',
-        )
-      }
-      await desktop.savePrinterSettings({
-        ...settings,
-        printerName,
+      const settings = await desktop.getPrinterSettings().catch(() => ({
+        printerName: '',
         paperWidthMm: XP58C_RECEIPT_MM,
-      }).catch(() => undefined)
+        labelPrinterName: '',
+        scaleMode: 'plu-label' as const,
+      }))
+      printerName = String(settings.printerName || '').trim()
+      if (!printerName) {
+        const printers = await desktop.getPrinters().catch(() => [])
+        printerName = pickReceiptPrinter(printers)
+        if (!printerName) {
+          const names = printers.map(p => p.displayName || p.name).filter(Boolean)
+          throw new Error(
+            names.length
+              ? `Принтер XP-58C не найден в Windows. Сейчас: ${names.slice(0, 4).join(', ')}. Подключите XP-58C и установите драйвер.`
+              : 'Принтер XP-58C не найден в Windows. Подключите USB, включите принтер и установите драйвер Xprinter.',
+          )
+        }
+        await desktop.savePrinterSettings({
+          ...settings,
+          printerName,
+          paperWidthMm: XP58C_RECEIPT_MM,
+        }).catch(() => undefined)
+      }
     }
+    if (printerName) cachedReceiptPrinterName = printerName
 
     const paperWidthMm = XP58C_RECEIPT_MM
     const salePayload = JSON.parse(JSON.stringify(sale)) as PosSale

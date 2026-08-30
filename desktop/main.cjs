@@ -12,6 +12,7 @@ const {
   buildTsplBitmapJob,
   buildMultiLabelTspl,
   printRawWindows,
+  warmupRawPrintWorker,
 } = require('./tsplLabel.cjs')
 const { buildEscPosReceipt, buildEscPosFromReceiptHtml, buildDemoReceiptSale } = require('./escposReceipt.cjs')
 const {
@@ -1337,6 +1338,10 @@ app.whenReady().then(async () => {
   }
   // Локальный UI греем сразу — к открытию окна уже почти готов
   void startLocalUi({ timeoutMs: 25000 }).catch(err => bootLog('early local UI', err?.message || String(err)))
+  // PowerShell + Win32 Add-Type — прогрев до первой печати чека
+  if (process.platform === 'win32') {
+    void warmupRawPrintWorker().catch(() => undefined)
+  }
   try {
     createWindow(localUiUrl() || '')
   } catch (e) {
@@ -1351,8 +1356,9 @@ app.whenReady().then(async () => {
     config: loadConfig(),
   }))
 
-  ipcMain.handle('desktop:getPrinters', async () => {
-    const printers = await getPrintersAsync()
+  ipcMain.handle('desktop:getPrinters', async (_e, force) => {
+    // Кэш — EnumPrinters на Windows часто 5–15с; force=true с кнопки «Обновить»
+    const printers = await getPrintersCached(!!force)
     return (printers || []).map(p => ({
       name: p.name,
       displayName: p.displayName || p.name,

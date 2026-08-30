@@ -91,6 +91,7 @@ import {
   buildDemoReceiptSale,
   buildPosReceiptHtml,
   formatSaleOrderNo,
+  rememberReceiptPrinterName,
   DEFAULT_RECEIPT_STORE,
   loadReceiptStore,
   normalizeReceiptStore,
@@ -2619,15 +2620,19 @@ export default function CashierModule({
 
   const visibleProducts = useMemo(() => {
     let list = inStockProducts
-    if (showFav) list = list.filter(p => favSet.has(p.id))
-    else if (selectedCatSlugs.length > 0) {
-      list = list.filter(p => selectedCatSlugs.some(slug =>
-        productMatchesCategoryFilter(p.catId, slug, categories)
-        || productMatchesCategoryFilter(p.cat, slug, categories),
-      ))
+    const searching = !!gridSearch.trim()
+    // При поиске — по всему каталогу в наличии (избранное/категория не режут выдачу)
+    if (!searching) {
+      if (showFav) list = list.filter(p => favSet.has(p.id))
+      else if (selectedCatSlugs.length > 0) {
+        list = list.filter(p => selectedCatSlugs.some(slug =>
+          productMatchesCategoryFilter(p.catId, slug, categories)
+          || productMatchesCategoryFilter(p.cat, slug, categories),
+        ))
+      }
     }
-    if (gridSearch.trim()) {
-      // При поиске — порядок по релевантности (хвост штрихкода / название), не алфавит
+    if (searching) {
+      // Порядок по релевантности (хвост штрихкода / название), не алфавит
       return filterProductsBySearch(list, gridSearch.trim(), 80)
     }
     // inStockProducts уже отсортирован по имени — повторный sort не нужен
@@ -3914,6 +3919,7 @@ export default function CashierModule({
         const auto = pickReceiptPrinter(list)
         const name = (savedStillThere ? saved : '') || auto || (list[0]?.name || '')
         setDeskPrinterName(name)
+        if (name) rememberReceiptPrinterName(name)
         setDeskPaperMm(XP58C_RECEIPT_MM)
         setDeskScaleMode(settings?.scaleMode === 'none' ? 'none' : 'plu-label')
         setDeskScaleHost(settings?.scaleHost || '')
@@ -3994,7 +4000,7 @@ export default function CashierModule({
     }
     try {
       const [printers, settings] = await Promise.all([
-        desk.getPrinters(),
+        desk.getPrinters(true),
         desk.getPrinterSettings().catch(() => null),
       ])
       const list = sortReceiptPrinters(printers || [])
@@ -4004,6 +4010,7 @@ export default function CashierModule({
       const auto = pickReceiptPrinter(list)
       const name = (savedOk ? saved : '') || auto || ''
       setDeskPrinterName(name)
+      if (name) rememberReceiptPrinterName(name)
       setDeskPaperMm(XP58C_RECEIPT_MM)
       if (name) {
         await desk.savePrinterSettings({
@@ -4388,8 +4395,12 @@ export default function CashierModule({
     return [...sales]
       .filter(s => {
         if (!posId) return true
-        if (!s.posId) return true
-        return s.posId === posId
+        if (s.posId) return s.posId === posId
+        // Без posId — только чеки текущей/известных смен этой точки (не чужие кассы)
+        if (s.shiftId && activeShift?.id && s.shiftId === activeShift.id) return true
+        if (s.shiftId && shifts.some(sh => sh.id === s.shiftId && sh.posId === posId)) return true
+        if (!s.shiftId) return true
+        return false
       })
       .sort((a, b) => {
         // Сначала — свежесть по createdAtIso, иначе «временные» офлайн-чеки
@@ -4406,7 +4417,7 @@ export default function CashierModule({
         // И наконец — детерминированный тай-брейкер.
         return String(b.id || '').localeCompare(String(a.id || ''))
       })
-  }, [sales, activeShift?.posId])
+  }, [sales, activeShift?.posId, activeShift?.id, shifts])
 
   /** Штрихкод / PLU / арт → productId + готовые коды по id */
   const receiptBarcodeIndex = useMemo(() => {
@@ -4535,19 +4546,52 @@ export default function CashierModule({
   /** Чек относится к текущей открытой смене */
   function saleInCurrentShift(s: (typeof sales)[number]) {
     if (!activeShift) return false
-    if (s.shiftId) return s.shiftId === activeShift.id
+    const curId = String(activeShift.id || '').trim()
+    const saleShiftId = String(s.shiftId || '').trim()
+    // Явный shiftId — единственный надёжный критерий
+    if (saleShiftId && curId) return saleShiftId === curId
+
+    // Старые чеки без shiftId: только после открытия текущей смены
+    // и не внутри интервала другой известной смены той же точки
     const t = new Date(s.createdAtIso).getTime()
     const open = new Date(activeShift.openedAtIso).getTime()
-    if (Number.isNaN(t) || Number.isNaN(open)) return false
-    return t >= open
+    if (Number.isNaN(t) || Number.isNaN(open) || t < open) return false
+
+    const posId = String(activeShift.posId || '').trim()
+    for (const sh of shifts) {
+      if (!sh) continue
+      const shId = String(sh.id || '').trim()
+      if (!shId || shId === curId) continue
+      if (posId && sh.posId && String(sh.posId) !== posId) continue
+      const shOpen = new Date(sh.openedAtIso).getTime()
+      if (Number.isNaN(shOpen) || t < shOpen) continue
+      const closedRaw = sh.closedAtIso
+      if (closedRaw) {
+        const shClose = new Date(closedRaw).getTime()
+        if (!Number.isNaN(shClose) && t > shClose) continue
+      } else if (sh.status === 'closed') {
+        continue
+      }
+      // Чек попадает в чужую смену
+      return false
+    }
+    return true
   }
 
   function saleMatchesReceiptScope(s: (typeof sales)[number], scope: typeof receiptScope) {
     const inShift = saleInCurrentShift(s)
     if (scope === 'shift') return inShift
+    // «Другие смены» — только выбранный период дат, без текущей смены
     if (!saleInReceiptPeriod(s, receiptPeriodBounds(receiptFrom, receiptTo))) return false
     return !inShift
   }
+
+  /** Все чеки в выбранной вкладке (смена / период) — поиск только внутри этого набора */
+  const scopedReceipts = useMemo(
+    () => receiptsSorted.filter(s => saleMatchesReceiptScope(s, receiptScope)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [receiptsSorted, receiptScope, receiptFrom, receiptTo, activeShift?.id, activeShift?.openedAtIso, shifts],
+  )
 
   function productCodesForId(productId: number | undefined | null) {
     if (productId == null) return { art: '', barcode: '', plu: '' }
@@ -4608,8 +4652,11 @@ export default function CashierModule({
     }
 
     const out: typeof sales = []
-    for (const s of receiptsSorted) {
-      if (!saleMatchesReceiptScope(s, scope)) continue
+    // Ищем только внутри переданного scope (эта смена / период дат)
+    const base = scope === receiptScope
+      ? scopedReceipts
+      : receiptsSorted.filter(s => saleMatchesReceiptScope(s, scope))
+    for (const s of base) {
       if (!saleMatchesReceiptFilter(s, filter)) continue
       if (!q) {
         out.push(s)
@@ -4687,8 +4734,8 @@ export default function CashierModule({
 
   const receiptMatches = useMemo(
     () => findReceiptsByQuery(receiptQDeferred, receiptFilter, receiptScope, 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over products/receiptsSorted/activeShift
-    [receiptQDeferred, receiptFilter, receiptScope, receiptFrom, receiptTo, receiptsSorted, products, receiptBarcodeIndex, activeShift?.id, activeShift?.openedAtIso],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- helpers close over scopedReceipts/products
+    [receiptQDeferred, receiptFilter, receiptScope, scopedReceipts, products, receiptBarcodeIndex],
   )
 
   const receiptList = useMemo(
@@ -6221,6 +6268,7 @@ export default function CashierModule({
         subtitle: '',
         posLabel: posPoint?.name || posPoint?.code || activePosPoint?.name || activePosPoint?.code || undefined,
         cashierName: resolveCashierName(sale),
+        printerName: deskPrinterName || undefined,
       })
     } catch (e) {
       showToast('Печать', e instanceof Error ? e.message : 'Не удалось напечатать чек')
@@ -7590,6 +7638,7 @@ export default function CashierModule({
                                 className={`pos-printer-opt ${on ? 'on' : ''}`}
                                 onClick={() => {
                                   setDeskPrinterName(p.name)
+                                  rememberReceiptPrinterName(p.name)
                                   setDeskPaperMm(XP58C_RECEIPT_MM)
                                 }}
                               >
@@ -8533,7 +8582,7 @@ export default function CashierModule({
               </div>
             )}
           </div>
-            {showFav && visibleProducts.length === 0 ? (
+            {showFav && !gridSearch.trim() && visibleProducts.length === 0 ? (
             <div className="grid-wrap">
               <div className="cat-empty">
                 <div className="cat-empty-ic">★</div>
@@ -8541,6 +8590,14 @@ export default function CashierModule({
                 <span>Добавьте товары звёздочкой на плитке</span>
               </div>
                       </div>
+          ) : visibleProducts.length === 0 && gridSearch.trim() ? (
+            <div className="grid-wrap">
+              <div className="cat-empty">
+                <div className="cat-empty-ic">🔍</div>
+                <b>Ничего не найдено</b>
+                <span>Попробуйте другое название или штрихкод</span>
+              </div>
+            </div>
           ) : (
             <VirtualProductGrid
               products={visibleProducts}
@@ -11184,7 +11241,11 @@ export default function CashierModule({
                     <>
                       <div className="receipt-shift-card-main">
                         <b>Другие смены</b>
-                        <span>выберите период ниже</span>
+                        <span>
+                          {receiptFrom && receiptTo
+                            ? `${receiptFrom.split('-').reverse().join('.')} — ${receiptTo.split('-').reverse().join('.')}`
+                            : 'выберите период ниже'}
+                        </span>
                       </div>
                       <div className="receipt-shift-card-stats">
                         <span>Чеков: <b>{receiptListTotalCount}</b></span>
@@ -11202,14 +11263,14 @@ export default function CashierModule({
                   <button
                     type="button"
                     className={`receipt-scope-btn ${receiptScope === 'shift' ? 'on' : ''}`}
-                    onClick={() => { setReceiptScope('shift'); setReceiptLimit(50) }}
+                    onClick={() => { setReceiptScope('shift'); setReceiptLimit(50); setReceiptQ('') }}
                   >
                     Эта смена
                   </button>
                   <button
                     type="button"
                     className={`receipt-scope-btn ${receiptScope === 'other' ? 'on' : ''}`}
-                    onClick={() => { setReceiptScope('other'); setReceiptLimit(50) }}
+                    onClick={() => { setReceiptScope('other'); setReceiptLimit(50); setReceiptQ('') }}
                   >
                     Другие смены
                   </button>
@@ -11222,7 +11283,11 @@ export default function CashierModule({
                     ref={receiptSearchRef}
                     value={receiptQ}
                       onChange={e => onReceiptSearchChange(e.target.value)}
-                      placeholder="Номер чека, товар, клиент…"
+                      placeholder={
+                        receiptScope === 'shift'
+                          ? 'Поиск в этой смене…'
+                          : 'Поиск в выбранном периоде…'
+                      }
                     autoFocus
                       onKeyDown={onReceiptSearchKeyDown}
                     />
@@ -11262,14 +11327,14 @@ export default function CashierModule({
                           <input
                             type="date"
                             value={receiptFrom}
-                            onChange={e => { setReceiptFrom(e.target.value); setReceiptLimit(50) }}
+                            onChange={e => { setReceiptFrom(e.target.value); setReceiptLimit(50); setReceiptQ('') }}
                             aria-label="Дата с"
                           />
                           <span>—</span>
                           <input
                             type="date"
                             value={receiptTo}
-                            onChange={e => { setReceiptTo(e.target.value); setReceiptLimit(50) }}
+                            onChange={e => { setReceiptTo(e.target.value); setReceiptLimit(50); setReceiptQ('') }}
                             aria-label="Дата по"
                           />
                         </div>
@@ -11293,7 +11358,15 @@ export default function CashierModule({
                 )}
 
                 <div className="receipt-list">
-                  {!receiptList.length && <div className="hist-empty">Чеков не найдено</div>}
+                  {!receiptList.length && (
+                    <div className="hist-empty">
+                      {receiptQ.trim()
+                        ? (receiptScope === 'shift'
+                          ? 'В этой смене ничего не найдено'
+                          : 'В выбранном периоде ничего не найдено')
+                        : 'Чеков не найдено'}
+                    </div>
+                  )}
                   {receiptList.map(s => {
                     const fully = isSaleFullyReturned(s)
                     const partial = isSalePartiallyReturned(s)
