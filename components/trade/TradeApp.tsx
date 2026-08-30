@@ -885,8 +885,10 @@ const CSS = `
   .k-top-title-net{display:none;line-height:1}
   .k-top-subtabs{display:flex;gap:6px;flex-shrink:0;align-items:center}
   .k-top-subtabs .k-subtab{padding:7px 12px;font-size:12px;margin:0}
-  .k-top-search-wrap{flex:1;display:flex;justify-content:center;min-width:0}
-  .k-top-search-wrap .k-search{flex:1;max-width:560px;width:100%}
+  .k-top-search-wrap{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-width:0}
+  .k-top-search-net{flex-shrink:0;display:flex;align-items:center}
+  .k-top-search-net .k-online-chip{display:inline-flex}
+  .k-top-search-wrap .k-search{flex:1;max-width:560px;width:100%;min-width:0}
   .k-top-end{display:flex;align-items:center;gap:12px;flex-shrink:0}
   .k-search{flex:1;position:relative;max-width:640px;min-width:0}
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
@@ -1586,9 +1588,15 @@ const CSS = `
       order:3;flex:1 1 100%;width:100%;overflow:visible;min-width:0
     }
     .k-top-back{order:2;padding:8px 10px;font-size:12px}
-    .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch}
+    .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch;gap:6px}
     .k-top-search-wrap .k-search{max-width:none}
-    .k-search{max-width:none;min-width:0;flex:1 1 100%}
+    .k-top-search-net .k-online-chip{
+      display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:28px;font-size:10px;gap:4px;
+      border:1px solid var(--border);background:var(--panel)
+    }
+    .k-top-search-net .k-online-chip .d{width:6px;height:6px}
+    .k-top-search-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
+    .k-search{max-width:none;min-width:0;flex:1 1 auto}
     .k-body-products{padding:0 10px 8px;overflow:visible;flex:none;height:auto}
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
@@ -3366,6 +3374,9 @@ function TradeAppInner({
             ) : null}
             {current !== 'sales' && showSearch ? (
               <div className="k-top-search-wrap">
+                <div className="k-top-search-net">
+                  <NetworkStatus compact />
+                </div>
                 <div className="k-search has-scan">
                 <span className="mag">🔍</span>
                 <input
@@ -3412,13 +3423,7 @@ function TradeAppInner({
                 </div>
               </>
             )}
-            <div className="k-top-end">
-              {current === 'products' || (current !== 'sales' && showSearch) ? (
-                <div className="k-top-net">
-                  <NetworkStatus compact />
-                </div>
-              ) : null}
-            </div>
+            <div className="k-top-end" />
           </header>
         )}
 
