@@ -7199,29 +7199,6 @@ export default function CashierModule({
               <p>Выберите кассу и откройте сессию</p>
             </div>
             <div className="odoo-dash-actions">
-              <div className="theme-toggle" role="group" aria-label="Тема">
-                <button
-                  type="button"
-                  className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
-                  title="Тёмная тема"
-                  onClick={e => { e.stopPropagation(); applyTheme('dark') }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className={`theme-mode ${theme === 'light' ? 'on' : ''}`}
-                  title="Светлая тема"
-                  onClick={e => { e.stopPropagation(); applyTheme('light') }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
               <button
                 type="button"
                 className="odoo-create-pos"
@@ -8404,30 +8381,7 @@ export default function CashierModule({
             </button>
           </div>
 
-          <div className="theme-toggle" role="group" aria-label="Тема" style={{ marginLeft: 'auto' }}>
-            <button
-              type="button"
-              className={`theme-mode ${theme === 'dark' ? 'on' : ''}`}
-              title="Тёмная тема"
-              onClick={() => applyTheme('dark')}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className={`theme-mode ${theme === 'light' ? 'on' : ''}`}
-              title="Светлая тема"
-              onClick={() => applyTheme('light')}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-          <button type="button" className="bell-btn" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')}>
+          <button type="button" className="bell-btn" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')} style={{ marginLeft: 'auto' }}>
             🔔<span className="bell-badge" />
           </button>
           <div className="account-wrap" ref={accountMenuRef}>

@@ -854,8 +854,12 @@ const CSS = `
   .k-update .u-bar>i{display:block;height:100%;background:var(--green);width:0;transition:width .2s ease}
   .k-clock{margin-top:6px;padding-top:6px;border-top:1px solid var(--border)}
   .k-clock .date{font-size:10px;color:var(--muted);line-height:1.2}
+  .k-clock .k-clock-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
   .k-clock .time{font-size:16px;font-weight:900;line-height:1.15;letter-spacing:.02em}
   .k-clock .day{font-size:10px;color:var(--muted);line-height:1.2}
+  .k-clock .k-theme-toggle{padding:2px;border-radius:10px;gap:1px}
+  .k-clock .k-theme-mode{width:28px;height:26px;border-radius:8px}
+  .k-clock .k-theme-mode svg{width:13px;height:13px}
   .k-store .k-logout{
     width:100%;margin-top:6px;padding:6px 8px;font-size:11px;min-height:0;border-radius:8px
   }
@@ -1561,14 +1565,10 @@ const CSS = `
     .k-top-title-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
     .k-top:has(.k-top-title-net) .k-top-end .k-top-net{display:none!important}
     .k-top-end{gap:6px;margin-left:auto;align-items:center;flex-shrink:0}
-    .k-top-end .k-theme-toggle{order:1}
     .k-top-end .k-user{order:2}
     .k-top-end .k-online-chip{
       display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px
     }
-    .k-theme-toggle{padding:2px;border-radius:10px;gap:1px;flex-shrink:0}
-    .k-theme-mode{width:28px;height:28px;border-radius:8px}
-    .k-theme-mode svg{width:13px;height:13px}
     .k-user{padding:2px;border-radius:10px;flex-shrink:0}
     .k-user .av{width:28px;height:28px;border-radius:8px;font-size:10px}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
@@ -2687,21 +2687,73 @@ function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).map(p => p[0]).join('').slice(0, 2).toUpperCase() || 'K'
 }
 
-function Clock() {
+function Clock({
+  theme,
+  onThemeChange,
+}: {
+  theme?: TradeTheme
+  onThemeChange?: (next: TradeTheme) => void
+}) {
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => {
     setNow(new Date())
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  if (!now) return <div className="k-clock"><div className="time">--:--</div></div>
+  if (!now) {
+    return (
+      <div className="k-clock">
+        <div className="k-clock-row">
+          <div className="time">--:--</div>
+          {theme && onThemeChange ? <TradeThemeToggle theme={theme} onChange={onThemeChange} /> : null}
+        </div>
+      </div>
+    )
+  }
   const date = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
   const day = now.toLocaleDateString('ru-RU', { weekday: 'short' })
   const time = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
   return (
     <div className="k-clock">
       <div className="date">{date} · <span style={{ textTransform: 'capitalize' }}>{day}</span></div>
-      <div className="time">{time}</div>
+      <div className="k-clock-row">
+        <div className="time">{time}</div>
+        {theme && onThemeChange ? <TradeThemeToggle theme={theme} onChange={onThemeChange} /> : null}
+      </div>
+    </div>
+  )
+}
+
+function TradeThemeToggle({
+  theme,
+  onChange,
+}: {
+  theme: TradeTheme
+  onChange: (next: TradeTheme) => void
+}) {
+  return (
+    <div className="k-theme-toggle" role="group" aria-label="Тема">
+      <button
+        type="button"
+        className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
+        title="Тёмная тема"
+        onClick={() => onChange('dark')}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
+        title="Светлая тема"
+        onClick={() => onChange('light')}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   )
 }
@@ -3243,7 +3295,7 @@ function TradeAppInner({
               <div className="k-store">
                 <div className="name">Магазин KAKAPO</div>
                 <NetworkStatus />
-                <Clock />
+                <Clock theme={theme} onThemeChange={applyTheme} />
                 <DesktopUpdateButton />
                 <button
                   type="button"
@@ -3347,29 +3399,6 @@ function TradeAppInner({
                   <NetworkStatus compact />
                 </div>
               ) : null}
-              <div className="k-theme-toggle" role="group" aria-label="Тема">
-                <button
-                  type="button"
-                  className={`k-theme-mode ${theme === 'dark' ? 'on' : ''}`}
-                  title="Тёмная тема"
-                  onClick={() => applyTheme('dark')}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M21 14.3A9 9 0 1 1 9.7 3 7 7 0 0 0 21 14.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className={`k-theme-mode ${theme === 'light' ? 'on' : ''}`}
-                  title="Светлая тема"
-                  onClick={() => applyTheme('light')}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.05 5.05l1.56 1.56M17.39 17.39l1.56 1.56M18.95 5.05l-1.56 1.56M6.61 17.39l-1.56 1.56" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
               <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
                 <div className="av">{initials(session.name)}</div>
                 <div className="who"><b>{session.name}</b><span>Выйти</span></div>
