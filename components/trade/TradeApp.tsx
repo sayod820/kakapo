@@ -863,6 +863,18 @@ const CSS = `
   .k-store .k-logout{
     width:100%;margin-top:6px;padding:6px 8px;font-size:11px;min-height:0;border-radius:8px
   }
+  .k-store .k-user{
+    width:100%;margin-top:6px;box-sizing:border-box;justify-content:flex-start;
+    padding:7px 8px;border-radius:10px;gap:8px;text-align:left
+  }
+  .k-store .k-user .av{width:32px;height:32px;border-radius:9px;font-size:11px;flex-shrink:0}
+  .k-store .k-user .who{min-width:0;flex:1}
+  .k-store .k-user .who b{
+    display:block;font-size:12px;line-height:1.15;font-weight:800;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+  }
+  .k-store .k-user .who span{font-size:11px;color:var(--muted);font-weight:700}
+
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
@@ -1565,12 +1577,9 @@ const CSS = `
     .k-top-title-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
     .k-top:has(.k-top-title-net) .k-top-end .k-top-net{display:none!important}
     .k-top-end{gap:6px;margin-left:auto;align-items:center;flex-shrink:0}
-    .k-top-end .k-user{order:2}
     .k-top-end .k-online-chip{
       display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:22px;font-size:10px
     }
-    .k-user{padding:2px;border-radius:10px;flex-shrink:0}
-    .k-user .av{width:28px;height:28px;border-radius:8px;font-size:10px}
     .k-top-subtabs{order:1;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
     .k-top-subtabs::-webkit-scrollbar{display:none}
     .k-top-subtabs.k-seg-tabs{
@@ -1648,7 +1657,7 @@ const CSS = `
     .k-wh-panel-body{overflow:visible;border:none;border-radius:0;background:transparent}
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:none}
-    .k-user .who{display:none}
+
     /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
     .k-body{padding:0 10px 10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
     .k-body-pos{
@@ -2622,7 +2631,6 @@ const CSS = `
   @media (max-width:600px){
     .k-kpis{grid-template-columns:1fr 1fr}
     .k-receipt-summary{gap:8px}
-    .k-user{padding:2px}
   }
 
   @media (max-width:480px){
@@ -3299,10 +3307,12 @@ function TradeAppInner({
                 <DesktopUpdateButton />
                 <button
                   type="button"
-                  className="k-btn k-btn-s k-logout"
+                  className="k-user"
+                  title="Выйти"
                   onClick={onLogout}
                 >
-                  Выйти
+                  <div className="av">{initials(session.name)}</div>
+                  <div className="who"><b>{session.name}</b><span>Выйти</span></div>
                 </button>
               </div>
             </div>
@@ -3399,10 +3409,6 @@ function TradeAppInner({
                   <NetworkStatus compact />
                 </div>
               ) : null}
-              <button type="button" className="k-user" title="Выйти" onClick={onLogout}>
-                <div className="av">{initials(session.name)}</div>
-                <div className="who"><b>{session.name}</b><span>Выйти</span></div>
-              </button>
             </div>
           </header>
         )}
