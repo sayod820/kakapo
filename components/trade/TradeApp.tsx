@@ -1545,20 +1545,56 @@ const CSS = `
       padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));
       display:flex;flex-direction:column
     }
-    /* Шапка закреплена поверх всех разделов */
+    /* Шапка без белой «карточки»: только круглые кнопки/поиск, контент уходит под них */
     .k-top{
       position:sticky;top:0;z-index:40;
       flex:0 0 auto;flex-shrink:0;
-      margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
-      padding:8px 10px;
+      margin:calc(6px + env(safe-area-inset-top,0px)) 10px 0;
+      padding:6px 0 8px;
       gap:8px;flex-wrap:nowrap;align-items:center;
-      min-height:50px;box-sizing:border-box;
-      border:1px solid var(--border);border-radius:12px;background:var(--card);
-      border-bottom:1px solid var(--border);
-      box-shadow:0 1px 0 rgba(12,26,16,.04)
+      min-height:0;box-sizing:border-box;
+      border:none!important;border-radius:0;background:transparent!important;
+      box-shadow:none!important;
+      pointer-events:none;
+    }
+    .k-top > *,
+    .k-top .k-mob-menu-btn,
+    .k-top .k-top-title,
+    .k-top .k-top-search-wrap,
+    .k-top .k-top-end,
+    .k-top .k-top-back,
+    .k-top .k-top-subtabs,
+    .k-top .k-btn,
+    .k-top .k-search,
+    .k-top .k-online-chip,
+    .k-top .k-top-scan-btn{
+      pointer-events:auto;
     }
     .k-mob-menu-btn{
-      width:32px;height:32px;font-size:16px;border-radius:10px;align-self:center;flex-shrink:0
+      width:36px;height:36px;font-size:16px;border-radius:12px;align-self:center;flex-shrink:0;
+      background:var(--card);border:1px solid var(--border);
+      box-shadow:0 2px 10px rgba(12,26,16,.08)
+    }
+    .k-trade[data-theme="dark"] .k-mob-menu-btn{box-shadow:0 2px 10px rgba(0,0,0,.35)}
+    .k-top .k-search input,
+    .k-top-search-wrap .k-search input{
+      background:var(--card)!important;
+      box-shadow:0 2px 10px rgba(12,26,16,.08)
+    }
+    .k-trade[data-theme="dark"] .k-top .k-search input,
+    .k-trade[data-theme="dark"] .k-top-search-wrap .k-search input{
+      box-shadow:0 2px 10px rgba(0,0,0,.35)
+    }
+    .k-top-title-net .k-online-chip,
+    .k-top-search-net .k-online-chip,
+    .k-top-end .k-online-chip{
+      background:var(--card)!important;
+      box-shadow:0 2px 10px rgba(12,26,16,.08)
+    }
+    .k-trade[data-theme="dark"] .k-top-title-net .k-online-chip,
+    .k-trade[data-theme="dark"] .k-top-search-net .k-online-chip,
+    .k-trade[data-theme="dark"] .k-top-end .k-online-chip{
+      box-shadow:0 2px 10px rgba(0,0,0,.35)
     }
     .k-top-title{
       flex:0 1 auto;min-width:0;max-width:none;
