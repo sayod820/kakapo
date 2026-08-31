@@ -247,10 +247,41 @@ export default function TradeLoginPage({
         .tl-card select,.tl-card input{
           width:100%;background:var(--panel);border:1.5px solid var(--border);border-radius:12px;
           color:var(--text);padding:12px 14px;font-size:15px;font-weight:700;margin-bottom:12px;outline:none;
+          -webkit-text-fill-color:var(--text);color-scheme:dark;
         }
         .k-trade[data-theme="light"] .tl-card select,
-        .k-trade[data-theme="light"] .tl-card input{background:var(--card2)}
+        .k-trade[data-theme="light"] .tl-card input{
+          background:#FFFFFF;color:#0C1A10;-webkit-text-fill-color:#0C1A10;color-scheme:light;
+        }
+        .tl-card select option{background:#101A13;color:#E8F3EB}
+        .k-trade[data-theme="light"] .tl-card select option{background:#FFFFFF;color:#0C1A10}
         .tl-card select:focus,.tl-card input:focus{border-color:var(--green)}
+        .tl-emp-list{
+          display:flex;flex-direction:column;gap:8px;margin-bottom:12px;max-height:min(42vh,280px);
+          overflow:auto;-webkit-overflow-scrolling:touch;
+        }
+        .tl-emp{
+          display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+          text-align:left;padding:12px 14px;border-radius:12px;cursor:pointer;
+          border:1.5px solid var(--border);background:var(--panel);color:var(--text);
+          font:inherit;font-weight:800;
+        }
+        .k-trade[data-theme="light"] .tl-emp{background:#FFFFFF;color:#0C1A10;border-color:#D0DDD4}
+        .tl-emp:active{transform:scale(.99)}
+        .tl-emp.on{
+          border-color:var(--green);background:rgba(31,215,96,.12);
+          box-shadow:0 0 0 1px rgba(31,215,96,.25);
+        }
+        .k-trade[data-theme="light"] .tl-emp.on{
+          background:rgba(18,155,69,.10);border-color:#12a548;
+        }
+        .tl-emp b{display:block;font-size:15px;font-weight:900;color:inherit;line-height:1.2}
+        .tl-emp span{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-top:2px}
+        .tl-emp .mark{
+          flex-shrink:0;width:22px;height:22px;border-radius:99px;display:flex;align-items:center;justify-content:center;
+          font-size:12px;font-weight:900;background:var(--card2);color:var(--muted);border:1px solid var(--border);
+        }
+        .tl-emp.on .mark{background:var(--green);color:#05210D;border-color:transparent}
         .tl-err{
           background:rgba(255,90,90,.12);color:#FF8A8A;border:1px solid rgba(255,90,90,.28);
           border-radius:12px;padding:10px 12px;font-weight:700;font-size:13px;margin-bottom:12px;
@@ -309,14 +340,27 @@ export default function TradeLoginPage({
           <>
             {err ? <div className="tl-err">{err}</div> : null}
             <div className="tl-label">Сотрудник</div>
-            <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
-              <option value="">Выберите…</option>
-              {directory.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.name}{d.roleLabel ? ` · ${d.roleLabel}` : ''}
-                </option>
-              ))}
-            </select>
+            <div className="tl-emp-list" role="listbox" aria-label="Сотрудник">
+              {directory.map(d => {
+                const on = employeeId === d.id
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    role="option"
+                    aria-selected={on}
+                    className={`tl-emp${on ? ' on' : ''}`}
+                    onClick={() => setEmployeeId(d.id)}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <b>{d.name}</b>
+                      {d.roleLabel ? <span>{d.roleLabel}</span> : null}
+                    </div>
+                    <span className="mark" aria-hidden>{on ? '✓' : ''}</span>
+                  </button>
+                )
+              })}
+            </div>
             <div className="tl-label">Пароль</div>
             <input
               type="password"

@@ -1518,19 +1518,12 @@ const CSS = `
     .k-line-row--3>:last-child,.k-line-row--5>:last-child{grid-column:1/-1;justify-self:start}
     .k-hide-mob{display:none!important}
     .k-hide-desk{display:revert!important}
-    .k-trade{flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden}
-    .k-trade:has(.k-body-pos){height:100vh;height:100dvh;overflow:hidden}
-    .k-trade:has(.k-body-pos) .k-main{
-      height:100%!important;min-height:0!important;overflow:hidden;
-      padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
+    /* Экран зафиксирован: шапка не уезжает, крутится только .k-body */
+    .k-trade{
+      flex-direction:column;height:100vh;height:100dvh;overflow:hidden
     }
     .k-trade.pos-fs{padding-bottom:0}
     .k-trade.pos-fs .k-pos-fs-host{height:100%;min-height:0;overflow:hidden}
-    .k-trade:has(.k-body-debts){height:100vh;height:100dvh;overflow:hidden}
-    .k-trade:has(.k-body-debts) .k-main{
-      height:100%!important;min-height:0!important;overflow:hidden;
-      padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column
-    }
     .k-side{
       display:flex!important;
       position:fixed;left:0;top:0;z-index:200;width:min(280px,88vw);height:100vh;height:100dvh;
@@ -1547,17 +1540,22 @@ const CSS = `
       border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text);
       cursor:pointer;font-size:20px;flex-shrink:0
     }
-    .k-main{width:100%;height:auto!important;min-height:100vh;min-height:100dvh;overflow:visible;padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    /* Шапка как карточки товаров: те же боковые поля, не прижата к верху */
-    /* Как «Точка продаж»: кнопки ВНУТРИ белой карточки, не поверх тонкой полоски */
+    .k-main{
+      width:100%;height:100%!important;min-height:0!important;overflow:hidden;
+      padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));
+      display:flex;flex-direction:column
+    }
+    /* Шапка закреплена поверх всех разделов */
     .k-top{
+      position:sticky;top:0;z-index:40;
       flex:0 0 auto;flex-shrink:0;
       margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
       padding:8px 10px;
       gap:8px;flex-wrap:nowrap;align-items:center;
       min-height:50px;box-sizing:border-box;
       border:1px solid var(--border);border-radius:12px;background:var(--card);
-      border-bottom:1px solid var(--border)
+      border-bottom:1px solid var(--border);
+      box-shadow:0 1px 0 rgba(12,26,16,.04)
     }
     .k-mob-menu-btn{
       width:32px;height:32px;font-size:16px;border-radius:10px;align-self:center;flex-shrink:0
@@ -1666,11 +1664,14 @@ const CSS = `
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:none}
 
-    /* Весь раздел скроллится целиком — не внутренний «кусок» экрана */
-    .k-body{padding:0 10px 10px;overflow:visible;flex:none;height:auto;min-height:0;-webkit-overflow-scrolling:touch}
+    /* Контент крутится под закреплённой шапкой */
+    .k-body{
+      padding:0 10px 10px;overflow:auto!important;flex:1 1 auto!important;
+      min-height:0!important;height:auto;-webkit-overflow-scrolling:touch
+    }
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:auto!important;max-height:none!important
+      height:auto!important;max-height:none!important;padding:0
     }
     .k-trade.pos-fs .k-body-pos{
       height:100dvh!important;max-height:100dvh!important
@@ -2605,10 +2606,15 @@ const CSS = `
     padding-bottom:calc(120px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
   }
 
-  /* Android Capacitor: склад/сроки скроллит весь .k-main, без сломанной вложенной высоты */
+  /* Android Capacitor: склад/товары крутятся в .k-body — шапка .k-top остаётся на месте */
   html.kakapo-android .k-main:has(.k-body-warehouse),
   html.kakapo-android .k-main:has(.k-body-products){
-    overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important
+    overflow:hidden!important
+  }
+  html.kakapo-android .k-main:has(.k-body-warehouse) .k-body,
+  html.kakapo-android .k-main:has(.k-body-products) .k-body{
+    overflow:auto!important;-webkit-overflow-scrolling:touch!important;
+    flex:1 1 auto!important;min-height:0!important
   }
   html.kakapo-android .k-body-warehouse,
   html.kakapo-android .k-body-warehouse > .k-wh-shell,
