@@ -1559,7 +1559,7 @@ const CSS = `
       pointer-events:none;
     }
     .k-top-shell{
-      display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+      display:flex;align-items:center;gap:8px;flex-wrap:nowrap;
       pointer-events:auto;
       padding:8px 10px;min-height:50px;box-sizing:border-box;
       border:1px solid var(--border);border-radius:12px;background:var(--card);
@@ -1595,9 +1595,11 @@ const CSS = `
     .k-top-subtabs.k-seg-tabs{
       order:3;flex:1 1 100%;width:100%;overflow:visible;min-width:0
     }
-    .k-top-back{order:2;padding:8px 10px;font-size:12px}
-    .k-top-search-wrap{order:3;flex:1 1 100%;justify-content:stretch;gap:6px}
-    .k-top-search-wrap .k-search{max-width:none}
+    .k-top-back{order:2;padding:8px 10px;font-size:12px;flex-shrink:0}
+    /* Меню + Онлайн + поиск — одна строка */
+    .k-top-search-wrap{order:0;flex:1 1 auto;min-width:0;justify-content:stretch;gap:6px}
+    .k-top-search-wrap .k-search{max-width:none;flex:1 1 auto;min-width:0}
+    .k-top-search-net{flex-shrink:0}
     .k-top-search-net .k-online-chip{
       display:inline-flex!important;border-radius:999px;padding:3px 8px;min-height:28px;font-size:10px;gap:4px;
       border:1px solid var(--border);background:var(--panel)
