@@ -878,6 +878,7 @@ const CSS = `
 
   .k-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
   .k-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+  .k-top-shell{display:contents}
   .k-top-back{flex-shrink:0;white-space:nowrap}
   .k-top-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;font-weight:800;color:var(--text)}
   .k-top-title-main{font-size:16px;font-weight:900;line-height:1.15;color:var(--text)}
@@ -1545,20 +1546,26 @@ const CSS = `
       padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));
       display:flex;flex-direction:column
     }
-    /* Шапка закреплена: круглая карточка, контент крутится под ней */
+    /* Прозрачный fixed-оверлей: круглая карточка отдельно — скролл виден вокруг неё */
     .k-top{
-      position:sticky;top:0;z-index:40;
+      position:fixed;left:0;right:0;top:0;z-index:40;
       flex:0 0 auto;flex-shrink:0;
-      margin:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
-      padding:8px 10px;
-      gap:8px;flex-wrap:nowrap;align-items:center;
-      min-height:50px;box-sizing:border-box;
-      border:1px solid var(--border);border-radius:12px;background:var(--card);
-      border-bottom:1px solid var(--border);
-      box-shadow:0 2px 10px rgba(12,26,16,.08);
-      pointer-events:auto;
+      display:block;width:100%;
+      margin:0;
+      padding:calc(6px + env(safe-area-inset-top,0px)) 10px 6px;
+      min-height:0;box-sizing:border-box;
+      border:none!important;border-radius:0;background:transparent!important;
+      box-shadow:none!important;gap:0;
+      pointer-events:none;
     }
-    .k-trade[data-theme="dark"] .k-top{box-shadow:0 2px 10px rgba(0,0,0,.35)}
+    .k-top-shell{
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+      pointer-events:auto;
+      padding:8px 10px;min-height:50px;box-sizing:border-box;
+      border:1px solid var(--border);border-radius:12px;background:var(--card);
+      box-shadow:0 2px 10px rgba(12,26,16,.08);
+    }
+    .k-trade[data-theme="dark"] .k-top-shell{box-shadow:0 2px 10px rgba(0,0,0,.35)}
     .k-mob-menu-btn{
       width:32px;height:32px;font-size:16px;border-radius:10px;align-self:center;flex-shrink:0;
       background:var(--card);border:1px solid var(--border);box-shadow:none
@@ -1598,7 +1605,7 @@ const CSS = `
     .k-top-search-net .k-online-chip .d{width:6px;height:6px}
     .k-top-search-net .k-online-chip .n{min-width:14px;height:14px;font-size:9px}
     .k-search{max-width:none;min-width:0;flex:1 1 auto}
-    .k-body-products{padding:0 10px 8px;overflow:visible;flex:none;height:auto}
+    .k-body-products{overflow:visible;flex:none;height:auto}
     .k-body-products > .k-products-mod,
     .k-products-mod-body,
     .k-products-mod-body > .k-product-edit-shell{flex:none;min-height:0;overflow:visible;height:auto}
@@ -1653,7 +1660,7 @@ const CSS = `
     .k-catalog-body .k-tbl td:nth-child(7),
     .k-catalog-body .k-tbl td:nth-child(9),
     .k-catalog-body .k-tbl td:nth-child(10){display:none}
-    .k-body-warehouse{padding:0 10px 6px;overflow:visible;flex:none;height:auto}
+    .k-body-warehouse{overflow:visible;flex:none;height:auto}
     .k-body-warehouse > .k-wh-shell,
     .k-wh-shell > .k-wh-body,
     .k-wh-shell > .k-wh-body > .k-wh-stock,
@@ -1667,11 +1674,14 @@ const CSS = `
     .k-wh-receipts .k-wh-cta-spacer,
     .k-wh-writeoffs .k-wh-cta-spacer{display:none}
 
-    /* Контент крутится под закреплённой шапкой */
+    /* Контент крутится под закреплённой круглой шапкой (паддинг = высота оверлея) */
     .k-body{
-      padding:0 10px 10px;overflow:auto!important;flex:1 1 auto!important;
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 50px + 6px);
+      padding:var(--k-top-overlay) 10px 10px;overflow:auto!important;flex:1 1 auto!important;
       min-height:0!important;height:auto;-webkit-overflow-scrolling:touch
     }
+    .k-body.k-body-products{padding:var(--k-top-overlay) 10px 8px}
+    .k-body.k-body-warehouse{padding:var(--k-top-overlay) 10px 6px}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;padding:0
@@ -1682,7 +1692,7 @@ const CSS = `
     .k-body-debts{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;
-      padding:0 10px 8px;display:flex;flex-direction:column
+      padding:var(--k-top-overlay) 10px 8px;display:flex;flex-direction:column
     }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
@@ -1719,7 +1729,7 @@ const CSS = `
     }
     .k-seg-tabs .k-subtab:active{transform:scale(.97)}
     /* Шапка: вкладки товаров НЕ в topbar — только отдельный блок ниже */
-    .k-top > .k-top-subtabs,
+    .k-top-shell > .k-top-subtabs,
     .k-top-subtabs.k-seg-tabs.k-hide-mob{
       display:none!important;width:0!important;height:0!important;overflow:hidden!important;
       margin:0!important;padding:0!important;border:none!important;flex:0!important;order:unset!important
@@ -2571,13 +2581,18 @@ const CSS = `
     --k-android-nav-lift:12px;
     --k-android-top-inset:max(env(safe-area-inset-top,0px),18px)
   }
+  /* Android: отступ сверху на прозрачной зоне, круглая карточка — в .k-top-shell */
   html.kakapo-android .k-top{
     flex:0 0 auto;flex-shrink:0;
-    margin-top:var(--k-android-top-inset);
-    margin-left:10px;
-    margin-right:10px;
-    padding:8px 10px;
-    min-height:50px
+    margin:0!important;
+    padding:calc(6px + var(--k-android-top-inset)) 10px 6px!important;
+    min-height:0!important;
+    background:transparent!important;
+    border:none!important;
+    box-shadow:none!important
+  }
+  html.kakapo-android .k-body{
+    --k-top-overlay:calc(6px + var(--k-android-top-inset) + 50px + 6px)
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
@@ -3356,6 +3371,7 @@ function TradeAppInner({
       <div className={posFullscreen ? 'k-pos-fs-host' : 'k-main'}>
         {!posFullscreen && (
           <header className="k-top">
+            <div className="k-top-shell">
             <button type="button" className="k-mob-menu-btn" onClick={() => setMenuOpen(true)} aria-label="Меню">☰</button>
             {current !== 'sales' && catalogBack ? (
               <button type="button" className="k-btn k-btn-s k-top-back" onClick={() => catalogBack()}>
@@ -3442,6 +3458,7 @@ function TradeAppInner({
               </>
             )}
             <div className="k-top-end" />
+            </div>
           </header>
         )}
 
