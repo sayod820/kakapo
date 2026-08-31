@@ -1702,6 +1702,17 @@ const CSS = `
       flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
       overflow:visible!important;display:block
     }
+    .k-body.k-body-suppliers{
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
+      overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
+      height:auto!important;max-height:none!important;
+      padding:var(--k-top-overlay,84px) 10px 8px!important;
+      display:block;-webkit-overflow-scrolling:touch
+    }
+    .k-body-suppliers > .k-suppliers-mod{
+      flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+      overflow:visible!important
+    }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
     .k-kpis{grid-template-columns:repeat(2,1fr);gap:8px}
@@ -2371,7 +2382,7 @@ const CSS = `
       min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px;flex-shrink:0
     }
     .k-clients-mod{padding-bottom:72px}
-    .k-suppliers-mod{padding-bottom:72px}
+    .k-suppliers-mod{padding-bottom:72px;overflow:visible}
     .k-clients-mod .k-cli-sub{display:none}
     .k-clients-mod .k-page-h{margin-bottom:8px}
     .k-clients-mod .k-page-h h1{font-size:16px}
@@ -2388,15 +2399,22 @@ const CSS = `
       height:36px!important;min-height:36px!important;max-height:36px!important;
       font-size:14px!important;padding:6px 10px!important;box-sizing:border-box
     }
+    /* Фильтры поставщиков — отдельная карточка ниже шапки, крутится вместе со списком */
+    .k-sup-toolbar{
+      flex:none;padding:8px;margin:0 0 8px;
+      border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
     .k-sup-chips{
-      width:100%;gap:5px;padding:0;margin:0;overflow-x:auto;flex-wrap:nowrap;
-      -webkit-overflow-scrolling:touch;scrollbar-width:none
+      display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
+      width:100%;padding:4px;margin:0;overflow:visible;flex-wrap:nowrap;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px
     }
-    .k-sup-chips::-webkit-scrollbar{display:none}
     .k-sup-chips .k-subtab{
-      min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px;flex-shrink:0
+      width:100%;justify-content:center;text-align:center;
+      min-height:38px!important;padding:8px 4px!important;font-size:11px;border-radius:8px;
+      border:none;flex-shrink:0
     }
-    .k-sup-list{gap:6px}
+    .k-sup-list{gap:6px;overflow:visible}
     .k-sup-row{padding:8px;gap:6px;border-radius:10px;flex-wrap:wrap;align-items:stretch}
     .k-sup-main{gap:7px;flex-wrap:wrap}
     .k-sup-emo{font-size:18px}
@@ -3483,7 +3501,7 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'suppliers' ? 'k-body k-body-suppliers' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"
