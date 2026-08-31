@@ -66,10 +66,12 @@ let listenersBound = false
 let syncLock = false
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
-/** Слабый интернет: ping дольше; при очереди крутим чаще */
+/** Слабый интернет: ping дольше; при очереди крутим часто, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
 const PING_QUICK_MS = 2800
-const POLL_IDLE_MS = 20000
+/** Простой онлайн без очереди: ping/refresh не чаще этого */
+const POLL_IDLE_MS = 25000
+/** Есть pending/failed или офлайн — догоняем часто (как чинили) */
 const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
@@ -631,14 +633,26 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       if (isCashierPaymentCritical()) return
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       void (async () => {
-        await get().refresh()
-        const failed = get().failed
-        const pending = get().pending
-        const hasWork = pending > 0 || failed > 0 || !get().online
-        if (!hasWork) {
+        // Быстрый взгляд по стору: в покое не дёргаем SQLite/refresh каждые 4с
+        const quickPending = get().pending
+        const quickFailed = get().failed
+        const quickOnline = get().online
+        const maybeIdle = quickPending === 0 && quickFailed === 0 && quickOnline
+
+        if (maybeIdle) {
           if (isCashierSearchBusy()) return
           if (Date.now() - lastIdlePingAt < POLL_IDLE_MS) return
           lastIdlePingAt = Date.now()
+          await get().refresh()
+          // После refresh могли появиться pending — тогда сразу syncNow
+          if (get().pending > 0 || get().failed > 0 || !get().online) {
+            try {
+              const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+              void sendDeviceHeartbeat({ syncing: get().syncing })
+            } catch { /* ignore */ }
+            await get().syncNow()
+            return
+          }
           const alive = await pingServer({ quick: true })
           if (!alive) {
             set({ online: false })
@@ -652,6 +666,9 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } catch { /* ignore */ }
           return
         }
+
+        // Очередь / офлайн — частый догон (критичные пути не трогаем)
+        await get().refresh()
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
           void sendDeviceHeartbeat({ syncing: get().syncing })

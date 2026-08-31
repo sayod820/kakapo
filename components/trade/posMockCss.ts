@@ -871,7 +871,9 @@ export const POS_MOCK_CSS = `
   .pos-root button.p-tile:hover{border-color:var(--accent);}
   .pos-root button.p-tile:active{transform:scale(.98);}
   .pos-root .p-grid-virtual button.p-tile{animation:none;will-change:auto;}
-  .pos-root .p-grid:not(.p-grid-virtual) button.p-tile{animation:tileIn .2s ease both;}
+  /* tileIn только при смене поиска/категории (класс p-grid-enter) — не после каждого пробития */
+  .pos-root .p-grid:not(.p-grid-virtual) button.p-tile{animation:none;}
+  .pos-root .p-grid.p-grid-enter:not(.p-grid-virtual) button.p-tile{animation:tileIn .2s ease both;}
   .p-fav{position:absolute;top:8px;right:8px;z-index:2;width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;color:var(--t3);background:rgba(3,11,5,.55);border:1px solid var(--border);cursor:pointer;}
   .pos-root[data-theme="light"] .p-fav{background:rgba(255,255,255,.85);}
   .p-fav:hover{color:var(--gd);border-color:var(--gd);}

@@ -16,10 +16,10 @@ import { getTradeDeviceIdSync } from './tradeDevice'
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
-/** Торговля: реже и легче — полный POS-снимок больше не гоняем каждые 30с */
-const POS_INTERVAL_MS = 45000
-/** Чеки с сервера (браузер → ПК) — чаще, даже при фокусе в поиске */
-const POS_SALES_INBOUND_MS = 12000
+/** Торговля: полный/тяжёлый фон реже — слабые ПК меньше фризятся онлайн */
+const POS_INTERVAL_MS = 60000
+/** Чеки с сервера (браузер → ПК): в покое реже; после чека/WS/очереди — по-прежнему сразу */
+const POS_SALES_INBOUND_MS = 28000
 /** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
 const PULL_DEBOUNCE_MS = 400
 
@@ -246,6 +246,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       try {
         // Только оплата/пробитие — полный стоп. Фокус поиска НЕ блокирует входящие чеки.
         if (mode === 'pos' && isCashierPaymentCritical()) return
+        if (mode === 'pos' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
         if (mode === 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
@@ -273,7 +274,7 @@ export function useApiSync(mode: SyncMode = 'all') {
           if (tick === 1 || tick % 3 === 0) {
             tasks.push(useProducts.getState().fetchProducts())
           }
-          // Полный POS-снимок — редко (раз в ~3 мин при 45с интервале)
+          // Полный POS-снимок — редко (раз в ~4 мин при 60с интервале)
           if (tick === 1 || tick % 4 === 0) {
             tasks.push(syncPosFromApi())
           }
@@ -307,13 +308,21 @@ export function useApiSync(mode: SyncMode = 'all') {
     // Не блокируем UI: старт в фоне
     void load()
     const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
-    // Отдельный частый inbound продаж (браузер → ПК), не ждёт 45с
+    // Отдельный inbound продаж (браузер → ПК); в покое реже, при очереди не дублируем offlineSync
     let salesId: ReturnType<typeof setInterval> | null = null
     if (mode === 'pos') {
-      // Только продажи — финансы уже в 45с тике / WS; иначе один синк долбится 3 раза
       salesId = setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
-        void softSyncPosAfterSale()
+        void (async () => {
+          try {
+            const { useOfflineSync } = await import('./offlineSync')
+            const net = useOfflineSync.getState()
+            // Пока offlineSync догоняет очередь — softSync уже внутри syncNow
+            if (net.pending > 0 || net.failed > 0) return
+          } catch { /* ignore */ }
+          void softSyncPosAfterSale()
+        })()
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

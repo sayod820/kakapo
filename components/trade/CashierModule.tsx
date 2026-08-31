@@ -774,6 +774,9 @@ type PosTileProps = {
   onToggleFav: (id: number) => void
 }
 
+/** Уже показанные фото — после пробития плитки не гаснут при кратком remount */
+const seenPosTilePhotos = new Set<string>()
+
 const PosProductTile = memo(function PosProductTile({
   product: p,
   isFav,
@@ -789,20 +792,27 @@ const PosProductTile = memo(function PosProductTile({
   const art = String(p.art || '').trim()
   const plu = String(p.plu || '').replace(/\D/g, '') || String(p.plu || '').trim()
   const photoRef = useRef<HTMLDivElement | null>(null)
-  const [showPhoto, setShowPhoto] = useState(false)
+  const photoSeenKey = photo ? `${p.id}|${photo}` : ''
+  const [showPhoto, setShowPhoto] = useState(() => !!(photoSeenKey && seenPosTilePhotos.has(photoSeenKey)))
 
   // Грузим картинку только когда плитка реально на экране (как в веб-вьюере)
   useEffect(() => {
-    if (!photo) return
+    if (!photo || !photoSeenKey) return
+    if (seenPosTilePhotos.has(photoSeenKey)) {
+      setShowPhoto(true)
+      return
+    }
     const el = photoRef.current
     if (!el) return
     if (typeof IntersectionObserver === 'undefined') {
+      seenPosTilePhotos.add(photoSeenKey)
       setShowPhoto(true)
       return
     }
     const io = new IntersectionObserver(
       entries => {
         if (entries.some(e => e.isIntersecting)) {
+          seenPosTilePhotos.add(photoSeenKey)
           setShowPhoto(true)
           io.disconnect()
         }
@@ -811,7 +821,7 @@ const PosProductTile = memo(function PosProductTile({
     )
     io.observe(el)
     return () => io.disconnect()
-  }, [photo])
+  }, [photo, photoSeenKey])
 
   return (
     <button
@@ -858,7 +868,16 @@ const PosProductTile = memo(function PosProductTile({
       <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
     </button>
   )
-})
+}, (prev, next) => (
+  prev.product.id === next.product.id
+  && prev.isFav === next.isFav
+  && prev.photo === next.photo
+  && prev.stock === next.stock
+  && prev.onAdd === next.onAdd
+  && prev.onToggleFav === next.onToggleFav
+  && Number(prev.product.price) === Number(next.product.price)
+  && prev.product.name === next.product.name
+))
 
 /** Сетка товаров: все позиции в списке, в DOM только видимые ряды (без пропажи при скролле) */
 function VirtualProductGrid({
@@ -873,6 +892,9 @@ function VirtualProductGrid({
   const wrapRef = useRef<HTMLDivElement>(null)
   const metricsRef = useRef({ w: 800, h: 600, rowH: 260, startRow: 0 })
   const [version, setVersion] = useState(0)
+  /** Анимация появления — только при смене поиска/категории, не после пробития */
+  const [enterAnim, setEnterAnim] = useState(false)
+  const prevResetKeyRef = useRef<string | null>(null)
 
   const GAP = 13
   const MIN_COL = 150
@@ -931,6 +953,14 @@ function VirtualProductGrid({
     el.scrollTop = 0
     metricsRef.current.startRow = 0
     bump()
+    const prev = prevResetKeyRef.current
+    prevResetKeyRef.current = resetKey
+    // Первый mount и смена поиска/категории — короткая анимация; обновление остатков после чека — нет
+    if (prev === null || prev !== resetKey) {
+      setEnterAnim(true)
+      const t = window.setTimeout(() => setEnterAnim(false), 280)
+      return () => window.clearTimeout(t)
+    }
   }, [resetKey, bump])
 
   useLayoutEffect(() => {
@@ -943,10 +973,12 @@ function VirtualProductGrid({
     }
   }, [products.length, version, bump])
 
+  const gridEnterClass = enterAnim ? ' p-grid-enter' : ''
+
   if (products.length <= 60) {
     return (
       <div className="grid-wrap" ref={wrapRef}>
-        <div className="p-grid">{products.map(p => renderTile(p))}</div>
+        <div className={`p-grid${gridEnterClass}`}>{products.map(p => renderTile(p))}</div>
       </div>
     )
   }
@@ -969,7 +1001,7 @@ function VirtualProductGrid({
     <div className="grid-wrap" ref={wrapRef}>
       <div className="p-grid-spacer" style={{ height: totalHeight, position: 'relative' }}>
         <div
-          className="p-grid p-grid-virtual"
+          className={`p-grid p-grid-virtual${gridEnterClass}`}
           style={{
             position: 'absolute',
             top: offsetY,
