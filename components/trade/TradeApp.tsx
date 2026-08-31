@@ -1713,6 +1713,19 @@ const CSS = `
       flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
       overflow:visible!important
     }
+    .k-body.k-body-finance,
+    .k-body.k-body-reports{
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
+      overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
+      height:auto!important;max-height:none!important;
+      padding:var(--k-top-overlay,84px) 10px 8px!important;
+      display:block;-webkit-overflow-scrolling:touch
+    }
+    .k-body-finance > .k-finance-mod,
+    .k-body-reports > .k-reports-mod{
+      flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+      overflow:visible!important
+    }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
     .k-kpis{grid-template-columns:repeat(2,1fr);gap:8px}
@@ -2457,7 +2470,7 @@ const CSS = `
       display:flex;flex-direction:column;gap:10px;align-items:center
     }
     .k-fin-fab-stack .k-fin-fab{position:static;right:auto;bottom:auto}
-    .k-finance-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
+    .k-finance-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));overflow:visible}
     .k-finance-mod:has(.k-fin-fab),
     .k-finance-mod:has(.k-fin-fab-stack){padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
     .k-finance-mod:has(.k-modal-bg) .k-fin-fab,
@@ -2486,10 +2499,14 @@ const CSS = `
     .k-fin-box-point-h span{font-size:10px}
     .k-fin-box-point-nums b{font-size:14px}
     .k-fin-filters.k-fin-filters-box{grid-template-columns:1fr}
-    .k-reports-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
-    .k-rep-toolbar{flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
+    .k-reports-mod{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px));overflow:visible}
+    .k-rep-toolbar{
+      flex:none;flex-direction:column;align-items:stretch;gap:6px;
+      padding:8px;margin:0 0 8px;border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
     .k-rep-periods{
-      width:100%;flex-wrap:nowrap;overflow-x:auto;gap:5px;padding:0;margin:0;
+      display:flex;width:100%;flex-wrap:nowrap;overflow-x:auto;gap:5px;padding:4px;margin:0;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px;
       -webkit-overflow-scrolling:touch;scrollbar-width:none
     }
     .k-rep-periods::-webkit-scrollbar{display:none}
@@ -2508,9 +2525,10 @@ const CSS = `
     .k-rep-filters{display:none;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
     .k-rep-filters.is-open{display:grid!important}
     .k-rep-tabs{
-      flex-wrap:nowrap;margin-bottom:4px;position:sticky;top:0;z-index:6;
-      background:var(--bg);padding:2px 0 4px
+      flex-wrap:nowrap;margin-bottom:8px;position:static;top:auto;z-index:auto;
+      background:transparent;padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none
     }
+    .k-rep-tabs::-webkit-scrollbar{display:none}
     .k-rep-tabs .k-subtab{
       min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px
     }
@@ -2544,9 +2562,13 @@ const CSS = `
     }
     .k-fin-meta span{display:block;font-size:9px;color:var(--muted);font-weight:700}
     .k-fin-meta b{display:block;font-size:11px;font-weight:900;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .k-fin-toolbar{flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
+    .k-fin-toolbar{
+      flex:none;flex-direction:column;align-items:stretch;gap:6px;
+      padding:8px;margin:0 0 8px;border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
     .k-fin-periods{
-      width:100%;flex-wrap:nowrap;overflow-x:auto;gap:5px;padding:0;margin:0;
+      display:flex;width:100%;flex-wrap:nowrap;overflow-x:auto;gap:5px;padding:4px;margin:0;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px;
       -webkit-overflow-scrolling:touch;scrollbar-width:none
     }
     .k-fin-periods::-webkit-scrollbar{display:none}
@@ -2561,9 +2583,10 @@ const CSS = `
     .k-fin-filters{display:none;grid-template-columns:1fr;gap:5px;margin-bottom:8px}
     .k-fin-filters.is-open{display:grid!important}
     .k-fin-tabs{
-      flex-wrap:nowrap;margin-bottom:4px;position:sticky;top:0;z-index:6;
-      background:var(--bg);padding:2px 0 4px
+      flex-wrap:nowrap;margin-bottom:8px;position:static;top:auto;z-index:auto;
+      background:transparent;padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none
     }
+    .k-fin-tabs::-webkit-scrollbar{display:none}
     .k-fin-tabs .k-subtab{
       display:inline-flex;position:relative;flex-direction:column;gap:2px;
       min-height:44px!important;padding:5px 8px!important;font-size:10px;border-radius:8px
@@ -3501,7 +3524,7 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'suppliers' ? 'k-body k-body-suppliers' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'suppliers' ? 'k-body k-body-suppliers' : current === 'finance' ? 'k-body k-body-finance' : current === 'reports' ? 'k-body k-body-reports' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"
