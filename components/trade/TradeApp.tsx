@@ -1692,9 +1692,13 @@ const CSS = `
       height:100dvh!important;max-height:100dvh!important
     }
     .k-body-debts{
-      overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
+      overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;
-      padding:var(--k-top-overlay) 10px 8px;display:flex;flex-direction:column
+      padding:var(--k-top-overlay) 10px 8px;display:block;-webkit-overflow-scrolling:touch
+    }
+    .k-body-debts > .k-debts-page{
+      flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+      overflow:visible!important;display:block
     }
     .k-page-h h1{font-size:18px}
     .k-page-h .sub{font-size:12px}
@@ -1778,11 +1782,23 @@ const CSS = `
       width:100%;justify-content:center;text-align:center;min-height:38px;padding:8px 4px;font-size:11px;
       border:none;border-radius:8px
     }
-    .k-debts-layout{grid-template-columns:1fr;min-height:0;flex:1;gap:10px}
+    /* Весь раздел долгов крутится в .k-body — фиксирована только верхняя круглая шапка */
+    .k-debts-layout{
+      display:block;grid-template-columns:unset;min-height:0;height:auto;max-height:none;
+      flex:none;gap:0;overflow:visible
+    }
     .k-debts-layout.detail-open .k-debts-list{display:none}
     .k-debts-layout:not(.detail-open) .k-debts-detail{display:none}
-    .k-debts-list,.k-debts-detail{min-height:0;height:100%;max-height:100%}
-    .k-debts-list-b{padding:0}
+    .k-debts-list,.k-debts-detail{
+      display:block;min-height:0;height:auto!important;max-height:none!important;
+      overflow:visible!important
+    }
+    .k-debts-list-b,.k-debts-detail-b{
+      overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important;
+      padding:0;min-height:0
+    }
+    .k-debts-foot{position:static;flex:none}
+    .k-debts-head,.k-debts-actions{flex:none}
     .k-debts-metrics{grid-template-columns:1fr 1fr;gap:8px}
     .k-debts-metric:last-child{grid-column:1/-1}
     .k-debts-metric{padding:8px 10px}
