@@ -1678,12 +1678,12 @@ const CSS = `
 
     /* Контент крутится под закреплённой круглой шапкой (паддинг = высота оверлея) */
     .k-body{
-      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 50px + 6px);
-      padding:var(--k-top-overlay) 10px 10px;overflow:auto!important;flex:1 1 auto!important;
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
+      padding:var(--k-top-overlay,84px) 10px 10px;overflow:auto!important;flex:1 1 auto!important;
       min-height:0!important;height:auto;-webkit-overflow-scrolling:touch
     }
-    .k-body.k-body-products{padding:var(--k-top-overlay) 10px 8px}
-    .k-body.k-body-warehouse{padding:var(--k-top-overlay) 10px 6px}
+    .k-body.k-body-products{padding:var(--k-top-overlay,84px) 10px 8px}
+    .k-body.k-body-warehouse{padding:var(--k-top-overlay,84px) 10px 6px}
     .k-body-pos{
       overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;padding:0
@@ -1691,10 +1691,12 @@ const CSS = `
     .k-trade.pos-fs .k-body-pos{
       height:100dvh!important;max-height:100dvh!important
     }
-    .k-body-debts{
+    .k-body.k-body-debts{
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
       overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
       height:auto!important;max-height:none!important;
-      padding:var(--k-top-overlay) 10px 8px;display:block;-webkit-overflow-scrolling:touch
+      padding:var(--k-top-overlay,84px) 10px 8px!important;
+      display:block;-webkit-overflow-scrolling:touch
     }
     .k-body-debts > .k-debts-page{
       flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
@@ -1770,8 +1772,9 @@ const CSS = `
       background:transparent;border:none;border-radius:0
     }
     .k-debts-list > div:first-child{
-      padding:8px!important;margin-bottom:8px;border:1px solid var(--border)!important;
-      border-radius:12px;background:var(--card);border-bottom:1px solid var(--border)!important
+      padding:8px!important;margin:0 0 8px;border:1px solid var(--border)!important;
+      border-radius:12px;background:var(--card);border-bottom:1px solid var(--border)!important;
+      position:relative;z-index:0
     }
     .k-debts-list > div:first-child .k-subtabs{
       display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
@@ -2610,7 +2613,7 @@ const CSS = `
     box-shadow:none!important
   }
   html.kakapo-android .k-body{
-    --k-top-overlay:calc(6px + var(--k-android-top-inset) + 50px + 6px)
+    --k-top-overlay:calc(6px + var(--k-android-top-inset) + 70px + 8px)
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
