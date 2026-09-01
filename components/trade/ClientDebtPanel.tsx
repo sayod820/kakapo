@@ -96,8 +96,10 @@ export default function ClientDebtPanel({
         onClick={() => onOpenSale(s.id)}
       >
         <span className="cashier-debt-check-id">
-          <b>{s.label}</b>
-          <em>{whenShort}</em>
+          <span className="cashier-debt-check-title">
+            <b>{s.label}</b>
+            <em>{whenShort}</em>
+          </span>
           {noteText ? <em className="cashier-debt-check-note" title={noteText}>💬 {noteText}</em> : null}
         </span>
         <span className="cashier-debt-check-nums">
@@ -114,7 +116,7 @@ export default function ClientDebtPanel({
     <div className="client-debt-panel">
       <style>{CLIENT_DEBT_PANEL_CSS}</style>
 
-      <div className="cashier-debts-head" style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+      <div className="cashier-debts-head" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0, flex: 1 }}>
           {onBack ? (
             <button type="button" className="k-btn k-btn-s" style={{ flexShrink: 0 }} onClick={onBack}>←</button>
@@ -155,7 +157,7 @@ export default function ClientDebtPanel({
         </div>
       </div>
 
-      <div style={{ padding: '8px 10px 0', flexShrink: 0 }}>
+      <div style={{ padding: '6px 8px 0', flexShrink: 0 }}>
         <div className="cashier-debts-hero">
           <div className="cashier-debts-hero-main">
             <div className="kl">Сейчас должен</div>
@@ -233,7 +235,9 @@ export default function ClientDebtPanel({
           return (
             <>
               <div className="cashier-debt-sec">Ещё должен · {fmtMoney(panel.posRemain)}</div>
-              {openRows.map(renderSale)}
+              <div className="cashier-debt-checks">
+                {openRows.map(renderSale)}
+              </div>
             </>
           )
         })()}
@@ -287,7 +291,8 @@ export default function ClientDebtPanel({
               return (
                 <>
                   <div className="cashier-debt-sec">Ещё должен · {fmtMoney(openCashSum)}</div>
-                  {openRows.map(c => {
+                  <div className="cashier-debt-checks">
+                    {openRows.map(c => {
                     const statusLabel = c.status === 'partial' ? 'Частично' : 'Должен'
                     const statusColor = c.status === 'partial' ? 'var(--gold)' : 'var(--red)'
                     const whenShort = c.when.replace(/,\s*/, ' · ')
@@ -299,8 +304,10 @@ export default function ClientDebtPanel({
                         onClick={() => onRepayCash(c)}
                       >
                         <span className="cashier-debt-check-id">
-                          <b>{c.isResidual ? 'На карте' : c.label}</b>
-                          <em>{whenShort}</em>
+                          <span className="cashier-debt-check-title">
+                            <b>{c.isResidual ? 'На карте' : c.label}</b>
+                            <em>{whenShort}</em>
+                          </span>
                         </span>
                         <span className="cashier-debt-check-nums">
                           <span title="Было"><i>было</i><b>{fmtMoney(c.debtAdded)}</b></span>
@@ -311,6 +318,7 @@ export default function ClientDebtPanel({
                       </button>
                     )
                   })}
+                  </div>
                 </>
               )
             })()}
