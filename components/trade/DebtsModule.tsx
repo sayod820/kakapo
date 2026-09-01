@@ -27,6 +27,7 @@ import { pushBackHandler } from '@/lib/hardwareBack'
 import {
   buildDebtOrderBalances,
   buildSaleDebtStatuses,
+  cashDebtOrderId,
   debtBalanceDeltaForHistoryChange,
   debtHistoryTotals,
   debtOrderIdsMatch,
@@ -50,17 +51,19 @@ import {
   type SaleDebtStatus,
 } from '@/lib/clientVipCredit'
 import { resolveEffectiveDebtLimit } from '@/lib/loyaltyStatusConfig'
+import { buildClientDebtPanel, type ClientDebtCashView, type ClientDebtPayGroup } from '@/lib/buildClientDebtPanel'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { softSyncPosAfterSale, usePosStore } from '@/lib/posStore'
-import { useOrders } from '@/lib/store'
+import { useOrders, useProducts } from '@/lib/store'
 import type { PosSale } from '@/lib/types'
+import ClientDebtPanel, { type ClientDebtTab } from './ClientDebtPanel'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
 import OfflineNotice from './OfflineNotice'
 
 type EnrichedClient = AdminClient & { lastLabel?: string }
 type ListFilter = 'all' | 'with_debt' | 'cleared'
 type SortMode = 'debt' | 'name'
-type DetailTab = 'checks' | 'cash' | 'pay' | 'all'
+type DetailTab = ClientDebtTab
 
 type PayMethod = 'cash' | 'card'
 type SaleRepayState = { amount: string; saving: boolean; method: PayMethod }
@@ -465,6 +468,7 @@ export default function DebtsModule({
 }) {
   const storedClients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
+  const products = useProducts(s => s.products)
   const sales = usePosStore(s => s.sales)
   const shifts = usePosStore(s => s.shifts)
   const orders = useOrders(s => s.orders)
@@ -476,7 +480,18 @@ export default function DebtsModule({
   const [sort, setSort] = useState<SortMode>('debt')
   const [filter, setFilter] = useState<ListFilter>('with_debt')
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<DetailTab>('checks')
+  const [detailTab, setDetailTab] = useState<DetailTab>('pos')
+  const [payGroupDetail, setPayGroupDetail] = useState<ClientDebtPayGroup | null>(null)
+  const [repayQuick, setRepayQuick] = useState<{
+    kind: 'cash'
+    label: string
+    maxAmount: number
+    orderId: string
+    debtEntryId?: string
+    amount: string
+    method: PayMethod
+    saving: boolean
+  } | null>(null)
   const [histAdd, setHistAdd] = useState<HistAddState>(emptyHistAdd)
   const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
@@ -617,9 +632,23 @@ export default function DebtsModule({
     }
   }, [detailClient, histTick, sales, cards])
 
+  const debtPanel = useMemo(() => {
+    if (!detailClient) return null
+    void histTick
+    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    return buildClientDebtPanel({
+      client: detailClient,
+      cardDebt,
+      sales,
+      products,
+    })
+  }, [detailClient, histTick, sales, products])
+
   useEffect(() => {
-    if (!saleDetailId && !detailId) return
+    if (!saleDetailId && !detailId && !payGroupDetail && !repayQuick) return
     return pushBackHandler(() => {
+      if (repayQuick) { setRepayQuick(null); return true }
+      if (payGroupDetail) { setPayGroupDetail(null); return true }
       if (saleDetailId) {
         setSaleDetailId(null)
         setSaleRepay(null)
@@ -631,11 +660,13 @@ export default function DebtsModule({
       }
       return false
     })
-  }, [saleDetailId, detailId])
+  }, [saleDetailId, detailId, payGroupDetail, repayQuick])
 
   function selectClient(id: string) {
     setDetailId(id)
-    setDetailTab('checks')
+    setDetailTab('pos')
+    setPayGroupDetail(null)
+    setRepayQuick(null)
     setHistAdd(emptyHistAdd())
     setHistMsg('')
     setHistEdit(null)
@@ -713,6 +744,105 @@ export default function DebtsModule({
       }
     } catch (e) {
       setSaleRepay(prev => prev ? { ...prev, saving: false } : prev)
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
+    }
+  }
+
+  function openCashRepay(c: ClientDebtCashView) {
+    if (!detailClient) return
+    const debtNow = Math.max(0, Number(detailClient.debt) || 0)
+    const remain = Math.min(c.remain, debtNow)
+    if (remain <= 0.001 || debtNow <= 0) {
+      setHistMsg('Нет долга')
+      return
+    }
+    setRepayQuick({
+      kind: 'cash',
+      label: c.isResidual ? 'На карте' : c.label,
+      maxAmount: remain,
+      orderId: c.orderId || '',
+      debtEntryId: c.debtEntryId,
+      amount: String(remain),
+      method: 'cash',
+      saving: false,
+    })
+  }
+
+  async function submitCashRepay() {
+    if (!detailClient || !repayQuick) return
+    const amount = Math.round(Math.min(Number(repayQuick.amount) || 0, repayQuick.maxAmount) * 100) / 100
+    if (!(amount > 0.001)) {
+      setHistMsg('Укажите сумму погашения')
+      return
+    }
+    setRepayQuick(prev => prev ? { ...prev, saving: true } : prev)
+    setHistMsg('')
+    try {
+      let target = repayQuick
+      const histKey = debtAccountKey(detailClient)
+      if (target.kind === 'cash' && !target.orderId && histKey) {
+        recordStoreDebtCharge(histKey, target.maxAmount, 'Ручное начисление (раньше на карте)', { source: 'manual' })
+        const newest = loadDebtHistory(histKey).find(r => r.type === 'debt')
+        if (newest) {
+          const oid = cashDebtOrderId(newest)
+          target = {
+            ...target,
+            orderId: oid,
+            debtEntryId: newest.id,
+            label: newest.desc || target.label,
+          }
+        }
+      }
+      if (target.debtEntryId && histKey && target.orderId) {
+        ensureDebtHistoryOrderId(histKey, target.debtEntryId, target.orderId)
+      }
+      const method = target.method || 'cash'
+      const repaid = await repayDebtIntoOpenShift(detailClient, amount, {
+        method,
+        note: `Погашение · ${target.label} · ${detailClient.name}`,
+      })
+      if (repaid.data.duplicate) {
+        setHistMsg('Это погашение уже записано')
+        setRepayQuick(prev => prev ? { ...prev, saving: false } : prev)
+        return
+      }
+      if (histKey) {
+        if (target.orderId) {
+          recordStoreDebtRepayment(histKey, amount, {
+            desc: `Погашение · ${target.label}`,
+            orderId: target.orderId,
+            method,
+            clientRef: repaid.data.clientRef,
+          })
+        } else {
+          const openChecks = (detailData?.posSales || [])
+            .map(s => ({
+              orderId: s.orderId || s.id,
+              remain: Number(detailData?.saleStatus[s.id]?.remain) || 0,
+              label: saleLabel(s),
+              ts: Date.parse(s.dateIso) || 0,
+            }))
+            .filter(t => t.remain > 0.001)
+            .sort((a, b) => a.ts - b.ts)
+          if (openChecks.length) {
+            recordStoreDebtRepaymentFifo(histKey, amount, openChecks, {
+              method,
+              source: 'cashier',
+              clientRef: repaid.data.clientRef,
+            })
+          } else {
+            recordStoreDebtRepayment(histKey, amount, {
+              method,
+              clientRef: repaid.data.clientRef,
+            })
+          }
+        }
+      }
+      setRepayQuick(null)
+      setHistMsg(`Погашено: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
+      void refreshAll()
+    } catch (e) {
+      setRepayQuick(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
     }
   }
@@ -1182,428 +1312,85 @@ export default function DebtsModule({
                 </div>
         </aside>
 
-        {/* ── Деталь ── */}
-        <section className="k-debts-detail">
-          {!detailClient || !detailData ? (
+        {/* ── Деталь (как в кассе) ── */}
+        <section className="k-debts-detail" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {!detailClient || !detailData || !debtPanel ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
               Выберите клиента слева
-              </div>
+            </div>
           ) : (
-            <>
-              <div className="k-debts-head">
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="k-btn k-btn-s"
-                    style={{ display: 'none', fontSize: 11, padding: '4px 8px', minHeight: 0 }}
-                    onClick={() => setDetailId(null)}
-                    id="k-debts-back"
-                  >
-                    ←
-                  </button>
-                  <style>{`@media (max-width:900px){#k-debts-back{display:inline-flex!important}}`}</style>
-                  <div className="k-debts-av">{initials(detailClient.name)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <b style={{ fontSize: 14 }}>{detailClient.name}</b>
-                      <DebtStatusBadge overLimit={detailClient.overLimit} debt={cardDebt} />
-                      {detailClient.debtCreditBlocked && (
-                        <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>
-                          Новый долг закрыт
-                        </span>
-                      )}
-                      <span className="k-badge" style={{
-                        fontSize: 10,
-                        background: `${CLIENT_LEVEL_COLORS[detailClient.level] || 'var(--muted)'}22`,
-                        color: CLIENT_LEVEL_COLORS[detailClient.level] || 'var(--muted)',
-                      }}>
-                        {levelLabel(detailClient.level)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {detailClient.phone && <span>☎ {detailClient.phone}</span>}
-                      {detailClient.card && (
-                        <span>
-                          {' · '}💳 {detailClient.card}
-                          {(() => {
-                            const card = cardForClient(detailClient, cards)
-                            return card ? ` · ${CARD_STATUS_LABELS[card.status].l}` : ''
-                          })()}
-                        </span>
-                      )}
-                      {(() => {
-                        const overdueN = detailData.history.filter(r => r.type === 'debt' && r.overdue).length
-                        if (overdueN > 0) {
-                          return <span style={{ color: 'var(--red)' }}>{' · '}просрочено: {overdueN}</span>
-                        }
-                        const nextDue = [...detailData.history]
-                          .filter(r => r.type === 'debt' && r.dueDate && (r.daysLeft == null || r.daysLeft >= 0))
-                          .sort((a, b) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999))[0]
-                        return nextDue?.dueDate
-                          ? <span>{' · '}срок {nextDue.dueDate}</span>
-                          : null
-                      })()}
-                  </div>
-                  </div>
-                    </div>
-
-                <div className="k-debts-metrics">
-                  <div className="k-debts-metric">
-                    <div className="kl">Товары</div>
-                    <div className="kv" style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</div>
-                    {detailData.posOriginal > detailData.posSum + 0.05 && (
-                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-                        из {fmtMoney(detailData.posOriginal)}
-                  </div>
-                )}
-              </div>
-                  <div className="k-debts-metric">
-                    <div className="kl">Наличные</div>
-                    <div className="kv" style={{ color: 'var(--gold)' }}>{fmtMoney(detailData.cashOnCard)}</div>
-                </div>
-                  <div className="k-debts-metric">
-                    <div className="kl">Итого</div>
-                    <div className="kv" style={{ color: detailData.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>
-                      {detailData.totalDebt > 0 ? fmtMoney(detailData.totalDebt) : '—'}
-                  </div>
-                </div>
-                </div>
-              </div>
-
-              <div style={{ padding: '6px 8px 0', flexShrink: 0 }}>
-                <div className="k-subtabs" style={{ marginBottom: 6, gap: 4 }}>
-                  {([
-                    ['checks', `Чеки в долг (${detailData.posSales.length})`],
-                    ['cash', `Нал. (${detailData.cash.length + (detailData.residualCash > 0.005 ? 1 : 0)})`],
-                    ['pay', `Оплаты (${detailData.pays.length + detailData.checkPays.length})`],
-                    ['all', `Вся история (${detailData.historyFeed.length})`],
-                  ] as [DetailTab, string][]).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`k-subtab ${detailTab === id ? 'active' : ''}`}
-                      style={{ padding: '5px 10px', fontSize: 11 }}
-                      onClick={() => {
-                        setDetailTab(id)
-                        setHistEdit(null)
-                        if (id !== 'cash' && id !== 'pay') setHistAdd(emptyHistAdd())
-                      }}
-                    >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-                {histMsg && (
-                  <div style={{
-                    marginBottom: 6, padding: '5px 8px', borderRadius: 6, fontSize: 11,
-                    background: msgOk ? 'rgba(20,178,79,.12)' : 'var(--alert-error-bg)',
-                    color: msgOk ? 'var(--green)' : 'var(--red)',
-                    border: '1px solid var(--alert-error-border)',
-                  }}>
-                    {histMsg}
-                  </div>
-                )}
-              </div>
-
-              <div className="k-debts-detail-b">
-              {detailTab === 'all' && (
-                  !detailData.historyFeed.length ? (
-                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                      Пока нет движений
-                    </div>
-                  ) : (
-                    <div className="k-debts-table-wrap">
-                      <table className="k-debts-table">
-                        <thead>
-                          <tr>
-                            <th>Дата</th>
-                            <th>Тип</th>
-                            <th>Описание</th>
-                            <th style={{ textAlign: 'right' }}>Сумма</th>
-                            <th style={{ textAlign: 'right' }}>Остаток</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailData.historyFeed.map(row => {
-                            const meta = kindMeta(row.kind, row.title)
-                            const clickable = row.kind === 'pos' && row.saleId
-                        return (
-                              <tr
-                                key={row.key}
-                                onClick={() => clickable && openSaleDetail(row.saleId!)}
-                                style={{ cursor: clickable ? 'pointer' : undefined }}
-                                title={clickable ? 'Открыть детали заказа' : undefined}
-                              >
-                                <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: 12 }}>{row.dateLabel}</td>
-                                <td>
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: meta.color, fontSize: 12 }}>
-                                    <span>{meta.icon}</span> {meta.label}
-                              </span>
-                                </td>
-                                <td style={{ fontSize: 13 }}>
-                                  {row.desc}
-                                  {clickable && <span style={{ color: 'var(--muted)', fontSize: 11 }}> · открыть</span>}
-                                </td>
-                                <td style={{
-                                  textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
-                                  color: row.amount < 0 ? 'var(--green)' : 'var(--gold)',
-                                }}>
-                                  {row.amount < 0 ? '−' : '+'}{fmtMoney(Math.abs(row.amount))}
-                                </td>
-                                <td style={{ textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                                  {fmtMoney(row.balance)}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                )}
-
-                {detailTab === 'checks' && (
-                  (() => {
-                    const rows = detailData.posSales
-                    if (!rows.length) {
-                      return (
-                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                          {detailData.posSales.length ? 'Все чеки погашены' : 'Нет чеков кассы в долг'}
-                        </div>
-                      )
-                    }
-                    return (
-                    <>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                        К оплате: <b style={{ color: 'var(--blue)' }}>{detailData.openChecks}</b>
-                        {' · '}Товары долг: <b style={{ color: 'var(--blue)' }}>{fmtMoney(detailData.posSum)}</b>
-                      </div>
-                      <div className="k-debts-table-wrap">
-                            <table className="k-debts-table">
-                              <thead>
-                                <tr>
-                                  <th>Дата</th>
-                                  <th>Статус</th>
-                                  <th>Чек / состав</th>
-                                  <th style={{ textAlign: 'right' }}>В долг</th>
-                                  <th style={{ textAlign: 'right' }}>Остаток</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {rows.map(s => {
-                                  const st = detailData.saleStatus[s.id] || {
-                                    status: 'open' as const,
-                                    paid: 0,
-                                    remain: s.debtAdded,
-                                  }
-                                  const statusMeta = saleRowStatus(s, st)
-                                  const items = s.items.length
-                                    ? s.items.slice(0, 2).map(i => i.name).join(', ') + (s.items.length > 2 ? '…' : '')
-                                    : ''
-                                  return (
-                                    <tr
-                                      key={s.id}
-                                      onClick={() => openSaleDetail(s.id)}
-                                      style={{ cursor: 'pointer' }}
-                                      title="Открыть детали и погасить"
-                                    >
-                                      <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: 12 }}>
-                                        {s.dateIso ? fmtDateTime(s.dateIso) : '—'}
-                                      </td>
-                                      <td>
-                                        <span style={{
-                                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                                          fontWeight: 700, color: statusMeta.color, fontSize: 12,
-                                        }}>
-                                          <span>{statusMeta.icon}</span>
-                                          {statusMeta.label}
-                                </span>
-                                      </td>
-                                      <td style={{ fontSize: 13 }}>
-                                        <span style={{ fontWeight: 700 }}>{saleLabel(s)}</span>
-                                        <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                                          {' · '}{s.itemsCount} поз. · открыть
-                                        </span>
-                                        {items && (
-                                          <div style={{
-                                            fontSize: 11, color: 'var(--muted)', marginTop: 2,
-                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280,
-                                          }}>
-                                            {items}
-                              </div>
-                                        )}
-                                      </td>
-                                      <td style={{
-                                        textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap',
-                                        color: 'var(--muted)', fontSize: 12,
-                                      }}>
-                                        {fmtMoney(s.debtAdded)}
-                                      </td>
-                                      <td style={{
-                                        textAlign: 'right', fontWeight: 900, whiteSpace: 'nowrap',
-                                        color: statusMeta.color,
-                                      }}>
-                                        {statusMeta.label === 'Возврат' ? '0' : (st.status === 'paid' ? '—' : fmtMoney(st.remain))}
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                      </div>
-                    </>
-                    )
-                  })()
-                )}
-
-                {detailTab === 'cash' && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Наличные = долг на карте минус чеки. Старый ручной ввод тоже здесь.
-                            </div>
-                      <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 12px' }} onClick={() => openAdd('add')}>
-                        + Выдать
-                      </button>
-                                </div>
-                    {renderAddForm()}
-                    {detailData.residualCash > 0.005 && (
-                      <div style={{
-                        padding: '12px 14px', borderRadius: 12, marginBottom: 8,
-                        background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)',
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                          <div>
-                            <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--gold)' }}>
-                              Ручной долг на карте
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                              Раньше ввели вручную, в истории строки не было — учитываем как наличные
-                          </div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{ fontWeight: 900, color: 'var(--gold)' }}>
-                              +{fmtMoney(detailData.residualCash)}
-                            </div>
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                className="k-btn k-btn-s"
-                                style={{ fontSize: 12, padding: '4px 10px', minHeight: 0 }}
-                                onClick={() => void documentResidualCash()}
-                              >
-                                Записать в историю
-                        </button>
-                              <button
-                                type="button"
-                                className="k-btn k-btn-s"
-                                style={{ fontSize: 12, padding: '4px 10px', minHeight: 0, color: 'var(--red)' }}
-                                onClick={() => void clearResidualCashFromCard()}
-                              >
-                                Убрать с карты
-                              </button>
-                            </div>
+            <ClientDebtPanel
+              name={detailClient.name}
+              phone={detailClient.phone}
+              cardNum={detailClient.card}
+              card={cardForClient(detailClient, cards)}
+              level={detailClient.level}
+              debtCreditBlocked={detailClient.debtCreditBlocked}
+              overLimit={detailClient.overLimit}
+              cardDebt={cardDebt}
+              debtLimit={detailClient.debtLimit}
+              availableDebt={detailClient.available}
+              repaidTotal={detailData.repaidTotal}
+              bonus={detailData.bonus}
+              panel={debtPanel}
+              tab={detailTab}
+              onTabChange={t => {
+                setDetailTab(t)
+                setHistEdit(null)
+                if (t !== 'cash' && t !== 'pay') setHistAdd(emptyHistAdd())
+              }}
+              histMsg={histMsg}
+              msgOk={msgOk}
+              onBack={() => setDetailId(null)}
+              onRepayAll={() => {
+                if (cardDebt <= 0) return
+                setRepayQuick({
+                  kind: 'cash',
+                  label: 'Долг',
+                  maxAmount: cardDebt,
+                  orderId: '',
+                  amount: String(cardDebt),
+                  method: 'cash',
+                  saving: false,
+                })
+              }}
+              onIssueCash={() => openAdd('add')}
+              onOpenSale={openSaleDetail}
+              onRepayCash={openCashRepay}
+              onPayGroup={setPayGroupDetail}
+              cashTabExtra={(
+                <>
+                  {histAdd.open && detailTab === 'cash' ? renderAddForm() : null}
+                  {detailTab === 'cash' && detailData.residualCash > 0.005 && (
+                    <div style={{
+                      padding: '12px 14px', borderRadius: 12, marginBottom: 8,
+                      background: 'rgba(255,184,0,.1)', border: '1px solid rgba(255,184,0,.3)',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--gold)' }}>Ручной долг на карте</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                            Раньше ввели вручную, в истории строки не было
                           </div>
                         </div>
-                    </div>
-                  )}
-                    {!detailData.cash.length && detailData.residualCash < 0.005 && !histAdd.open ? (
-                      <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                        Нет выдач наличными
-                      </div>
-                    ) : detailData.cash.map(renderEditableRow)}
-                </>
-              )}
-
-                {detailTab === 'pay' && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Погашения по чекам и ручные оплаты.
-                      </div>
-                      <button type="button" className="k-btn k-btn-g" style={{ fontSize: 12, minHeight: 0, padding: '6px 12px' }} onClick={() => openAdd('repay')}>
-                        + Оплата
-                      </button>
-                    </div>
-                    {renderAddForm()}
-                    {!detailData.pays.length && !detailData.checkPays.length && !histAdd.open ? (
-                      <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                        Нет оплат
-                      </div>
-                    ) : (
-                      <>
-                        {[...detailData.checkPays]
-                          .sort((a, b) => (b.ts || 0) - (a.ts || 0))
-                          .map(row => {
-                            const isGap = row.id === 'gap-pay'
-                            const sale = !isGap
-                              ? detailData.posSales.find(s =>
-                                debtOrderIdsMatch(s.id, row.orderId)
-                                || debtOrderIdsMatch(s.orderId, row.orderId),
-                              )
-                              : undefined
-                        return (
-                              <div
-                                key={row.id}
-                                style={{
-                                  padding: '12px 14px', borderRadius: 12, marginBottom: 8,
-                                  background: 'rgba(31,215,96,.06)',
-                                  border: '1px solid rgba(31,215,96,.25)',
-                                }}
-                              >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: 800, fontSize: 14 }}>
-                                      {row.desc || (sale ? `Погашение · ${saleLabel(sale)}` : 'Погашение чека')}
-                                </div>
-                                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                                      {row.date}{row.time ? ` · ${row.time}` : ''}
-                                      <span style={{ color: 'var(--green)', fontWeight: 700 }}>
-                                        {isGap ? ' · сводка' : ' · по чеку'}
-                                      </span>
-                                  </div>
-                              </div>
-                                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <div style={{ fontWeight: 900, color: 'var(--green)' }}>
-                                      −{fmtMoney(Math.abs(row.amount))}
-                                    </div>
-                                    {sale && (
-                                      <button
-                                        type="button"
-                                        className="k-btn k-btn-s"
-                                        style={{ fontSize: 12, padding: '4px 10px', minHeight: 0, marginTop: 8 }}
-                                        onClick={() => openSaleDetail(sale.id)}
-                                      >
-                                        Открыть чек
-                                      </button>
-                                    )}
-                              </div>
-                            </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 900, color: 'var(--gold)' }}>+{fmtMoney(detailData.residualCash)}</div>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
+                            <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, padding: '4px 10px', minHeight: 0 }} onClick={() => void documentResidualCash()}>
+                              Записать в историю
+                            </button>
+                            <button type="button" className="k-btn k-btn-s" style={{ fontSize: 12, padding: '4px 10px', minHeight: 0, color: 'var(--red)' }} onClick={() => void clearResidualCashFromCard()}>
+                              Убрать с карты
+                            </button>
                           </div>
-                        )
-                      })}
-                        {detailData.pays.map(renderEditableRow)}
-                      </>
+                        </div>
+                      </div>
+                    </div>
                   )}
+                  {detailTab === 'pay' && histAdd.open ? renderAddForm() : null}
                 </>
               )}
-              </div>
-
-              <div className="k-debts-actions">
-                <button
-                  type="button"
-                  className="k-btn k-btn-g"
-                  disabled={!(detailData.totalDebt > 0)}
-                  onClick={() => openAdd('repay')}
-                >
-                  ✓ Погасить долг
-                </button>
-                <button type="button" className="k-btn k-btn-s" onClick={() => openAdd('add')}>
-                  Выдать наличные
-                </button>
-                              </div>
-            </>
+            />
           )}
         </section>
                               </div>
@@ -1833,6 +1620,97 @@ export default function DebtsModule({
           </div>
         )
       })()}
+
+      {payGroupDetail && (
+        <div className="k-modal-bg" style={{ zIndex: 85 }} {...backdropCloseProps(() => setPayGroupDetail(null))}>
+          <div className="k-modal" onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: '100%' }}>
+            <div className="k-modal-h">
+              <b>Оплата</b>
+              <button type="button" onClick={() => setPayGroupDetail(null)}>✕</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 14 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 6 }}>
+                {payGroupDetail.isReturn ? 'Возврат' : 'Оплата'} {fmtMoney(payGroupDetail.amount)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{payGroupDetail.when}</div>
+              <div style={{ fontSize: 13, marginBottom: 14 }}>
+                {payGroupDetail.methodHint ? `${payGroupDetail.methodHint} · ` : ''}
+                {payGroupDetail.coverHint}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginBottom: 8, textTransform: 'uppercase' }}>
+                Что закрыто · {payGroupDetail.parts.length}
+              </div>
+              <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+                {payGroupDetail.parts.map((p, i) => {
+                  const kind = p.payScope === 'sale'
+                    ? 'Текущий чек'
+                    : p.partKind === 'cash'
+                      ? 'Нал.'
+                      : p.partKind === 'check'
+                        ? 'Чек'
+                        : ''
+                  return (
+                    <div key={p.id || `${p.checkLabel}-${i}`} style={{
+                      display: 'flex', justifyContent: 'space-between', gap: 10,
+                      padding: '8px 10px', borderRadius: 10, background: 'var(--card2)', border: '1px solid var(--border)',
+                    }}>
+                      <div style={{ minWidth: 0 }}>
+                        <b style={{ fontSize: 13 }}>{kind ? `${kind} · ` : ''}{p.checkLabel}</b>
+                        {p.items ? <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{p.items}</div> : null}
+                      </div>
+                      <b style={{ color: 'var(--green)', flexShrink: 0 }}>−{fmtMoney(p.amount)}</b>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {repayQuick && detailClient && (
+        <div className="k-modal-bg" style={{ zIndex: 86 }} {...backdropCloseProps(() => !repayQuick.saving && setRepayQuick(null))}>
+          <div className="k-modal" onClick={e => e.stopPropagation()} style={{ width: 400, maxWidth: '100%' }}>
+            <div className="k-modal-h">
+              <b>Погашение · {repayQuick.label}</b>
+              <button type="button" disabled={repayQuick.saving} onClick={() => setRepayQuick(null)}>✕</button>
+            </div>
+            <div className="k-modal-b" style={{ padding: 14, display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 12, color: openShift ? 'var(--muted)' : 'var(--red)', fontWeight: 700 }}>
+                {openShift
+                  ? `В кассу · ${openShift.cashierName || 'смена открыта'} · ${repayQuick.method === 'card' ? 'карта' : 'нал'}`
+                  : 'Смена закрыта — чтобы принять оплату'}
+              </div>
+              <PayMethodToggle
+                value={repayQuick.method}
+                disabled={repayQuick.saving || !openShift}
+                onChange={m => setRepayQuick(prev => prev ? { ...prev, method: m } : prev)}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="k-inp"
+                  inputMode="decimal"
+                  value={repayQuick.amount}
+                  disabled={repayQuick.saving || !openShift}
+                  onChange={e => setRepayQuick(prev => prev ? { ...prev, amount: sanitizeDecimalInput(e.target.value) } : prev)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="k-btn k-btn-g"
+                  disabled={repayQuick.saving || !openShift}
+                  onClick={() => void submitCashRepay()}
+                >
+                  {repayQuick.saving ? '…' : 'Погасить'}
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Макс. {fmtMoney(repayQuick.maxAmount)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

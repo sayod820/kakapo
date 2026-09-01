@@ -1427,6 +1427,7 @@ const CSS = `
   .k-cat-order-btns .k-btn{width:26px;height:26px;min-height:0;padding:0;font-size:11px;line-height:1}
   .k-debts-layout{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:10px;align-items:stretch;flex:1;min-height:0;overflow:hidden}
   .k-debts-list,.k-debts-detail{background:var(--card);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-height:0;height:100%;max-height:100%;overflow:hidden}
+  .k-debts-detail .client-debt-panel{flex:1;min-height:0}
   .k-debts-list-b,.k-debts-detail-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:6px 8px;overscroll-behavior:contain}
   .k-debts-row{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid transparent;cursor:pointer;margin-bottom:4px;background:var(--card2)}
   .k-debts-row:hover{border-color:var(--border)}
