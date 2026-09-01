@@ -189,24 +189,6 @@ export async function closeShiftSafe(
   shiftId: string,
   input: { closingCash: number; closingCard?: number; note?: string },
 ): Promise<OfflineResult<PosShift | null>> {
-  const pending = await getPending()
-  const shiftBusy = pending.some(r => {
-    if (r.failed) return false
-    if (!['sale', 'sale_return', 'finance_move', 'expense_create', 'debt_repay', 'card_topup'].includes(r.kind)) {
-      return false
-    }
-    return String((r.payload as any)?.shiftId || '') === String(shiftId)
-  })
-  if (shiftBusy) {
-    throw new Error('Сначала дождитесь отправки чеков и движений этой смены')
-  }
-  const localSaleBusy = usePosStore.getState().sales.some(s =>
-    String(s.shiftId || '') === String(shiftId) && isLocalId(String(s.id || '')),
-  )
-  if (localSaleBusy) {
-    throw new Error('Сначала дождитесь отправки чеков этой смены')
-  }
-
   const clientRef = newClientRef()
   const payload = {
     clientRef,
@@ -842,19 +824,19 @@ export async function financeMoveSafe(input: {
   if (existing) return existing
 
   const run = (async (): Promise<OfflineResult<FinanceMove | null>> => {
-    // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
-    if (input.supplierId && !isTradeLocalFirst()) {
-      try {
-        const move = await api.createFinanceMove(payload)
-        return { offline: false, data: move }
-      } catch (e) {
-        if (!isNetworkError(e)) throw e
-        throw new Error('Оплата поставщику недоступна без связи')
-      }
+  // Оплата поставщику с кассы: без V2 — только онлайн; с V2 — локально + очередь
+  if (input.supplierId && !isTradeLocalFirst()) {
+    try {
+      const move = await api.createFinanceMove(payload)
+      return { offline: false, data: move }
+    } catch (e) {
+      if (!isNetworkError(e)) throw e
+      throw new Error('Оплата поставщику недоступна без связи')
     }
+  }
 
-    const applyLocal = async () => {
-      const localId = newLocalId('fin')
+  const applyLocal = async () => {
+    const localId = newLocalId('fin')
       const queued = await useOfflineSync.getState().queueOp('finance_move', payload, { localId, clientRef })
       const already = queued.clientRef !== clientRef || queued.localId !== localId
       if (already) {
@@ -879,42 +861,42 @@ export async function financeMoveSafe(input: {
           shiftId: payload.shiftId,
           posId: payload.posId,
         })
-      const move: FinanceMove = {
-        id: localId,
-        type: payload.type,
-        amount: payload.amount,
-        note: payload.note,
-        createdBy: payload.createdBy,
+    const move: FinanceMove = {
+      id: localId,
+      type: payload.type,
+      amount: payload.amount,
+      note: payload.note,
+      createdBy: payload.createdBy,
         createdAtIso,
         shiftId: applied.shiftId || payload.shiftId,
-        posId: payload.posId,
-        supplierId: payload.supplierId,
+      posId: payload.posId,
+      supplierId: payload.supplierId,
         clientRef,
         payFrom,
         method,
-      }
-      usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
-      shadowMirrorPut('finance_move', move.id, move)
-      if (payload.supplierId && payload.type === 'withdraw') {
-        usePosStore.setState(s => ({
-          suppliers: s.suppliers.map(sup => {
-            if (sup.id !== payload.supplierId) return sup
-            const totalPaid = round2((Number(sup.totalPaid) || 0) + payload.amount)
-            const totalSupplied = Number(sup.totalSupplied) || 0
-            return {
-              ...sup,
-              totalPaid,
-              payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
-              payVersion: supplierPayVersion(sup) + 1,
-            }
-          }),
-        }))
-      }
-      void persistPosSnapshot()
-      return move
     }
+    usePosStore.setState(s => ({ financeMoves: [move, ...s.financeMoves] }))
+    shadowMirrorPut('finance_move', move.id, move)
+    if (payload.supplierId && payload.type === 'withdraw') {
+      usePosStore.setState(s => ({
+        suppliers: s.suppliers.map(sup => {
+          if (sup.id !== payload.supplierId) return sup
+          const totalPaid = round2((Number(sup.totalPaid) || 0) + payload.amount)
+          const totalSupplied = Number(sup.totalSupplied) || 0
+          return {
+            ...sup,
+            totalPaid,
+            payableAmount: round2(Math.max(0, totalSupplied - totalPaid)),
+              payVersion: supplierPayVersion(sup) + 1,
+          }
+        }),
+      }))
+    }
+      void persistPosSnapshot()
+    return move
+  }
 
-    return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
+  return raceCashierOp(() => api.createFinanceMove(payload), applyLocal)
   })()
   financeMoveInflight.set(inflightKey, run)
   try {
@@ -1439,11 +1421,11 @@ export async function returnSaleSafe(
     const cutWallet = round2(Number(lastRet?.cutWallet) || 0)
     const cutBonus = round2(Number(lastRet?.cutBonus) || 0)
     await useOfflineSync.getState().queueOp('sale_return', {
-      clientRef,
-      saleId: sale.id,
-      note: input.note,
-      cashierId: input.cashierId,
-      items: input.items,
+    clientRef,
+    saleId: sale.id,
+    note: input.note,
+    cashierId: input.cashierId,
+    items: input.items,
       clientId: partyAfter.cl?.id || returned.clientId || sale.clientId,
       cardNum: partyAfter.resolvedCardNum || returned.cardNum || sale.cardNum,
       cutDebt,
@@ -1685,17 +1667,17 @@ function applyLocalReturn(
     void import('./stockLayersLocal')
       .then(m => m.restoreLocalLayersFifoBatch(restoreLines))
       .catch(() => {
-        void (async () => {
+  void (async () => {
           try {
-            const { useProducts } = await import('./store')
-            const ps = useProducts.getState()
-            for (const [productId, qty] of backByProduct) {
-              const p = ps.products.find(x => x.id === productId)
-              if (!p) continue
-              ps.updateProduct(productId, { stock: round2((Number(p.stock) || 0) + qty) })
-            }
+    const { useProducts } = await import('./store')
+    const ps = useProducts.getState()
+    for (const [productId, qty] of backByProduct) {
+      const p = ps.products.find(x => x.id === productId)
+      if (!p) continue
+      ps.updateProduct(productId, { stock: round2((Number(p.stock) || 0) + qty) })
+    }
           } catch { /* ignore */ }
-        })()
+  })()
       })
   }
 
@@ -2457,16 +2439,16 @@ function applyFinanceCashReverse(
     }
   } catch {
     if (move.shiftId) {
-      const shift = shiftById(move.shiftId)
-      if (shift) {
-        if (move.type === 'withdraw') {
-          patchShift(move.shiftId, {
-            expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
-          })
-        } else {
-          patchShift(move.shiftId, {
-            cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
-          })
+    const shift = shiftById(move.shiftId)
+    if (shift) {
+      if (move.type === 'withdraw') {
+        patchShift(move.shiftId, {
+          expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
+        })
+      } else {
+        patchShift(move.shiftId, {
+          cashInTotal: round2(Math.max(0, (Number(shift.cashInTotal) || 0) - amount)),
+        })
         }
       }
     }
@@ -2508,7 +2490,7 @@ function reverseFinanceMoveLocal(
   const moves = usePosStore.getState().financeMoves
   const target = moves.find(m => m.id === id)
   if (!target) {
-    usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
+  usePosStore.setState(s => ({ financeMoves: s.financeMoves.filter(m => m.id !== id) }))
     noteInboundDeletedIds([id, ...extraIds])
     return
   }

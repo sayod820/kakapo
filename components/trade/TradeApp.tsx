@@ -1684,11 +1684,24 @@ const CSS = `
     }
     .k-body.k-body-products{padding:var(--k-top-overlay,84px) 10px 8px}
     .k-body.k-body-warehouse{padding:var(--k-top-overlay,84px) 10px 6px}
-    .k-body-pos{
-      overflow:hidden!important;flex:1 1 auto!important;min-height:0!important;
-      height:auto!important;max-height:none!important;padding:0
+    /* Дашборд точки продаж — скролл в .k-body под круглой шапкой (как долги/поставщики) */
+    .k-trade:not(.pos-fs) .k-body-pos{
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
+      overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
+      height:auto!important;max-height:none!important;
+      padding:var(--k-top-overlay,84px) 10px calc(56px + env(safe-area-inset-bottom,0px))!important;
+      display:block;-webkit-overflow-scrolling:touch
+    }
+    .k-trade:not(.pos-fs) .k-body-pos > .pos-host{
+      flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+      display:block!important;overflow:visible!important
+    }
+    .k-trade:not(.pos-fs) .k-body-pos .pos-root[data-embed="1"]{
+      height:auto!important;min-height:0!important;flex:none!important;overflow:visible!important;
+      background:transparent!important
     }
     .k-trade.pos-fs .k-body-pos{
+      overflow:hidden!important;padding:0!important;
       height:100dvh!important;max-height:100dvh!important
     }
     .k-body.k-body-debts{
@@ -2655,6 +2668,9 @@ const CSS = `
   }
   html.kakapo-android .k-body{
     --k-top-overlay:calc(6px + var(--k-android-top-inset) + 70px + 8px)
+  }
+  html.kakapo-android .k-trade:not(.pos-fs) .k-body-pos{
+    padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))!important
   }
   html.kakapo-android .k-bottom-nav{
     padding-bottom:calc(2px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))

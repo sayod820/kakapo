@@ -31,8 +31,20 @@ export const POS_MOCK_CSS = `
   }
   .pos-root[data-embed="1"] .odoo-dash-top > div:first-child{display:none}
   .pos-root[data-embed="1"] .odoo-dash-top .theme-toggle{display:none}
+  /* В «Торговле» заголовок в k-top — тулбар «Создать» карточкой у верха, как в других разделах */
+  .pos-root[data-embed="1"] .odoo-dash{
+    height:auto!important;min-height:0!important;overflow:visible!important;
+    background:transparent;color:inherit;
+  }
   .pos-root[data-embed="1"] .odoo-dash-top{
-    padding:12px 16px;align-items:center
+    display:block;padding:0;margin:0 0 8px;border:none;background:transparent;
+    box-shadow:none;
+  }
+  .pos-root[data-embed="1"] .odoo-dash-actions{width:100%;display:flex}
+  .pos-root[data-embed="1"] .odoo-create-pos{width:100%;justify-content:center;text-align:center}
+  .pos-root[data-embed="1"] .odoo-dash-body{
+    padding:0 0 12px;flex:none;
+    background:transparent!important;
   }
   /* настройки всегда fixed на весь экран — даже в embed */
   .pos-root[data-embed="1"] .pos-settings-fs{
@@ -1569,16 +1581,26 @@ export const POS_MOCK_CSS = `
   .cashier-debt-hint{font-size:11px;color:var(--t3);margin:0 0 8px;line-height:1.3;}
   .cashier-debt-sec{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.03em;margin:8px 0 4px;}
   .pos-root button.cashier-debt-check,.cashier-debt-check{
-    display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:0 0 4px;padding:7px 10px;
+    display:flex;align-items:flex-start;gap:8px;width:100%;text-align:left;margin:0 0 4px;padding:7px 10px;
     border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:inherit;cursor:pointer;
   }
   .pos-root button.cashier-debt-check:hover{border-color:var(--accent);}
-  .cashier-debt-check-id{display:flex;flex-direction:column;gap:1px;min-width:0;flex:0 1 118px;}
+  .cashier-debt-check-id{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 140px;}
   .cashier-debt-check-id b{font-size:12px;font-weight:900;white-space:nowrap;}
   .cashier-debt-check-id em{font-style:normal;font-size:10px;color:var(--t3);white-space:nowrap;}
-  .cashier-debt-check-st{font-size:11px;font-weight:800;white-space:nowrap;flex-shrink:0;margin-left:auto;}
+  .cashier-debt-check-note{
+    font-style:normal!important;font-size:10px!important;font-weight:700!important;color:var(--org)!important;
+    max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;
+  }
+  .hist-debt-note{
+    display:flex;flex-direction:column;gap:3px;padding:8px 10px;border-radius:10px;
+    border:1px solid rgba(255,184,0,.35);background:rgba(255,184,0,.1);
+  }
+  .hist-debt-note span{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.03em;}
+  .hist-debt-note b{font-size:13px;font-weight:800;color:var(--text);line-height:1.35;white-space:pre-wrap;word-break:break-word;}
+  .cashier-debt-check-st{font-size:11px;font-weight:800;white-space:nowrap;flex-shrink:0;margin-left:auto;padding-top:2px;}
   .cashier-debt-check-nums{
-    display:flex;align-items:center;gap:10px;flex:1;min-width:0;justify-content:flex-end;
+    display:flex;align-items:center;gap:10px;flex:0 0 auto;min-width:0;justify-content:flex-end;padding-top:1px;
   }
   .cashier-debt-check-nums > span{display:flex;flex-direction:column;align-items:flex-end;gap:0;line-height:1.15;}
   .cashier-debt-check-nums i{font-style:normal;font-size:9px;color:var(--t3);font-weight:700;}

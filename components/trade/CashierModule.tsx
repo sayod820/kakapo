@@ -56,6 +56,7 @@ import {
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
   recordStoreDebtRepaymentFifo,
+  recordStoreSalePaymentInBatch,
   recordStorePurchase,
   saleOpenCreditAmount,
   saleWasOnCredit,
@@ -78,7 +79,7 @@ import {
   type PosLoyaltyClientMeta,
 } from '@/lib/posLoyaltySale'
 import { resolveCardAuthoritativeLevel } from '@/lib/loyaltyAdminLock'
-import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes } from '@/lib/productBarcodes'
+import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes, cleanScannedBarcode, barcodeDigitKeys } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
@@ -123,7 +124,9 @@ import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
+/** Старый общий ключ — мигрируем в per-employee */
 const FAV_KEY = 'kakapo_pos_favorites'
+const FAV_BY_EMP_KEY = 'kakapo_pos_favorites_by_employee'
 
 type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'wallet' | 'mixed'
@@ -333,6 +336,8 @@ type ClientHistRow = {
   saleId?: string
   orderId?: string
   debtEntryId?: string
+  /** Комментарий при продаже в долг */
+  note?: string
 }
 
 function mapSaleLines(
@@ -675,21 +680,87 @@ function loadTheme(): ThemeName {
   return 'light'
 }
 
-function loadFavIds(): number[] {
+/** Владелец избранного: сотрудник входа в «Торговлю», иначе кассир смены */
+function favOwnerKey(cashierId?: string): string {
+  try {
+    const empId = String(loadTradeEmployeeSession()?.employeeId || '').trim()
+    if (empId) return `emp:${empId}`
+  } catch { /* ignore */ }
+  const cid = String(cashierId || '').trim()
+  if (cid) return `cashier:${cid}`
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as PosSettings
+      const fromSettings = String(p.cashierId || '').trim()
+      if (fromSettings) return `cashier:${fromSettings}`
+    }
+  } catch { /* ignore */ }
+  return 'default'
+}
+
+function parseFavIdList(arr: unknown): number[] {
+  if (!Array.isArray(arr)) return []
+  return arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
+}
+
+function loadFavMap(): Record<string, number[]> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(FAV_BY_EMP_KEY)
+    if (!raw) return {}
+    const obj = JSON.parse(raw) as unknown
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+    const out: Record<string, number[]> = {}
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[k] = parseFavIdList(v)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function saveFavMap(map: Record<string, number[]>) {
+  localStorage.setItem(FAV_BY_EMP_KEY, JSON.stringify(map))
+}
+
+function loadLegacyFavIds(): number[] {
   if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(FAV_KEY)
     if (!raw) return []
-    const arr = JSON.parse(raw) as unknown
-    if (!Array.isArray(arr)) return []
-    return arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
+    return parseFavIdList(JSON.parse(raw) as unknown)
   } catch {
     return []
   }
 }
 
-function saveFavIds(ids: number[]) {
-  localStorage.setItem(FAV_KEY, JSON.stringify(ids))
+function loadFavIds(owner = favOwnerKey()): number[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const map = loadFavMap()
+    if (Object.prototype.hasOwnProperty.call(map, owner)) {
+      return map[owner] || []
+    }
+    // Один раз переносим старое общее избранное текущему сотруднику
+    const legacy = loadLegacyFavIds()
+    if (legacy.length) {
+      map[owner] = legacy
+      saveFavMap(map)
+      try { localStorage.removeItem(FAV_KEY) } catch { /* ignore */ }
+      return legacy
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
+function saveFavIds(ids: number[], owner = favOwnerKey()) {
+  const map = loadFavMap()
+  map[owner] = ids
+  saveFavMap(map)
 }
 
 function levelLabel(level: ClientLevel) {
@@ -1126,10 +1197,13 @@ export default function CashierModule({
   const scanExtendRef = useRef(0)
 
   /** Пауза между символами USB/BT-сканера: раньше 70/180мс резали код пополам → «не найден». */
-  const SCAN_IDLE_MS = 160
+  const SCAN_IDLE_MS = 220
   const SCAN_GAP_FAST_MS = 85
-  const SCAN_GAP_BURST_MS = 150
-  const SCAN_GAP_RESET_MS = 380
+  const SCAN_GAP_BURST_MS = 180
+  const SCAN_GAP_RESET_MS = 420
+  /** BT-сканер иногда делает паузу mid-code — не рвём уже длинный буфер */
+  const SCAN_GAP_CONTINUE_MS = 1100
+  const SCAN_EXTEND_MAX = 4
 
   /** USB-сканер почти всегда шлёт цифры; быстрый набор названия — буквы. */
   function isScannerCodeText(raw: string): boolean {
@@ -1144,23 +1218,43 @@ export default function CashierModule({
 
   function looksIncompleteScannerCode(raw: string): boolean {
     const digits = String(raw || '').replace(/\D/g, '')
-    // EAN-8/13, Code128 часто 8–14; обрезок 4–12 без точного hit — ждём остаток
-    return digits.length >= 4 && digits.length < 12
+    // До полного EAN-13 / GTIN ждём хвост (EAN-8 с точным hit отсекает hasExactProductCode)
+    return digits.length >= 4 && digits.length < 13
+  }
+
+  /** Продолжать burst при «дырке» между цифрами (медленный BT). */
+  function shouldContinueScanBurst(pendingDigits: string, gap: number, keyIsDigit: boolean): boolean {
+    if (!keyIsDigit) return false
+    if (scanBurstRef.current && gap < SCAN_GAP_CONTINUE_MS) return true
+    if (pendingDigits.length >= 6 && gap < SCAN_GAP_CONTINUE_MS) return true
+    if ((scanBurstRef.current || pendingDigits.length >= 3) && gap < 520) return true
+    return false
   }
 
   function hasExactProductCode(raw: string): boolean {
-    const t = String(raw || '').trim()
+    const t = cleanScannedBarcode(raw)
     if (!t) return false
     const digits = t.replace(/\D/g, '')
     if (findProductsByExactBarcode(products, t).length) return true
     if (productCodeIndex.get(t) || (digits && productCodeIndex.get(digits))) return true
+    if (barcodeDigitKeys(t).some(k => productCodeIndex.get(k))) return true
     if (digits.length >= 1 && digits.length <= 4 && productCodeIndex.get(`plu:${digits}`)) return true
     return false
   }
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
-  const [favIds, setFavIds] = useState<number[]>(loadFavIds)
+  const [favIds, setFavIds] = useState<number[]>(() => loadFavIds())
+  const favOwnerRef = useRef(favOwnerKey())
   const [catModalOpen, setCatModalOpen] = useState(false)
+
+  // При смене сотрудника / кассира — подгрузить его избранное
+  useEffect(() => {
+    const owner = favOwnerKey(settings.cashierId)
+    if (owner === favOwnerRef.current) return
+    favOwnerRef.current = owner
+    setFavIds(loadFavIds(owner))
+    setShowFav(false)
+  }, [settings.cashierId])
   const [catModalQ, setCatModalQ] = useState('')
   const bootTicket = useRef(makeTicket(1)).current
   const [tickets, setTickets] = useState<PosTicket[]>([bootTicket])
@@ -2440,9 +2534,7 @@ export default function CashierModule({
 
         // Продолжаем текущий штрихкод, если уже копим цифры и пауза не огромная
         const pendingDigits = String(scanTypeBufRef.current || scanAccumRef.current || '').replace(/\D/g, '')
-        const continueBurst =
-          (scanBurstRef.current || pendingDigits.length >= 3)
-          && gap < 520
+        const continueBurst = shouldContinueScanBurst(pendingDigits, gap, true)
 
         if (!continueBurst && gap >= SCAN_GAP_RESET_MS) {
           scanBurstRef.current = false
@@ -2605,8 +2697,7 @@ export default function CashierModule({
     for (const p of products) {
       for (const c of productBarcodes(p)) {
         put(c, p)
-        const d = c.replace(/\D/g, '')
-        if (d) put(d, p)
+        for (const d of barcodeDigitKeys(c)) put(d, p)
       }
       const art = String(p.art || '').trim()
       if (art) {
@@ -2700,11 +2791,13 @@ export default function CashierModule({
   }, [favSet, liveStockForProduct, onAddProductTile, onToggleFavoriteTile])
 
   function toggleFavorite(productId: number) {
+    const owner = favOwnerKey(settings.cashierId)
+    favOwnerRef.current = owner
     setFavIds(prev => {
       const next = prev.includes(productId)
         ? prev.filter(id => id !== productId)
         : [...prev, productId]
-      saveFavIds(next)
+      saveFavIds(next, owner)
       return next
     })
   }
@@ -2816,7 +2909,7 @@ export default function CashierModule({
         isResidual?: boolean
       }[],
       payRows: [] as DebtHistoryEntry[],
-      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind: 'check' | 'cash' | 'other'; batchId?: string; ts: number; source?: string }[],
+      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind: 'check' | 'cash' | 'other'; batchId?: string; ts: number; source?: string; payScope?: 'sale' | 'debt' }[],
       payGroups: [] as {
         id: string
         when: string
@@ -2830,7 +2923,7 @@ export default function CashierModule({
         coverHint: string
       }[],
       feed: [] as { key: string; when: string; kind: 'pos' | 'cash' | 'pay'; desc: string; amount: number; balance: number; saleId?: string }[],
-      creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; paid: number; status: 'open' | 'partial' | 'paid'; ts: number }[],
+      creditSales: [] as { id: string; label: string; when: string; items: string; debtAdded: number; remain: number; paid: number; status: 'open' | 'partial' | 'paid'; ts: number; note?: string }[],
     }
     if (!client) return empty
 
@@ -2858,6 +2951,7 @@ export default function CashierModule({
           dateIso: s.createdAtIso,
           debtAdded: orig,
           items: mapSaleLines(s.items, products),
+          note: String(s.note || '').trim() || undefined,
         }
       })
       .filter(s => s.debtAdded > 0.001)
@@ -2944,8 +3038,6 @@ export default function CashierModule({
     }
     cashView.sort((a, b) => b.ts - a.ts)
 
-    const payRows = [...checkPays, ...manualPays].sort((a, b) => (b.ts || 0) - (a.ts || 0))
-
     const creditSales = posSales.map(s => {
       const st = saleStatus[s.id] || { status: 'open' as const, paid: 0, remain: s.debtAdded }
       const ts = Date.parse(s.dateIso) || 0
@@ -2966,14 +3058,30 @@ export default function CashierModule({
         paid,
         status: st.status,
         ts,
+        note: s.note,
       }
     })
 
+    const payRows = [...checkPays, ...manualPays].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+
+    const salesLookup = new Map<string, { label: string; items?: string }>()
+    for (const s of clientSales) {
+      const label = s.number != null && Number(s.number) > 0
+        ? `Чек №${s.number}`
+        : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${String(s.id).slice(-6)}`)
+      const items = linesLabel(mapSaleLines(s.items, products))
+      salesLookup.set(String(s.id), { label, items })
+      if (s.orderId) salesLookup.set(String(s.orderId), { label, items })
+      salesLookup.set(`sale-${s.id}`, { label, items })
+    }
+
     const payView = payRows.map(r => {
-      const sid = String(r.orderId || '').trim()
+      const sid = String(r.orderId || '').trim().replace(/^sale-/, '')
+      const payScope = r.payScope
       const sale = sid
-        ? creditSales.find(s => debtOrderIdsMatch(s.id, sid.replace(/^sale-/, '')) || debtOrderIdsMatch(s.id, r.orderId))
+        ? creditSales.find(s => debtOrderIdsMatch(s.id, sid) || debtOrderIdsMatch(s.id, r.orderId))
         : undefined
+      const saleAny = !sale && sid ? salesLookup.get(sid) : undefined
       const cash = !sale && sid
         ? cashView.find(c =>
           !c.isResidual
@@ -2983,25 +3091,29 @@ export default function CashierModule({
         : undefined
       const isCashPart = !sale && (!!cash || sid.startsWith('cash-'))
       const isReturn = /возврат/i.test(String(r.desc || ''))
+      const checkLabel = payScope === 'sale'
+        ? `${saleAny?.label || sale?.label || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
+        : sale
+          ? sale.label
+          : cash
+            ? cash.label
+            : sid
+              ? (sid.startsWith('cash-') ? 'Наличные' : `Чек ${sid.slice(-8)}`)
+              : 'Без привязки'
       return {
         id: r.id,
         when: `${r.date}${r.time ? ` · ${r.time}` : ''}`,
         amount: Math.abs(Number(r.amount) || 0),
         desc: r.desc || (isReturn ? 'Возврат товара' : 'Погашение долга'),
-        checkLabel: sale
-          ? sale.label
-          : cash
-            ? cash.label
-            : sid
-              ? (sid.startsWith('cash-') ? 'Наличные' : `Чек ${sid.replace(/^sale-/, '').slice(-8)}`)
-              : 'Без привязки',
-        items: sale?.items || r.itemsSummary || undefined,
-        saleId: sale?.id || (sid && !sid.startsWith('cash-') ? sid.replace(/^sale-/, '') : undefined),
+        checkLabel,
+        items: sale?.items || saleAny?.items || r.itemsSummary || undefined,
+        saleId: sale?.id || (sid && !sid.startsWith('cash-') ? sid : undefined),
         isReturn,
-        partKind: (sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
+        partKind: (payScope === 'sale' || sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
         batchId: r.batchId || undefined,
         ts: Number(r.ts) || 0,
         source: r.source,
+        payScope,
       }
     })
 
@@ -3026,14 +3138,20 @@ export default function CashierModule({
     let cluster: PayPart[] = []
     const flushCluster = () => {
       if (!cluster.length) return
-      const parts = [...cluster]
+      const parts = [...cluster].sort((a, b) => {
+        if (a.payScope === 'sale' && b.payScope !== 'sale') return -1
+        if (b.payScope === 'sale' && a.payScope !== 'sale') return 1
+        return a.ts - b.ts || a.id.localeCompare(b.id)
+      })
       cluster = []
       const amount = Math.round(parts.reduce((s, p) => s + p.amount, 0) * 100) / 100
       const newest = parts[parts.length - 1]
       const active = parts.filter(p => !p.isReturn)
       const checkParts = active.filter(p => p.partKind === 'check')
       const cashParts = active.filter(p => p.partKind === 'cash')
-      const checkCount = new Set(checkParts.map(p => p.checkLabel)).size || checkParts.length
+      const salePart = active.find(p => p.payScope === 'sale')
+      const debtCheckParts = checkParts.filter(p => p.payScope !== 'sale')
+      const debtCheckCount = new Set(debtCheckParts.map(p => p.checkLabel)).size || debtCheckParts.length
       const cashCount = new Set(cashParts.map(p => p.checkLabel)).size || cashParts.length
       const methodHint = /карта/i.test(parts.map(p => p.desc).join(' '))
         ? 'карта'
@@ -3041,10 +3159,11 @@ export default function CashierModule({
           ? 'наличные'
           : ''
       const bits: string[] = []
-      if (checkCount > 0) {
-        bits.push(checkCount === 1
-          ? (checkParts[0]?.checkLabel || '1 чек')
-          : `${checkCount} чек${checkCount < 5 ? 'а' : 'ов'}`)
+      if (salePart) bits.push(salePart.checkLabel.replace(/\s·\sоплата$/i, ''))
+      if (debtCheckCount > 0) {
+        bits.push(debtCheckCount === 1
+          ? (debtCheckParts[0]?.checkLabel || 'долг')
+          : `${debtCheckCount} старых чек${debtCheckCount < 5 ? 'а' : 'ов'}`)
       }
       if (cashCount > 0) {
         bits.push(cashCount === 1
@@ -3059,7 +3178,7 @@ export default function CashierModule({
         amount,
         isReturn: parts.every(p => p.isReturn),
         parts,
-        checkCount,
+        checkCount: (salePart ? 1 : 0) + debtCheckCount,
         cashCount,
         methodHint,
         coverHint: bits.join(' + '),
@@ -3127,6 +3246,7 @@ export default function CashierModule({
       // Оставляем только оплаты без привязки к чеку (и возвраты без open-sale).
       ...payRows
         .filter(r => {
+          if (r.payScope === 'sale') return false
           const sid = String(r.orderId || '').trim()
           if (!sid) return true
           if (sid.startsWith('cash-') || cashRemainById.has(sid) || cashView.some(c => cashDebtOrderId(c) === sid)) {
@@ -3224,6 +3344,7 @@ export default function CashierModule({
           saleId: s.id,
           orderId: sale?.orderId || s.id,
           debtEntryId: findDebtEntryId(s.id, sale?.orderId),
+          note: s.note || String(sale?.note || '').trim() || undefined,
         }
       })
     const unpaidSum = active.reduce((s, r) => s + (Number(r.amount) || 0), 0)
@@ -3289,6 +3410,7 @@ export default function CashierModule({
           debtRemain: 0,
           saleId: s.id,
           orderId: sale?.orderId || s.id,
+          note: s.note || String(sale?.note || '').trim() || undefined,
         }
       })
   ), [cashierDebtPanel.creditSales, sales, products])
@@ -3530,23 +3652,25 @@ export default function CashierModule({
   function commitPosSearch(rawIn?: string, opts?: { fromScanner?: boolean }): boolean {
     if (scanBlockAlertRef.current || barcodePickRef.current) return false
     const fromScanner = !!opts?.fromScanner || scanBurstRef.current
-    const raw = String(
+    const raw = cleanScannedBarcode(String(
       rawIn
       || scanAccumRef.current
       || searchInputRef.current?.value
       || qRef.current
       || '',
-    ).trim()
+    ))
     if (!raw) return false
     scanAccumRef.current = ''
     scanTypeBufRef.current = ''
 
     const clientHit = findClientByScan(raw)
     const looksLikeClientCard = /какапо/i.test(raw) || /^k-?\d+/i.test(raw)
+    const rawDigits = raw.replace(/\D/g, '')
     if (clientHit && (looksLikeClientCard || !(
       findProductsByExactBarcode(products, raw).length
       || productCodeIndex.get(raw)
-      || productCodeIndex.get(raw.replace(/\D/g, ''))
+      || (rawDigits && productCodeIndex.get(rawDigits))
+      || barcodeDigitKeys(raw).some(k => productCodeIndex.get(k))
       || pickProductBySearch(products, raw)
     ))) {
       applyClientScan(raw)
@@ -3557,7 +3681,7 @@ export default function CashierModule({
       return true
     }
 
-    const digits = raw.replace(/\D/g, '')
+    const digits = rawDigits
     const pool = inStockProducts.length ? inStockProducts : products
 
     // 1a) Точный штрихкод: если 2+ товара — выбор, без автопробития
@@ -3578,6 +3702,7 @@ export default function CashierModule({
       const byCode =
         productCodeIndex.get(raw)
         || (digits ? productCodeIndex.get(digits) : undefined)
+        || barcodeDigitKeys(raw).map(k => productCodeIndex.get(k)).find(Boolean)
         || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
           ? productCodeIndex.get(`plu:${digits}`)
           : undefined)
@@ -3664,11 +3789,36 @@ export default function CashierModule({
         || null
     }
 
+    // Скан без ведущих цифр / обрезанный префикс: уникальный хвост ≥8
+    if (!productHit && digits.length >= 8) {
+      const tailHits: Product[] = []
+      const seen = new Set<number>()
+      for (const p of products) {
+        const id = Number(p.id)
+        if (Number.isFinite(id) && seen.has(id)) continue
+        const ok = productBarcodes(p).some(c => {
+          const cd = c.replace(/\D/g, '')
+          if (!cd || cd.length < 8) return false
+          if (barcodeDigitKeys(c).some(k => barcodeDigitKeys(digits).includes(k))) return true
+          return cd.endsWith(digits) || (digits.length >= cd.length && digits.endsWith(cd))
+        })
+        if (!ok) continue
+        if (Number.isFinite(id)) seen.add(id)
+        tailHits.push(p)
+      }
+      if (tailHits.length > 1) {
+        openBarcodePick(raw, tailHits)
+        scanBurstRef.current = false
+        return true
+      }
+      if (tailHits.length === 1) productHit = tailHits[0]
+    }
+
     if (!productHit) {
       // Скан / длинный цифровой код — блокируем кассу
       const looksNumericCode = digits.length >= 6 && /^\d[\d\s\-]*$/.test(raw)
       // Неполный штрих (сканер ещё шлёт) — не пугаем «не найден» и не стопорим кассу
-      if (fromScanner && looksIncompleteScannerCode(raw) && !hasExactProductCode(raw) && scanExtendRef.current < 2) {
+      if (fromScanner && looksIncompleteScannerCode(raw) && !hasExactProductCode(raw) && scanExtendRef.current < SCAN_EXTEND_MAX) {
         scanAccumRef.current = raw.replace(/\D/g, '')
         scanTypeBufRef.current = scanAccumRef.current
         scanBurstRef.current = true
@@ -3725,7 +3875,7 @@ export default function CashierModule({
       if (
         looksIncompleteScannerCode(live)
         && !hasExactProductCode(live)
-        && scanExtendRef.current < 2
+        && scanExtendRef.current < SCAN_EXTEND_MAX
       ) {
         scanExtendRef.current += 1
         scheduleScanCommit(SCAN_IDLE_MS)
@@ -3779,9 +3929,7 @@ export default function CashierModule({
       }
 
       const pendingDigits = String(scanTypeBufRef.current || scanAccumRef.current || '').replace(/\D/g, '')
-      const continueBurst =
-        (scanBurstRef.current || pendingDigits.length >= 3)
-        && gap < 520
+      const continueBurst = shouldContinueScanBurst(pendingDigits, gap, true)
 
       // Пауза большая и это не продолжение штрихкода — новый ввод
       if (!continueBurst && gap >= SCAN_GAP_RESET_MS) {
@@ -6816,6 +6964,7 @@ export default function CashierModule({
                   : `Чек ${String(s.id).slice(-6)}`,
               }))
             if (histKey) {
+              const batchRef = String(repaid.data.clientRef || '').trim() || `payb-${Date.now()}`
               const fifo = recordStoreDebtRepaymentFifo(histKey, payAmt, targets, {
                 method,
                 source: 'cashier',
@@ -6825,6 +6974,18 @@ export default function CashierModule({
               if (fifo.appliedToChecks > 0.001) {
                 debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
               }
+              const saleCheckLabel = created.number != null && Number(created.number) > 0
+                ? `Чек №${created.number}`
+                : `Чек ${String(created.id).slice(-6)}`
+              recordStoreSalePaymentInBatch(histKey, total, {
+                orderId: created.id,
+                batchId: fifo.batchId || batchRef,
+                clientRef: repaid.data.clientRef,
+                ts: fifo.ts || Date.now(),
+                method,
+                label: saleCheckLabel,
+                itemsSummary: mapSaleLines(created.items, products),
+              })
             }
             setHistTick(t => t + 1)
           }
@@ -10822,6 +10983,7 @@ export default function CashierModule({
                       const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'Должен'
                       const statusColor = s.status === 'paid' ? 'var(--accent)' : s.status === 'partial' ? 'var(--org)' : 'var(--red)'
                       const whenShort = s.when.replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
+                      const noteText = String(s.note || '').trim()
                       return (
                         <button
                           key={s.id}
@@ -10850,12 +11012,14 @@ export default function CashierModule({
                               debtRemain: s.remain,
                               saleId: s.id,
                               orderId: sale?.orderId || s.id,
+                              note: noteText || String(sale?.note || '').trim() || undefined,
                             })
                           }}
                         >
                           <span className="cashier-debt-check-id">
                             <b>{s.label}</b>
                             <em>{whenShort}</em>
+                            {noteText ? <em className="cashier-debt-check-note" title={noteText}>💬 {noteText}</em> : null}
                           </span>
                           <span className="cashier-debt-check-nums">
                             <span title="Было"><i>было</i><b>{fmtMoney(s.debtAdded)}</b></span>
@@ -11094,7 +11258,13 @@ export default function CashierModule({
                 </div>
                 <div className="hist-lines">
                   {payGroupDetail.parts.map((p, i) => {
-                    const kind = p.partKind === 'cash' ? 'Нал.' : p.partKind === 'check' ? 'Чек' : ''
+                    const kind = p.payScope === 'sale'
+                      ? 'Текущий чек'
+                      : p.partKind === 'cash'
+                        ? 'Нал.'
+                        : p.partKind === 'check'
+                          ? 'Чек'
+                          : ''
                     return (
                       <div key={p.id || `${p.checkLabel}-${i}`} className="hist-line">
                         <div className="hist-line-main">
@@ -11138,6 +11308,12 @@ export default function CashierModule({
               </div>
               <div className="hist-when" style={{ marginBottom: 6 }}>{histDetail.when}</div>
               <div className="hist-sub" style={{ marginBottom: 12 }}>{histDetail.sub}</div>
+              {histDetail.note ? (
+                <div className="hist-debt-note" style={{ marginBottom: 12 }}>
+                  <span>Комментарий</span>
+                  <b>{histDetail.note}</b>
+                </div>
+              ) : null}
               {(histDetail.debtPaid != null || histDetail.debtRemain != null) ? (
                 <div className="cashier-debt-check-nums hist-detail-nums" style={{ marginBottom: 12 }}>
                   <div><span>Сумма</span><b>{fmtMoney(histDetail.amount)}</b></div>

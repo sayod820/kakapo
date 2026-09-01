@@ -1,13 +1,97 @@
 import type { Product } from './types'
 
+function splitBarcodeField(raw: unknown): string[] {
+  if (raw == null) return []
+  if (Array.isArray(raw)) {
+    return raw.flatMap(v => splitBarcodeField(v))
+  }
+  const s = String(raw).replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]/g, '').trim()
+  if (!s) return []
+  // Иногда с API/CSV приходит одна строка «код1, код2»
+  if (/[,;|]/.test(s)) {
+    return s.split(/[,;|]+/).map(x => x.trim()).filter(Boolean)
+  }
+  return [s]
+}
+
 /** Уникальные штрихкоды товара (основной + дополнительные) */
 export function productBarcodes(p: Partial<Product> | null | undefined): string[] {
   if (!p) return []
   const list = [
-    ...(p.barcode ? [String(p.barcode).trim()] : []),
-    ...(Array.isArray(p.barcodes) ? p.barcodes.map(b => String(b).trim()) : []),
+    ...splitBarcodeField(p.barcode),
+    ...splitBarcodeField((p as { barcodes?: unknown }).barcodes),
   ].filter(Boolean)
   return [...new Set(list)]
+}
+
+/**
+ * Очистка сырого скана: AIM/GS1-префиксы, невидимые символы, пробелы по краям.
+ */
+export function cleanScannedBarcode(raw: string): string {
+  let s = String(raw || '')
+  s = s.replace(/[\u0000-\u001F\u007F\u200B-\u200D\uFEFF]/g, '')
+  s = s.trim()
+  // AIM prefix ровно 3 символа: ]C1 ]E0 ]d2 — не жрать цифру штриха ({1,3} съедал ]C14…)
+  s = s.replace(/^\][A-Za-z][0-9A-Za-z]/, '')
+  s = s.replace(/^[\u001D\u00A0]+/, '')
+  // GS1 AI в скобках: (01)0460… → 0460…
+  s = s.replace(/^\((\d{2})\)/, '')
+  // Частый префикс AI 01 перед GTIN-14
+  {
+    const d = s.replace(/\D/g, '')
+    if ((d.length === 16 || d.length === 15) && d.startsWith('01')) s = d.slice(2)
+  }
+  return s.trim()
+}
+
+/**
+ * Варианты цифрового кода для сопоставления скана и базы:
+ * UPC-A (12) ↔ EAN-13 с ведущим 0, GTIN-14, обрезка ведущих нулей.
+ */
+export function barcodeDigitKeys(raw: string): string[] {
+  const digits = String(raw || '').replace(/\D/g, '')
+  if (!digits) return []
+  const keys = new Set<string>([digits])
+
+  if (digits.length === 12) keys.add(`0${digits}`)
+  if (digits.length === 13 && digits.startsWith('0')) keys.add(digits.slice(1))
+  // Скан без контрольной / UPC без ведущего 0
+  if (digits.length === 13) keys.add(digits.slice(0, 12))
+  // GTIN-14 → EAN-13 (ведущий indicator / 0)
+  if (digits.length === 14) {
+    keys.add(digits.slice(1))
+    if (digits.startsWith('0')) keys.add(digits.slice(1))
+    keys.add(digits.slice(0, 13))
+    keys.add(digits.slice(1, 13))
+  }
+  if (digits.length === 8) {
+    // EAN-8 иногда сравнивают с урезанным хранением без ведущих нулей
+    const stripped8 = digits.replace(/^0+/, '')
+    if (stripped8 && stripped8 !== digits) keys.add(stripped8)
+  }
+
+  const stripped = digits.replace(/^0+/, '')
+  if (stripped.length >= 8 && stripped !== digits) {
+    keys.add(stripped)
+    if (stripped.length === 12) keys.add(`0${stripped}`)
+    if (stripped.length === 13) keys.add(stripped)
+    if (stripped.length === 11) {
+      keys.add(`0${stripped}`)
+      keys.add(`00${stripped}`)
+    }
+  }
+
+  return [...keys]
+}
+
+export function barcodesMatch(a: string, b: string): boolean {
+  const left = String(a || '').trim()
+  const right = String(b || '').trim()
+  if (!left || !right) return false
+  if (left === right) return true
+  const ka = barcodeDigitKeys(left)
+  const kb = new Set(barcodeDigitKeys(right))
+  return ka.some(k => kb.has(k))
 }
 
 export function normalizeBarcodes(codes: string[]) {
@@ -23,9 +107,9 @@ export function findProductsByExactBarcode<T extends Partial<Product>>(
   products: T[] | null | undefined,
   raw: string,
 ): T[] {
-  const q = String(raw || '').trim()
+  const q = cleanScannedBarcode(raw)
   if (!q) return []
-  const digits = q.replace(/\D/g, '')
+  const qKeys = new Set(barcodeDigitKeys(q))
   const hits: T[] = []
   const seen = new Set<number>()
   for (const p of products || []) {
@@ -33,8 +117,7 @@ export function findProductsByExactBarcode<T extends Partial<Product>>(
     if (Number.isFinite(id) && seen.has(id)) continue
     const match = productBarcodes(p).some(c => {
       if (c === q) return true
-      if (!digits) return false
-      return c.replace(/\D/g, '') === digits
+      return barcodeDigitKeys(c).some(k => qKeys.has(k))
     })
     if (!match) continue
     if (Number.isFinite(id)) seen.add(id)
@@ -88,7 +171,7 @@ export function findBarcodeOwner(
   for (const p of products || []) {
     if (excludeId != null && p.id != null && Number(p.id) === Number(excludeId)) continue
     for (const c of productBarcodes(p)) {
-      if (c === q || (digits.length >= 4 && c.replace(/\D/g, '') === digits)) {
+      if (barcodesMatch(c, q) || (digits.length >= 4 && barcodesMatch(c, digits))) {
         return {
           id: Number(p.id) || 0,
           name: String(p.name || `#${p.id}`),
@@ -116,7 +199,7 @@ export function findBarcodeOwners(
     if (excludeId != null && Number.isFinite(id) && id === Number(excludeId)) continue
     if (Number.isFinite(id) && seen.has(id)) continue
     for (const c of productBarcodes(p)) {
-      if (c === q || (digits.length >= 4 && c.replace(/\D/g, '') === digits)) {
+      if (barcodesMatch(c, q) || (digits.length >= 4 && barcodesMatch(c, digits))) {
         if (Number.isFinite(id)) seen.add(id)
         hits.push({
           id: Number.isFinite(id) ? id : 0,
@@ -260,9 +343,9 @@ export function productSearchScore(p: Partial<Product>, query: string, extra = '
   const codes = productBarcodes(p)
   const codeDigits = codes.map(c => c.replace(/\D/g, '')).filter(Boolean)
 
-  // 1) Точный штрихкод
-  if (codes.some(c => c === qRaw)) return 1000
-  if (qDigits.length >= 8 && codeDigits.some(cd => cd === qDigits)) return 1000
+  // 1) Точный штрихкод (с учётом UPC/EAN ведущего нуля)
+  if (codes.some(c => barcodesMatch(c, qRaw))) return 1000
+  if (qDigits.length >= 8 && codeDigits.some(cd => barcodeDigitKeys(cd).some(k => barcodeDigitKeys(qDigits).includes(k)))) return 1000
 
   // 2) Хвост штрихкода: последние 4–5+ цифр → вверху списка
   if (qDigits.length >= 4 && /^\d+$/.test(qRaw.replace(/[\s\-]/g, ''))) {
@@ -353,9 +436,7 @@ export function pickProductBySearch<T extends Partial<Product>>(
 
   const exactBarcode = rows.find(p => {
     const codes = productBarcodes(p)
-    if (codes.some(c => c === q)) return true
-    if (qDigits.length >= 8 && codes.some(c => c.replace(/\D/g, '') === qDigits)) return true
-    return false
+    return codes.some(c => barcodesMatch(c, q))
   })
   if (exactBarcode) return exactBarcode
 

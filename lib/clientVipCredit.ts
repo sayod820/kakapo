@@ -44,6 +44,8 @@ export type DebtHistoryEntry = {
   source?: 'manual' | 'pos' | 'order' | 'cashier'
   /** Одна оплата клиента, разбитая по нескольким чекам (FIFO) */
   batchId?: string
+  /** sale = оплата текущего чека в одной операции с погашением долга (не влияет на остаток долга) */
+  payScope?: 'sale' | 'debt'
   /** Ключ офлайн-операции — для отката при отказе сервера */
   clientRef?: string
   /** Срок погашения (ISO) — с серверного ledger */
@@ -145,7 +147,7 @@ export function buildDebtOrderBalances(list: DebtHistoryEntry[]): {
   paid: DebtHistoryEntry[]
 } {
   const debts = list.filter(h => h.type === 'debt').sort((a, b) => (a.ts || 0) - (b.ts || 0))
-  const pays = list.filter(h => h.type === 'pay')
+  const pays = list.filter(h => h.type === 'pay' && h.payScope !== 'sale')
   const remain = new Map<string, number>()
   for (const d of debts) {
     remain.set(d.id, Math.round(Math.abs(d.amount) * 100) / 100)
@@ -428,6 +430,7 @@ export function computeDebtFromLedger(
   let cashPaid = 0
   for (const row of history) {
     if (row.type !== 'pay') continue
+    if (row.payScope === 'sale') continue
     const amt = Math.abs(Number(row.amount) || 0)
     if (amt < 0.005) continue
     const src = row.source || ''
@@ -1042,10 +1045,13 @@ export function recordStoreDebtRepayment(
     orderId?: string
     /** Общий id одной оплаты (несколько чеков) */
     batchId?: string
+    /** sale — только для отображения в «Оплаты», не уменьшает долг */
+    payScope?: 'sale' | 'debt'
     /** Ключ офлайн-операции для отката при отказе сервера */
     clientRef?: string
     /** Общее время пакета (чтобы FIFO не разъезжался) */
     ts?: number
+    itemsSummary?: string
   },
 ): void {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
@@ -1065,6 +1071,41 @@ export function recordStoreDebtRepayment(
     batchId: meta?.batchId || clientRef,
     clientRef,
     ts: meta?.ts,
+    payScope: meta?.payScope,
+    itemsSummary: meta?.itemsSummary,
+  })
+}
+
+/** Часть комбинированной оплаты: текущий пробитый чек (нал/карта) + погашение долга в одном batchId. */
+export function recordStoreSalePaymentInBatch(
+  phone: string,
+  amount: number,
+  meta: {
+    orderId: string
+    batchId: string
+    clientRef?: string
+    ts: number
+    method?: 'cash' | 'card'
+    label?: string
+    itemsSummary?: string
+  },
+): void {
+  const pay = Math.max(0, Math.round(amount * 100) / 100)
+  if (!phone.trim() || pay <= 0 || !meta.orderId || !meta.batchId) return
+  const methodLabel = meta.method === 'card' ? 'карта' : meta.method === 'cash' ? 'наличные' : ''
+  const checkLabel = String(meta.label || '').trim() || 'Текущий чек'
+  recordStoreDebtRepayment(phone, pay, {
+    method: meta.method,
+    orderId: meta.orderId,
+    batchId: meta.batchId,
+    clientRef: meta.clientRef,
+    ts: meta.ts,
+    payScope: 'sale',
+    source: 'cashier',
+    desc: methodLabel
+      ? `Оплата · ${checkLabel} · ${methodLabel}`
+      : `Оплата · ${checkLabel}`,
+    itemsSummary: meta.itemsSummary,
   })
 }
 
@@ -1083,9 +1124,9 @@ export function recordStoreDebtRepaymentFifo(
     source?: DebtHistoryEntry['source']
     clientRef?: string
   },
-): { appliedToChecks: number; residual: number; checkCount: number } {
+): { appliedToChecks: number; residual: number; checkCount: number; batchId: string; ts: number } {
   const pay = Math.max(0, Math.round(amount * 100) / 100)
-  if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0, checkCount: 0 }
+  if (!phone.trim() || pay <= 0) return { appliedToChecks: 0, residual: 0, checkCount: 0, batchId: '', ts: 0 }
 
   const clientRef = String(meta?.clientRef || '').trim() || undefined
   const batchId = clientRef || `payb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -1124,7 +1165,7 @@ export function recordStoreDebtRepaymentFifo(
       desc: meta?.desc || 'Погашение долга (сверх чеков)',
     })
   }
-  return { appliedToChecks, residual: Math.max(0, left), checkCount }
+  return { appliedToChecks, residual: Math.max(0, left), checkCount, batchId, ts }
 }
 
 export function recordStoreDebtCharge(
