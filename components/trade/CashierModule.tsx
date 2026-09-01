@@ -1144,12 +1144,17 @@ const CashierNetChip = memo(function CashierNetChip({
   )
 })
 
+export type CashierDashboardApi = {
+  openCreatePos: () => void
+}
+
 export default function CashierModule({
   onExit,
   onNavigate: _onNavigate,
   embedded = false,
   active = true,
   onSurfaceChange,
+  onDashboardBind,
   theme: themeProp,
   onThemeChange,
 }: {
@@ -1160,6 +1165,8 @@ export default function CashierModule({
   /** false = раздел скрыт, но не размонтирован (быстрый переход на Склад/Товар) */
   active?: boolean
   onSurfaceChange?: (surface: 'dashboard' | 'register') => void
+  /** Кнопка «Создать точку» в шапке TradeApp (embed) */
+  onDashboardBind?: (api: CashierDashboardApi | null) => void
   theme?: ThemeName
   onThemeChange?: (theme: ThemeName) => void
 }) {
@@ -1464,6 +1471,17 @@ export default function CashierModule({
     setPosSurfaceState(surface)
     onSurfaceChange?.(surface)
   }, [onSurfaceChange])
+  const openCreatePosDashboard = useCallback(() => {
+    setMsg('')
+    setNewPosName('')
+    setNewPosCode('')
+    setCreatePosModal(true)
+  }, [])
+  useEffect(() => {
+    if (!embedded || !onDashboardBind) return
+    onDashboardBind({ openCreatePos: openCreatePosDashboard })
+    return () => onDashboardBind(null)
+  }, [embedded, onDashboardBind, openCreatePosDashboard])
   const [dashMenuPosId, setDashMenuPosId] = useState<string | null>(null)
   const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
@@ -7437,10 +7455,7 @@ export default function CashierModule({
                 className="odoo-create-pos"
                 onClick={e => {
                   e.stopPropagation()
-                  setMsg('')
-                  setNewPosName('')
-                  setNewPosCode('')
-                  setCreatePosModal(true)
+                  openCreatePosDashboard()
                 }}
               >
                 + Создать точку продаж

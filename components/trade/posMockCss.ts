@@ -29,19 +29,13 @@ export const POS_MOCK_CSS = `
   .pos-root[data-embed="1"] .overlay{
     position:fixed;
   }
-  .pos-root[data-embed="1"] .odoo-dash-top > div:first-child{display:none}
+  .pos-root[data-embed="1"] .odoo-dash-top{display:none}
   .pos-root[data-embed="1"] .odoo-dash-top .theme-toggle{display:none}
-  /* В «Торговле» заголовок в k-top — тулбар «Создать» карточкой у верха, как в других разделах */
+  /* В «Торговле» заголовок и «Создать» — в k-top TradeApp */
   .pos-root[data-embed="1"] .odoo-dash{
     height:auto!important;min-height:0!important;overflow:visible!important;
     background:transparent;color:inherit;
   }
-  .pos-root[data-embed="1"] .odoo-dash-top{
-    display:block;padding:0;margin:0 0 8px;border:none;background:transparent;
-    box-shadow:none;
-  }
-  .pos-root[data-embed="1"] .odoo-dash-actions{width:100%;display:flex}
-  .pos-root[data-embed="1"] .odoo-create-pos{width:100%;justify-content:center;text-align:center}
   .pos-root[data-embed="1"] .odoo-dash-body{
     padding:0 0 12px;flex:none;
     background:transparent!important;

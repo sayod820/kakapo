@@ -13,7 +13,7 @@ import WarehouseModule from '@/components/trade/WarehouseModule'
 import SuppliersModule from '@/components/trade/SuppliersModule'
 import ClientsModule from '@/components/trade/ClientsModule'
 import DebtsModule from '@/components/trade/DebtsModule'
-import CashierModule from '@/components/trade/CashierModule'
+import CashierModule, { type CashierDashboardApi } from '@/components/trade/CashierModule'
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
@@ -891,6 +891,10 @@ const CSS = `
   .k-top-search-net .k-online-chip{display:inline-flex}
   .k-top-search-wrap .k-search{flex:1;max-width:560px;width:100%;min-width:0}
   .k-top-end{display:flex;align-items:center;gap:12px;flex-shrink:0}
+  .k-top-pos-create{
+    flex-shrink:0;white-space:nowrap;font-weight:900;font-size:12px;
+    padding:8px 12px;border-radius:999px;min-height:36px;
+  }
   .k-search{flex:1;position:relative;max-width:640px;min-width:0}
   .k-search input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;color:var(--text);padding:11px 40px 11px 42px;font-size:14px;outline:none}
   .k-search input:focus{border-color:var(--green)}
@@ -3124,6 +3128,7 @@ function TradeAppInner({
   const [searchScanOpen, setSearchScanOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [posSurface, setPosSurface] = useState<'dashboard' | 'register'>('dashboard')
+  const [posDashboardApi, setPosDashboardApi] = useState<CashierDashboardApi | null>(null)
   const [productsSub, setProductsSub] = useState<ProductsSubPage>('product')
   const [catalogBack, setCatalogBack] = useState<(() => void) | null>(null)
   const onBackToCatalogChange = useCallback((handler: (() => void) | null) => {
@@ -3535,7 +3540,18 @@ function TradeAppInner({
                 </div>
               </>
             )}
-            <div className="k-top-end" />
+            <div className="k-top-end">
+              {current === 'sales' && posSurface === 'dashboard' && posDashboardApi ? (
+                <button
+                  type="button"
+                  className="k-btn k-btn-g k-btn-s k-top-pos-create"
+                  title="Создать точку продаж"
+                  onClick={() => posDashboardApi.openCreatePos()}
+                >
+                  + Создать точку
+                </button>
+              ) : null}
+            </div>
             </div>
           </header>
         )}
@@ -3553,6 +3569,7 @@ function TradeAppInner({
               theme={theme}
               onThemeChange={applyTheme}
               onSurfaceChange={setPosSurface}
+              onDashboardBind={setPosDashboardApi}
               onExit={() => goTo(homePage)}
               onNavigate={p => goTo(p as TradePage)}
             />
