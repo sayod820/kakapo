@@ -1731,6 +1731,17 @@ const CSS = `
       flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
       overflow:visible!important
     }
+    .k-body.k-body-clients{
+      --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
+      overflow:auto!important;flex:1 1 auto!important;min-height:0!important;
+      height:auto!important;max-height:none!important;
+      padding:var(--k-top-overlay,84px) 10px 8px!important;
+      display:block;-webkit-overflow-scrolling:touch
+    }
+    .k-body-clients > .k-clients-mod{
+      flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+      overflow:visible!important
+    }
     .k-body.k-body-finance,
     .k-body.k-body-reports{
       --k-top-overlay:calc(6px + env(safe-area-inset-top,0px) + 70px + 8px);
@@ -2405,12 +2416,15 @@ const CSS = `
     .k-subtabs{position:sticky;top:0;z-index:7;background:var(--bg);padding-top:4px;margin-top:-4px}
     .k-seg-tabs{position:relative;top:auto;z-index:1;background:var(--card2);padding:2px;margin-top:0}
     .k-clients-chips{
-      width:100%;gap:5px;padding:0;margin:0;overflow-x:auto;flex-wrap:nowrap;
-      -webkit-overflow-scrolling:touch;scrollbar-width:none
+      display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;
+      width:100%;padding:4px;margin:0;overflow:visible;flex-wrap:nowrap;
+      background:var(--card2);border:1px solid var(--border);border-radius:10px
     }
     .k-clients-chips::-webkit-scrollbar{display:none}
     .k-clients-chips .k-subtab{
-      min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px;flex-shrink:0
+      width:100%;justify-content:center;text-align:center;
+      min-height:32px!important;padding:6px 4px!important;font-size:10px;border-radius:8px;
+      border:none;flex-shrink:0
     }
     .k-clients-mod{padding-bottom:72px}
     .k-suppliers-mod{padding-bottom:72px;overflow:visible}
@@ -2432,6 +2446,10 @@ const CSS = `
     }
     /* Фильтры поставщиков — отдельная карточка ниже шапки, крутится вместе со списком */
     .k-sup-toolbar{
+      flex:none;padding:8px;margin:0 0 8px;
+      border:1px solid var(--border);border-radius:12px;background:var(--card)
+    }
+    .k-cli-toolbar{
       flex:none;padding:8px;margin:0 0 8px;
       border:1px solid var(--border);border-radius:12px;background:var(--card)
     }
@@ -2458,6 +2476,13 @@ const CSS = `
     .k-sup-actions{width:100%;justify-content:flex-end;padding-left:25px}
     .k-sup-actions .k-btn{width:32px;height:32px;font-size:13px}
     .k-cli-toolbar{flex:0 0 auto;flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px}
+    .k-clients-head{
+      position:sticky;top:0;z-index:6;background:var(--bg);
+      padding-bottom:2px;margin:0 0 4px
+    }
+    .k-clients-head .k-subtabs{
+      position:static;top:auto;background:transparent;padding-top:0;margin-top:0
+    }
     .k-cli-list{gap:6px}
     .k-cli-row{padding:8px;gap:6px;border-radius:10px;flex-wrap:wrap;align-items:stretch}
     .k-cli-main{gap:7px;flex-wrap:wrap}
@@ -3557,7 +3582,7 @@ function TradeAppInner({
           </header>
         )}
 
-        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'suppliers' ? 'k-body k-body-suppliers' : current === 'finance' ? 'k-body k-body-finance' : current === 'reports' ? 'k-body k-body-reports' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
+        <div className={salesActive ? 'k-body k-body-pos' : debtsActive ? 'k-body k-body-debts' : current === 'clients' ? 'k-body k-body-clients' : current === 'suppliers' ? 'k-body k-body-suppliers' : current === 'finance' ? 'k-body k-body-finance' : current === 'reports' ? 'k-body k-body-reports' : current === 'products' ? 'k-body k-body-products' : current === 'warehouse' ? 'k-body k-body-warehouse' : 'k-body'}>
           {salesKeepAlive && (
             <div
               className="pos-host"

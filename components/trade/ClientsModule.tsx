@@ -634,25 +634,27 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
         )}
       </div>
 
-      <div className="k-cli-meta k-hide-desk">
-        <div><span>Клиенты</span><b>{clients.length}</b></div>
-        <div><span>Бонусы</span><b style={{ color: 'var(--gold)' }}>{stats.totalBonus.toLocaleString()}</b></div>
-        <div><span>С долгом</span><b style={{ color: stats.withDebt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.withDebt}</b></div>
-        <div><span>Долг</span><b style={{ color: stats.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>{stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}</b></div>
-        <div><span>VIP</span><b style={{ color: stats.vipCount > 0 ? 'var(--purple)' : 'var(--muted)' }}>{stats.vipCount}</b></div>
-      </div>
+      <div className="k-clients-head">
+        <div className="k-cli-meta k-hide-desk">
+          <div><span>Клиенты</span><b>{clients.length}</b></div>
+          <div><span>Бонусы</span><b style={{ color: 'var(--gold)' }}>{stats.totalBonus.toLocaleString()}</b></div>
+          <div><span>С долгом</span><b style={{ color: stats.withDebt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.withDebt}</b></div>
+          <div><span>Долг</span><b style={{ color: stats.totalDebt > 0 ? 'var(--red)' : 'var(--muted)' }}>{stats.totalDebt > 0 ? fmtMoney(stats.totalDebt) : '—'}</b></div>
+          <div><span>VIP</span><b style={{ color: stats.vipCount > 0 ? 'var(--purple)' : 'var(--muted)' }}>{stats.vipCount}</b></div>
+        </div>
 
-      <div className="k-cli-toolbar">
-        <div className="k-subtabs k-clients-chips">
-          <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Все</button>
-          <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} onClick={() => setFilter('debt')}>С долгом</button>
-          <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} onClick={() => setFilter('vip')}>VIP</button>
-          <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} onClick={() => setFilter('no_card')}>Без карты</button>
-          <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} onClick={() => setFilter('blocked')}>Блок</button>
-          <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} onClick={() => setSort('debt')}>По долгу</button>
-          <button type="button" className={`k-subtab ${sort === 'bonus' ? 'active' : ''}`} onClick={() => setSort('bonus')}>По бонусам</button>
-          <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} onClick={() => setSort('name')}>По имени</button>
-          <button type="button" className={`k-subtab ${sort === 'spent' ? 'active' : ''}`} onClick={() => setSort('spent')}>По покупкам</button>
+        <div className="k-cli-toolbar">
+          <div className="k-subtabs k-clients-chips">
+            <button type="button" className={`k-subtab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Все</button>
+            <button type="button" className={`k-subtab ${filter === 'debt' ? 'active' : ''}`} onClick={() => setFilter('debt')}>С долгом</button>
+            <button type="button" className={`k-subtab ${filter === 'vip' ? 'active' : ''}`} onClick={() => setFilter('vip')}>VIP</button>
+            <button type="button" className={`k-subtab ${filter === 'no_card' ? 'active' : ''}`} onClick={() => setFilter('no_card')}>Без карты</button>
+            <button type="button" className={`k-subtab ${filter === 'blocked' ? 'active' : ''}`} onClick={() => setFilter('blocked')}>Блок</button>
+            <button type="button" className={`k-subtab ${sort === 'debt' ? 'active' : ''}`} onClick={() => setSort('debt')}>По долгу</button>
+            <button type="button" className={`k-subtab ${sort === 'bonus' ? 'active' : ''}`} onClick={() => setSort('bonus')}>По бонусам</button>
+            <button type="button" className={`k-subtab ${sort === 'name' ? 'active' : ''}`} onClick={() => setSort('name')}>По имени</button>
+            <button type="button" className={`k-subtab ${sort === 'spent' ? 'active' : ''}`} onClick={() => setSort('spent')}>По покупкам</button>
+          </div>
         </div>
       </div>
 
