@@ -53,6 +53,7 @@ import { usePosStore } from '@/lib/posStore'
 import { useOrders } from '@/lib/store'
 import type { Order, PosSale } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import { CLIENTS_MODULE_CSS } from './clientsModuleCss'
 
 type SortMode = 'debt' | 'name' | 'spent' | 'recent' | 'bonus'
 type FilterMode = 'all' | 'debt' | 'vip' | 'blocked' | 'over_limit' | 'no_card'
@@ -601,6 +602,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
 
   return (
     <div className="k-clients-mod">
+      <style>{CLIENTS_MODULE_CSS}</style>
       {apiSyncing && <div className="k-cli-sync-bar">Обновление…</div>}
 
       <div className="k-kpis k-cli-kpis k-hide-mob">
@@ -635,7 +637,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
       </div>
 
       <div className="k-clients-head">
-        <div className="k-cli-meta k-hide-desk">
+        <div className="k-cli-meta">
           <div><span>Клиенты</span><b>{clients.length}</b></div>
           <div><span>Бонусы</span><b style={{ color: 'var(--gold)' }}>{stats.totalBonus.toLocaleString()}</b></div>
           <div><span>С долгом</span><b style={{ color: stats.withDebt > 0 ? 'var(--gold)' : 'var(--muted)' }}>{stats.withDebt}</b></div>

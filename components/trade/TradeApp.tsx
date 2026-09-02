@@ -2707,7 +2707,8 @@ const CSS = `
   }
   html.kakapo-android .k-main,
   html.kakapo-android .k-trade:has(.k-body-pos) .k-main,
-  html.kakapo-android .k-trade:has(.k-body-debts) .k-main{
+  html.kakapo-android .k-trade:has(.k-body-debts) .k-main,
+  html.kakapo-android .k-trade:has(.k-body-clients) .k-main{
     padding-bottom:calc(56px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
   }
   html.kakapo-android .k-trade.pos-fs .k-main{
@@ -2763,6 +2764,11 @@ const CSS = `
   html.kakapo-android .k-products-mod-body,
   html.kakapo-android .k-catalog-shell{
     flex:none!important;height:auto!important;min-height:0!important;overflow:visible!important
+  }
+  html.kakapo-android .k-body-clients,
+  html.kakapo-android .k-body-clients > .k-clients-mod{
+    flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
+    overflow:visible!important
   }
   html.kakapo-android .k-catalog-body{
     overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important
