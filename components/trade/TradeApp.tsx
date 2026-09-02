@@ -2416,15 +2416,12 @@ const CSS = `
     .k-subtabs{position:sticky;top:0;z-index:7;background:var(--bg);padding-top:4px;margin-top:-4px}
     .k-seg-tabs{position:relative;top:auto;z-index:1;background:var(--card2);padding:2px;margin-top:0}
     .k-clients-chips{
-      display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;
-      width:100%;padding:4px;margin:0;overflow:visible;flex-wrap:nowrap;
-      background:var(--card2);border:1px solid var(--border);border-radius:10px
+      width:100%;gap:5px;padding:0;margin:0;overflow-x:auto;flex-wrap:nowrap;
+      -webkit-overflow-scrolling:touch;scrollbar-width:none
     }
     .k-clients-chips::-webkit-scrollbar{display:none}
     .k-clients-chips .k-subtab{
-      width:100%;justify-content:center;text-align:center;
-      min-height:32px!important;padding:6px 4px!important;font-size:10px;border-radius:8px;
-      border:none;flex-shrink:0
+      min-height:30px!important;padding:5px 9px!important;font-size:11px;border-radius:8px;flex-shrink:0
     }
     .k-clients-mod{padding-bottom:72px}
     .k-suppliers-mod{padding-bottom:72px;overflow:visible}
@@ -2446,10 +2443,6 @@ const CSS = `
     }
     /* Фильтры поставщиков — отдельная карточка ниже шапки, крутится вместе со списком */
     .k-sup-toolbar{
-      flex:none;padding:8px;margin:0 0 8px;
-      border:1px solid var(--border);border-radius:12px;background:var(--card)
-    }
-    .k-cli-toolbar{
       flex:none;padding:8px;margin:0 0 8px;
       border:1px solid var(--border);border-radius:12px;background:var(--card)
     }
