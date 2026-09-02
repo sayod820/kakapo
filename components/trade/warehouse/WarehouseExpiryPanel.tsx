@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import type { Product } from '@/lib/types'
 import { productMatchesSearch } from '@/lib/productBarcodes'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import { fmtDate, fmtMoney } from './warehouseShared'
 
 export type ExpiryRow = {
@@ -85,7 +86,7 @@ function ExpiryCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 20, flexShrink: 0 }}>{product?.e || '📦'}</span>
+        <TradeProductThumb product={product} size={36} radius={10} />
 
         <div style={{ flex: '1 1 160px', minWidth: 140 }}>
           <div style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.25 }}>{row.productName}</div>

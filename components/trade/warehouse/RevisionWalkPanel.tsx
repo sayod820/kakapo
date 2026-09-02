@@ -11,6 +11,7 @@ import {
 import { productMatchesCategoryFilter } from '@/lib/useCategories'
 import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import type { RevisionDraftLine, RevisionScopeStock } from './revisionDraftStorage'
 import {
   fmtMoney,
@@ -427,7 +428,7 @@ export default function RevisionWalkPanel({
                 className="k-rev-walk-row"
                 onClick={() => openSheet(p)}
               >
-                <span className="k-rev-walk-emo">{p.e || '📦'}</span>
+                <TradeProductThumb product={p} size={28} radius={8} className="k-rev-walk-emo" />
                 <span className="k-rev-walk-txt">
                   <b>{p.name}</b>
                   <small>{p.art || '—'} · система {formatQty(system)}</small>
@@ -479,7 +480,7 @@ export default function RevisionWalkPanel({
             <div key={line.key} className={`k-rev-walk-done${diff !== 0 ? (diff > 0 ? ' up' : ' down') : ''}`}>
               <button type="button" className="k-rev-walk-row" onClick={() => openSheet(p, true)}>
                 <span className="k-rev-line-n">{idx + 1}</span>
-                <span className="k-rev-walk-emo">{p.e || '📦'}</span>
+                <TradeProductThumb product={p} size={28} radius={8} className="k-rev-walk-emo" />
                 <span className="k-rev-walk-txt">
                   <b>{p.name}</b>
                   <small>
@@ -531,7 +532,7 @@ export default function RevisionWalkPanel({
             <div className="k-rev-walk-sheet" onClick={e => e.stopPropagation()}>
               <div className="k-rev-walk-sheet-handle" aria-hidden />
               <div className="k-rev-walk-sheet-h">
-                <span className="k-rev-walk-emo">{p.e || '📦'}</span>
+                <TradeProductThumb product={p} size={28} radius={8} className="k-rev-walk-emo" />
                 <div className="k-rev-walk-txt">
                   <b>{p.name}</b>
                   <small>

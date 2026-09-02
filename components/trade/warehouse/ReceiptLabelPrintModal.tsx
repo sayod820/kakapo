@@ -10,6 +10,7 @@ import {
   type ReceiptLabelRow,
 } from './receiptLabelPrint'
 import { loadLabelDesign } from '@/components/trade/products/labelShared'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 
 function clampCopies(n: number) {
   return Math.max(1, Math.min(99, Math.floor(n) || 1))
@@ -181,15 +182,18 @@ export default function ReceiptLabelPrintModal({
                   onChange={e => patchRow(row.key, { selected: e.target.checked })}
                   style={{ accentColor: 'var(--green)', width: 18, height: 18, cursor: 'pointer' }}
                 />
-                <div style={{ minWidth: 0, cursor: 'pointer' }} onClick={() => patchRow(row.key, { selected: !row.selected })}>
-                  <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {row.product.e || '📦'} {row.product.name}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                    {row.edit.size || '—'} · {(Number(row.edit.price) || 0).toFixed(2)} сом
-                    {row.edit.plu ? ` · PLU ${row.edit.plu}` : ''}
-                    {row.edit.barcode ? ` · ${row.edit.barcode}` : ''}
-                    {' · '}приход {formatQty(row.item.qty)}
+                <div style={{ minWidth: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, flex: 1 }} onClick={() => patchRow(row.key, { selected: !row.selected })}>
+                  <TradeProductThumb product={row.product} size={32} radius={8} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {row.product.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {row.edit.size || '—'} · {(Number(row.edit.price) || 0).toFixed(2)} сом
+                      {row.edit.plu ? ` · PLU ${row.edit.plu}` : ''}
+                      {row.edit.barcode ? ` · ${row.edit.barcode}` : ''}
+                      {' · '}приход {formatQty(row.item.qty)}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -11,6 +11,7 @@ import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import LabelCard from './LabelCard'
 import LabelDesignModal from './LabelDesignModal'
 import LabelEditModal from './LabelEditModal'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import { buildSingleLabelThermalDocument } from './labelPrintHtml'
 import {
   applyXP235BDesign,
@@ -604,7 +605,7 @@ export default function LabelsTab({
                   <div key={p.id} className="k-label-pick">
                     <div className="k-label-pick-head">
                       <input type="checkbox" checked={isProductChecked(p)} onChange={e => toggleProduct(p, e.target.checked)} />
-                      <span style={{ fontSize: 15 }}>{p.e || '📦'}</span>
+                      <TradeProductThumb product={p} size={32} radius={8} />
                       <span style={{ flex: 1, minWidth: 0 }} onClick={() => toggleExpand(p.id)}>
                         <div style={{ fontWeight: 800, fontSize: 12, lineHeight: 1.2 }}>{p.name}</div>
                         <div style={{ fontSize: 10, color: 'var(--muted)' }}>

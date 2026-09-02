@@ -11,6 +11,7 @@ import {
 import { isTradeMobileUi } from '@/lib/tradeAndroid'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import { fmtMoney, formatQty, productUnitLabel } from './warehouseShared'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 
 /** Не рисуем весь каталог — иначе «Найти товар» вешает UI */
 const PANEL_PAGE = 50
@@ -228,7 +229,7 @@ export default function WarehouseProductSelect({
                             </td>
                             <td>
                               <div className="k-prod-pick-name">
-                                <span className="emo">{p.e || '📦'}</span>
+                                <TradeProductThumb product={p} size={28} radius={7} className="emo" />
                                 <div>
                                   <b>{p.name}</b>
                                   {detail && <span>{detail}</span>}
@@ -286,7 +287,7 @@ export default function WarehouseProductSelect({
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => commitPick(p)}
                 >
-                  <span>{p.e || '📦'}</span>
+                  <TradeProductThumb product={p} size={28} radius={8} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>
                       {p.name}

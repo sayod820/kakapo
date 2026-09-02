@@ -81,6 +81,7 @@ import {
 import { resolveCardAuthoritativeLevel } from '@/lib/loyaltyAdminLock'
 import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes, cleanScannedBarcode, barcodeDigitKeys } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
+import TradeProductThumb, { type TradeProductThumbLike } from '@/components/trade/TradeProductThumb'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
@@ -161,6 +162,11 @@ type CartLine = {
   bulkPricing?: BulkPriceTier[]
   costPrice?: number
   supplierName?: string
+}
+
+function cartLineProduct(line: CartLine, products: Product[]): TradeProductThumbLike {
+  const p = products.find(x => x.id === line.productId)
+  return p ?? { id: line.productId, name: line.name, e: line.emoji }
 }
 
 /** Меньше 0.5 г — считаем, что вес не задан */
@@ -8897,7 +8903,9 @@ export default function CashierModule({
                     scrollCartToPunched(line.key)
                   } : undefined}
                 >
-                  <div className="ic">{line.emoji}</div>
+                  <div className="ic">
+                    <TradeProductThumb product={cartLineProduct(line, products)} size={44} radius={12} />
+                  </div>
                   <div className="info">
                     <div className="name-row">
                     <div className="name">{line.name}</div>
@@ -9122,7 +9130,9 @@ export default function CashierModule({
             >
             <div className="modal-card qty-edit-card">
               <div className="qty-edit-head">
-                <div className="qty-edit-av">{line.emoji}</div>
+                <div className="qty-edit-av">
+                  <TradeProductThumb product={cartLineProduct(line, products)} size={48} radius={14} />
+                </div>
                 <div>
                   <div className="qty-edit-name">{line.name}</div>
                   <div className="qty-edit-stock">На складе: {fmtQty(liveHave)} {unit}</div>
@@ -9966,7 +9976,9 @@ export default function CashierModule({
                   className="client-result"
                   onClick={() => openLineDiscount(line.key)}
                 >
-                  <div className="av">{line.emoji}</div>
+                  <div className="av">
+                    <TradeProductThumb product={cartLineProduct(line, products)} size={34} radius={11} />
+                  </div>
                   <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                     <b style={{ fontSize: 12.5, display: 'block' }}>{line.name}</b>
                     <span style={{ fontSize: 10, color: 'var(--t2)' }}>

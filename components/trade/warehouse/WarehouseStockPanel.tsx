@@ -7,6 +7,7 @@ import type { Product, ProductStockLayer } from '@/lib/types'
 import { buildProductCodeIndex, filterProductsByQuery } from '@/lib/productSearchIndex'
 import { categoryDisplayLabel, useCategories } from '@/lib/useCategories'
 import ProductArrivalsPanel from '../products/ProductArrivalsPanel'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import { fmtMoney } from './warehouseShared'
 
 type StockFilter = 'all' | 'inStock' | 'low' | 'out'
@@ -359,7 +360,7 @@ export default function WarehouseStockPanel({
                   >
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 140 }}>
-                        <span style={{ fontSize: 15, flexShrink: 0 }}>{p.e || '📦'}</span>
+                        <TradeProductThumb product={p} size={32} radius={8} />
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontWeight: 800, fontSize: 12, lineHeight: 1.25 }}>{p.name}</div>
                           {(p.brand || isWeighted(p) || hasBulkPricing(p) || agg.layers.length > 1) && (

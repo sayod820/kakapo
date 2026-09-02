@@ -13,6 +13,7 @@ import { useProducts } from '@/lib/store'
 import type { Product, StockWriteoff } from '@/lib/types'
 import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import {
   clearWriteoffDraft,
   defaultWriteoffDraft,
@@ -91,7 +92,7 @@ function WriteoffLineCard({
     >
       <div className="k-wo-line-top">
         <span className="k-wo-line-idx">{idx + 1}</span>
-        <span className="k-wo-line-emo">{product.e || '📦'}</span>
+        <TradeProductThumb product={product} size={28} radius={8} className="k-wo-line-emo" />
         <div className="k-wo-line-txt">
           <b>{product.name}</b>
           <small>
@@ -580,7 +581,7 @@ export default function WarehouseWriteoffsPanel({
                               border: '1px solid var(--border)', background: 'var(--card2)',
                             }}
                           >
-                            <span style={{ fontSize: 18 }}>{product?.e || '📦'}</span>
+                            <TradeProductThumb product={product} size={28} radius={8} />
                             <div style={{ flex: 1, minWidth: 100 }}>
                               <div style={{ fontWeight: 800, fontSize: 13 }}>{it.productName}</div>
                               {product?.art && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{product.art}</div>}
@@ -668,7 +669,7 @@ export default function WarehouseWriteoffsPanel({
                                     border: '1px solid var(--border)', background: 'var(--card)',
                                   }}
                                 >
-                                  <span style={{ fontSize: 16 }}>{product?.e || '📦'}</span>
+                                  <TradeProductThumb product={product} size={26} radius={7} />
                                   <div style={{ flex: 1, minWidth: 100 }}>
                                     <div style={{ fontWeight: 800, fontSize: 12 }}>{it.productName}</div>
                                     {product?.art && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{product.art}</div>}

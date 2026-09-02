@@ -18,6 +18,7 @@ import WarehousePeriodFilter from './WarehousePeriodFilter'
 import WarehouseProductSelect from './WarehouseProductSelect'
 import RevisionScopePanel from './RevisionScopePanel'
 import RevisionStepBar from './RevisionStepBar'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import RevisionWalkPanel from './RevisionWalkPanel'
 import RevisionWaitDevicesPanel from './RevisionWaitDevicesPanel'
 import RevisionQueuePanel from './RevisionQueuePanel'
@@ -160,7 +161,7 @@ function RevisionLineCard({
     >
       <div className="k-rev-line-top">
         <span className="k-rev-line-n">{idx + 1}</span>
-        <span className="k-rev-line-emo">{product.e || '📦'}</span>
+        <TradeProductThumb product={product} size={28} radius={8} className="k-rev-line-emo" />
         <div className="k-rev-line-txt">
           <b>{product.name}</b>
           <small>
@@ -847,7 +848,7 @@ export default function WarehouseRevisionsPanel({
                         const diffReal = packRealWorld(it.diff, packInfo)
                         return (
                           <div key={i} className="k-rev-item">
-                            <span className="k-rev-item-emo">{product?.e || '📦'}</span>
+                            <TradeProductThumb product={product} size={26} radius={7} className="k-rev-item-emo" />
                             <div className="k-rev-item-txt">
                               <b>{it.productName}</b>
                               <small>
@@ -958,7 +959,7 @@ export default function WarehouseRevisionsPanel({
                                 const diffReal = packRealWorld(it.diff, packInfo)
                                 return (
                                   <div key={i} className="k-rev-item">
-                                    <span className="k-rev-item-emo">{product?.e || '📦'}</span>
+                                    <TradeProductThumb product={product} size={26} radius={7} className="k-rev-item-emo" />
                                     <div className="k-rev-item-txt">
                                       <b>{it.productName}</b>
                                       <small>

@@ -22,6 +22,7 @@ import WarehousePeriodFilter, { periodPresetSinceMs, type WarehousePeriodPreset 
 import WarehouseProductSelect from './WarehouseProductSelect'
 import WarehouseSupplierSelect from './WarehouseSupplierSelect'
 import ReceiptLabelPrintModal from './ReceiptLabelPrintModal'
+import TradeProductThumb from '@/components/trade/TradeProductThumb'
 import {
   clearReceiptDraft,
   costFromPurchaseTotal,
@@ -178,7 +179,7 @@ function ReceiptLineEditModal({
       <div className="k-rcpt-line-modal" onClick={e => e.stopPropagation()}>
         <div className="k-rcpt-line-h">
           <div className="k-rcpt-line-title">
-            <span className="emo">{product.e || '📦'}</span>
+            <TradeProductThumb product={product} size={32} radius={8} className="emo" />
             <div>
               <b>{product.name}</b>
               <span>
@@ -344,7 +345,7 @@ function ReceiptTableRow({
       <div className="k-rcpt-tr-main">
         <span className="k-rcpt-td idx">{idx + 1}</span>
         <div className="k-rcpt-td prod">
-          <span className="emo">{product.e || '📦'}</span>
+          <TradeProductThumb product={product} size={28} radius={7} className="emo" />
           <span className="txt">
             <b>{product.name}</b>
             <small>
