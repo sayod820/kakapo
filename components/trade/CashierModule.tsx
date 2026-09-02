@@ -1254,6 +1254,17 @@ export default function CashierModule({
     if (digits.length >= 1 && digits.length <= 4 && productCodeIndex.get(`plu:${digits}`)) return true
     return false
   }
+
+  /** Автопробитие по таймеру сканера — только точный код или полный штрих (≥8 цифр). */
+  function shouldAutoCommitScannerInput(raw: string): boolean {
+    const t = cleanScannedBarcode(raw)
+    const digits = t.replace(/\D/g, '')
+    if (!digits) return false
+    if (hasExactProductCode(t)) return true
+    // Неполный штрих — ждём хвост, не пробиваем по частичному совпадению
+    if (looksIncompleteScannerCode(t)) return false
+    return digits.length >= 8
+  }
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
   const [favIds, setFavIds] = useState<number[]>(() => loadFavIds())
@@ -2601,6 +2612,7 @@ export default function CashierModule({
               scanTypeBufRef.current = ''
               return
             }
+            if (!shouldAutoCommitScannerInput(live)) return
             commitPosSearchRef.current(live, { fromScanner: true })
           }, SCAN_IDLE_MS)
           return
@@ -3805,8 +3817,8 @@ export default function CashierModule({
       }
     }
 
-    // Точный код не сработал — однозначный поиск по имени/коду (и для сканера, и для Enter)
-    if (!productHit) {
+    // Точный код не сработал — по имени только при Enter (ручной ввод), не при автопробитии сканера
+    if (!productHit && !fromScanner) {
       productHit =
         (pickProductBySearch(pool, raw) as Product | null)
         || (pickProductBySearch(products, raw) as Product | null)
@@ -3906,6 +3918,15 @@ export default function CashierModule({
         return
       }
       scanExtendRef.current = 0
+      if (!shouldAutoCommitScannerInput(live)) {
+        // Быстрый набор цифр без точного кода — только фильтр сетки, не пробитие
+        scanBurstRef.current = false
+        scanAccumRef.current = ''
+        scanTypeBufRef.current = ''
+        qRef.current = live
+        setQ(live)
+        return
+      }
       commitPosSearch(live, { fromScanner: true })
     }, delayMs)
   }

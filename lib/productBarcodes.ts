@@ -450,6 +450,9 @@ export function pickProductBySearch<T extends Partial<Product>>(
     return null
   }
 
+  // 5–7 цифр без точного штриха/PLU/артикула — не угадываем по хвосту штрихкода
+  if (/^\d+$/.test(q.trim()) && qDigits.length >= 5 && qDigits.length < 8) return null
+
   const scoreOf = (p: T) => productSearchScore(p, q, extraForProduct?.(p) || '')
 
   if (rows.length === 1) {
