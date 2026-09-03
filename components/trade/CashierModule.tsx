@@ -86,7 +86,13 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi, usePosStore } from '@/lib/posStore'
-import { buildCashierAlertGroups, cashierAlertsTotal, type CashierAlertGroup } from '@/lib/cashierAlerts'
+import {
+  buildCashierAlertGroups,
+  cashierAlertsTotal,
+  listShopIncomingOrders,
+  type CashierAlertGroup,
+} from '@/lib/cashierAlerts'
+import { getMarketStatus } from '@/lib/orderParts'
 import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStorage'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
@@ -113,7 +119,7 @@ import {
 import { hideTradeHardwareUi, isTradeMobileUi } from '@/lib/tradeAndroid'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts, useOrders } from '@/lib/store'
-import type { Category, PosSale, Product, ProductStockLayer } from '@/lib/types'
+import type { Category, Order, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
   categorySlug,
   countProductsInCategory,
@@ -1102,6 +1108,8 @@ export default function CashierModule({
   const products = useProducts(s => s.products)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const orders = useOrders(s => s.orders)
+  const fetchOrders = useOrders(s => s.fetchOrders)
+  const updateOrderStatus = useOrders(s => s.updateStatus)
   const clients = useClientStore(s => s.clients)
   const cards = useCardStore(s => s.cards)
   // online/syncing — только в CashierNetChip, иначе каждый тик sync перерисовывает поиск
@@ -1409,6 +1417,8 @@ export default function CashierModule({
   const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
+  const [shopOrdersOpen, setShopOrdersOpen] = useState(false)
+  const [shopOrderDetailId, setShopOrderDetailId] = useState<string | null>(null)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [openShiftModal, setOpenShiftModal] = useState(false)
   const [openingPosId, setOpeningPosId] = useState<string | null>(null)
@@ -1633,6 +1643,11 @@ export default function CashierModule({
       if (createPosModal) { setCreatePosModal(false); return true }
       if (cashierMenuOpen) { setCashierMenuOpen(false); return true }
       if (alertsOpen) { setAlertsOpen(false); return true }
+      if (shopOrdersOpen) {
+        if (shopOrderDetailId) { setShopOrderDetailId(null); return true }
+        setShopOrdersOpen(false)
+        return true
+      }
       if (queueOpen) { setQueueOpen(false); return true }
       if (receiptTemplateOpen) { setReceiptTemplateOpen(false); return true }
       if (returnConfirmRef.current) { setReturnConfirm(null); return true }
@@ -1710,6 +1725,13 @@ export default function CashierModule({
     if (!active || posSurface !== 'register') return
     void softSyncWarehouse({ expiryDays: 14 })
   }, [active, posSurface])
+
+  useEffect(() => {
+    if (!active || posSurface !== 'register') return
+    void fetchOrders()
+    const t = window.setInterval(() => { void fetchOrders() }, 45_000)
+    return () => window.clearInterval(t)
+  }, [active, posSurface, fetchOrders])
 
   useEffect(() => {
     onSurfaceChange?.(posSurface)
@@ -2015,6 +2037,7 @@ export default function CashierModule({
     || !!closeTicketConfirmId
     || alertsOpen
     || cashierMenuOpen
+    || shopOrdersOpen
 
   function focusProductSearch() {
     if (isTradeMobileUi()) return
@@ -2634,18 +2657,15 @@ export default function CashierModule({
     return liveProductStock(p, stockLayersByProduct[p.id], stockLayersLoaded)
   }, [stockLayersByProduct, stockLayersLoaded])
 
+  const shopIncomingOrders = useMemo(() => listShopIncomingOrders(orders), [orders])
+
   const cashierAlertGroups = useMemo(() => {
-    const liveStock: Record<string, number> = {}
-    for (const p of products) {
-      liveStock[String(p.id)] = liveStockForProduct(p)
-    }
     return buildCashierAlertGroups({
       expiry: expiryRows,
       activeShift,
       cashVault,
       pendingOps: netPendingCount + netFailedCount,
-      products,
-      liveStock,
+      shopOrders: shopIncomingOrders,
       now: headerNow.getTime(),
     })
   }, [
@@ -2654,8 +2674,7 @@ export default function CashierModule({
     cashVault,
     netPendingCount,
     netFailedCount,
-    products,
-    liveStockForProduct,
+    shopIncomingOrders,
     headerNow,
   ])
 
@@ -2663,7 +2682,16 @@ export default function CashierModule({
 
   function openAlertsPanel() {
     setCashierMenuOpen(false)
+    setShopOrdersOpen(false)
     setAlertsOpen(v => !v)
+  }
+
+  function openShopOrdersPanel() {
+    setCashierMenuOpen(false)
+    setAlertsOpen(false)
+    setShopOrderDetailId(null)
+    setShopOrdersOpen(true)
+    void fetchOrders()
   }
 
   function handleAlertGroup(group: CashierAlertGroup) {
@@ -2682,13 +2710,41 @@ export default function CashierModule({
       onNavigate?.('warehouse')
       return
     }
-    if (go === 'warehouse') {
-      saveWarehouseTab('stock')
-      onNavigate?.('warehouse')
-      return
-    }
     if (go === 'finance') {
       onNavigate?.('finance')
+      return
+    }
+    if (go === 'shop-orders') {
+      openShopOrdersPanel()
+    }
+  }
+
+  async function acceptShopOrder(order: Order) {
+    try {
+      if (order.type === 'mixed') {
+        await updateOrderStatus(order.id, order.status, { marketStatus: 'assembling' })
+      } else if (order.status === 'new') {
+        await updateOrderStatus(order.id, 'assembling')
+      }
+      showToast('Заказ', `${order.id} · в сборке`)
+      void fetchOrders()
+    } catch {
+      showToast('Заказ', 'Не удалось обновить статус')
+    }
+  }
+
+  async function markShopOrderReady(order: Order) {
+    try {
+      if (order.type === 'mixed') {
+        await updateOrderStatus(order.id, order.status, { marketStatus: 'done' })
+      } else if (order.status === 'assembling' || order.status === 'new') {
+        await updateOrderStatus(order.id, 'assembler_done')
+      }
+      showToast('Заказ', `${order.id} · готов`)
+      setShopOrderDetailId(null)
+      void fetchOrders()
+    } catch {
+      showToast('Заказ', 'Не удалось отметить готовым')
     }
   }
 
@@ -8609,6 +8665,124 @@ export default function CashierModule({
     <div className="pos-root" data-theme={theme} data-embed={embedded ? '1' : undefined}>
       <style>{POS_MOCK_CSS}</style>
       {queueOpen && <OfflineQueuePanel onClose={() => setQueueOpen(false)} />}
+      {shopOrdersOpen && (() => {
+        const detail = shopOrderDetailId
+          ? (shopIncomingOrders.find(o => o.id === shopOrderDetailId) || orders.find(o => o.id === shopOrderDetailId) || null)
+          : null
+        const marketSt = detail
+          ? (detail.type === 'mixed' ? getMarketStatus(detail) : detail.status)
+          : null
+        return (
+          <div className="overlay" {...backdropCloseProps(() => {
+            if (shopOrderDetailId) setShopOrderDetailId(null)
+            else setShopOrdersOpen(false)
+          })}>
+            <div className="shop-orders-modal" onClick={e => e.stopPropagation()}>
+              <div className="shop-orders-modal-head">
+                <div>
+                  <b>{detail ? `Заказ ${detail.id}` : 'Заказы из клиентского'}</b>
+                  <span>
+                    {detail
+                      ? (detail.client?.name || 'Клиент')
+                      : (shopIncomingOrders.length
+                        ? `${shopIncomingOrders.length} ждут магазин`
+                        : 'Новых заказов нет')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="alerts-panel-x"
+                  aria-label="Закрыть"
+                  onClick={() => {
+                    if (shopOrderDetailId) setShopOrderDetailId(null)
+                    else setShopOrdersOpen(false)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {!detail ? (
+                <div className="shop-orders-list">
+                  {!shopIncomingOrders.length ? (
+                    <div className="alerts-empty">
+                      <b>Пока тихо</b>
+                      <span>Когда клиент оформит заказ в приложении — он появится здесь</span>
+                    </div>
+                  ) : (
+                    shopIncomingOrders.map(o => {
+                      const st = o.type === 'mixed' ? getMarketStatus(o) : o.status
+                      const stLabel = st === 'new' ? 'Новый' : st === 'assembling' ? 'Собирается' : String(st)
+                      const nItems = Array.isArray(o.items) ? o.items.length : 0
+                      return (
+                        <button
+                          key={o.id}
+                          type="button"
+                          className={`shop-order-row ${st === 'new' ? 'new' : ''}`}
+                          onClick={() => setShopOrderDetailId(o.id)}
+                        >
+                          <span className="shop-order-row-main">
+                            <b>{o.id}</b>
+                            <i>{o.client?.name || 'Клиент'}{o.client?.phone ? ` · ${o.client.phone}` : ''}</i>
+                          </span>
+                          <span className="shop-order-row-meta">
+                            <em className={`shop-order-st st-${st === 'new' ? 'new' : 'work'}`}>{stLabel}</em>
+                            <span>{nItems} поз.</span>
+                            <b>{fmtMoney(Number(o.total) || 0)}</b>
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              ) : (
+                <div className="shop-order-detail">
+                  <div className="shop-order-detail-info">
+                    <div><span>Клиент</span><b>{detail.client?.name || '—'}</b></div>
+                    <div><span>Телефон</span><b>{detail.client?.phone || '—'}</b></div>
+                    <div><span>Адрес</span><b>{detail.client?.addr || '—'}</b></div>
+                    <div><span>Оплата</span><b>{detail.payment_method || detail.pay || '—'}</b></div>
+                    {detail.comment ? <div className="full"><span>Комментарий</span><b>{detail.comment}</b></div> : null}
+                  </div>
+                  <div className="shop-order-items">
+                    {(detail.items || []).map((it, idx) => (
+                      <div key={`${detail.id}-${idx}`} className="shop-order-item">
+                        <span className="nm">{it.e ? `${it.e} ` : ''}{it.name}</span>
+                        <span className="qty">{it.qty} {it.unit || 'шт'}</span>
+                        <span className="sum">{fmtMoney((Number(it.price) || 0) * (Number(it.qty) || 0))}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="shop-order-total">
+                    <span>Итого</span>
+                    <b>{fmtMoney(Number(detail.total) || 0)}</b>
+                  </div>
+                  <div className="shop-order-actions">
+                    {(marketSt === 'new' || detail.status === 'new') && (
+                      <button type="button" className="btn-gate" onClick={() => void acceptShopOrder(detail)}>
+                        Взять в сборку
+                      </button>
+                    )}
+                    {(marketSt === 'assembling' || marketSt === 'new' || detail.status === 'assembling' || detail.status === 'new') && (
+                      <button type="button" className="btn-gate" onClick={() => void markShopOrderReady(detail)}>
+                        Готов к выдаче
+                      </button>
+                    )}
+                    {detail.client?.phone ? (
+                      <a className="btn-switch-till" href={`tel:${String(detail.client.phone).replace(/[^\d+]/g, '')}`}>
+                        Позвонить
+                      </a>
+                    ) : null}
+                    <button type="button" className="btn-switch-till" onClick={() => setShopOrderDetailId(null)}>
+                      К списку
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
       <div className="app" data-mob-panel={posMobPanel}>
         <div className="topbar">
           <div className="top-loc">
@@ -8714,6 +8888,21 @@ export default function CashierModule({
             </button>
           </div>
 
+          <button
+            type="button"
+            className={`shop-orders-chip ${shopOrdersOpen ? 'on' : ''} ${shopIncomingOrders.length ? 'hot' : ''}`}
+            title={shopIncomingOrders.length ? `Заказы из магазина · ${shopIncomingOrders.length}` : 'Заказы из клиентского'}
+            onClick={openShopOrdersPanel}
+          >
+            <span className="shop-orders-chip-ic">🛒</span>
+            <span className="shop-orders-chip-txt">Заказы</span>
+            {shopIncomingOrders.length > 0 && (
+              <span className="shop-orders-chip-n">
+                {shopIncomingOrders.length > 99 ? '99+' : shopIncomingOrders.length}
+              </span>
+            )}
+          </button>
+
           <div className="bell-wrap" ref={alertsMenuRef}>
             <button
               type="button"
@@ -8735,7 +8924,7 @@ export default function CashierModule({
                     <b>Уведомления</b>
                     <span>
                       {cashierAlertsCount > 0
-                        ? `${cashierAlertsCount} · просрок, смена, деньги, остатки`
+                        ? `${cashierAlertsCount} · просрок, смена, деньги, заказы`
                         : 'Всё в порядке'}
                     </span>
                   </div>
@@ -8747,7 +8936,7 @@ export default function CashierModule({
                   {!cashierAlertGroups.length ? (
                     <div className="alerts-empty">
                       <b>Нет важных уведомлений</b>
-                      <span>Просрок, длинная смена, мало денег и критичные остатки появятся здесь</span>
+                      <span>Просрок, смена, деньги и заказы из клиентского появятся здесь</span>
                     </div>
                   ) : (
                     cashierAlertGroups.map(group => (
@@ -8779,10 +8968,10 @@ export default function CashierModule({
                             onClick={() => handleAlertGroup(group)}
                           >
                             {group.go === 'warehouse-expiry' && 'Открыть сроки →'}
-                            {group.go === 'warehouse' && 'Открыть склад →'}
                             {group.go === 'finance' && 'Открыть финансы →'}
                             {group.go === 'queue' && 'Открыть очередь →'}
                             {group.go === 'close-shift' && 'Закрыть смену →'}
+                            {group.go === 'shop-orders' && 'Открыть заказы →'}
                           </button>
                         ) : null}
                       </div>

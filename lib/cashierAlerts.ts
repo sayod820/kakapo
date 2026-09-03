@@ -1,11 +1,13 @@
 /**
- * Уведомления кассира: 4 группы — просрок, смена, деньги, остатки.
+ * Уведомления кассира: просрок, смена, деньги, заказы из клиентского магазина.
+ * (Остатки убраны — шумели бейджем 99+.)
  */
 
-import type { CashVault, PosShift } from '@/lib/types'
+import type { CashVault, Order, PosShift } from '@/lib/types'
 import { shiftExpectedCashLocal } from '@/lib/offlinePosOps'
+import { getMarketStatus } from '@/lib/orderParts'
 
-export type CashierAlertGroupId = 'expiry' | 'shift' | 'money' | 'stock'
+export type CashierAlertGroupId = 'expiry' | 'shift' | 'money' | 'orders'
 
 export type CashierAlertItem = {
   id: string
@@ -22,8 +24,7 @@ export type CashierAlertGroup = {
   tone: 'critical' | 'warn' | 'info'
   count: number
   items: CashierAlertItem[]
-  /** Куда вести при клике по группе */
-  go?: 'warehouse-expiry' | 'finance' | 'queue' | 'close-shift' | 'warehouse'
+  go?: 'warehouse-expiry' | 'finance' | 'queue' | 'close-shift' | 'shop-orders'
 }
 
 export type CashierExpiryRow = {
@@ -32,35 +33,20 @@ export type CashierExpiryRow = {
   daysLeft: number
 }
 
-export type CashierStockProduct = {
-  id: number
-  name: string
-  stock?: number
-  unit?: string
-}
-
 export type CashierAlertsInput = {
   expiry: CashierExpiryRow[]
   activeShift: PosShift | null
   cashVault: CashVault | null | undefined
   pendingOps: number
-  products: CashierStockProduct[]
-  /** Живые остатки productId → qty (если есть) */
-  liveStock?: Record<string, number>
+  /** Заказы из клиентского приложения, которые ждут магазин */
+  shopOrders?: Order[]
   now?: number
 }
 
 const LOW_TILL = 100
 const LOW_VAULT = 200
 const SOON_DAYS = 3
-const LOW_STOCK_MAX = 2
 const MAX_ITEMS = 5
-
-function stockOf(p: CashierStockProduct, live?: Record<string, number>): number {
-  const key = String(p.id)
-  if (live && Number.isFinite(live[key])) return Math.max(0, Number(live[key]) || 0)
-  return Math.max(0, Number(p.stock) || 0)
-}
 
 function hoursOpen(openedAtIso: string, now: number): number {
   const t = new Date(openedAtIso).getTime()
@@ -70,6 +56,39 @@ function hoursOpen(openedAtIso: string, now: number): number {
 
 function expiryLabel(row: CashierExpiryRow): string {
   return String(row.productName || row.name || '').trim()
+}
+
+/** Заказы из клиентского магазина, где ещё нужна работа магазина/кассы */
+export function isShopIncomingOrder(o: Order): boolean {
+  if (!o || o.channel === 'pos') return false
+  if (o.status === 'cancelled' || o.status === 'delivered') return false
+  if (o.type === 'restaurant') return false
+
+  const pickups = Array.isArray(o.pickupIds) ? o.pickupIds : []
+  const touchesStore =
+    o.type === 'market'
+    || o.type === 'mixed'
+    || pickups.includes('store')
+    || (Array.isArray(o.items) && o.items.some(it => !it.restId && it.source !== 'restaurant'))
+
+  if (!touchesStore) return false
+
+  if (o.type === 'mixed') {
+    const ms = getMarketStatus(o)
+    return ms === 'new' || ms === 'assembling'
+  }
+
+  return o.status === 'new' || o.status === 'assembling'
+}
+
+export function listShopIncomingOrders(orders: Order[]): Order[] {
+  return (orders || [])
+    .filter(isShopIncomingOrder)
+    .sort((a, b) => {
+      const ta = new Date(a.createdAtIso || a.createdAt || 0).getTime()
+      const tb = new Date(b.createdAtIso || b.createdAt || 0).getTime()
+      return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
+    })
 }
 
 export function buildCashierAlertGroups(input: CashierAlertsInput): CashierAlertGroup[] {
@@ -192,29 +211,34 @@ export function buildCashierAlertGroups(input: CashierAlertsInput): CashierAlert
     })
   }
 
-  // ── 4. Остатки ──
-  const stockRows = input.products
-    .map((p) => ({ p, qty: stockOf(p, input.liveStock) }))
-    .filter(({ qty }) => qty > 0 && qty <= LOW_STOCK_MAX)
-    .sort((a, b) => a.qty - b.qty)
-
-  const stockItems: CashierAlertItem[] = stockRows.slice(0, MAX_ITEMS).map(({ p, qty }) => ({
-    id: `stock-${p.id}`,
-    title: p.name || 'Товар',
-    detail: `Осталось ${qty} ${p.unit === 'kg' ? 'кг' : 'шт'}`,
-    tone: qty <= 1 ? 'critical' : 'warn',
-  }))
-
-  if (stockItems.length) {
+  // ── 4. Заказы из клиентского ──
+  const shopOrders = listShopIncomingOrders(input.shopOrders || [])
+  const newCount = shopOrders.filter((o) => {
+    if (o.type === 'mixed') return getMarketStatus(o) === 'new'
+    return o.status === 'new'
+  }).length
+  if (shopOrders.length) {
+    const orderItems: CashierAlertItem[] = shopOrders.slice(0, MAX_ITEMS).map((o) => {
+      const name = String(o.client?.name || 'Клиент').trim()
+      const nItems = Array.isArray(o.items) ? o.items.length : 0
+      const st = o.type === 'mixed' ? getMarketStatus(o) : o.status
+      const stLabel = st === 'new' ? 'Новый' : st === 'assembling' ? 'Собирается' : String(st)
+      return {
+        id: `ord-${o.id}`,
+        title: `${o.id} · ${name}`,
+        detail: `${stLabel} · ${nItems} поз. · ${Math.round(Number(o.total) || 0)} с.`,
+        tone: st === 'new' ? 'critical' : 'warn',
+      }
+    })
     groups.push({
-      id: 'stock',
-      title: 'Остатки',
-      hint: 'Мало на полке',
-      icon: '📦',
-      tone: stockItems.some((i) => i.tone === 'critical') ? 'critical' : 'warn',
-      count: stockRows.length,
-      items: stockItems,
-      go: 'warehouse',
+      id: 'orders',
+      title: 'Заказы',
+      hint: 'Из клиентского магазина',
+      icon: '🛒',
+      tone: newCount > 0 ? 'critical' : 'warn',
+      count: shopOrders.length,
+      items: orderItems,
+      go: 'shop-orders',
     })
   }
 
