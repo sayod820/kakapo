@@ -129,6 +129,44 @@ async function raceCashierOp<T>(
 
 // ── Смена ──
 
+function applyLocalOpeningFloat(shiftId: string, amount: number) {
+  const take = round2(amount)
+  if (!(take > 0.001) || !shiftId) return
+  usePosStore.setState(s => {
+    const vault = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+    if ((vault.openingFloats || []).some(f => String(f.shiftId) === String(shiftId))) return s
+    return {
+      cashVault: {
+        ...vault,
+        cashTotal: round2((Number(vault.cashTotal) || 0) - take),
+        vaultVersion: (Number(vault.vaultVersion) || 0) + 1,
+        openingFloats: [
+          { shiftId, amount: take, atIso: new Date().toISOString() },
+          ...(vault.openingFloats || []),
+        ],
+      },
+    }
+  })
+}
+
+export function revertLocalOpeningFloat(shiftId: string) {
+  if (!shiftId) return
+  usePosStore.setState(s => {
+    const vault = s.cashVault || { cashTotal: 0, cardTotal: 0, transfers: [] }
+    const hit = (vault.openingFloats || []).find(f => String(f.shiftId) === String(shiftId))
+    if (!hit) return s
+    const amount = round2(Number(hit.amount) || 0)
+    return {
+      cashVault: {
+        ...vault,
+        cashTotal: round2((Number(vault.cashTotal) || 0) + amount),
+        vaultVersion: (Number(vault.vaultVersion) || 0) + 1,
+        openingFloats: (vault.openingFloats || []).filter(f => String(f.shiftId) !== String(shiftId)),
+      },
+    }
+  })
+}
+
 export async function openShiftSafe(input: {
   cashierId: string
   cashierName: string
@@ -145,12 +183,20 @@ export async function openShiftSafe(input: {
     throw new Error('У кассира уже открыта смена')
   }
 
+  const openingCash = round2(input.openingCash)
+  if (openingCash > 0.001) {
+    const have = round2(Number(usePosStore.getState().cashVault?.cashTotal) || 0)
+    if (openingCash > have + 0.009) {
+      throw new Error(`В основном ящике наличных только ${have.toFixed(2)} сом`)
+    }
+  }
+
   const clientRef = newClientRef()
   const payload = {
     clientRef,
     cashierId: input.cashierId,
     cashierName: input.cashierName,
-    openingCash: round2(input.openingCash),
+    openingCash,
     posId: input.posId,
     note: input.note,
   }
@@ -164,7 +210,7 @@ export async function openShiftSafe(input: {
       cashierId: input.cashierId,
       cashierName: input.cashierName,
       openedAtIso,
-      openingCash: round2(input.openingCash),
+      openingCash,
       salesCash: 0,
       salesCard: 0,
       salesCredit: 0,
@@ -174,9 +220,16 @@ export async function openShiftSafe(input: {
       status: 'open',
       note: input.note,
       clientRef,
+      openingFromVault: openingCash > 0.001 ? openingCash : 0,
     }
-    await useOfflineSync.getState().queueOp('shift_open', { ...payload, openedAtIso }, { localId })
+    applyLocalOpeningFloat(localId, openingCash)
+    await useOfflineSync.getState().queueOp('shift_open', {
+      ...payload,
+      openedAtIso,
+      _revert: { fromVault: openingCash > 0.001 ? openingCash : 0 },
+    }, { localId })
     usePosStore.setState(s => ({ shifts: [shift, ...s.shifts] }))
+    void persistPosSnapshot()
     return shift
   }
 
@@ -1968,11 +2021,20 @@ export async function createSaleSafe(
     try {
       const { useProducts } = await import('./store')
       const ps = useProducts.getState()
+      const decById = new Map<number, number>()
       for (const l of input.cart) {
-        const p = ps.products.find(x => x.id === l.productId)
-        if (!p) continue
         const dec = l.weightKg != null ? l.weightKg : l.qty
-        ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+        if (!(dec > 0)) continue
+        decById.set(l.productId, (decById.get(l.productId) || 0) + dec)
+      }
+      if (decById.size) {
+        useProducts.setState(s => ({
+          products: s.products.map(p => {
+            const dec = decById.get(p.id)
+            if (!dec) return p
+            return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
+          }),
+        }))
       }
       const layerLines = input.cart.map(l => ({
         productId: l.productId,

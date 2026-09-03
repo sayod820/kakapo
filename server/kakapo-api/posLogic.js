@@ -1294,9 +1294,10 @@ export function openPosShift(db, data = {}) {
     status: 'open',
     note: String(data.note || '').trim(),
     clientRef: clientRef || undefined,
+    openingFromVault: 0,
   }
   db.posShifts.unshift(row)
-  // Разменный фонд уже в кассе — в книгу не добавляем (иначе баланс растёт на каждое открытие)
+  issueOpeningFloatFromVault(db, row)
   appendMoneyLedger(db, {
     type: 'shift_open',
     amount: row.openingCash,
@@ -1309,11 +1310,42 @@ export function openPosShift(db, data = {}) {
     cashierName,
     refType: 'shift',
     refId: row.id,
-    reason: 'Открытие смены · разменный фонд',
+    reason: row.openingFromVault > 0.001
+      ? `Открытие смены · размен ${row.openingFromVault.toFixed(2)} из основного`
+      : 'Открытие смены',
     note: row.note,
     createdAtIso: openedAtIso,
   })
   return row
+}
+
+/** Размен на сдачу: нал из основного ящика → касса смены. */
+function issueOpeningFloatFromVault(db, shift) {
+  const amount = round2(Number(shift.openingCash) || 0)
+  if (!(amount > 0.001)) return
+  if (round2(Number(shift.openingFromVault) || 0) > 0.001) return
+  ensurePosCollections(db)
+  const have = round2(Number(db.cashVault.cashTotal) || 0)
+  if (amount > have + 0.009) {
+    throw new Error(`В основном ящике наличных только ${have.toFixed(2)} сом`)
+  }
+  db.cashVault.cashTotal = round2(have - amount)
+  bumpVaultVersion(db)
+  shift.openingFromVault = amount
+  appendMoneyLedger(db, {
+    type: 'vault_float_out',
+    amount,
+    direction: 'out',
+    cashAffect: false,
+    posId: shift.posId || '',
+    shiftId: shift.id,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    refType: 'shift',
+    refId: shift.id,
+    reason: 'Размен в кассу · из основного',
+    createdAtIso: shift.openedAtIso,
+  })
 }
 
 export function closePosShift(db, id, data = {}) {

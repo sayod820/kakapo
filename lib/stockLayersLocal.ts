@@ -47,6 +47,20 @@ export function layerKey(layer: Pick<ProductStockLayer, 'receiptId' | 'productId
   return `${layer.receiptId}:${layer.productId}`
 }
 
+/** Активная FIFO-партия (как на сервере). */
+export function activeFifoStockLayer(
+  layers: ProductStockLayer[] | undefined | null,
+): ProductStockLayer | null {
+  if (!layers?.length) return null
+  const open = layers
+    .filter(l => (Number(l.remainingQty) || 0) > 0.0001)
+    .sort((a, b) =>
+      String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || ''))
+      || (Number(a.queueIndex) || 0) - (Number(b.queueIndex) || 0),
+    )
+  return open[0] || null
+}
+
 function setMemoryCache(layers: ProductStockLayer[]): void {
   memoryCache = layers
   memoryLoaded = true
@@ -174,7 +188,7 @@ export async function pullStockLayersFromServer(opts?: {
     const next = remote
     await cacheStockLayers(next)
     if (opts?.bumpProducts !== false) {
-      await bumpProductStockFromLayers(next)
+      await bumpProductCatalogFromLayers(next)
     }
     try {
       if (typeof window !== 'undefined') {
@@ -185,6 +199,21 @@ export async function pullStockLayersFromServer(opts?: {
   } catch {
     return null
   }
+}
+
+function notifyStockLayersChanged(count: number) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kakapo:stock-layers', { detail: { count } }))
+    }
+  } catch { /* ignore */ }
+}
+
+export async function cacheStockLayersAndSyncCatalog(layers: ProductStockLayer[]): Promise<void> {
+  const list = Array.isArray(layers) ? layers : []
+  await cacheStockLayers(list)
+  await bumpProductCatalogFromLayers(list)
+  notifyStockLayersChanged(list.length)
 }
 
 /** Серверные партии + локальные off-* (ещё не ушедшие приходы) */
@@ -208,18 +237,21 @@ export function mergeRemoteLayersKeepingLocal(
   return [...map.values()]
 }
 
-async function bumpProductStockFromLayers(layers: ProductStockLayer[]): Promise<void> {
+async function bumpProductCatalogFromLayers(layers: ProductStockLayer[]): Promise<void> {
   try {
     const { useProducts } = await import('./store')
     const byPid = new Map<number, number>()
+    const layersByPid = new Map<number, ProductStockLayer[]>()
     for (const l of layers || []) {
       const pid = Number(l.productId) || 0
       if (!pid) continue
       const qty = Number(l.remainingQty) || 0
       if (!(qty > 0.0001)) continue
       byPid.set(pid, Math.round(((byPid.get(pid) || 0) + qty) * 1000) / 1000)
+      const arr = layersByPid.get(pid) || []
+      arr.push(l)
+      layersByPid.set(pid, arr)
     }
-    // Трогаем только товары, которые были в партиях или есть сейчас — не весь каталог
     const touched = new Set<number>(byPid.keys())
     for (const l of memoryCache || []) {
       const pid = Number(l.productId) || 0
@@ -232,9 +264,25 @@ async function bumpProductStockFromLayers(layers: ProductStockLayer[]): Promise<
     const next = ps.products.map(p => {
       if (!touched.has(p.id)) return p
       const stock = byPid.get(p.id) || 0
-      if (Math.abs(stock - (Number(p.stock) || 0)) < 0.0001) return p
+      const active = activeFifoStockLayer(layersByPid.get(p.id))
+      const layerRetail = active ? Math.round((Number(active.retailPrice) || 0) * 100) / 100 : 0
+      const price = layerRetail > 0 ? layerRetail : p.price
+      const costPrice = active && Number(active.costPrice) > 0
+        ? Math.round(Number(active.costPrice) * 100) / 100
+        : p.costPrice
+      const bulkPricing = active?.bulkPricing?.length ? active.bulkPricing : p.bulkPricing
+      const sameStock = Math.abs(stock - (Number(p.stock) || 0)) < 0.0001
+      const samePrice = Math.abs((Number(price) || 0) - (Number(p.price) || 0)) < 0.011
+      const sameCost = Math.abs((Number(costPrice) || 0) - (Number(p.costPrice) || 0)) < 0.011
+      if (sameStock && samePrice && sameCost) return p
       changed = true
-      return { ...p, stock }
+      return {
+        ...p,
+        stock,
+        price,
+        ...(costPrice != null ? { costPrice } : {}),
+        ...(bulkPricing ? { bulkPricing } : {}),
+      }
     })
     if (!changed) return
     useProducts.setState({ products: next })
@@ -459,6 +507,6 @@ export async function restoreLocalLayersFifoBatch(
     })
   }
   await cacheStockLayers(list)
-  await bumpProductStockFromLayers(list)
+  await bumpProductCatalogFromLayers(list)
   return list
 }

@@ -3591,6 +3591,7 @@ function TradeAppInner({
             <CashierModule
                 active={salesActive}
               embedded={!posFullscreen}
+              employeeId={session.employeeId}
               theme={theme}
               onThemeChange={applyTheme}
               onSurfaceChange={setPosSurface}

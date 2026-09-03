@@ -100,6 +100,10 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'product_update') {
       const incoming = msg.product
+      const reason = String((incoming as { reason?: string })?.reason || '')
+      if (/receipt|stock|layer|warehouse|revision/i.test(reason)) {
+        pull.posWarehouse()
+      }
       if (incoming?.deleted) {
         const ids = Array.isArray(incoming.ids)
           ? incoming.ids.map(Number).filter(n => Number.isFinite(n))
@@ -112,7 +116,12 @@ export function useApiSync(mode: SyncMode = 'all') {
             products: s.products.filter(p => !idSet.has(Number(p.id))),
           }))
         }
-      } else if (incoming?.id && (incoming.name || Object.prototype.hasOwnProperty.call(incoming, 'photo'))) {
+      } else if (incoming?.id && (
+        incoming.name
+        || Object.prototype.hasOwnProperty.call(incoming, 'photo')
+        || incoming.price != null
+        || incoming.stock != null
+      )) {
         void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
           const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
           useProducts.setState(s => {
@@ -196,6 +205,7 @@ export function useApiSync(mode: SyncMode = 'all') {
         || kind.includes('supplier')
       ) {
         pull.posWarehouse()
+        pull.products()
         return
       }
       // Вклады / расходы / ящик

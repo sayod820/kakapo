@@ -1,0 +1,226 @@
+/**
+ * Уведомления кассира: 4 группы — просрок, смена, деньги, остатки.
+ */
+
+import type { CashVault, PosShift } from '@/lib/types'
+import { shiftExpectedCashLocal } from '@/lib/offlinePosOps'
+
+export type CashierAlertGroupId = 'expiry' | 'shift' | 'money' | 'stock'
+
+export type CashierAlertItem = {
+  id: string
+  title: string
+  detail?: string
+  tone: 'critical' | 'warn' | 'info'
+}
+
+export type CashierAlertGroup = {
+  id: CashierAlertGroupId
+  title: string
+  hint: string
+  icon: string
+  tone: 'critical' | 'warn' | 'info'
+  count: number
+  items: CashierAlertItem[]
+  /** Куда вести при клике по группе */
+  go?: 'warehouse-expiry' | 'finance' | 'queue' | 'close-shift' | 'warehouse'
+}
+
+export type CashierExpiryRow = {
+  productName?: string
+  name?: string
+  daysLeft: number
+}
+
+export type CashierStockProduct = {
+  id: number
+  name: string
+  stock?: number
+  unit?: string
+}
+
+export type CashierAlertsInput = {
+  expiry: CashierExpiryRow[]
+  activeShift: PosShift | null
+  cashVault: CashVault | null | undefined
+  pendingOps: number
+  products: CashierStockProduct[]
+  /** Живые остатки productId → qty (если есть) */
+  liveStock?: Record<string, number>
+  now?: number
+}
+
+const LOW_TILL = 100
+const LOW_VAULT = 200
+const SOON_DAYS = 3
+const LOW_STOCK_MAX = 2
+const MAX_ITEMS = 5
+
+function stockOf(p: CashierStockProduct, live?: Record<string, number>): number {
+  const key = String(p.id)
+  if (live && Number.isFinite(live[key])) return Math.max(0, Number(live[key]) || 0)
+  return Math.max(0, Number(p.stock) || 0)
+}
+
+function hoursOpen(openedAtIso: string, now: number): number {
+  const t = new Date(openedAtIso).getTime()
+  if (!Number.isFinite(t)) return 0
+  return Math.max(0, (now - t) / 3600000)
+}
+
+function expiryLabel(row: CashierExpiryRow): string {
+  return String(row.productName || row.name || '').trim()
+}
+
+export function buildCashierAlertGroups(input: CashierAlertsInput): CashierAlertGroup[] {
+  const now = input.now ?? Date.now()
+  const groups: CashierAlertGroup[] = []
+
+  // ── 1. Просрок ──
+  const expired = input.expiry.filter((e) => Number(e.daysLeft) < 0)
+  const today = input.expiry.filter((e) => Number(e.daysLeft) === 0)
+  const soon = input.expiry.filter((e) => {
+    const d = Number(e.daysLeft)
+    return d > 0 && d <= SOON_DAYS
+  })
+  const expiryItems: CashierAlertItem[] = []
+  if (expired.length) {
+    expiryItems.push({
+      id: 'exp-gone',
+      title: `Уже просрочено · ${expired.length}`,
+      detail: expired.slice(0, 3).map(expiryLabel).filter(Boolean).join(', ') || undefined,
+      tone: 'critical',
+    })
+  }
+  if (today.length) {
+    expiryItems.push({
+      id: 'exp-today',
+      title: `Истекает сегодня · ${today.length}`,
+      detail: today.slice(0, 3).map(expiryLabel).filter(Boolean).join(', ') || undefined,
+      tone: 'critical',
+    })
+  }
+  if (soon.length) {
+    expiryItems.push({
+      id: 'exp-soon',
+      title: `Через 1–${SOON_DAYS} дня · ${soon.length}`,
+      detail: soon.slice(0, 3).map(expiryLabel).filter(Boolean).join(', ') || undefined,
+      tone: 'warn',
+    })
+  }
+  const expiryCount = expired.length + today.length + soon.length
+  if (expiryCount > 0) {
+    groups.push({
+      id: 'expiry',
+      title: 'Просрок',
+      hint: 'Срок годности на складе',
+      icon: '⏳',
+      tone: expired.length || today.length ? 'critical' : 'warn',
+      count: expiryCount,
+      items: expiryItems.slice(0, MAX_ITEMS),
+      go: 'warehouse-expiry',
+    })
+  }
+
+  // ── 2. Смена ──
+  const shiftItems: CashierAlertItem[] = []
+  if (input.activeShift) {
+    const hrs = hoursOpen(input.activeShift.openedAtIso, now)
+    if (hrs >= 12) {
+      shiftItems.push({
+        id: 'shift-long',
+        title: `Смена открыта ${Math.floor(hrs)} ч`,
+        detail: 'Пора сверить кассу и закрыть смену',
+        tone: hrs >= 16 ? 'critical' : 'warn',
+      })
+    }
+  }
+  if (input.pendingOps > 0) {
+    shiftItems.push({
+      id: 'shift-queue',
+      title: `Очередь офлайн · ${input.pendingOps}`,
+      detail: 'Есть несинхронизированные операции',
+      tone: input.pendingOps >= 5 ? 'critical' : 'warn',
+    })
+  }
+  if (shiftItems.length) {
+    const crit = shiftItems.some((i) => i.tone === 'critical')
+    groups.push({
+      id: 'shift',
+      title: 'Смена',
+      hint: 'Смена и синхронизация',
+      icon: '🕐',
+      tone: crit ? 'critical' : 'warn',
+      count: shiftItems.length,
+      items: shiftItems,
+      go: shiftItems.some((i) => i.id === 'shift-queue') ? 'queue' : 'close-shift',
+    })
+  }
+
+  // ── 3. Деньги ──
+  const moneyItems: CashierAlertItem[] = []
+  if (input.activeShift) {
+    const till = shiftExpectedCashLocal(input.activeShift)
+    if (till < LOW_TILL) {
+      moneyItems.push({
+        id: 'money-till',
+        title: `В кассе мало наличных · ${Math.round(till)} с.`,
+        detail: `Рекомендуется ≥ ${LOW_TILL} с. на сдачу`,
+        tone: till < 50 ? 'critical' : 'warn',
+      })
+    }
+  }
+  const vaultCash = Number(input.cashVault?.cashTotal) || 0
+  if (input.cashVault && vaultCash < LOW_VAULT) {
+    moneyItems.push({
+      id: 'money-vault',
+      title: `В основном сейфе мало · ${Math.round(vaultCash)} с.`,
+      detail: `Может не хватить на открытие смены (≥ ${LOW_VAULT} с.)`,
+      tone: vaultCash < 100 ? 'critical' : 'warn',
+    })
+  }
+  if (moneyItems.length) {
+    groups.push({
+      id: 'money',
+      title: 'Деньги',
+      hint: 'Касса и основной сейф',
+      icon: '💵',
+      tone: moneyItems.some((i) => i.tone === 'critical') ? 'critical' : 'warn',
+      count: moneyItems.length,
+      items: moneyItems,
+      go: 'finance',
+    })
+  }
+
+  // ── 4. Остатки ──
+  const stockRows = input.products
+    .map((p) => ({ p, qty: stockOf(p, input.liveStock) }))
+    .filter(({ qty }) => qty > 0 && qty <= LOW_STOCK_MAX)
+    .sort((a, b) => a.qty - b.qty)
+
+  const stockItems: CashierAlertItem[] = stockRows.slice(0, MAX_ITEMS).map(({ p, qty }) => ({
+    id: `stock-${p.id}`,
+    title: p.name || 'Товар',
+    detail: `Осталось ${qty} ${p.unit === 'kg' ? 'кг' : 'шт'}`,
+    tone: qty <= 1 ? 'critical' : 'warn',
+  }))
+
+  if (stockItems.length) {
+    groups.push({
+      id: 'stock',
+      title: 'Остатки',
+      hint: 'Мало на полке',
+      icon: '📦',
+      tone: stockItems.some((i) => i.tone === 'critical') ? 'critical' : 'warn',
+      count: stockRows.length,
+      items: stockItems,
+      go: 'warehouse',
+    })
+  }
+
+  return groups
+}
+
+export function cashierAlertsTotal(groups: CashierAlertGroup[]): number {
+  return groups.reduce((s, g) => s + g.count, 0)
+}

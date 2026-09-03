@@ -79,30 +79,26 @@ function mergeCashVault(local: CashVault | undefined, server: CashVault): CashVa
   const serverTransfers = server.transfers || []
   const serverShiftIds = new Set(serverTransfers.map(t => String(t.shiftId)))
   const localOnly = (local?.transfers || []).filter(t => t.shiftId && !serverShiftIds.has(String(t.shiftId)))
+  const localFloats = (local?.openingFloats || []).filter(f => String(f.shiftId || '').startsWith('off-'))
   const vaultVersion = Math.max(
     Number(local?.vaultVersion) || 0,
     Number(server.vaultVersion) || 0,
   )
   const converts = Array.isArray(server.converts) ? server.converts : (local?.converts || [])
-  if (!localOnly.length) {
-    return {
-      cashTotal: Number(server.cashTotal) || 0,
-      cardTotal: Number(server.cardTotal) || 0,
-      vaultVersion,
-      transfers: serverTransfers,
-      converts,
-    }
-  }
   const extraCash = localOnly.reduce((a, t) => a + (Number(t.cashAmount) || 0), 0)
   const extraCard = localOnly.reduce((a, t) => a + (Number(t.cardAmount) || 0), 0)
+  const floatCash = localFloats.reduce((a, f) => a + (Number(f.amount) || 0), 0)
   return {
-    cashTotal: Math.round(((Number(server.cashTotal) || 0) + extraCash) * 100) / 100,
+    cashTotal: Math.round(((Number(server.cashTotal) || 0) + extraCash - floatCash) * 100) / 100,
     cardTotal: Math.round(((Number(server.cardTotal) || 0) + extraCard) * 100) / 100,
     vaultVersion,
-    transfers: [...localOnly, ...serverTransfers].sort((a, b) =>
-      String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
-    ),
+    transfers: localOnly.length
+      ? [...localOnly, ...serverTransfers].sort((a, b) =>
+        String(b.closedAtIso || '').localeCompare(String(a.closedAtIso || '')),
+      )
+      : serverTransfers,
     converts,
+    openingFloats: localFloats,
   }
 }
 
@@ -563,6 +559,8 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
       try {
         const { pullStockLayersFromServer } = await import('./stockLayersLocal')
         await pullStockLayersFromServer({ bumpProducts: true })
+        const { useProducts } = await import('./store')
+        void useProducts.getState().fetchProducts()
       } catch { /* ignore */ }
     } catch { /* нет связи — оставляем локальный снимок */ }
     finally {

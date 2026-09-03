@@ -1,4 +1,5 @@
-import type { Product } from '@/lib/types'
+import type { Product, ProductStockLayer } from '@/lib/types'
+import { activeFifoStockLayer } from '@/lib/stockLayersLocal'
 import { filterProductsBySearch } from '@/lib/productBarcodes'
 
 export type WarehouseTab = 'stock' | 'receipts' | 'writeoffs' | 'revisions' | 'expiry'
@@ -62,6 +63,26 @@ export function sumRemainingQty(layers: { remainingQty?: number }[] | undefined 
     sum += Number(layer.remainingQty) || 0
   }
   return Math.round(sum * 100) / 100
+}
+
+/** Активная FIFO-партия — см. lib/stockLayersLocal.activeFifoStockLayer */
+export { activeFifoStockLayer } from '@/lib/stockLayersLocal'
+
+/** Розница для кассы: из активной партии, иначе из карточки товара. */
+export function liveProductSellPrice(
+  product: Product | null | undefined,
+  layers: ProductStockLayer[] | undefined | null,
+  layersLoaded = false,
+): number {
+  const catalog = Math.round((Number(product?.price) || 0) * 100) / 100
+  if (!product) return 0
+  const active = activeFifoStockLayer(layers)
+  if (active) {
+    const retail = Math.round((Number(active.retailPrice) || 0) * 100) / 100
+    if (retail > 0) return retail
+  }
+  if (layersLoaded || layers?.length) return catalog
+  return catalog
 }
 
 /** Живой остаток: партии, если есть; иначе кэш product.stock. */

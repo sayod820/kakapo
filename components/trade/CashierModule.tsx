@@ -2,7 +2,6 @@
 
 import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
@@ -12,6 +11,7 @@ import { getBoundPosIdSync, getBoundDeviceNameSync, getTradeDeviceIdSync } from 
 import { pushBackHandler } from '@/lib/hardwareBack'
 import { loadPosSessionState, savePosSessionState } from '@/lib/offlineBootstrap'
 import { loadTradeEmployeeSession } from '@/lib/employeeSession'
+import { ensurePosFavoritesReady, loadPosFavIds, posFavOwnerKey, savePosFavIds } from '@/lib/posFavorites'
 import {
   openShiftSafe,
   closeShiftSafe,
@@ -85,7 +85,9 @@ import TradeProductThumb, { type TradeProductThumbLike } from '@/components/trad
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
-import { softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { buildCashierAlertGroups, cashierAlertsTotal, type CashierAlertGroup } from '@/lib/cashierAlerts'
+import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStorage'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
@@ -119,15 +121,12 @@ import {
   productMatchesCategoryFilter,
   useCategories,
 } from '@/lib/useCategories'
-import { fmtMoney, liveProductStock, sanitizeDecimalInput } from './warehouse/warehouseShared'
+import { fmtMoney, liveProductSellPrice, liveProductStock, sanitizeDecimalInput } from './warehouse/warehouseShared'
 import { POS_MOCK_CSS } from './posMockCss'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 
 const SETTINGS_KEY = 'kakapo_trade_pos_settings'
 const THEME_KEY = 'kakapo_trade_pos_theme'
-/** Старый общий ключ — мигрируем в per-employee */
-const FAV_KEY = 'kakapo_pos_favorites'
-const FAV_BY_EMP_KEY = 'kakapo_pos_favorites_by_employee'
 
 type ThemeName = 'dark' | 'light'
 type PayMethod = 'cash' | 'card' | 'credit' | 'balance' | 'wallet' | 'mixed'
@@ -686,89 +685,6 @@ function loadTheme(): ThemeName {
   return 'light'
 }
 
-/** Владелец избранного: сотрудник входа в «Торговлю», иначе кассир смены */
-function favOwnerKey(cashierId?: string): string {
-  try {
-    const empId = String(loadTradeEmployeeSession()?.employeeId || '').trim()
-    if (empId) return `emp:${empId}`
-  } catch { /* ignore */ }
-  const cid = String(cashierId || '').trim()
-  if (cid) return `cashier:${cid}`
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as PosSettings
-      const fromSettings = String(p.cashierId || '').trim()
-      if (fromSettings) return `cashier:${fromSettings}`
-    }
-  } catch { /* ignore */ }
-  return 'default'
-}
-
-function parseFavIdList(arr: unknown): number[] {
-  if (!Array.isArray(arr)) return []
-  return arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
-}
-
-function loadFavMap(): Record<string, number[]> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem(FAV_BY_EMP_KEY)
-    if (!raw) return {}
-    const obj = JSON.parse(raw) as unknown
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
-    const out: Record<string, number[]> = {}
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      out[k] = parseFavIdList(v)
-    }
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function saveFavMap(map: Record<string, number[]>) {
-  localStorage.setItem(FAV_BY_EMP_KEY, JSON.stringify(map))
-}
-
-function loadLegacyFavIds(): number[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(FAV_KEY)
-    if (!raw) return []
-    return parseFavIdList(JSON.parse(raw) as unknown)
-  } catch {
-    return []
-  }
-}
-
-function loadFavIds(owner = favOwnerKey()): number[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const map = loadFavMap()
-    if (Object.prototype.hasOwnProperty.call(map, owner)) {
-      return map[owner] || []
-    }
-    // Один раз переносим старое общее избранное текущему сотруднику
-    const legacy = loadLegacyFavIds()
-    if (legacy.length) {
-      map[owner] = legacy
-      saveFavMap(map)
-      try { localStorage.removeItem(FAV_KEY) } catch { /* ignore */ }
-      return legacy
-    }
-    return []
-  } catch {
-    return []
-  }
-}
-
-function saveFavIds(ids: number[], owner = favOwnerKey()) {
-  const map = loadFavMap()
-  map[owner] = ids
-  saveFavMap(map)
-}
-
 function levelLabel(level: ClientLevel) {
   return CLIENT_LEVEL_OPTIONS.find(o => o.id === level)?.label || level
 }
@@ -847,6 +763,7 @@ type PosTileProps = {
   isFav: boolean
   photo?: string
   stock: number
+  sellPrice: number
   onAdd: (p: Product) => void
   onToggleFav: (id: number) => void
 }
@@ -859,6 +776,7 @@ const PosProductTile = memo(function PosProductTile({
   isFav,
   photo,
   stock,
+  sellPrice,
   onAdd,
   onToggleFav,
 }: PosTileProps) {
@@ -941,7 +859,7 @@ const PosProductTile = memo(function PosProductTile({
         {barcode ? <span>ш/к {barcode}</span> : null}
         {!plu && !art && !barcode ? <span className="muted">без кода</span> : null}
       </div>
-      <div className="p-price">{(Number(p.price) || 0).toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
+      <div className="p-price">{sellPrice.toFixed(2)}<span className="p-unit"> ЅМ/{sellUnit}</span></div>
       <div className={`p-stock ${stock < 5 ? 'low' : ''}`}>В наличии: {stock} {stockUnit}</div>
     </button>
   )
@@ -950,6 +868,7 @@ const PosProductTile = memo(function PosProductTile({
   && prev.isFav === next.isFav
   && prev.photo === next.photo
   && prev.stock === next.stock
+  && prev.sellPrice === next.sellPrice
   && prev.onAdd === next.onAdd
   && prev.onToggleFav === next.onToggleFav
   && Number(prev.product.price) === Number(next.product.price)
@@ -957,7 +876,7 @@ const PosProductTile = memo(function PosProductTile({
 ))
 
 /** Сетка товаров: все позиции в списке, в DOM только видимые ряды (без пропажи при скролле) */
-function VirtualProductGrid({
+const VirtualProductGrid = memo(function VirtualProductGrid({
   products,
   resetKey,
   renderTile,
@@ -1091,7 +1010,7 @@ function VirtualProductGrid({
       </div>
     </div>
   )
-}
+})
 
 /** Отдельный чип сети — syncing не перерисовывает поле поиска кассы */
 const CashierNetChip = memo(function CashierNetChip({
@@ -1156,9 +1075,10 @@ export type CashierDashboardApi = {
 
 export default function CashierModule({
   onExit,
-  onNavigate: _onNavigate,
+  onNavigate,
   embedded = false,
   active = true,
+  employeeId = '',
   onSurfaceChange,
   onDashboardBind,
   theme: themeProp,
@@ -1170,6 +1090,8 @@ export default function CashierModule({
   embedded?: boolean
   /** false = раздел скрыт, но не размонтирован (быстрый переход на Склад/Товар) */
   active?: boolean
+  /** Сотрудник Trade — избранное привязано к его профилю */
+  employeeId?: string
   onSurfaceChange?: (surface: 'dashboard' | 'register') => void
   /** Кнопка «Создать точку» в шапке TradeApp (embed) */
   onDashboardBind?: (api: CashierDashboardApi | null) => void
@@ -1184,10 +1106,14 @@ export default function CashierModule({
   const cards = useCardStore(s => s.cards)
   // online/syncing — только в CashierNetChip, иначе каждый тик sync перерисовывает поиск
   const startNetSync = useOfflineSync(s => s.start)
+  const netPendingCount = useOfflineSync(s => s.pending)
+  const netFailedCount = useOfflineSync(s => s.failed)
   const [queueOpen, setQueueOpen] = useState(false)
   const shifts = usePosStore(s => s.shifts)
   const posPoints = usePosStore(s => s.posPoints)
   const cashiers = usePosStore(s => s.cashiers)
+  const cashVault = usePosStore(s => s.cashVault)
+  const expiryRows = usePosStore(s => s.expiry)
   const sales = usePosStore(s => s.sales)
   const receipts = usePosStore(s => s.receipts)
   const writeoffs = usePosStore(s => s.writeoffs)
@@ -1267,18 +1193,31 @@ export default function CashierModule({
   }
   const [showFav, setShowFav] = useState(false)
   const [selectedCatSlugs, setSelectedCatSlugs] = useState<string[]>([])
-  const [favIds, setFavIds] = useState<number[]>(() => loadFavIds())
-  const favOwnerRef = useRef(favOwnerKey())
+  const [favIds, setFavIds] = useState<number[]>(() => loadPosFavIds(undefined, loadSettings().cashierId))
+  const favOwnerRef = useRef(posFavOwnerKey(employeeId, loadSettings().cashierId))
   const [catModalOpen, setCatModalOpen] = useState(false)
 
-  // При смене сотрудника / кассира — подгрузить его избранное
-  useEffect(() => {
-    const owner = favOwnerKey(settings.cashierId)
-    if (owner === favOwnerRef.current) return
+  const reloadFavorites = useCallback((cashierId?: string) => {
+    const owner = posFavOwnerKey(employeeId, cashierId)
     favOwnerRef.current = owner
-    setFavIds(loadFavIds(owner))
+    setFavIds(loadPosFavIds(owner, cashierId))
+  }, [employeeId])
+
+  // Подтянуть из SQLite / Android и обновить список
+  useEffect(() => {
+    let cancelled = false
+    void ensurePosFavoritesReady().then(() => {
+      if (cancelled) return
+      reloadFavorites(settings.cashierId)
+    })
+    return () => { cancelled = true }
+  }, [employeeId, reloadFavorites, settings.cashierId])
+
+  // При смене сотрудника / кассира — его избранное
+  useEffect(() => {
+    reloadFavorites(settings.cashierId)
     setShowFav(false)
-  }, [settings.cashierId])
+  }, [employeeId, settings.cashierId, reloadFavorites])
   const [catModalQ, setCatModalQ] = useState('')
   const bootTicket = useRef(makeTicket(1)).current
   const [tickets, setTickets] = useState<PosTicket[]>([bootTicket])
@@ -1325,7 +1264,7 @@ export default function CashierModule({
         nextTicketSeq,
         savedAt: new Date().toISOString(),
       })
-    }, 200)
+    }, 450)
     return () => window.clearTimeout(t)
   }, [tickets, activeTicketId, nextTicketSeq])
 
@@ -1387,17 +1326,16 @@ export default function CashierModule({
 
   /** Корзина + выделение одной записью — иначе выделение «залипает» на предыдущей строке */
   function setCartAndSelect(updater: (prev: CartLine[]) => CartLine[], selectKey: string | null) {
-    flushSync(() => {
-      setTickets(prev => prev.map(t => {
-        if (t.id !== activeTicketId) return t
-        const nextCart = updater(t.cart)
-        return {
-          ...t,
-          cart: nextCart,
-          selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
-        }
-      }))
-    })
+    setTickets(prev => prev.map(t => {
+      if (t.id !== activeTicketId) return t
+      const nextCart = updater(t.cart)
+      cartRef.current = nextCart
+      return {
+        ...t,
+        cart: nextCart,
+        selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
+      }
+    }))
     if (selectKey) pinCartToPunched(selectKey)
   }
 
@@ -1470,6 +1408,7 @@ export default function CashierModule({
   const [amountPad, setAmountPad] = useState(false)
   const amountInputRef = useRef<HTMLInputElement>(null)
   const [cashierMenuOpen, setCashierMenuOpen] = useState(false)
+  const [alertsOpen, setAlertsOpen] = useState(false)
   const [cashierScreen, setCashierScreen] = useState<null | 'close' | 'switch' | 'receipts'>(null)
   const [openShiftModal, setOpenShiftModal] = useState(false)
   const [openingPosId, setOpeningPosId] = useState<string | null>(null)
@@ -1542,6 +1481,7 @@ export default function CashierModule({
   const [posMobPanel, setPosMobPanel] = useState<'shop' | 'cart'>('shop')
   const [headerNow, setHeaderNow] = useState(() => new Date())
   const accountMenuRef = useRef<HTMLDivElement>(null)
+  const alertsMenuRef = useRef<HTMLDivElement>(null)
   const [topupOpen, setTopupOpen] = useState(false)
   const [topupBuf, setTopupBuf] = useState('')
   const [repayOpen, setRepayOpen] = useState(false)
@@ -1692,6 +1632,7 @@ export default function CashierModule({
       if (openShiftModal) { setOpenShiftModal(false); return true }
       if (createPosModal) { setCreatePosModal(false); return true }
       if (cashierMenuOpen) { setCashierMenuOpen(false); return true }
+      if (alertsOpen) { setAlertsOpen(false); return true }
       if (queueOpen) { setQueueOpen(false); return true }
       if (receiptTemplateOpen) { setReceiptTemplateOpen(false); return true }
       if (returnConfirmRef.current) { setReturnConfirm(null); return true }
@@ -1744,6 +1685,31 @@ export default function CashierModule({
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [cashierMenuOpen])
+
+  useEffect(() => {
+    if (!alertsOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (!alertsMenuRef.current?.contains(e.target as Node)) setAlertsOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [alertsOpen])
+
+  useEffect(() => {
+    if (!alertsOpen) return
+    void softSyncWarehouse({ expiryDays: 14 })
+  }, [alertsOpen])
+
+  useEffect(() => {
+    const t = window.setInterval(() => setHeaderNow(new Date()), 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  /** Лёгкий подтягивание сроков — чтобы бейдж на колокольчике был актуален */
+  useEffect(() => {
+    if (!active || posSurface !== 'register') return
+    void softSyncWarehouse({ expiryDays: 14 })
+  }, [active, posSurface])
 
   useEffect(() => {
     onSurfaceChange?.(posSurface)
@@ -2047,6 +2013,8 @@ export default function CashierModule({
     || !!barcodePick
     || clearCartConfirm
     || !!closeTicketConfirmId
+    || alertsOpen
+    || cashierMenuOpen
 
   function focusProductSearch() {
     if (isTradeMobileUi()) return
@@ -2101,7 +2069,7 @@ export default function CashierModule({
     cartScrollTimersRef.current = []
   }
 
-  /** После пробития: выделить + несколько попыток скролла (Electron/flex) */
+  /** После пробития: выделить + скролл (без серии таймеров — меньше лагов) */
   function pinCartToPunched(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
@@ -2111,18 +2079,14 @@ export default function CashierModule({
       if (revealLineKeyRef.current !== key) return
       scrollCartToPunched(key)
     }
-    run()
-    const raf1 = window.requestAnimationFrame(() => {
+    const raf = window.requestAnimationFrame(() => {
       run()
       cartScrollTimersRef.current.push(window.requestAnimationFrame(run))
     })
-    cartScrollTimersRef.current.push(raf1)
-    for (const ms of [0, 40, 120]) {
-      cartScrollTimersRef.current.push(window.setTimeout(run, ms))
-    }
+    cartScrollTimersRef.current.push(raf)
     cartScrollTimersRef.current.push(window.setTimeout(() => {
       if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    }, 180))
+    }, 160))
   }
 
   function revealCartLine(key: string | null | undefined) {
@@ -2660,10 +2624,91 @@ export default function CashierModule({
 
   const search = q
   const deferredSearch = useDeferredValue(search)
+  const liveSellPriceForProduct = useCallback((p: Product | null | undefined) => {
+    if (!p) return 0
+    return liveProductSellPrice(p, stockLayersByProduct[p.id], stockLayersLoaded)
+  }, [stockLayersByProduct, stockLayersLoaded])
+
   const liveStockForProduct = useCallback((p: Product | null | undefined) => {
     if (!p) return 0
     return liveProductStock(p, stockLayersByProduct[p.id], stockLayersLoaded)
   }, [stockLayersByProduct, stockLayersLoaded])
+
+  const cashierAlertGroups = useMemo(() => {
+    const liveStock: Record<string, number> = {}
+    for (const p of products) {
+      liveStock[String(p.id)] = liveStockForProduct(p)
+    }
+    return buildCashierAlertGroups({
+      expiry: expiryRows,
+      activeShift,
+      cashVault,
+      pendingOps: netPendingCount + netFailedCount,
+      products,
+      liveStock,
+      now: headerNow.getTime(),
+    })
+  }, [
+    expiryRows,
+    activeShift,
+    cashVault,
+    netPendingCount,
+    netFailedCount,
+    products,
+    liveStockForProduct,
+    headerNow,
+  ])
+
+  const cashierAlertsCount = useMemo(() => cashierAlertsTotal(cashierAlertGroups), [cashierAlertGroups])
+
+  function openAlertsPanel() {
+    setCashierMenuOpen(false)
+    setAlertsOpen(v => !v)
+  }
+
+  function handleAlertGroup(group: CashierAlertGroup) {
+    setAlertsOpen(false)
+    const go = group.go
+    if (go === 'queue') {
+      setQueueOpen(true)
+      return
+    }
+    if (go === 'close-shift') {
+      openCashierScreen('close')
+      return
+    }
+    if (go === 'warehouse-expiry') {
+      saveWarehouseTab('expiry')
+      onNavigate?.('warehouse')
+      return
+    }
+    if (go === 'warehouse') {
+      saveWarehouseTab('stock')
+      onNavigate?.('warehouse')
+      return
+    }
+    if (go === 'finance') {
+      onNavigate?.('finance')
+    }
+  }
+
+  /** Метка изменений склада (приход с телефона → обновить партии). Не привязан к sales — иначе каждый чек тянет весь склад. */
+  const warehouseRev = useMemo(() => {
+    let lastIso = ''
+    for (const r of receipts) {
+      const t = String(r.updatedAtIso || r.createdAtIso || '')
+      if (t > lastIso) lastIso = t
+    }
+    for (const w of writeoffs) {
+      const t = String(w.updatedAtIso || w.createdAtIso || '')
+      if (t > lastIso) lastIso = t
+    }
+    for (const rev of revisions) {
+      const t = String(rev.updatedAtIso || rev.createdAtIso || '')
+      if (t > lastIso) lastIso = t
+    }
+    return `${receipts.length}|${writeoffs.length}|${revisions.length}|${lastIso}`
+  }, [receipts, writeoffs, revisions])
 
   useEffect(() => {
     let cancelled = false
@@ -2688,12 +2733,22 @@ export default function CashierModule({
       setStockLayersLoaded(true)
     }
 
-    void import('@/lib/stockLayersLocal')
-      .then(m => m.loadStockLayersCacheFirst(applyLayers))
-      .then(applyLayers)
-      .catch(() => {
+    void (async () => {
+      try {
+        const m = await import('@/lib/stockLayersLocal')
+        // Сначала кэш — UI не ждёт сеть
+        const cached = await m.readCachedStockLayers()
+        if (!cancelled) applyLayers(cached)
+        // Сеть в фоне (приход с телефона)
+        void m.pullStockLayersFromServer({ bumpProducts: true })
+          .then(remote => {
+            if (!cancelled && remote?.length) applyLayers(remote)
+          })
+          .catch(() => {})
+      } catch {
         if (!cancelled) setStockLayersLoaded(true)
-      })
+      }
+    })()
 
     const onLayersEvent = () => {
       void import('@/lib/stockLayersLocal')
@@ -2707,7 +2762,7 @@ export default function CashierModule({
       cancelled = true
       window.removeEventListener('kakapo:stock-layers', onLayersEvent)
     }
-  }, [products, receipts.length, revisions.length, sales.length, writeoffs.length])
+  }, [products, warehouseRev])
 
   /**
    * Сетка фильтрует и по названию, и по хвосту штрихкода (последние цифры).
@@ -2820,20 +2875,21 @@ export default function CashierModule({
         isFav={favSet.has(p.id)}
         photo={photo}
         stock={liveStockForProduct(p)}
+        sellPrice={liveSellPriceForProduct(p)}
         onAdd={onAddProductTile}
         onToggleFav={onToggleFavoriteTile}
       />
     )
-  }, [favSet, liveStockForProduct, onAddProductTile, onToggleFavoriteTile])
+  }, [favSet, liveStockForProduct, liveSellPriceForProduct, onAddProductTile, onToggleFavoriteTile])
 
   function toggleFavorite(productId: number) {
-    const owner = favOwnerKey(settings.cashierId)
+    const owner = posFavOwnerKey(employeeId, settings.cashierId)
     favOwnerRef.current = owner
     setFavIds(prev => {
       const next = prev.includes(productId)
         ? prev.filter(id => id !== productId)
         : [...prev, productId]
-      saveFavIds(next, owner)
+      savePosFavIds(next, owner, settings.cashierId)
       return next
     })
   }
@@ -4084,7 +4140,9 @@ export default function CashierModule({
       setPosSurface('register')
       showToast(
         'Смена открыта',
-        opened.offline ? `${cashier.name} · отправится в фоне` : cashier.name,
+        cash > 0.001
+          ? `${cashier.name} · размен ${fmtMoney(cash)} из основного`
+          : (opened.offline ? `${cashier.name} · отправится в фоне` : cashier.name),
       )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
@@ -5451,9 +5509,6 @@ export default function CashierModule({
       return
     }
 
-    // После выбора/скана — сразу чистим поиск, как на обычной кассе
-    clearProductSearch()
-
     // Штучный: если уже в чеке — сразу +1, без повторного запроса партий
     if (weightKg == null && !isWeighted(p)) {
       const now = performance.now()
@@ -5461,9 +5516,11 @@ export default function CashierModule({
 
       if (existing) {
         lastPieceAddRef.current = { id: p.id, t: now }
-      pushProductToCart(p, weightKg)
-      return
-    }
+        pushProductToCart(p, weightKg)
+        // Поиск чистим после кадра — сначала товар в чеке
+        window.requestAnimationFrame(() => clearProductSearch())
+        return
+      }
 
       if (addInflightRef.current.has(p.id)) {
         addPendingBumpRef.current.set(p.id, (addPendingBumpRef.current.get(p.id) || 0) + 1)
@@ -5478,6 +5535,7 @@ export default function CashierModule({
     }
 
     void addProductWithLayers(p, weightKg, opts)
+    window.requestAnimationFrame(() => clearProductSearch())
   }
   addProductRef.current = addProduct
 
@@ -5859,45 +5917,44 @@ export default function CashierModule({
       return
     }
 
-    // Штучный: всегда одна строка на товар — qty++ внутри setCart (без гонок)
+    // Штучный: всегда одна строка на товар — qty++ (cartRef сразу, без flushSync)
     let revealKey: string | null = null
-    flushSync(() => {
-      setTickets(prevTickets => prevTickets.map(t => {
-        if (t.id !== activeTicketId) return t
-        const prev = dropZeroWeightLines(t.cart)
-        const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
+    setTickets(prevTickets => prevTickets.map(t => {
+      if (t.id !== activeTicketId) return t
+      const prev = dropZeroWeightLines(t.cart)
+      const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
       if (idx >= 0) {
-          const nextQty = prev[idx].qty + 1
-          const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
-          const lineBase = preferRetailPrice != null && preferRetailPrice > 0
-            ? preferRetailPrice
-            : (prev[idx].retailBase ?? prev[idx].preferRetailPrice ?? retailBase)
-          const updated = {
-            ...prev[idx],
-            qty: nextQty,
-            price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
-            stock: stockHint,
-            retailBase: lineBase,
-            bulkPricing: lineBulk,
-            ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
-          }
-          revealKey = updated.key
-          // Повторное пробитие — строка уходит в конец чека
-          const next = prev.slice()
-          next.splice(idx, 1)
-          next.push(updated)
-          cartRef.current = next
-          return {
-            ...t,
-            cart: next,
-            selectedLineKey: updated.key,
-          }
+        const nextQty = prev[idx].qty + 1
+        const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
+        const lineBase = preferRetailPrice != null && preferRetailPrice > 0
+          ? preferRetailPrice
+          : (prev[idx].retailBase ?? prev[idx].preferRetailPrice ?? retailBase)
+        const updated = {
+          ...prev[idx],
+          qty: nextQty,
+          price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
+          stock: stockHint,
+          retailBase: lineBase,
+          bulkPricing: lineBulk,
+          ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
         }
-        const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
-        revealKey = key
-        const price = cartUnitPriceForQty(retailBase, bulkPricing, 1)
-        const next = [...prev, {
-          key,
+        revealKey = updated.key
+        // Повторное пробитие — строка уходит в конец чека
+        const next = prev.slice()
+        next.splice(idx, 1)
+        next.push(updated)
+        cartRef.current = next
+        return {
+          ...t,
+          cart: next,
+          selectedLineKey: updated.key,
+        }
+      }
+      const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
+      revealKey = key
+      const price = cartUnitPriceForQty(retailBase, bulkPricing, 1)
+      const next = [...prev, {
+        key,
         productId: p.id,
         name: p.name,
         emoji: p.e || '📦',
@@ -5908,22 +5965,20 @@ export default function CashierModule({
         art,
         barcode,
         receiptId,
-          preferRetailPrice,
+        preferRetailPrice,
         retailBase,
         bulkPricing,
         costPrice,
         supplierName,
       }]
-        cartRef.current = next
-        return {
-          ...t,
-          cart: next,
-          selectedLineKey: key,
-        }
-      }))
-    })
+      cartRef.current = next
+      return {
+        ...t,
+        cart: next,
+        selectedLineKey: key,
+      }
+    }))
     if (revealKey) {
-      // DOM уже обновлён (flushSync) — крутим сразу, потом ещё раз после фокуса поиска
       pinCartToPunched(revealKey)
       window.setTimeout(() => {
         focusProductSearch()
@@ -6873,182 +6928,27 @@ export default function CashierModule({
         _offline: saleRes.offline || !!(saleRes.data as { _offline?: boolean })._offline,
       } as PosSale & { orderId?: string; _offline?: boolean }
 
-      // Сразу снимаем busy — дальше фон (sync/бонусы) не должен блокировать поиск
+      // Сразу освобождаем UI — фон (долг/sync) не должен держать кассу
       sellingTicketIdRef.current = null
       setBusy(false)
 
-      if (created._offline) {
-        // Не пугаем «офлайн», если сеть есть — просто фоновая отправка
-        if (!apiReachable) {
-          showToast('Офлайн-чек сохранён', 'Отправится автоматически при появлении связи')
-        }
-        void useOfflineSync.getState().syncNow()
-      }
-      if (client?.id) {
-        const itemsSummary = cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
-        const histKey = debtAccountKey(client)
-        const purchaseCash = Math.round((Number(cashPaid) || 0) * 100) / 100
-        const purchaseCard = Math.round((Number(cardPaid) || 0) * 100) / 100
-        if (histKey && purchaseCash > 0.001) {
-          recordStorePurchase(
-            histKey,
-            purchaseCash,
-            'Покупка в магазине · нал',
-            { orderId: created?.orderId || created?.id || undefined, itemsSummary },
-          )
-        }
-        if (histKey && purchaseCard > 0.001) {
-          recordStorePurchase(
-            histKey,
-            purchaseCard,
-            'Покупка в магазине · карта',
-            { orderId: created?.orderId || created?.id || undefined, itemsSummary },
-          )
-        }
-        if (histKey && debtAdded > 0.001) {
-          const baseDesc = debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
-          recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
-            orderId: created?.orderId || created?.id || undefined,
-            itemsSummary,
-            source: 'pos',
-          })
-        }
-        setHistTick(t => t + 1)
-      }
-      const earnedBonus = earnedBonusPreview
-      const statusEligibleAfter = Math.round(((Number(cashPaid) || 0) + (Number(cardPaid) || 0)) * 100) / 100
-      if (statusEligibleAfter > 0.001 && client?.phone && client.card) {
-        const meta = buildPosLoyaltyMeta(client, cards)
-        if (meta.levelAssignMode !== 'manual') {
-          const statusFields = statusFieldsAfterPosCashPurchase(
-            client.phone,
-            orders,
-            statusEligibleAfter,
-            meta,
-            sales,
-          )
-          useCardStore.getState().updateCardLoyalty(
-            client.card,
-            {
-              level: statusFields.level,
-              levelValidUntil: statusFields.levelValidUntil ?? undefined,
-              levelAssignMode: statusFields.levelAssignMode,
-            },
-            { skipApi: true },
-          )
-          useClientStore.getState().updateClient(
-            client.id,
-            {
-              level: statusFields.level,
-              levelValidUntil: statusFields.levelValidUntil ?? undefined,
-              levelAssignMode: statusFields.levelAssignMode,
-            },
-            { skipApi: true },
-          )
-        }
-      }
-      // Исходящая очередь + входящие чеки с сервера (браузер → ПК)
-      void softSyncPosAfterSale({ force: true })
-      useOfflineSync.getState().scheduleSyncDebounced()
-      if (!created._offline) {
-        void syncClientsFromApi()
-        void syncCardsFromApi()
-      }
-
+      const soldCart = cart.slice()
+      const soldClient = client
       const debtRepay = payDebtForSale
-      let debtRepayNote = ''
-      if (debtRepay > 0.001 && client && apiMethod !== 'credit') {
-        const method = cashPaid > 0.001 ? 'cash' : 'card'
-        let cardClient = client
-        try {
-          if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
-        } catch { /* без карты погашение с чеком пропустим */ }
-        if (!cardClient.card) {
-          // не смогли выдать карту — долг останется, кассир погасит отдельно
-        } else {
-        const prevDebt = Number(loyalty?.debt) || clientDebt
-        const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
-        debtRepayNote = ' · погашен долг ' + fmtMoney(payAmt)
-        try {
-          const repaid = await debtRepaySafe(cardClient.card, {
-            amount: payAmt,
-            method,
-            cashierId: activeShift.cashierId,
-            shiftId: activeShift.id,
-            posId: activeShift.posId || activePosPoint?.id,
-            clientId: cardClient.id,
-            prevDebt,
-          })
-          if (!repaid.data.duplicate) {
-            const histKey = debtAccountKey(client)
-            const history = loadDebtHistoryForClient(client)
-            const creditSales = sales
-              .filter(s => {
-                const matchId = client.id && s.clientId === client.id
-                const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
-                if (!matchId && !matchPhone) return false
-                return saleOpenCreditAmount(s) > 0.001
-              })
-              .map(s => ({
-                id: s.id,
-                orderId: s.orderId || s.id,
-                dateIso: s.createdAtIso,
-                debtAdded: saleOpenCreditAmount(s),
-                number: s.number,
-              }))
-              .filter(s => s.debtAdded > 0.001)
-            const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
-            const targets = creditSales
-              .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
-              .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
-              .map(s => ({
-                orderId: s.orderId || s.id,
-                remain: saleStatus[s.id]?.remain || 0,
-                label: s.number != null && Number(s.number) > 0
-                  ? `Чек №${s.number}`
-                  : `Чек ${String(s.id).slice(-6)}`,
-              }))
-            if (histKey) {
-              const batchRef = String(repaid.data.clientRef || '').trim() || `payb-${Date.now()}`
-              const fifo = recordStoreDebtRepaymentFifo(histKey, payAmt, targets, {
-                method,
-                source: 'cashier',
-                desc: 'Погашение долга с чеком',
-                clientRef: repaid.data.clientRef,
-              })
-              if (fifo.appliedToChecks > 0.001) {
-                debtRepayNote += ` · со старых чеков ${fmtMoney(fifo.appliedToChecks)}`
-              }
-              const saleCheckLabel = created.number != null && Number(created.number) > 0
-                ? `Чек №${created.number}`
-                : `Чек ${String(created.id).slice(-6)}`
-              recordStoreSalePaymentInBatch(histKey, total, {
-                orderId: created.id,
-                batchId: fifo.batchId || batchRef,
-                clientRef: repaid.data.clientRef,
-                ts: fifo.ts || Date.now(),
-                method,
-                label: saleCheckLabel,
-                itemsSummary: mapSaleLines(created.items, products),
-              })
-            }
-            setHistTick(t => t + 1)
-          }
-        } catch { /* ignore */ }
-        }
-      }
-
       const parts: string[] = []
       if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
       if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
       if (walletPaid > 0.001) parts.push(`кошелёк ${fmtMoney(walletPaid)}`)
       if (debtAdded > 0.001) parts.push(`долг ${fmtMoney(debtAdded)}`)
       if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
-      if (earnedBonus > 0) parts.push(`+${earnedBonus} ⭐`)
+      if (earnedBonusPreview > 0) parts.push(`+${earnedBonusPreview} ⭐`)
       if (spend > 0) parts.push(`−${spend} ⭐`)
+      if (debtRepay > 0.001) parts.push(`погашение ${fmtMoney(debtRepay)}`)
       showToast(
-        'Чек проведён',
-        `${parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')}${debtRepayNote}`,
+        created._offline && !apiReachable ? 'Офлайн-чек сохранён' : 'Чек проведён',
+        created._offline && !apiReachable
+          ? 'Отправится автоматически при появлении связи'
+          : (parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')),
       )
       setCashOpen(false)
       setSplitCardOpen(false)
@@ -7072,6 +6972,157 @@ export default function CashierModule({
       if (opts?.shouldPrint) {
         void printSaleOnce(saleForPrint)
       }
+
+      // Фон: история / лояльность / погашение / sync — после сброса чека
+      void (async () => {
+        try {
+          if (created._offline) void useOfflineSync.getState().syncNow()
+          if (soldClient?.id) {
+            const itemsSummary = soldCart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
+            const histKey = debtAccountKey(soldClient)
+            const purchaseCash = Math.round((Number(cashPaid) || 0) * 100) / 100
+            const purchaseCard = Math.round((Number(cardPaid) || 0) * 100) / 100
+            if (histKey && purchaseCash > 0.001) {
+              recordStorePurchase(
+                histKey,
+                purchaseCash,
+                'Покупка в магазине · нал',
+                { orderId: created?.orderId || created?.id || undefined, itemsSummary },
+              )
+            }
+            if (histKey && purchaseCard > 0.001) {
+              recordStorePurchase(
+                histKey,
+                purchaseCard,
+                'Покупка в магазине · карта',
+                { orderId: created?.orderId || created?.id || undefined, itemsSummary },
+              )
+            }
+            if (histKey && debtAdded > 0.001) {
+              const baseDesc = debtAdded >= payable - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
+              recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
+                orderId: created?.orderId || created?.id || undefined,
+                itemsSummary,
+                source: 'pos',
+              })
+            }
+            setHistTick(t => t + 1)
+          }
+          const statusEligibleAfter = Math.round(((Number(cashPaid) || 0) + (Number(cardPaid) || 0)) * 100) / 100
+          if (statusEligibleAfter > 0.001 && soldClient?.phone && soldClient.card) {
+            const meta = buildPosLoyaltyMeta(soldClient, cards)
+            if (meta.levelAssignMode !== 'manual') {
+              const statusFields = statusFieldsAfterPosCashPurchase(
+                soldClient.phone,
+                orders,
+                statusEligibleAfter,
+                meta,
+                sales,
+              )
+              useCardStore.getState().updateCardLoyalty(
+                soldClient.card,
+                {
+                  level: statusFields.level,
+                  levelValidUntil: statusFields.levelValidUntil ?? undefined,
+                  levelAssignMode: statusFields.levelAssignMode,
+                },
+                { skipApi: true },
+              )
+              useClientStore.getState().updateClient(
+                soldClient.id,
+                {
+                  level: statusFields.level,
+                  levelValidUntil: statusFields.levelValidUntil ?? undefined,
+                  levelAssignMode: statusFields.levelAssignMode,
+                },
+                { skipApi: true },
+              )
+            }
+          }
+          void softSyncPosAfterSale({ force: true })
+          useOfflineSync.getState().scheduleSyncDebounced()
+          if (!created._offline) {
+            void syncClientsFromApi()
+            void syncCardsFromApi()
+          }
+
+          if (debtRepay > 0.001 && soldClient && apiMethod !== 'credit') {
+            const method = cashPaid > 0.001 ? 'cash' : 'card'
+            let cardClient = soldClient
+            try {
+              if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
+            } catch { /* без карты погашение с чеком пропустим */ }
+            if (cardClient.card) {
+              const prevDebt = Number(loyalty?.debt) || clientDebt
+              const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
+              try {
+                const repaid = await debtRepaySafe(cardClient.card, {
+                  amount: payAmt,
+                  method,
+                  cashierId: activeShift.cashierId,
+                  shiftId: activeShift.id,
+                  posId: activeShift.posId || activePosPoint?.id,
+                  clientId: cardClient.id,
+                  prevDebt,
+                })
+                if (!repaid.data.duplicate) {
+                  const histKey = debtAccountKey(soldClient)
+                  const history = loadDebtHistoryForClient(soldClient)
+                  const creditSales = sales
+                    .filter(s => {
+                      const matchId = soldClient.id && s.clientId === soldClient.id
+                      const matchPhone = soldClient.phone && s.clientPhone && phonesMatch(soldClient.phone, s.clientPhone)
+                      if (!matchId && !matchPhone) return false
+                      return saleOpenCreditAmount(s) > 0.001
+                    })
+                    .map(s => ({
+                      id: s.id,
+                      orderId: s.orderId || s.id,
+                      dateIso: s.createdAtIso,
+                      debtAdded: saleOpenCreditAmount(s),
+                      number: s.number,
+                    }))
+                    .filter(s => s.debtAdded > 0.001)
+                  const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
+                  const targets = creditSales
+                    .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
+                    .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
+                    .map(s => ({
+                      orderId: s.orderId || s.id,
+                      remain: saleStatus[s.id]?.remain || 0,
+                      label: s.number != null && Number(s.number) > 0
+                        ? `Чек №${s.number}`
+                        : `Чек ${String(s.id).slice(-6)}`,
+                    }))
+                  if (histKey) {
+                    const batchRef = String(repaid.data.clientRef || '').trim() || `payb-${Date.now()}`
+                    const fifo = recordStoreDebtRepaymentFifo(histKey, payAmt, targets, {
+                      method,
+                      source: 'cashier',
+                      desc: 'Погашение долга с чеком',
+                      clientRef: repaid.data.clientRef,
+                    })
+                    const saleCheckLabel = created.number != null && Number(created.number) > 0
+                      ? `Чек №${created.number}`
+                      : `Чек ${String(created.id).slice(-6)}`
+                    recordStoreSalePaymentInBatch(histKey, total, {
+                      orderId: created.id,
+                      batchId: fifo.batchId || batchRef,
+                      clientRef: repaid.data.clientRef,
+                      ts: fifo.ts || Date.now(),
+                      method,
+                      label: saleCheckLabel,
+                      itemsSummary: mapSaleLines(created.items, products),
+                    })
+                  }
+                  setHistTick(t => t + 1)
+                }
+              } catch { /* ignore */ }
+            }
+          }
+        } catch { /* фон не должен ронять пробитие */ }
+      })()
+
       return true
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка продажи')
@@ -7710,8 +7761,14 @@ export default function CashierModule({
                   <input className="gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
                 </>
               )}
-              <span className="gate-label">Наличные в кассе на начало</span>
+              <span className="gate-label">Наличные на сдачу · из основного ящика</span>
               <input className="gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t3)', margin: '-6px 0 10px' }}>
+                В основном сейчас {fmtMoney(Number(cashVault?.cashTotal) || 0)}
+                {Number(gateCash) > 0.001
+                  ? ` · уйдёт ${fmtMoney(Number(gateCash) || 0)}`
+                  : ' · 0 = пустая касса'}
+              </div>
               <div className="kp-quick" style={{ marginBottom: 16 }}>
                 {[0, 100, 500, 1000].map(v => (
                   <button key={v} type="button" onClick={() => setGateCash(v === 0 ? '0.00' : String(v))}>{v === 0 ? 'Пустая' : `${v}`}</button>
@@ -8657,14 +8714,92 @@ export default function CashierModule({
             </button>
           </div>
 
-          <button type="button" className="bell-btn" title="Уведомления" onClick={() => showToast('Уведомления', 'Нет новых уведомлений')} style={{ marginLeft: 'auto' }}>
-            🔔<span className="bell-badge" />
-          </button>
+          <div className="bell-wrap" ref={alertsMenuRef}>
+            <button
+              type="button"
+              className={`bell-btn ${alertsOpen ? 'on' : ''}`}
+              title={cashierAlertsCount > 0 ? `Уведомления · ${cashierAlertsCount}` : 'Уведомления'}
+              onClick={openAlertsPanel}
+            >
+              🔔
+              {cashierAlertsCount > 0 && (
+                <span className="bell-badge">
+                  {cashierAlertsCount > 99 ? '99+' : cashierAlertsCount}
+                </span>
+              )}
+            </button>
+            {alertsOpen && (
+              <div className="alerts-panel" role="dialog" aria-label="Уведомления кассира">
+                <div className="alerts-panel-head">
+                  <div>
+                    <b>Уведомления</b>
+                    <span>
+                      {cashierAlertsCount > 0
+                        ? `${cashierAlertsCount} · просрок, смена, деньги, остатки`
+                        : 'Всё в порядке'}
+                    </span>
+                  </div>
+                  <button type="button" className="alerts-panel-x" aria-label="Закрыть" onClick={() => setAlertsOpen(false)}>
+                    ×
+                  </button>
+                </div>
+                <div className="alerts-panel-body">
+                  {!cashierAlertGroups.length ? (
+                    <div className="alerts-empty">
+                      <b>Нет важных уведомлений</b>
+                      <span>Просрок, длинная смена, мало денег и критичные остатки появятся здесь</span>
+                    </div>
+                  ) : (
+                    cashierAlertGroups.map(group => (
+                      <div key={group.id} className={`alerts-group tone-${group.tone}`}>
+                        <button
+                          type="button"
+                          className="alerts-group-head"
+                          onClick={() => handleAlertGroup(group)}
+                        >
+                          <span className="alerts-group-ic">{group.icon}</span>
+                          <span className="alerts-group-txt">
+                            <b>{group.title}</b>
+                            <i>{group.hint}</i>
+                          </span>
+                          <span className="alerts-group-count">{group.count > 99 ? '99+' : group.count}</span>
+                        </button>
+                        <div className="alerts-group-items">
+                          {group.items.map(item => (
+                            <div key={item.id} className={`alerts-item tone-${item.tone}`}>
+                              <b>{item.title}</b>
+                              {item.detail ? <span>{item.detail}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                        {group.go ? (
+                          <button
+                            type="button"
+                            className="alerts-group-go"
+                            onClick={() => handleAlertGroup(group)}
+                          >
+                            {group.go === 'warehouse-expiry' && 'Открыть сроки →'}
+                            {group.go === 'warehouse' && 'Открыть склад →'}
+                            {group.go === 'finance' && 'Открыть финансы →'}
+                            {group.go === 'queue' && 'Открыть очередь →'}
+                            {group.go === 'close-shift' && 'Закрыть смену →'}
+                          </button>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="account-wrap" ref={accountMenuRef}>
             <button
               type="button"
               className={`account-btn ${cashierMenuOpen ? 'on' : ''}`}
-              onClick={() => setCashierMenuOpen(v => !v)}
+              onClick={() => {
+                setAlertsOpen(false)
+                setCashierMenuOpen(v => !v)
+              }}
             >
               <div className="account-av">{settings.initials}</div>
               <div className="info">

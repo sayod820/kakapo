@@ -6,7 +6,7 @@ import { api } from './api'
 import { isOnline } from './offline'
 import { getPending, cacheProducts, cacheClients, persistPosSnapshot } from './offline'
 import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
-import { cacheStockLayers } from './stockLayersLocal'
+import { cacheStockLayersAndSyncCatalog } from './stockLayersLocal'
 import { appendConflictLog, mergeAppendById, mergeByIdLww, shouldTakeRemoteLww } from './syncConflict'
 import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
 import type { Product, ProductStockLayer } from './types'
@@ -169,7 +169,7 @@ export async function pullSyncChanges(opts?: {
         ? (delta.stockLayers as ProductStockLayer[])
         : null
       if (next) {
-        await cacheStockLayers(next)
+        await cacheStockLayersAndSyncCatalog(next)
       } else {
         const { readCachedStockLayers } = await import('./stockLayersLocal')
         const local = await readCachedStockLayers()
@@ -179,7 +179,7 @@ export async function pullSyncChanges(opts?: {
           const cur = map.get(key)
           if (!cur || shouldTakeRemoteLww(cur, remote)) map.set(key, remote)
         }
-        await cacheStockLayers([...map.values()])
+        await cacheStockLayersAndSyncCatalog([...map.values()])
       }
     }
 

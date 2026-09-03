@@ -303,6 +303,8 @@ export interface PosShift {
   /** Итог сверки при закрытии (излишек / недостача / перемещение) */
   reconcileNote?: string
   clientRef?: string
+  /** Размен, взятый из основного ящика при открытии */
+  openingFromVault?: number
 }
 
 /** Сдача смены в основной ящик */
@@ -318,6 +320,13 @@ export interface CashVaultTransfer {
   note?: string
 }
 
+/** Локальный размен: смена ещё не ушла на сервер */
+export interface CashVaultOpeningFloat {
+  shiftId: string
+  amount: number
+  atIso?: string
+}
+
 /** Основной денежный ящик (после закрытий смен) */
 export interface CashVault {
   cashTotal: number
@@ -326,6 +335,8 @@ export interface CashVault {
   vaultVersion?: number
   transfers: CashVaultTransfer[]
   converts?: { id: string; amount: number; createdAtIso: string; note?: string; clientRef?: string }[]
+  /** Только локально, пока shift_open в очереди */
+  openingFloats?: CashVaultOpeningFloat[]
 }
 
 /** Свод ящика для UI: основной + точки сейчас */

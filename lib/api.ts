@@ -1049,7 +1049,7 @@ export const api = {
   getPosDeviceStatuses: () =>
     request<TradeDeviceLiveStatus[]>('/pos/devices/status'),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),
-  openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string; cashierName?: string; openedAtIso?: string }) =>
+  openPosShift: (data: { clientRef?: string; cashierId: string; openingCash: number; note?: string; posId?: string; cashierName?: string; openedAtIso?: string; expectedVaultVersion?: number }) =>
     request<PosShift>('/pos/shifts/open', { method: 'POST', body: JSON.stringify(data) }),
   closePosShift: (id: string, data: { clientRef?: string; closingCash: number; closingCard?: number; note?: string; closedAtIso?: string }) =>
     request<PosShift>(`/pos/shifts/${id}/close`, { method: 'PATCH', body: JSON.stringify(data) }),

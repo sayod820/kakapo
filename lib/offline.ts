@@ -721,6 +721,12 @@ async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: str
       usePosStore.setState(s => ({
         shifts: s.shifts.map(sh => (sh.id === localId ? { ...sh, id: serverId } : sh)),
         sales: s.sales.map(sale => (sale.shiftId === localId ? { ...sale, shiftId: serverId } : sale)),
+        cashVault: s.cashVault
+          ? {
+            ...s.cashVault,
+            openingFloats: (s.cashVault.openingFloats || []).filter(f => String(f.shiftId) !== String(localId)),
+          }
+          : s.cashVault,
       }))
       void persistPosSnapshot()
     } else if (kind === 'finance_move' || kind === 'card_topup') {
@@ -1797,10 +1803,12 @@ export async function flushQueue(
               onProgress?.(done, total)
               continue
             } else if (live.kind === 'shift_open') {
-              // Сервер: уже есть открытая смена — убрать локальный дубль
+              // Сервер: уже есть открытая смена — убрать локальный дубль и вернуть размен
               const localId = String(live.localId || '')
               if (localId) {
                 const { usePosStore } = await import('./posStore')
+                const { revertLocalOpeningFloat } = await import('./offlinePosOps')
+                revertLocalOpeningFloat(localId)
                 usePosStore.setState(s => ({
                   shifts: s.shifts.filter(sh => sh.id !== localId),
                 }))
