@@ -321,6 +321,9 @@ function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
 /**
  * Остатки по чекам: история + долг на карте (чтобы «Товары» сходились с «Итого»).
  * Одна логика для раздела «Долги» и окна клиента в кассе.
+ *
+ * Важно: если долг на карте обнулился синкаом, а чеки с debtAdded остались —
+ * не помечаем их «оплаченными». Доверяем истории/сумме чека.
  */
 export function buildSaleDebtStatuses(
   sales: { id: string; orderId?: string; debtAdded: number; dateIso: string }[],
@@ -332,6 +335,18 @@ export function buildSaleDebtStatuses(
 
   const base: Record<string, SaleDebtStatus> = {}
   for (const s of sales) base[s.id] = debtStatusForSale(history, s)
+
+  const openFromSales = Math.round(
+    Object.values(base).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
+  ) / 100
+
+  // Карта/клиент обнулились (sync), а чеки в долг на месте — не прячем долг
+  if (debt < 0.001 && openFromSales > 0.001) {
+    const saleStatus = { ...base }
+    const hasLedger = history.some(h => h.type === 'debt')
+    const cashOnCard = hasLedger ? computeDebtFromLedger(history).cash : 0
+    return { saleStatus, posOriginal, posRemain: openFromSales, cashOnCard }
+  }
 
   const locked: typeof sales = []
   const flexible: typeof sales = []
@@ -354,23 +369,9 @@ export function buildSaleDebtStatuses(
   lockedRemain = Math.round(lockedRemain * 100) / 100
 
   if (lockedRemain > debt + 0.005) {
-    const scale = debt > 0.001 ? debt / lockedRemain : 0
-    lockedRemain = 0
-    for (const s of locked) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      const remain = Math.round(saleStatus[s.id].remain * scale * 100) / 100
-      const paid = Math.round((orig - remain) * 100) / 100
-      saleStatus[s.id] = {
-        remain,
-        paid,
-        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-      }
-      lockedRemain += remain
-    }
-    lockedRemain = Math.round(lockedRemain * 100) / 100
+    // Карта отстаёт от истории — не масштабируем locked в 0, flexible оставляем по чеку
     for (const s of flexible) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      saleStatus[s.id] = { status: 'paid', paid: orig, remain: 0 }
+      saleStatus[s.id] = base[s.id]
     }
   } else {
     let budget = Math.round((debt - lockedRemain) * 100) / 100
@@ -1176,6 +1177,17 @@ export function recordStoreDebtCharge(
 ): void {
   const debt = Math.max(0, Math.round(amount * 100) / 100)
   if (!phone.trim() || debt <= 0) return
+  const orderId = String(meta?.orderId || '').trim()
+  // Не дублируем одну и ту же позицию чека (касса пишет и local-first, и в фоне)
+  if (orderId) {
+    const prev = loadDebtHistory(phone)
+    const dup = prev.find(h =>
+      h.type === 'debt'
+      && debtOrderIdsMatch(h.orderId, orderId)
+      && Math.abs(Math.abs(Number(h.amount) || 0) - debt) < 0.02,
+    )
+    if (dup) return
+  }
   const source = meta?.source
     ?? (meta?.orderId ? (/^чек/i.test(desc) ? 'pos' : 'order') : 'manual')
   pushDebtHistory(phone, {
@@ -1186,6 +1198,24 @@ export function recordStoreDebtCharge(
     itemsSummary: meta?.itemsSummary,
     source,
   })
+}
+
+/** Убрать локальные строки долга/погашения по чеку (откат отклонённой продажи). */
+export function removeDebtHistoryForSale(
+  phone: string,
+  sale: { id?: string; orderId?: string },
+): number {
+  const key = String(phone || '').trim()
+  if (!key) return 0
+  const keys = [sale.id, sale.orderId, sale.id ? `sale-${sale.id}` : '', sale.orderId ? `sale-${sale.orderId}` : '']
+    .map(k => String(k || '').trim())
+    .filter(Boolean)
+  if (!keys.length) return 0
+  const prev = loadDebtHistory(key)
+  const next = prev.filter(h => !keys.some(k => debtOrderIdsMatch(h.orderId, k)))
+  const removed = prev.length - next.length
+  if (removed > 0) saveDebtHistoryList(key, next)
+  return removed
 }
 
 /** FIFO: сколько погашений покрывает каждый долг (от старых к новым) */

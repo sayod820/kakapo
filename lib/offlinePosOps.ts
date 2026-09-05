@@ -6,9 +6,9 @@ import { api, isNetworkError } from './api'
 import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
-import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtRepayment } from './clientVipCredit'
+import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
-import { markMoneyPending, clearMoneyPending } from './loyaltySaveGuard'
+import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLoyaltySaved } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore, noteInboundDeletedIds } from './posStore'
@@ -40,12 +40,16 @@ export type CreateSaleSafeInput = {
   forceOffline: boolean
   client?: {
     id: string
+    phone?: string
     card?: string
     debt?: number
     wallet?: number
   } | null
   bonusSpend?: number
   bonusEarn?: number
+  /** Краткое описание позиций для истории долга */
+  itemsSummary?: string
+  creditNote?: string
 }
 
 /** @deprecated — оставлен для совместимости типов */
@@ -1991,7 +1995,7 @@ export async function createSaleSafe(
       salePayload._revert = {
         prevDebt: round2(effectiveDebt(client, linkedCard)),
         prevWallet: round2(Number(client.wallet) || Number(linkedCard?.wallet) || 0),
-        prevBonus: round2(Number(linkedCard?.bonus) || Number(client.bonus) || 0),
+        prevBonus: round2(Number(linkedCard?.bonus) || 0),
         prevPosCashBonus: round2(Number(linkedCard?.posCashBonus) || 0),
         expectedDebtPayVersion,
         expectedBonusPayVersion,
@@ -2002,6 +2006,7 @@ export async function createSaleSafe(
         bonusSpend: spend,
         bonusEarn: earn,
         clientId: client.id,
+        clientPhone: client.phone,
         cardNum: client.card,
         shiftId: input.shiftId,
         cart: input.cart,
@@ -2052,6 +2057,7 @@ export async function createSaleSafe(
           { debt: nextDebt, debtEnabled: true },
           { skipApi: true },
         )
+        markClientLoyaltySaved(client.id)
         if (client.card) {
           useCardStore.getState().updateCardLoyalty(
             client.card,
@@ -2062,6 +2068,7 @@ export async function createSaleSafe(
             },
             { skipApi: true },
           )
+          markCardLoyaltySaved(client.card)
         }
       }
 
@@ -2115,6 +2122,21 @@ export async function createSaleSafe(
       total: input.total,
       _offline: true,
     }
+
+    // Долг в историю сразу вместе с чеком (не ждать фона кассы — иначе «чек есть, в долгах нет»)
+    if (client && debtAdded > 0.001) {
+      const histKey = debtAccountKey({ id: client.id, phone: client.phone })
+      if (histKey) {
+        const note = String(input.creditNote || '').trim()
+        const baseDesc = debtAdded >= round2(input.total) - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
+        recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
+          orderId: display.orderId || offlineSaleId,
+          itemsSummary: input.itemsSummary,
+          source: 'pos',
+        })
+      }
+    }
+
     usePosStore.setState(st => ({
       sales: [offlineSale, ...st.sales],
       shifts: st.shifts.map(sh => sh.id === input.shiftId ? {
@@ -2192,7 +2214,12 @@ export function revertLocalSaleOnReject(payload: Record<string, unknown>, localI
       : []
 
   const saleId = String(localId || payload.id || '').trim()
+  let orderIdForHist = String(payload.orderId || rev.orderId || '').trim()
   if (saleId) {
+    if (!orderIdForHist) {
+      const existing = usePosStore.getState().sales.find(x => x.id === saleId)
+      orderIdForHist = String(existing?.orderId || '').trim()
+    }
     usePosStore.setState(s => ({ sales: s.sales.filter(x => x.id !== saleId) }))
     noteInboundDeletedIds([saleId])
   }
@@ -2266,6 +2293,23 @@ export function revertLocalSaleOnReject(payload: Record<string, unknown>, localI
     if (Object.keys(patch).length) {
       useClientStore.getState().updateClient(clientId, patch as any, { skipApi: true })
     }
+  }
+
+  // Убрать локальную историю долга по этому чеку
+  if (debtAdded > 0.001) {
+    try {
+      const cl = clientId
+        ? useClientStore.getState().clients.find(c => String(c.id) === clientId)
+        : null
+      const phoneFromPayload = String(payload.clientPhone || rev.clientPhone || '').trim()
+      const histKey = debtAccountKey(cl || { id: clientId, phone: phoneFromPayload })
+      if (histKey) {
+        removeDebtHistoryForSale(histKey, {
+          id: saleId,
+          orderId: orderIdForHist || undefined,
+        })
+      }
+    } catch { /* ignore */ }
   }
 
   clearMoneyPending({ clientId, cardNum })

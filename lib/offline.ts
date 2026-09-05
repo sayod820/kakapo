@@ -924,12 +924,60 @@ async function resolveSalePayload(payload: any): Promise<any> {
   return next
 }
 
+/**
+ * После конфликта версии долга/бонусов — взять текущие версии с сервера (или локальной карты).
+ * Баланс debt/bonus НЕ трогаем: локальный чек уже учёл долг, иначе снова «откат к 16».
+ */
+async function refreshSalePayVersions(payload: Record<string, unknown>): Promise<boolean> {
+  const cardNum = String(payload.cardNum || '').trim()
+  if (!cardNum) return false
+  const { cardNumsMatch } = await import('./cardCrm')
+  let debtVer: number | null = null
+  let bonusVer: number | null = null
+  try {
+    const list = await api.getCards()
+    const card = (Array.isArray(list) ? list : []).find((c: { num?: string }) => cardNumsMatch(String(c.num || ''), cardNum))
+    if (card) {
+      debtVer = Number((card as { debtPayVersion?: number }).debtPayVersion) || 0
+      bonusVer = Number((card as { bonusPayVersion?: number }).bonusPayVersion) || 0
+    }
+  } catch { /* сеть — ниже локальный fallback */ }
+  if (debtVer == null) {
+    try {
+      const { useCardStore } = await import('./cardStore')
+      const card = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, cardNum))
+      if (!card) return false
+      debtVer = Number(card.debtPayVersion) || 0
+      bonusVer = Number(card.bonusPayVersion) || 0
+    } catch {
+      return false
+    }
+  }
+  payload.expectedDebtPayVersion = debtVer
+  if (bonusVer != null) payload.expectedBonusPayVersion = bonusVer
+  try {
+    const { useCardStore } = await import('./cardStore')
+    useCardStore.getState().updateCardLoyalty(
+      cardNum,
+      {
+        debtPayVersion: debtVer,
+        ...(bonusVer != null ? { bonusPayVersion: bonusVer } : {}),
+      } as any,
+      { skipApi: true },
+    )
+  } catch { /* ignore */ }
+  return true
+}
+
 /** Отправка одной операции. Возвращает id созданной записи, если он есть. */
 async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
     case 'sale': {
       let payload = await resolveSalePayload(row.payload)
       // Служебные поля только для локального отката — на сервер не шлём
+      const revertSnap = payload && typeof payload === 'object' && '_revert' in payload
+        ? (payload as Record<string, unknown>)._revert
+        : undefined
       if (payload && typeof payload === 'object' && '_revert' in payload) {
         const { _revert: _drop, ...rest } = payload as Record<string, unknown>
         payload = rest
@@ -948,6 +996,22 @@ async function sendOp(row: PendingOp): Promise<string> {
           payload = { ...payload, shiftId: openId }
           const sale = await api.createPosSale(payload, { mode: 'sync' })
           return String((sale as any)?.id || '')
+        }
+        // Конфликт версии долга/бонусов: подтянуть актуальную версию и повторить 1 раз
+        // (раньше чек стирался → у клиента долг откатывался, чек на 91 пропадал)
+        if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(msg)) {
+          const refreshed = await refreshSalePayVersions(payload)
+          if (refreshed) {
+            // Обновить и в очереди (для следующих попыток / отката)
+            try {
+              const livePayload = { ...(row.payload as Record<string, unknown>), ...payload }
+              if (revertSnap) livePayload._revert = revertSnap
+              row.payload = livePayload as PendingOp['payload']
+              await putPending(row)
+            } catch { /* ignore */ }
+            const sale = await api.createPosSale(payload, { mode: 'sync' })
+            return String((sale as any)?.id || '')
+          }
         }
         throw e
       }
@@ -1704,6 +1768,21 @@ export async function flushQueue(
               continue
             } else if (live.kind === 'sale') {
               const p = (live.payload || {}) as Record<string, unknown>
+              const err = String(live.lastError || '')
+              // Конфликт версии долга/бонусов — НЕ стираем чек (иначе «было 16, купил 91 → снова 16»)
+              if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(err)) {
+                try {
+                  await refreshSalePayVersions(p)
+                  live.payload = p
+                  live.failed = false
+                  live.lastError = ''
+                } catch { /* оставить failed, но чек и долг локально сохраняем */ }
+                await putPending(live)
+                failed++
+                done++
+                onProgress?.(done, total)
+                continue
+              }
               const { revertLocalSaleOnReject } = await import('./offlinePosOps')
               revertLocalSaleOnReject(p, live.localId)
               void persistPosSnapshot()

@@ -6974,10 +6974,12 @@ export default function CashierModule({
         needsLiveServer,
         forceOffline: !apiReachable,
         client: client
-          ? { id: client.id, card: client.card, debt: client.debt, wallet: client.wallet }
+          ? { id: client.id, phone: client.phone, card: client.card, debt: client.debt, wallet: client.wallet }
           : null,
         bonusSpend: spend,
         bonusEarn: earnedBonusPreview,
+        itemsSummary: cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', '),
+        creditNote: note || undefined,
       })
       const created = {
         ...saleRes.data,
