@@ -1400,6 +1400,8 @@ export default function CashierModule({
   cartRef.current = cart
   /** Инкремент → useLayoutEffect гарантированно крутит к пробитой строке */
   const [cartPinGen, setCartPinGen] = useState(0)
+  /** Короткая вспышка на только что пробитой строке */
+  const [flashLineKey, setFlashLineKey] = useState<string | null>(null)
   /** Пока грузятся партии — не плодим параллельные add одного товара */
   const addInflightRef = useRef(new Set<number>())
   const addPendingBumpRef = useRef(new Map<number, number>())
@@ -2054,6 +2056,9 @@ export default function CashierModule({
   function scrollCartToPunched(key?: string | null) {
     const box = cartItemsRef.current
     if (!box) return false
+    // На телефоне вкладка «Товары»: корзина display:none — скролл бессмысленен
+    if (box.clientHeight < 8 || box.offsetParent === null) return false
+
     const want = key || revealLineKeyRef.current
     let row: HTMLElement | null = null
     if (want) {
@@ -2064,24 +2069,29 @@ export default function CashierModule({
         }
       }
     }
-    // Сначала в самый низ (пробитый всегда в конце)
-    box.scrollTop = box.scrollHeight
+
+    if (row) {
+      // offsetTop надёжнее getBoundingClientRect сразу после перестановки строки в конец
+      const top = row.offsetTop
+      const h = row.offsetHeight || 56
+      const maxScroll = Math.max(0, box.scrollHeight - box.clientHeight)
+      const target = Math.max(0, Math.min(maxScroll, top - Math.max(8, box.clientHeight - h - 12)))
+      box.scrollTop = target
+      const br = box.getBoundingClientRect()
+      const rr = row.getBoundingClientRect()
+      return rr.top >= br.top - 4 && rr.bottom <= br.bottom + 4
+    }
+
+    // Строки ещё нет в DOM — вниз чека (пробитый всегда в конце)
+    const maxScroll = Math.max(0, box.scrollHeight - box.clientHeight)
+    box.scrollTop = maxScroll
     const end = cartEndRef.current
     if (end) {
       const br = box.getBoundingClientRect()
       const er = end.getBoundingClientRect()
       if (er.bottom > br.bottom) box.scrollTop += er.bottom - br.bottom + 4
     }
-    if (row) {
-      const br = box.getBoundingClientRect()
-      const rr = row.getBoundingClientRect()
-      if (rr.bottom > br.bottom - 4) box.scrollTop += rr.bottom - br.bottom + 8
-      else if (rr.top < br.top + 4) box.scrollTop += rr.top - br.top - 8
-      const rr2 = row.getBoundingClientRect()
-      const br2 = box.getBoundingClientRect()
-      return rr2.top >= br2.top - 2 && rr2.bottom <= br2.bottom + 2
-    }
-    return true
+    return false
   }
 
   function clearCartScrollTimers() {
@@ -2092,24 +2102,31 @@ export default function CashierModule({
     cartScrollTimersRef.current = []
   }
 
-  /** После пробития: выделить + скролл (без серии таймеров — меньше лагов) */
+  /** После пробития: выделить + скролл; ретраи пока DOM/панель корзины готовы */
   function pinCartToPunched(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
+    setFlashLineKey(key)
     setCartPinGen(g => g + 1)
     clearCartScrollTimers()
-    const run = () => {
+    const tryScroll = () => {
       if (revealLineKeyRef.current !== key) return
       scrollCartToPunched(key)
     }
     const raf = window.requestAnimationFrame(() => {
-      run()
-      cartScrollTimersRef.current.push(window.requestAnimationFrame(run))
+      tryScroll()
+      cartScrollTimersRef.current.push(window.requestAnimationFrame(tryScroll))
     })
     cartScrollTimersRef.current.push(raf)
+    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 40))
+    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 120))
+    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 280))
     cartScrollTimersRef.current.push(window.setTimeout(() => {
       if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    }, 160))
+    }, 1400))
+    cartScrollTimersRef.current.push(window.setTimeout(() => {
+      setFlashLineKey(cur => (cur === key ? null : cur))
+    }, 900))
   }
 
   function revealCartLine(key: string | null | undefined) {
@@ -2123,6 +2140,17 @@ export default function CashierModule({
     if (!key) return
     scrollCartToPunched(key)
   }, [cart, selectedLineKey, cartPinGen])
+
+  // Мобилка: корзина была скрыта при пробитии — докрутить при открытии вкладки «Чек»
+  useLayoutEffect(() => {
+    if (posMobPanel !== 'cart') return
+    const key = revealLineKeyRef.current || selectedLineKey
+    if (!key) return
+    revealLineKeyRef.current = key
+    scrollCartToPunched(key)
+    const t = window.setTimeout(() => scrollCartToPunched(key), 50)
+    return () => window.clearTimeout(t)
+  }, [posMobPanel, selectedLineKey])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
   useEffect(() => {
@@ -6040,6 +6068,7 @@ export default function CashierModule({
         focusProductSearch()
         scrollCartToPunched(revealKey)
       }, 0)
+      window.setTimeout(() => scrollCartToPunched(revealKey), 80)
     } else {
       window.setTimeout(focusProductSearch, 0)
     }
@@ -9242,7 +9271,7 @@ export default function CashierModule({
                 <div
                   key={line.key}
                   data-line-key={line.key}
-                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${activeBulk ? 'bulk' : ''} ${lineOverStock ? 'over-stock' : ''}`}
+                  className={`cart-row ${selectedLineKey === line.key ? 'sel' : ''} ${flashLineKey === line.key ? 'is-new' : ''} ${activeBulk ? 'bulk' : ''} ${lineOverStock ? 'over-stock' : ''}`}
                   onClick={() => setSelectedLineKey(line.key)}
                   ref={selectedLineKey === line.key ? (el) => {
                     if (!el) return

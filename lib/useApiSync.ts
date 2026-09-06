@@ -17,11 +17,11 @@ export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog
 
 const INTERVAL_MS = 12000
 /** Торговля: полный/тяжёлый фон реже — слабые ПК меньше фризятся онлайн */
-const POS_INTERVAL_MS = 60000
-/** Чеки с сервера (браузер → ПК): в покое реже; после чека/WS/очереди — по-прежнему сразу */
-const POS_SALES_INBOUND_MS = 28000
+const POS_INTERVAL_MS = 90000
+/** Чеки с сервера (браузер → ПК): дельта pos-lite, не полный список */
+const POS_SALES_INBOUND_MS = 35000
 /** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
-const PULL_DEBOUNCE_MS = 400
+const PULL_DEBOUNCE_MS = 600
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -264,28 +264,25 @@ export function useApiSync(mode: SyncMode = 'all') {
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
         if (mode === 'pos') {
           const searchBusy = isCashierCritical() && !isCashierPaymentCritical()
-          // Во время поиска — только лёгкие продажи (mutex внутри), без склада/финансов/каталога
+          // Во время поиска — только лёгкая дельта чеков (mutex внутри), без склада/каталога
           if (searchBusy) {
             await softSyncPosAfterSale()
             return
           }
-          // Торговля: локально уже есть данные; фон — лёгкий sync
+          // Один /sync/changes (дельта since=cursor) вместо полных sales/clients/warehouse/finance
           posTickRef.current += 1
           const tick = posTickRef.current
+          const { pullSyncChanges } = await import('./syncPull')
           const tasks: Promise<unknown>[] = [
-            softSyncPosAfterSale(),
-            softSyncWarehouse(),
-            softSyncFinance(),
+            pullSyncChanges(),
             syncLoyaltyStatusConfigFromApi(),
-            syncClientsFromApi(),
-            syncCardsFromApi(),
           ]
-          // Каталог товаров — не каждый тик (тяжело на слабом интернете)
+          // Каталог — редко (фото/тяжёлый JSON); изменённые товары уже в дельте
           if (tick === 1 || tick % 3 === 0) {
             tasks.push(useProducts.getState().fetchProducts())
           }
-          // Полный POS-снимок — редко (раз в ~4 мин при 60с интервале)
-          if (tick === 1 || tick % 4 === 0) {
+          // Полный POS — очень редко (рассинхрон после долгого офлайна)
+          if (tick > 1 && tick % 8 === 0) {
             tasks.push(syncPosFromApi())
           }
           await Promise.allSettled(tasks)
@@ -318,21 +315,14 @@ export function useApiSync(mode: SyncMode = 'all') {
     // Не блокируем UI: старт в фоне
     void load()
     const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
-    // Отдельный inbound продаж (браузер → ПК); в покое реже, при очереди не дублируем offlineSync
+    // Отдельный inbound продаж (браузер → ПК/Android). Читать можно даже при очереди —
+    // иначе локаль не видит чек в долг, который уже есть в браузере/на сервере.
     let salesId: ReturnType<typeof setInterval> | null = null
     if (mode === 'pos') {
       salesId = setInterval(() => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
-        void (async () => {
-          try {
-            const { useOfflineSync } = await import('./offlineSync')
-            const net = useOfflineSync.getState()
-            // Пока offlineSync догоняет очередь — softSync уже внутри syncNow
-            if (net.pending > 0 || net.failed > 0) return
-          } catch { /* ignore */ }
-          void softSyncPosAfterSale()
-        })()
+        void softSyncPosAfterSale({ force: true })
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

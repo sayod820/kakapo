@@ -910,12 +910,14 @@ app.get('/health', (_req, res) => {
   })
 })
 
-/** Двусторонний синк: дельты после outbox flush на кассе */
+/** Двусторонний синк: дельты после outbox flush на кассе.
+ *  ?scope=pos-lite — только чеки/смены/клиенты/карты (лёгкий фон кассы). */
 app.get('/sync/changes', (req, res) => {
   try {
     const since = String(req.query.since || '').trim()
     const historyDays = Number(req.query.historyDays)
-    res.json(buildSyncChanges(db, { since, historyDays }))
+    const scope = String(req.query.scope || '').trim()
+    res.json(buildSyncChanges(db, { since, historyDays, scope }))
   } catch (e) {
     res.status(500).json({ detail: e?.message || 'sync/changes failed' })
   }

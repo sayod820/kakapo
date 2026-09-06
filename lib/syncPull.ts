@@ -279,6 +279,10 @@ export async function pullSyncChanges(opts?: {
 
     if (delta.cursor) await setSyncCursor(delta.cursor)
     try {
+      const { setPosLiteSyncCursor } = await import('./localEntities')
+      if (delta.cursor) await setPosLiteSyncCursor(delta.cursor)
+    } catch { /* ignore */ }
+    try {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()
     } catch { /* ignore */ }

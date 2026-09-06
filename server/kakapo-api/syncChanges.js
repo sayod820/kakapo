@@ -99,15 +99,65 @@ function cursorFromPayload(payload, since) {
 
 /**
  * @param {object} db
- * @param {{ since?: string, historyDays?: number }} opts
+ * @param {{ since?: string, historyDays?: number, scope?: string }} opts
+ * scope:
+ *  - '' | 'full' — всё (как раньше)
+ *  - 'pos-lite' — только чеки/смены + клиенты/карты (частый фон кассы, без каталога/склада)
  */
 export function buildSyncChanges(db, opts = {}) {
   const since = asIso(opts.since || '')
   const full = !since
+  const scope = String(opts.scope || '').trim().toLowerCase()
+  const lite = scope === 'pos-lite' || scope === 'pos' || scope === 'sales'
   const rawDays = Number(opts.historyDays)
   const historyDays = Number.isFinite(rawDays) && rawDays > 0
     ? rawDays
-    : DEFAULT_FULL_HISTORY_DAYS
+    : (lite && full ? 14 : DEFAULT_FULL_HISTORY_DAYS)
+
+  const emptyPos = () => ({
+    sales: [],
+    shifts: [],
+    receipts: [],
+    writeoffs: [],
+    revisions: [],
+    financeMoves: [],
+    expenses: [],
+    suppliers: [],
+    posPoints: [],
+    cashiers: [],
+    expiry: [],
+  })
+
+  if (lite) {
+    const clients = full
+      ? (db.clients || [])
+      : filterBySince(db.clients || [], since)
+    const cards = full
+      ? (db.cards || [])
+      : filterBySince(db.cards || [], since)
+    const deletes = listSyncDeletesSince(db, since).filter(d =>
+      d.kind === 'client' || d.kind === 'card' || d.kind === 'sale' || d.kind === 'shift',
+    )
+    const payload = {
+      since: since || null,
+      full,
+      scope: 'pos-lite',
+      products: [],
+      categories: [],
+      clients,
+      cards,
+      deletes,
+      stockLayers: [],
+      stockLayersReplace: false,
+      pos: {
+        ...emptyPos(),
+        sales: historyList(db.posSales || [], since, full, historyDays),
+        shifts: historyList(db.posShifts || [], since, full, historyDays),
+      },
+    }
+    payload.cursor = cursorFromPayload(payload, since)
+    return payload
+  }
 
   const products = (full
     ? (db.products || [])
@@ -123,19 +173,22 @@ export function buildSyncChanges(db, opts = {}) {
     ? (db.cards || [])
     : filterBySince(db.cards || [], since)
 
-  const stockLayers = listAllOpenStockLayers(db)
+  // Полный снимок — все открытые партии. Дельта — без слоёв (их тянет отдельный pull после flush),
+  // иначе каждый /sync/changes таскает весь склад и касса лагает.
+  const stockLayers = full ? listAllOpenStockLayers(db) : []
   const deletes = listSyncDeletesSince(db, since)
 
   const payload = {
     since: since || null,
     full,
+    scope: 'full',
     products,
     categories,
     clients,
     cards,
     deletes,
     stockLayers,
-    stockLayersReplace: true,
+    stockLayersReplace: full,
     pos: {
       sales: historyList(db.posSales || [], since, full, historyDays),
       shifts: historyList(db.posShifts || [], since, full, historyDays),

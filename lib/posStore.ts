@@ -372,19 +372,54 @@ function softListSig(rows: {
 
 let posSoftSyncInFlight: Promise<void> | null = null
 let posSoftSyncLastAt = 0
+/** Пока идёт GET — новый вызов (WS / браузер→ПК) не должен теряться */
+let posSoftSyncDirty = false
+let posSoftSyncDirtyForce = false
 /** Таймеры не долбят чаще 4с; force=true — WS / после чека / syncNow */
 const POS_SOFT_MIN_GAP_MS = 4000
 
 export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
-  if (posSoftSyncInFlight) return posSoftSyncInFlight
-  if (!opts?.force && Date.now() - posSoftSyncLastAt < POS_SOFT_MIN_GAP_MS) return
+  const wantForce = !!opts?.force
+  if (posSoftSyncInFlight) {
+    // Снимок GET уже ушёл — после него нужен ещё один pull, иначе чек с браузера не приедет
+    posSoftSyncDirty = true
+    if (wantForce) posSoftSyncDirtyForce = true
+    return posSoftSyncInFlight
+  }
+  if (!wantForce && Date.now() - posSoftSyncLastAt < POS_SOFT_MIN_GAP_MS) return
 
   posSoftSyncInFlight = (async () => {
     try {
-      const [sales, shifts] = await Promise.all([
-        api.getPosSales(),
-        api.getPosShifts(),
-      ])
+      const { getPosLiteSyncCursor, setPosLiteSyncCursor } = await import('./localEntities')
+      const since = await getPosLiteSyncCursor()
+      let sales: import('./types').PosSale[] = []
+      let shifts: import('./types').PosShift[] = []
+      let deltaClients: unknown[] | null = null
+      let deltaCards: unknown[] | null = null
+      let usedDelta = false
+
+      let nextLiteCursor = ''
+      try {
+        const delta = await api.getSyncChanges(since || undefined, { scope: 'pos-lite' })
+        usedDelta = true
+        sales = (delta.pos?.sales || []) as import('./types').PosSale[]
+        shifts = (delta.pos?.shifts || []) as import('./types').PosShift[]
+        if (Array.isArray(delta.clients) && delta.clients.length) deltaClients = delta.clients
+        if (Array.isArray(delta.cards) && delta.cards.length) deltaCards = delta.cards
+        nextLiteCursor = String(delta.cursor || '')
+        // Пустая дельта — только двигаем курсор
+        if (!sales.length && !shifts.length && !deltaClients && !deltaCards) {
+          if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
+          return
+        }
+      } catch {
+        // Старый сервер / сбой дельты — полный список как раньше
+        usedDelta = false
+        ;[sales, shifts] = await Promise.all([
+          api.getPosSales(),
+          api.getPosShifts(),
+        ])
+      }
 
       const { getPending } = await import('./offline')
       const pending = await getPending()
@@ -451,8 +486,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
               expenseTotal: Number(sh.expenseTotal) || 0,
               cashInTotal: Number(sh.cashInTotal) || 0,
               openingCash: Number(sh.openingCash) || 0,
-              updatedAtIso: sh.updatedAtIso || next.updatedAtIso,
-            }
+            } as typeof next
           } else {
             next = {
               ...next,
@@ -467,7 +501,11 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         }
         return next
       })
-      const mergedShifts = protectShifts ? localShifts : mergeInboundById(localShifts, enrichedShifts)
+      const mergedShifts = protectShifts
+        ? localShifts
+        : (usedDelta && since && !enrichedShifts.length
+          ? localShifts
+          : mergeInboundById(localShifts, enrichedShifts))
 
       const salesChanged = softListSig(mergedSales) !== softListSig(localSales)
         || hasNewFromServer
@@ -487,15 +525,50 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         }
       }
 
+      // CRM из той же дельты — долг/бонусы без отдельного полного getClients
+      if (deltaClients?.length) {
+        try {
+          const { useClientStore } = await import('./clientStore')
+          const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+          const { mergeByIdLww } = await import('./syncConflict')
+          const local = useClientStore.getState().clients || []
+          const incoming = mergeByIdLww(local as any, deltaClients as any)
+          const merged = incoming.map((row: any) => {
+            const prev = local.find(x => String(x.id) === String(row.id))
+            return mergeClientLoyaltyIfRecent(row, prev)
+          })
+          useClientStore.setState({ clients: merged })
+        } catch { /* ignore */ }
+      }
+      if (deltaCards?.length) {
+        try {
+          const { useCardStore } = await import('./cardStore')
+          const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
+          const { mergeByIdLww } = await import('./syncConflict')
+          const local = useCardStore.getState().cards || []
+          const incoming = mergeByIdLww(local as any, deltaCards as any) as typeof local
+          const merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
+          useCardStore.setState({ cards: merged })
+        } catch { /* ignore */ }
+      }
+
       // Сохраняем и при обновлении смены (нал/продажи), иначе телефон после reload
       // поднимает старый кэш с другим salesCash, чем касса.
       if (salesChanged || shiftsChanged) {
         await persistSoftPosSnapshot()
       }
+      if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
     } catch { /* нет связи — локальный чек уже на экране */ }
     finally {
       posSoftSyncLastAt = Date.now()
       posSoftSyncInFlight = null
+      if (posSoftSyncDirty) {
+        const againForce = posSoftSyncDirtyForce
+        posSoftSyncDirty = false
+        posSoftSyncDirtyForce = false
+        // Сразу ещё один pull — чек, который появился на сервере во время прошлого GET
+        void softSyncPosAfterSale({ force: againForce || true })
+      }
     }
   })()
   return posSoftSyncInFlight

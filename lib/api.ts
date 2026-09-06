@@ -449,13 +449,18 @@ export const api = {
   getProduct: (id: number) => request<Product>(`/products/${id}`),
   getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
   getAllStockLayers: () => request<ProductStockLayer[]>('/stock/layers'),
-  /** Двусторонний синк: дельты с курсором since (ISO) */
-  getSyncChanges: (since?: string) => {
-    const q = since ? `?since=${encodeURIComponent(since)}` : ''
+  /** Двусторонний синк: дельты с курсором since (ISO).
+   *  scope: 'pos-lite' — только чеки/смены + CRM (лёгкий фон кассы). */
+  getSyncChanges: (since?: string, opts?: { scope?: 'pos-lite' | 'full' }) => {
+    const q = new URLSearchParams()
+    if (since) q.set('since', since)
+    if (opts?.scope && opts.scope !== 'full') q.set('scope', opts.scope)
+    const qs = q.toString()
     return requestLongList<{
       cursor: string
       since: string | null
       full: boolean
+      scope?: string
       products: Product[]
       categories: unknown[]
       clients: unknown[]
@@ -476,7 +481,7 @@ export const api = {
         cashiers: unknown[]
         expiry: unknown[]
       }
-    }>(`/sync/changes${q}`)
+    }>(`/sync/changes${qs ? `?${qs}` : ''}`)
   },
   reconcileStock: (data?: { createdBy?: string }) =>
     request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(

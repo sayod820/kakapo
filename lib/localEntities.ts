@@ -130,3 +130,20 @@ export async function setSyncCursor(cursor: string): Promise<void> {
     localStorage.setItem('kakapo_sync_cursor', value)
   } catch { /* ignore */ }
 }
+
+/** Отдельный курсор лёгкого pull чеков (не двигает полный sync cursor). */
+export async function getPosLiteSyncCursor(): Promise<string> {
+  try {
+    const soft = String(localStorage.getItem('kakapo_pos_lite_cursor') || '')
+    if (soft) return soft
+  } catch { /* ignore */ }
+  return getSyncCursor()
+}
+
+export async function setPosLiteSyncCursor(cursor: string): Promise<void> {
+  const value = String(cursor || '')
+  if (!value) return
+  try {
+    localStorage.setItem('kakapo_pos_lite_cursor', value)
+  } catch { /* ignore */ }
+}
