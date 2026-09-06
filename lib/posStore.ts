@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { api } from './api'
 import { USE_API } from './config'
-import { mergeInboundById } from './syncConflict'
+import { mergeInboundById, mergeSalesInbound } from './syncConflict'
 import type {
   CashVault,
   FinanceMove,
@@ -264,7 +264,7 @@ export const usePosStore = create<PosStore>((set) => ({
         }
       } catch { /* очередь недоступна */ }
       const delIds = await pendingDeleteIds()
-      snapshot.sales = omitInboundDeleted(mergeInboundById(local.sales, dropDeletedRemote(snapshot.sales, delIds)))
+      snapshot.sales = omitInboundDeleted(mergeSalesInbound(local.sales, dropDeletedRemote(snapshot.sales, delIds)))
       snapshot.shifts = mergeInboundById(local.shifts, snapshot.shifts)
       snapshot.receipts = omitInboundDeleted(mergeInboundById(local.receipts, dropDeletedRemote(snapshot.receipts, delIds)))
       snapshot.writeoffs = omitInboundDeleted(mergeInboundById(local.writeoffs, dropDeletedRemote(snapshot.writeoffs, delIds)))
@@ -346,6 +346,7 @@ function softListSig(rows: {
   createdAtIso?: string
   closedAtIso?: string
   openedAtIso?: string
+  items?: { qty?: number; returnedQty?: number; productId?: number }[]
 }[] | undefined) {
   const list = rows || []
   const n = list.length
@@ -354,6 +355,7 @@ function softListSig(rows: {
   // и новым salesCash не считается «изменившейся» и UI остаётся со старым налом.
   let money = 0
   let counts = 0
+  let itemQty = 0
   for (const r of list) {
     money += (Number(r.total) || 0)
       + (Number(r.salesCash) || 0)
@@ -364,10 +366,16 @@ function softListSig(rows: {
       + (Number(r.openingCash) || 0)
       + (Number(r.closingCash) || 0)
     counts += Number(r.salesCount) || 0
+    if (Array.isArray(r.items)) {
+      for (const it of r.items) {
+        itemQty += (Number(it.qty) || 0) + (Number(it.returnedQty) || 0) * 0.001
+        itemQty += (Number(it.productId) || 0) * 1e-9
+      }
+    }
   }
   const a = list[0]
   const c = list[n - 1]
-  return `${n}:${a?.id}:${a?.status || ''}:${counts}:${money.toFixed(2)}:${a?.updatedAtIso || a?.openedAtIso || a?.createdAtIso || ''}:${c?.id}:${c?.closedAtIso || c?.updatedAtIso || c?.createdAtIso || ''}`
+  return `${n}:${a?.id}:${a?.status || ''}:${counts}:${money.toFixed(2)}:${itemQty.toFixed(4)}:${a?.updatedAtIso || a?.openedAtIso || a?.createdAtIso || ''}:${c?.id}:${c?.closedAtIso || c?.updatedAtIso || c?.createdAtIso || ''}`
 }
 
 let posSoftSyncInFlight: Promise<void> | null = null
@@ -427,34 +435,18 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
 
       // Состояние читаем после await — иначе потеряем чеки, пробитые во время запроса
       const localSales = usePosStore.getState().sales
+      // Серверные чеки + локальный вес/items (не затирать qty=1 вместо кг)
+      const mergedSales = mergeSalesInbound(localSales, sales as any) as typeof localSales
 
-      // Серверные чеки + локальные ещё не ушедшие; имя кассира не затираем пустым «Кассир»
-      const localById = new Map(localSales.map(s => [String(s.id), s]))
-      const localByRef = new Map(
-        localSales
-          .filter(s => (s as { clientRef?: string }).clientRef)
-          .map(s => [String((s as { clientRef?: string }).clientRef), s]),
-      )
+      const prevIds = new Set(localSales.map(s => String(s.id)))
+      const hasNewFromServer = (sales || []).some(s => !prevIds.has(String(s.id)))
+      const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
+
+      const localShifts = usePosStore.getState().shifts
       const isGenericCashier = (n?: string) => {
         const t = String(n || '').trim()
         return !t || /^кассир$/i.test(t)
       }
-      const enrichedServer = sales.map(s => {
-        const local = localById.get(String(s.id))
-          || (s.clientRef ? localByRef.get(String(s.clientRef)) : undefined)
-        if (!local) return s
-        if (isGenericCashier(s.cashierName) && !isGenericCashier(local.cashierName)) {
-          return { ...s, cashierName: local.cashierName, cashierId: s.cashierId || local.cashierId }
-        }
-        return s
-      })
-      const mergedSales = mergeInboundById(localSales, enrichedServer)
-
-      const prevIds = new Set(localSales.map(s => String(s.id)))
-      const hasNewFromServer = enrichedServer.some(s => !prevIds.has(String(s.id)))
-      const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
-
-      const localShifts = usePosStore.getState().shifts
       const enrichedShifts = (shifts || []).map(sh => {
         const local = localShifts.find(x => String(x.id) === String(sh.id))
           || (sh.clientRef

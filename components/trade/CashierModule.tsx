@@ -2,6 +2,7 @@
 
 import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
@@ -376,8 +377,10 @@ function mapSaleLines(
 function linesLabel(lines: ClientHistLine[]): string {
   if (!lines.length) return ''
   const parts = lines.slice(0, 5).map(l => {
-    const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
     const u = String(l.unit || '').trim()
+    const weighted = /^кг$/i.test(u) || /^kg$/i.test(u)
+    if (weighted && l.qty > 0 && l.qty < 1) return `${l.name} ${Math.round(l.qty * 1000)} г`
+    const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
     return u ? `${l.name} ${q} ${u}` : `${l.name} ×${q}`
   })
   if (lines.length > 5) parts.push(`+${lines.length - 5}`)
@@ -1334,17 +1337,22 @@ export default function CashierModule({
 
   /** Корзина + выделение одной записью — иначе выделение «залипает» на предыдущей строке */
   function setCartAndSelect(updater: (prev: CartLine[]) => CartLine[], selectKey: string | null) {
-    setTickets(prev => prev.map(t => {
-      if (t.id !== activeTicketId) return t
-      const nextCart = updater(t.cart)
-      cartRef.current = nextCart
-      return {
-        ...t,
-        cart: nextCart,
-        selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
-      }
-    }))
-    if (selectKey) pinCartToPunched(selectKey)
+    flushSync(() => {
+      setTickets(prev => prev.map(t => {
+        if (t.id !== activeTicketId) return t
+        const nextCart = updater(t.cart)
+        cartRef.current = nextCart
+        return {
+          ...t,
+          cart: nextCart,
+          selectedLineKey: selectKey != null ? selectKey : t.selectedLineKey,
+        }
+      }))
+    })
+    if (selectKey) {
+      pinCartToPunched(selectKey)
+      scrollCartToPunched(selectKey)
+    }
   }
 
   const [busy, setBusy] = useState(false)
@@ -2052,46 +2060,48 @@ export default function CashierModule({
     }
   }
 
-  /** Прокрутка чека к пробитой строке — только scrollTop своего .cart-items */
+  /** Прокрутка чека к пробитой строке — всегда в самый низ (.cart-items). */
   function scrollCartToPunched(key?: string | null) {
     const box = cartItemsRef.current
     if (!box) return false
-    // На телефоне вкладка «Товары»: корзина display:none — скролл бессмысленен
-    if (box.clientHeight < 8 || box.offsetParent === null) return false
+    // Скрытая панель (мобилка «Товары») — clientHeight ≈ 0
+    if (box.clientHeight < 4) return false
+
+    const snapBottom = () => {
+      // Дважды: после перестановки DOM scrollHeight иногда ещё старый
+      void box.offsetHeight
+      box.scrollTop = box.scrollHeight
+      box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight)
+    }
+    snapBottom()
 
     const want = key || revealLineKeyRef.current
-    let row: HTMLElement | null = null
     if (want) {
+      let row: HTMLElement | null = null
       for (const el of box.querySelectorAll('[data-line-key]')) {
         if (el.getAttribute('data-line-key') === want) {
           row = el as HTMLElement
           break
         }
       }
+      if (row) {
+        const br = box.getBoundingClientRect()
+        const rr = row.getBoundingClientRect()
+        if (rr.bottom > br.bottom - 2) box.scrollTop += rr.bottom - br.bottom + 12
+        else if (rr.top < br.top + 2) box.scrollTop += rr.top - br.top - 8
+      }
     }
 
-    if (row) {
-      // offsetTop надёжнее getBoundingClientRect сразу после перестановки строки в конец
-      const top = row.offsetTop
-      const h = row.offsetHeight || 56
-      const maxScroll = Math.max(0, box.scrollHeight - box.clientHeight)
-      const target = Math.max(0, Math.min(maxScroll, top - Math.max(8, box.clientHeight - h - 12)))
-      box.scrollTop = target
-      const br = box.getBoundingClientRect()
-      const rr = row.getBoundingClientRect()
-      return rr.top >= br.top - 4 && rr.bottom <= br.bottom + 4
-    }
-
-    // Строки ещё нет в DOM — вниз чека (пробитый всегда в конце)
-    const maxScroll = Math.max(0, box.scrollHeight - box.clientHeight)
-    box.scrollTop = maxScroll
+    // Финал: пробитый всегда последний → низ списка
+    snapBottom()
     const end = cartEndRef.current
     if (end) {
       const br = box.getBoundingClientRect()
       const er = end.getBoundingClientRect()
-      if (er.bottom > br.bottom) box.scrollTop += er.bottom - br.bottom + 4
+      if (er.bottom > br.bottom - 1) box.scrollTop += er.bottom - br.bottom + 8
     }
-    return false
+    const max = Math.max(0, box.scrollHeight - box.clientHeight)
+    return max <= 0 || box.scrollTop >= max - 3
   }
 
   function clearCartScrollTimers() {
@@ -2102,7 +2112,7 @@ export default function CashierModule({
     cartScrollTimersRef.current = []
   }
 
-  /** После пробития: выделить + скролл; ретраи пока DOM/панель корзины готовы */
+  /** После пробития: выделить + автоскролл вниз (много ретраев — длинный чек) */
   function pinCartToPunched(key: string | null | undefined) {
     if (!key) return
     revealLineKeyRef.current = key
@@ -2110,23 +2120,25 @@ export default function CashierModule({
     setCartPinGen(g => g + 1)
     clearCartScrollTimers()
     const tryScroll = () => {
-      if (revealLineKeyRef.current !== key) return
+      if (revealLineKeyRef.current && revealLineKeyRef.current !== key) return
       scrollCartToPunched(key)
     }
+    // Сразу (после flushSync DOM уже готов)
+    tryScroll()
     const raf = window.requestAnimationFrame(() => {
       tryScroll()
       cartScrollTimersRef.current.push(window.requestAnimationFrame(tryScroll))
     })
     cartScrollTimersRef.current.push(raf)
-    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 40))
-    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 120))
-    cartScrollTimersRef.current.push(window.setTimeout(tryScroll, 280))
+    for (const ms of [16, 50, 100, 200, 350, 500, 800]) {
+      cartScrollTimersRef.current.push(window.setTimeout(tryScroll, ms))
+    }
     cartScrollTimersRef.current.push(window.setTimeout(() => {
       if (revealLineKeyRef.current === key) revealLineKeyRef.current = null
-    }, 1400))
+    }, 2000))
     cartScrollTimersRef.current.push(window.setTimeout(() => {
       setFlashLineKey(cur => (cur === key ? null : cur))
-    }, 900))
+    }, 1000))
   }
 
   function revealCartLine(key: string | null | undefined) {
@@ -2148,8 +2160,12 @@ export default function CashierModule({
     if (!key) return
     revealLineKeyRef.current = key
     scrollCartToPunched(key)
-    const t = window.setTimeout(() => scrollCartToPunched(key), 50)
-    return () => window.clearTimeout(t)
+    const t1 = window.setTimeout(() => scrollCartToPunched(key), 40)
+    const t2 = window.setTimeout(() => scrollCartToPunched(key), 200)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
   }, [posMobPanel, selectedLineKey])
 
   const overlayBlocksSearchRef = useRef(overlayBlocksSearch)
@@ -5553,15 +5569,17 @@ export default function CashierModule({
         const left = saleLineLeft(it)
         if (!(left > 0)) return null
         const p = products.find(x => x.id === it.productId)
+        const weighted = isSaleLineWeighted(it, p)
         return {
           key: `ret-${sale.id}-${it.productId}-${idx}`,
           productId: it.productId,
           name: it.productName || p?.name || `#${it.productId}`,
           emoji: p?.e || '📦',
           price: Number(it.price) || Number(p?.price) || 0,
-          qty: left,
+          qty: weighted ? 1 : left,
+          weightKg: weighted ? left : undefined,
           stock: Number(p?.stock) || 9999,
-          unit: p ? displaySellUnit(p) : 'шт',
+          unit: weighted ? 'кг' : (p ? displaySellUnit(p) : 'шт'),
         } as CartLine
       })
       .filter((x): x is CartLine => !!x)
@@ -6001,74 +6019,78 @@ export default function CashierModule({
       return
     }
 
-    // Штучный: всегда одна строка на товар — qty++ (cartRef сразу, без flushSync)
+    // Штучный: всегда одна строка на товар — qty++ (flushSync — DOM готов к автоскроллу)
     let revealKey: string | null = null
-    setTickets(prevTickets => prevTickets.map(t => {
-      if (t.id !== activeTicketId) return t
-      const prev = dropZeroWeightLines(t.cart)
-      const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
-      if (idx >= 0) {
-        const nextQty = prev[idx].qty + 1
-        const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
-        const lineBase = preferRetailPrice != null && preferRetailPrice > 0
-          ? preferRetailPrice
-          : (prev[idx].retailBase ?? prev[idx].preferRetailPrice ?? retailBase)
-        const updated = {
-          ...prev[idx],
-          qty: nextQty,
-          price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
-          stock: stockHint,
-          retailBase: lineBase,
-          bulkPricing: lineBulk,
-          ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
+    flushSync(() => {
+      setTickets(prevTickets => prevTickets.map(t => {
+        if (t.id !== activeTicketId) return t
+        const prev = dropZeroWeightLines(t.cart)
+        const idx = prev.findIndex(l => l.productId === p.id && l.weightKg == null)
+        if (idx >= 0) {
+          const nextQty = prev[idx].qty + 1
+          const lineBulk = resolveLineBulkPricing(bulkPricing, prev[idx].bulkPricing)
+          const lineBase = preferRetailPrice != null && preferRetailPrice > 0
+            ? preferRetailPrice
+            : (prev[idx].retailBase ?? prev[idx].preferRetailPrice ?? retailBase)
+          const updated = {
+            ...prev[idx],
+            qty: nextQty,
+            price: cartUnitPriceForQty(lineBase, lineBulk, nextQty),
+            stock: stockHint,
+            retailBase: lineBase,
+            bulkPricing: lineBulk,
+            ...(preferRetailPrice != null ? { preferRetailPrice, costPrice, supplierName } : {}),
+          }
+          revealKey = updated.key
+          // Повторное пробитие — строка уходит в конец чека
+          const next = prev.slice()
+          next.splice(idx, 1)
+          next.push(updated)
+          cartRef.current = next
+          return {
+            ...t,
+            cart: next,
+            selectedLineKey: updated.key,
+          }
         }
-        revealKey = updated.key
-        // Повторное пробитие — строка уходит в конец чека
-        const next = prev.slice()
-        next.splice(idx, 1)
-        next.push(updated)
+        const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
+        revealKey = key
+        const price = cartUnitPriceForQty(retailBase, bulkPricing, 1)
+        const next = [...prev, {
+          key,
+          productId: p.id,
+          name: p.name,
+          emoji: p.e || '📦',
+          price,
+          qty: 1,
+          stock: stockHint,
+          unit: displaySellUnit(p),
+          art,
+          barcode,
+          receiptId,
+          preferRetailPrice,
+          retailBase,
+          bulkPricing,
+          costPrice,
+          supplierName,
+        }]
         cartRef.current = next
         return {
           ...t,
           cart: next,
-          selectedLineKey: updated.key,
+          selectedLineKey: key,
         }
-      }
-      const key = cartLineKey(p.id, receiptId, undefined, preferRetailPrice)
-      revealKey = key
-      const price = cartUnitPriceForQty(retailBase, bulkPricing, 1)
-      const next = [...prev, {
-        key,
-        productId: p.id,
-        name: p.name,
-        emoji: p.e || '📦',
-        price,
-        qty: 1,
-        stock: stockHint,
-        unit: displaySellUnit(p),
-        art,
-        barcode,
-        receiptId,
-        preferRetailPrice,
-        retailBase,
-        bulkPricing,
-        costPrice,
-        supplierName,
-      }]
-      cartRef.current = next
-      return {
-        ...t,
-        cart: next,
-        selectedLineKey: key,
-      }
-    }))
+      }))
+    })
     if (revealKey) {
       pinCartToPunched(revealKey)
+      scrollCartToPunched(revealKey)
       window.setTimeout(() => {
         focusProductSearch()
         scrollCartToPunched(revealKey)
       }, 0)
-      window.setTimeout(() => scrollCartToPunched(revealKey), 80)
+      window.setTimeout(() => scrollCartToPunched(revealKey), 60)
+      window.setTimeout(() => scrollCartToPunched(revealKey), 180)
     } else {
       window.setTimeout(focusProductSearch, 0)
     }
@@ -6991,7 +7013,8 @@ export default function CashierModule({
         salePayload,
         cart: cart.map(l => ({
           productId: l.productId,
-          qty: l.qty,
+          // Для весовых в qty сразу кг (не «1» из строки корзины) — иначе sync/история путает вес
+          qty: l.weightKg != null ? Math.round(l.weightKg * 1000) / 1000 : l.qty,
           weightKg: l.weightKg,
         })),
         shiftId: activeShift.id,
@@ -7007,7 +7030,11 @@ export default function CashierModule({
           : null,
         bonusSpend: spend,
         bonusEarn: earnedBonusPreview,
-        itemsSummary: cart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', '),
+        itemsSummary: cart.slice(0, 5).map(l => (
+          l.weightKg != null
+            ? `${l.name} ${Math.round(l.weightKg * 1000) / 1000} кг`
+            : `${l.name} ×${l.qty}`
+        )).join(', '),
         creditNote: note || undefined,
       })
       const created = {
@@ -7065,7 +7092,11 @@ export default function CashierModule({
         try {
           if (created._offline) void useOfflineSync.getState().syncNow()
           if (soldClient?.id) {
-            const itemsSummary = soldCart.slice(0, 5).map(l => `${l.name} ×${l.weightKg != null ? l.weightKg : l.qty}`).join(', ')
+            const itemsSummary = soldCart.slice(0, 5).map(l => (
+              l.weightKg != null
+                ? `${l.name} ${Math.round(l.weightKg * 1000) / 1000} кг`
+                : `${l.name} ×${l.qty}`
+            )).join(', ')
             const histKey = debtAccountKey(soldClient)
             const purchaseCash = Math.round((Number(cashPaid) || 0) * 100) / 100
             const purchaseCard = Math.round((Number(cardPaid) || 0) * 100) / 100
@@ -9275,7 +9306,12 @@ export default function CashierModule({
                   onClick={() => setSelectedLineKey(line.key)}
                   ref={selectedLineKey === line.key ? (el) => {
                     if (!el) return
-                    if (revealLineKeyRef.current !== line.key) return
+                    if (revealLineKeyRef.current !== line.key && flashLineKey !== line.key) return
+                    // Прямо в низ контейнера — надёжнее offsetTop на длинном чеке
+                    const box = cartItemsRef.current
+                    if (box && box.clientHeight >= 4) {
+                      box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight)
+                    }
                     scrollCartToPunched(line.key)
                   } : undefined}
                 >

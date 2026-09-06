@@ -34,6 +34,126 @@ export function shouldTakeRemoteLww(local: unknown, remote: unknown): boolean {
   return ra >= la
 }
 
+type SaleItemLike = {
+  productId?: number
+  productName?: string
+  qty?: number
+  price?: number
+  lineTotal?: number
+  unit?: string
+  returnedQty?: number
+  [k: string]: unknown
+}
+
+type SaleLike = {
+  id?: string | number
+  clientRef?: string
+  cashierName?: string
+  cashierId?: string
+  items?: SaleItemLike[]
+  [k: string]: unknown
+}
+
+function isWeightUnit(u: unknown): boolean {
+  const t = String(u || '').trim().toLowerCase()
+  return t === 'кг' || t === 'kg'
+}
+
+/**
+ * Склейка чека при синке: сервер даёт id/orderId/возвраты,
+ * но qty веса не должен затираться «1» из корзины или пустым items.
+ */
+export function mergePosSalePreferItems<T extends SaleLike>(local: T, remote: T): T {
+  if (!local) return remote
+  if (!remote) return local
+
+  const localItems = Array.isArray(local.items) ? local.items : []
+  const remoteItems = Array.isArray(remote.items) ? remote.items : []
+
+  let items: SaleItemLike[] = remoteItems
+  if (!remoteItems.length && localItems.length) {
+    items = localItems
+  } else if (localItems.length && remoteItems.length) {
+    const usedLocal = new Set<number>()
+    items = remoteItems.map((rit, i) => {
+      let lit: SaleItemLike | undefined
+      const pid = Number(rit.productId)
+      const sameIdx = localItems[i]
+      if (sameIdx && Number(sameIdx.productId) === pid) {
+        lit = sameIdx
+        usedLocal.add(i)
+      } else {
+        const j = localItems.findIndex((x, idx) => !usedLocal.has(idx) && Number(x.productId) === pid)
+        if (j >= 0) {
+          lit = localItems[j]
+          usedLocal.add(j)
+        }
+      }
+      if (!lit) return rit
+
+      const lq = Number(lit.qty) || 0
+      const rq = Number(rit.qty) || 0
+      const unit = rit.unit || lit.unit
+      const weighted = isWeightUnit(unit)
+      let qty = rq
+
+      // Классический баг: в payload ушло qty=1 (строка корзины), вес был в weightKg
+      if (weighted && rq === 1 && lq > 0 && Math.abs(lq - 1) > 0.0005) qty = lq
+      // Локально точнее (3 знака), сервер round2 — оставляем локальный если почти равен
+      else if (lq > 0 && Math.abs(lq - rq) > 0.0005 && Math.abs(lq - rq) < 0.015) qty = lq
+      // Локаль дробный вес, сервер целое 2/3 — не затираем вес
+      else if (weighted && lq > 0 && !Number.isInteger(lq) && Number.isInteger(rq) && Math.abs(lq - rq) >= 0.015) {
+        qty = lq
+      }
+
+      return {
+        ...rit,
+        qty,
+        unit,
+        productName: String(rit.productName || lit.productName || '').trim() || rit.productName,
+        returnedQty: rit.returnedQty != null ? rit.returnedQty : lit.returnedQty,
+      }
+    })
+  }
+
+  const remoteCashier = String(remote.cashierName || '').trim()
+  const localCashier = String(local.cashierName || '').trim()
+  const cashierName = remoteCashier && !/^кассир$/i.test(remoteCashier)
+    ? remoteCashier
+    : (localCashier || remoteCashier)
+
+  return {
+    ...local,
+    ...remote,
+    id: remote.id ?? local.id,
+    items,
+    cashierName,
+    cashierId: remote.cashierId || local.cashierId,
+    clientRef: remote.clientRef || local.clientRef,
+  }
+}
+
+/** Входящие продажи: сначала сохранить локальный вес/items, потом merge по id/clientRef */
+export function mergeSalesInbound<T extends SaleLike>(
+  localList: T[],
+  remoteList: T[],
+): T[] {
+  const localById = new Map<string, T>()
+  const localByRef = new Map<string, T>()
+  for (const row of localList || []) {
+    const id = String(row?.id ?? '')
+    if (id) localById.set(id, row)
+    const ref = String(row?.clientRef || '').trim()
+    if (ref) localByRef.set(ref, row)
+  }
+  const enriched = (remoteList || []).map(remote => {
+    const local = localById.get(String(remote?.id ?? ''))
+      || (remote?.clientRef ? localByRef.get(String(remote.clientRef)) : undefined)
+    return local ? mergePosSalePreferItems(local, remote) : remote
+  })
+  return mergeInboundById(localList, enriched)
+}
+
 export function mergeByIdLww<T extends { id?: string | number }>(
   localList: T[],
   remoteList: T[],

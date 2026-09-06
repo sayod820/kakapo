@@ -155,8 +155,10 @@ function mapSaleLines(
 function linesLabel(lines: ClientHistLine[]): string {
   if (!lines.length) return ''
   const parts = lines.slice(0, 5).map(l => {
-    const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
     const u = String(l.unit || '').trim()
+    const weighted = /^кг$/i.test(u) || /^kg$/i.test(u)
+    if (weighted && l.qty > 0 && l.qty < 1) return `${l.name} ${Math.round(l.qty * 1000)} г`
+    const q = Number.isInteger(l.qty) ? String(l.qty) : String(Math.round(l.qty * 1000) / 1000)
     return u ? `${l.name} ${q} ${u}` : `${l.name} ×${q}`
   })
   if (lines.length > 5) parts.push(`+${lines.length - 5}`)

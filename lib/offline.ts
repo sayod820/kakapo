@@ -747,6 +747,22 @@ async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: str
         ),
       }))
       void persistPosSnapshot()
+    } else if (kind === 'sale') {
+      const { usePosStore } = await import('./posStore')
+      const { mergePosSalePreferItems } = await import('./syncConflict')
+      usePosStore.setState(s => ({
+        sales: s.sales.map(sale => {
+          if (String(sale.id) !== String(localId)) return sale
+          // Только id: полный ответ сервера может прийти позже через softSync;
+          // items локального чека (вес) не затираем.
+          return mergePosSalePreferItems(sale as any, {
+            ...sale,
+            id: serverId,
+            _offline: undefined,
+          } as any) as typeof sale
+        }),
+      }))
+      void persistPosSnapshot()
     }
   } catch { /* ignore */ }
 }
@@ -982,9 +998,34 @@ async function sendOp(row: PendingOp): Promise<string> {
         const { _revert: _drop, ...rest } = payload as Record<string, unknown>
         payload = rest
       }
+      const applySaleRow = async (sale: Record<string, unknown>) => {
+        const serverId = String(sale?.id || '')
+        if (row.localId && serverId) {
+          await rememberId(row.localId, serverId)
+          try {
+            const { usePosStore } = await import('./posStore')
+            const { mergePosSalePreferItems } = await import('./syncConflict')
+            usePosStore.setState(s => ({
+              sales: s.sales.map(local => {
+                if (String(local.id) !== String(row.localId)
+                  && !(row.clientRef && String(local.clientRef || '') === String(row.clientRef))) {
+                  return local
+                }
+                return mergePosSalePreferItems(local as any, {
+                  ...sale,
+                  id: serverId,
+                  clientRef: sale.clientRef || local.clientRef || row.clientRef,
+                } as any) as typeof local
+              }),
+            }))
+            void persistPosSnapshot()
+          } catch { /* softSync догонит */ }
+        }
+        return serverId
+      }
       try {
-        const sale = await api.createPosSale(payload, { mode: 'sync' })
-        return String((sale as any)?.id || '')
+        const sale = await api.createPosSale(payload, { mode: 'sync' }) as Record<string, unknown>
+        return await applySaleRow(sale)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         if (/смена не найдена/i.test(msg)) {
@@ -994,8 +1035,8 @@ async function sendOp(row: PendingOp): Promise<string> {
             await rememberId(String((row.payload as any).shiftId), openId)
           }
           payload = { ...payload, shiftId: openId }
-          const sale = await api.createPosSale(payload, { mode: 'sync' })
-          return String((sale as any)?.id || '')
+          const sale = await api.createPosSale(payload, { mode: 'sync' }) as Record<string, unknown>
+          return await applySaleRow(sale)
         }
         // Конфликт версии долга/бонусов: подтянуть актуальную версию и повторить 1 раз
         // (раньше чек стирался → у клиента долг откатывался, чек на 91 пропадал)
@@ -1009,8 +1050,8 @@ async function sendOp(row: PendingOp): Promise<string> {
               row.payload = livePayload as PendingOp['payload']
               await putPending(row)
             } catch { /* ignore */ }
-            const sale = await api.createPosSale(payload, { mode: 'sync' })
-            return String((sale as any)?.id || '')
+            const sale = await api.createPosSale(payload, { mode: 'sync' }) as Record<string, unknown>
+            return await applySaleRow(sale)
           }
         }
         throw e

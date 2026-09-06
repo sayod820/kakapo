@@ -7,7 +7,7 @@ import { isOnline } from './offline'
 import { getPending, cacheProducts, cacheClients, persistPosSnapshot } from './offline'
 import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
 import { cacheStockLayersAndSyncCatalog } from './stockLayersLocal'
-import { appendConflictLog, mergeAppendById, mergeByIdLww, shouldTakeRemoteLww } from './syncConflict'
+import { appendConflictLog, mergeAppendById, mergeByIdLww, mergeSalesInbound, shouldTakeRemoteLww } from './syncConflict'
 import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
@@ -191,9 +191,7 @@ export async function pullSyncChanges(opts?: {
       const patch: Record<string, unknown> = {}
 
       if (Array.isArray(pos.sales)) {
-        patch.sales = delta.full
-          ? pos.sales
-          : mergeAppendById(cur.sales, pos.sales)
+        patch.sales = mergeSalesInbound(cur.sales, pos.sales as any)
       }
       if (Array.isArray(pos.shifts)) {
         const incoming = pos.shifts
