@@ -2353,40 +2353,68 @@ export async function expenseCreateSafe(input: {
   createdBy?: string
   shiftId?: string
   posId?: string
+  payFrom?: MoneyPayFrom
+  method?: MoneyPayMethod
 }): Promise<OfflineResult<PosExpense>> {
-  const clientRef = newClientRef()
+  const payFrom: MoneyPayFrom = input.payFrom === 'vault' ? 'vault' : 'shift'
+  const method: MoneyPayMethod = input.method === 'card' ? 'card' : 'cash'
   const open = resolveOpenShift(input.posId)
-  const shiftId = input.shiftId || open?.id
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму расхода')
-  if (shiftId) {
-    const shift = shiftById(shiftId)
-    if (shift) {
-      const expected = shiftExpectedCashLocal(shift)
-      if (amount > expected + 0.009) {
-        throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
-      }
+
+  if (payFrom === 'vault') {
+    const have = vaultAvailableLocal(method)
+    if (amount > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+          : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+      )
+    }
+  } else {
+    const shift = input.shiftId ? shiftById(input.shiftId) : open
+    if (!shift) throw new Error('Нет открытой смены — откройте смену или спишите из основного ящика')
+    const have = shiftAvailableLocal(shift, method)
+    if (amount > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `На карте смены только ${have.toFixed(2)} сом`
+          : `В кассе недостаточно наличных (доступно ${have.toFixed(2)} сом)`,
+      )
     }
   }
+
+  const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
+  const shiftId = payFrom === 'shift' ? (input.shiftId || open?.id) : (open?.id || undefined)
   const payload = {
-    ...input,
+    category: String(input.category || 'Прочее').trim() || 'Прочее',
+    amount,
+    note: input.note,
+    createdBy: input.createdBy,
     shiftId,
     posId: input.posId || open?.posId,
+    payFrom,
+    method,
+    expectedVaultVersion: payFrom === 'vault' ? vaultVersionLocal() : undefined,
     clientRef,
     createdAtIso,
-    amount,
-    category: String(input.category || 'Прочее').trim() || 'Прочее',
+  }
+
+  const deduct = (exp?: Partial<PosExpense>) => {
+    applyMoneyOutLocal({
+      amount: Number(exp?.amount) || amount,
+      payFrom: exp?.payFrom === 'vault' ? 'vault' : payFrom,
+      method: exp?.method === 'card' ? 'card' : method,
+      dir: 1,
+      posId: payload.posId,
+      shiftId: exp?.shiftId || payload.shiftId,
+    })
   }
 
   if (!isTradeLocalFirst()) {
     const exp = await api.createExpense(payload)
-    if (exp?.shiftId) {
-      applyExpenseToShift(String(exp.shiftId), Number(exp.amount) || payload.amount, 1)
-    } else if (shiftId) {
-      // сервер мог не вернуть shiftId — локально всё равно учтём открытую смену
-      applyExpenseToShift(shiftId, payload.amount, 1)
-    }
+    // Сервер уже списал — локально только запись; баланс подтянет softSync
     usePosStore.setState(s => ({ expenses: [exp, ...s.expenses.filter(e => e.id !== exp.id)] }))
     void persistPosSnapshot()
     return { offline: false, data: exp }
@@ -2409,17 +2437,27 @@ export async function expenseCreateSafe(input: {
       createdBy: payload.createdBy,
       createdAtIso: payload.createdAtIso,
       shiftId: payload.shiftId,
+      posId: payload.posId,
+      payFrom,
+      method,
       clientRef,
     }
+    deduct(exp)
     usePosStore.setState(s => ({ expenses: [exp, ...s.expenses] }))
-    applyExpenseToShift(payload.shiftId, payload.amount, 1)
     void persistPosSnapshot()
-    shadowMirrorPut('finance_move', `exp:${exp.id}`, exp)
+    shadowMirrorPut('finance_move', 'exp:' + exp.id, exp)
     return exp
   }
 
-  const res = await raceCashierOp(() => api.createExpense(payload), applyLocal)
-  if (res.data) shadowMirrorPut('finance_move', `exp:${res.data.id}`, res.data)
+  const res = await raceCashierOp(async () => {
+    const exp = await api.createExpense(payload)
+    usePosStore.setState(s => ({
+      expenses: [exp, ...s.expenses.filter(e => e.id !== exp.id && e.clientRef !== clientRef)],
+    }))
+    void persistPosSnapshot()
+    return exp
+  }, applyLocal)
+  if (res.data) shadowMirrorPut('finance_move', 'exp:' + res.data.id, res.data)
   return res
 }
 
@@ -2428,7 +2466,22 @@ export async function expenseCreateSafe(input: {
 function reverseExpenseLocal(id: string, extraIds: Array<string | undefined | null> = []) {
   const exp = usePosStore.getState().expenses.find(e => e.id === id)
   if (exp) {
-    applyExpenseToShift(exp.shiftId, Number(exp.amount) || 0, -1)
+    const amount = Number(exp.amount) || 0
+    const payFrom = exp.payFrom === 'vault' ? 'vault' as const : 'shift' as const
+    const method = exp.method === 'card' ? 'card' as const : 'cash' as const
+    try {
+      applyMoneyOutLocal({
+        amount,
+        payFrom,
+        method,
+        dir: -1,
+        posId: exp.posId,
+        shiftId: exp.shiftId,
+      })
+    } catch {
+      // старые расходы без payFrom — откат как нал смены
+      applyExpenseToShift(exp.shiftId, amount, -1)
+    }
   }
   usePosStore.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
   noteInboundDeletedIds([id, ...extraIds])

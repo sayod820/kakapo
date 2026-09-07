@@ -88,6 +88,8 @@ export default function FinanceModule() {
   const [expCat, setExpCat] = useState('Прочее')
   const [expAmount, setExpAmount] = useState('')
   const [expNote, setExpNote] = useState('')
+  const [expPayFrom, setExpPayFrom] = useState<MoneyPayFrom>('shift')
+  const [expMethod, setExpMethod] = useState<MoneyPayMethod>('cash')
 
   const [depOpen, setDepOpen] = useState(false)
   const [depType, setDepType] = useState<'deposit' | 'withdraw'>('deposit')
@@ -239,6 +241,8 @@ export default function FinanceModule() {
 
   async function afterFinanceMutation(_offline: boolean) {
     void useOfflineSync.getState().syncNow()
+    void softSyncFinance()
+    void softSyncPosAfterSale({ force: true })
   }
 
   async function submitExpense() {
@@ -251,11 +255,14 @@ export default function FinanceModule() {
       const amount = Number(expAmount)
       if (!(amount > 0)) throw new Error('Укажите сумму расхода')
       if (!USE_API && !isTradeLocalFirst()) throw new Error('Нужен API')
+      const payFrom: MoneyPayFrom = openShifts.length === 0 ? 'vault' : expPayFrom
       const res = await expenseCreateSafe({
         category: expCat.trim() || 'Прочее',
         amount,
         note: expNote.trim() || undefined,
         posId: getBoundPosIdSync() || undefined,
+        payFrom,
+        method: expMethod,
       })
       await afterFinanceMutation(!!res.offline)
       setExpOpen(false)
@@ -1023,6 +1030,9 @@ export default function FinanceModule() {
                       <b>{e.category}</b>
                       <small>
                         {fmtDateTime(e.createdAtIso)}
+                        {e.payFrom || e.method
+                          ? ` · ${e.payFrom === 'vault' ? 'основной' : 'смена'} · ${e.method === 'card' ? 'карта' : 'нал'}`
+                          : ''}
                         {e.note ? ` · ${e.note}` : ''}
                         {e.createdBy ? ` · ${e.createdBy}` : ''}
                       </small>
@@ -1193,6 +1203,17 @@ export default function FinanceModule() {
                 <label>Сумма</label>
                 <input className="k-inp" value={expAmount} onChange={e => setExpAmount(e.target.value)} inputMode="decimal" placeholder="0.00" />
               </div>
+              <MoneySourceFields
+                label="Списать с"
+                value={{ payFrom: openShifts.length === 0 ? 'vault' : expPayFrom, method: expMethod }}
+                onChange={v => { setExpPayFrom(v.payFrom); setExpMethod(v.method) }}
+                hideShift={openShifts.length === 0}
+                shiftCash={openShifts[0] ? shiftExpectedCashLocal(openShifts[0]) : 0}
+                shiftCard={openShifts[0] ? Number(openShifts[0].salesCard) || 0 : 0}
+                vaultCash={vaultAvailableLocal('cash')}
+                vaultCard={vaultAvailableLocal('card')}
+                compact
+              />
               <div className="k-field">
                 <label>Заметка</label>
                 <input className="k-inp" value={expNote} onChange={e => setExpNote(e.target.value)} placeholder="За что…" />
@@ -1338,7 +1359,7 @@ export default function FinanceModule() {
               <button type="button" onClick={() => setDelExpId(null)}>×</button>
             </div>
             <div className="k-modal-b" style={{ padding: 16 }}>
-              <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Расход исчезнет из списка и из кассы смены.</p>
+              <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Расход исчезнет из списка, деньги вернутся туда, откуда списали.</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="k-btn" style={{ flex: 1 }} onClick={() => setDelExpId(null)}>Отмена</button>
                 <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={() => void confirmRemoveExpense()}>Удалить</button>

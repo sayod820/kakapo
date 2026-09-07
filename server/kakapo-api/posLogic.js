@@ -1779,20 +1779,47 @@ export function createExpense(db, data = {}) {
   }
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму расхода')
+  const payFrom = data.payFrom === 'vault' ? 'vault' : 'shift'
+  const method = data.method === 'card' ? 'card' : 'cash'
+  if (payFrom === 'vault') assertVaultVersion(db, data.expectedVaultVersion)
+
   let shift = null
   if (data.shiftId) {
     shift = db.posShifts.find(s => s.id === data.shiftId)
     if (!shift) throw new Error('Смена не найдена')
     if (shift.status !== 'open') throw new Error('Смена уже закрыта')
-  } else {
+  } else if (payFrom === 'shift') {
     shift = findOpenShift(db, data.posId)
   }
-  if (shift) {
-    const expected = shiftExpectedCash(shift)
-    if (amount > expected + 0.009) {
-      throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+
+  if (payFrom === 'vault') {
+    const have = method === 'card'
+      ? round2(Number(db.cashVault.cardTotal) || 0)
+      : round2(Number(db.cashVault.cashTotal) || 0)
+    if (amount > have + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+          : `В основном ящике наличных только ${have.toFixed(2)} сом`,
+      )
     }
+  } else if (shift) {
+    const expected = method === 'card'
+      ? round2(Number(shift.salesCard) || 0)
+      : shiftExpectedCash(shift)
+    if (amount > expected + 0.009) {
+      throw new Error(
+        method === 'card'
+          ? `На карте смены только ${expected.toFixed(2)} сом`
+          : `В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`,
+      )
+    }
+  } else {
+    throw new Error('Нет открытой смены — откройте смену или спишите из основного ящика')
   }
+
+  const fromLabel = payFrom === 'vault' ? 'основной ящик' : 'касса смены'
+  const methodLabel = method === 'card' ? 'карта' : 'нал'
   const row = {
     id: nextId('EXP'),
     category: String(data.category || '').trim() || 'Прочее',
@@ -1800,27 +1827,44 @@ export function createExpense(db, data = {}) {
     note: String(data.note || '').trim(),
     createdBy: String(data.createdBy || '').trim(),
     shiftId: shift?.id || undefined,
+    posId: shift?.posId || data.posId || '',
+    payFrom,
+    method,
     createdAtIso: stampFromClient(data, 'createdAtIso'),
     clientRef: clientRef || undefined,
   }
   db.expenses.unshift(row)
-  if (shift) {
-    shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+
+  if (payFrom === 'vault') {
+    if (method === 'card') {
+      db.cashVault.cardTotal = round2(Math.max(0, (Number(db.cashVault.cardTotal) || 0) - amount))
+    } else {
+      db.cashVault.cashTotal = round2(Math.max(0, (Number(db.cashVault.cashTotal) || 0) - amount))
+    }
+    bumpVaultVersion(db)
+  } else if (shift) {
+    if (method === 'card') {
+      shift.salesCard = round2(Math.max(0, (Number(shift.salesCard) || 0) - amount))
+    } else {
+      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+    }
     touchShift(shift)
   }
+
   appendMoneyLedger(db, {
     type: 'expense',
     amount,
     direction: 'out',
-    cashAffect: true,
-    posId: shift?.posId || data.posId || '',
+    cashAffect: method === 'cash',
+    posId: row.posId || '',
     shiftId: row.shiftId || '',
     cashierId: shift?.cashierId || '',
     cashierName: row.createdBy || shift?.cashierName || '',
     refType: 'expense',
     refId: row.id,
-    reason: `Расход · ${row.category}`,
+    reason: `Расход · ${row.category} · ${fromLabel} · ${methodLabel}`,
     note: row.note,
+    meta: { payFrom, method },
   })
   return row
 }
@@ -1831,11 +1875,25 @@ export function deleteExpense(db, id) {
   if (idx < 0) throw new Error('Расход не найден')
   const row = db.expenses[idx]
   const amount = round2(row.amount)
+  const payFrom = row.payFrom === 'vault' ? 'vault' : 'shift'
+  const method = row.method === 'card' ? 'card' : 'cash'
   db.expenses.splice(idx, 1)
-  if (row.shiftId) {
+
+  if (payFrom === 'vault') {
+    if (method === 'card') {
+      db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + amount)
+    } else {
+      db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
+    }
+    bumpVaultVersion(db)
+  } else if (row.shiftId) {
     const shift = db.posShifts.find(s => s.id === row.shiftId)
     if (shift) {
-      shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+      if (method === 'card') {
+        shift.salesCard = round2((Number(shift.salesCard) || 0) + amount)
+      } else {
+        shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
+      }
       touchShift(shift)
     }
   }

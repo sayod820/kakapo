@@ -531,6 +531,11 @@ export interface PosExpense {
   createdBy?: string
   createdAtIso: string
   shiftId?: string
+  posId?: string
+  /** Откуда списали: касса смены или основной ящик */
+  payFrom?: MoneyPayFrom
+  /** Нал или карта */
+  method?: MoneyPayMethod
   clientRef?: string
 }
 

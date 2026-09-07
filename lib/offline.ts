@@ -1492,6 +1492,10 @@ async function sendOp(row: PendingOp): Promise<string> {
         note: p.note,
         createdBy: p.createdBy,
         shiftId: p.shiftId,
+        posId: p.posId,
+        payFrom: p.payFrom,
+        method: p.method,
+        expectedVaultVersion: p.expectedVaultVersion,
         clientRef: p.clientRef,
         createdAtIso: p.createdAtIso,
       } as any)

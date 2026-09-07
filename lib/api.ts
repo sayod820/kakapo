@@ -1248,7 +1248,19 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
     }),
   getExpenses: () => request<PosExpense[]>('/expenses'),
-  createExpense: (data: { category: string; amount: number; note?: string; createdBy?: string; shiftId?: string; clientRef?: string }) =>
+  createExpense: (data: {
+    category: string
+    amount: number
+    note?: string
+    createdBy?: string
+    shiftId?: string
+    posId?: string
+    payFrom?: 'shift' | 'vault'
+    method?: 'cash' | 'card'
+    expectedVaultVersion?: number
+    clientRef?: string
+    createdAtIso?: string
+  }) =>
     request<PosExpense>('/expenses', { method: 'POST', body: JSON.stringify(data) }),
   deleteExpense: (id: string, data?: { clientRef?: string }) =>
     request<{ id: string }>(`/expenses/${encodeURIComponent(id)}`, {
