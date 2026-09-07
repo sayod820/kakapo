@@ -1014,11 +1014,11 @@ export const POS_MOCK_CSS = `
   .pos-root[data-theme="light"] .p-weight-tag{background:rgba(12,26,16,.88);color:#FFFFFF;}
   /* Фасовка на фото — не рвёт текст под названием */
   .p-pack-tag{
-    position:absolute;left:6px;bottom:6px;z-index:1;
-    max-width:calc(100% - 12px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-    font-size:11.5px;font-weight:900;line-height:1.15;letter-spacing:.02em;
-    font-variant-numeric:tabular-nums;padding:3px 8px;border-radius:8px;
-    box-shadow:0 1px 4px rgba(0,0,0,.12);
+    position:absolute;left:5px;bottom:5px;z-index:1;
+    max-width:calc(100% - 10px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:9.5px;font-weight:800;line-height:1.1;letter-spacing:.01em;
+    font-variant-numeric:tabular-nums;padding:2px 6px;border-radius:6px;
+    box-shadow:0 1px 3px rgba(0,0,0,.1);
   }
   .p-pack-tag.is-vol{color:#E8FBFF;background:rgba(12,100,128,.9);border:1px solid rgba(140,220,240,.35);}
   .p-pack-tag.is-wt{color:#FFF8E8;background:rgba(120,78,8,.88);border:1px solid rgba(255,200,80,.4);}
