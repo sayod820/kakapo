@@ -1056,6 +1056,9 @@ app.post('/products', async (req, res) => {
       plu: needPlu ? (codes.plu || null) : null,
       organic: !!req.body.organic, sellType,
       unitGrams: req.body.unitGrams, weightStep: req.body.weightStep, minWeight: req.body.minWeight,
+      packWeightGrams: req.body.packWeightGrams != null && Number(req.body.packWeightGrams) > 0
+        ? Math.round(Number(req.body.packWeightGrams))
+        : undefined,
       old: req.body.old ?? null,
       photo: req.body.photo ? String(req.body.photo) : undefined,
       photoThumb: req.body.photoThumb ? String(req.body.photoThumb) : undefined,

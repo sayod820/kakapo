@@ -103,6 +103,7 @@ export default function ProductFormFields({
         sellType,
         unitGrams: '1000',
         weightStep: '1',
+        packWeightGrams: '',
         unit: !form.unit || form.unit === 'шт' ? 'кг' : form.unit,
         // Всегда новый минимальный свободный PLU (старый сбрасываем)
         plu: free <= 9999 ? String(free) : '',
@@ -125,7 +126,7 @@ export default function ProductFormFields({
 
   function setPackMeasure(measure: string) {
     if (measure === 'шт') {
-      setForm({ ...form, unit: 'шт' })
+      setForm({ ...form, unit: 'шт', packWeightGrams: '' })
       return
     }
     const amount = pack.amount || ''
@@ -234,6 +235,22 @@ export default function ProductFormFields({
                   : `На кассе: ${composePackUnit(pack.amount || '…', pack.measure)} · цена и остаток в шт`}
           </div>
         </div>
+        {!isWeight && pack.measure === 'размер' ? (
+          <div className="k-field">
+            <label>Вес упаковки (г)</label>
+            <input
+              className="k-inp"
+              value={form.packWeightGrams}
+              onChange={e => setForm({
+                ...form,
+                packWeightGrams: e.target.value.replace(/[^\d]/g, '').slice(0, 6),
+              })}
+              placeholder="например 450"
+              inputMode="numeric"
+            />
+            <div className="k-hint">Для доставки: сколько весит 1 упаковка в граммах. Размер (р. 5) на вес не влияет.</div>
+          </div>
+        ) : null}
         <div className="k-field">
           <label>Бренд</label>
           <input className="k-inp" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />

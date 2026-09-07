@@ -147,9 +147,29 @@ export function orderItemFromProduct(p: Partial<Product>, qty: number) {
 export function estimateCartWeightKg(items: { p: Partial<Product>; qty: number }[]): number {
   const kg = items.reduce((s, { p, qty }) => {
     if (isWeighted(p)) return s + qty / 1000
-    return s + qty * 0.35
+    const n = Math.max(0, Number(qty) || 0)
+    if (!n) return s
+    // Явный вес упаковки (для «размер» и любой штуки)
+    const packG = Number(p.packWeightGrams)
+    if (Number.isFinite(packG) && packG > 0) return s + (n * packG) / 1000
+    // Фасовка в unit: «500 г», «0.5 кг», «80г»
+    const fromUnit = pieceUnitWeightKg(p.unit)
+    if (fromUnit != null && fromUnit > 0) return s + n * fromUnit
+    return s + n * 0.35
   }, 0)
   return Math.max(0.3, kg)
+}
+
+/** Вес одной штуки из строки unit (г/кг). Размер/л/мл — null (нужен packWeightGrams). */
+export function pieceUnitWeightKg(unitRaw?: string | null): number | null {
+  const raw = String(unitRaw || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!raw) return null
+  if (/размер|^р\./i.test(raw)) return null
+  const kg = raw.match(/^(\d+(?:[.,]\d+)?)\s*кг/)
+  if (kg) return parseFloat(kg[1].replace(',', '.'))
+  const gr = raw.match(/^(\d+(?:[.,]\d+)?)\s*(?:г|гр)\b/)
+  if (gr) return parseFloat(gr[1].replace(',', '.')) / 1000
+  return null
 }
 
 /** Единицы для бейджа корзины: граммы → кг (700 г = 0.7), штуки — как есть */

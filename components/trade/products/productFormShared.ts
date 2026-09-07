@@ -115,6 +115,8 @@ export type ProductForm = {
   sellType: SellType
   weightStep: string
   unitGrams: string
+  /** Вес 1 упаковки (г) для доставки — при размере / фасовке */
+  packWeightGrams: string
   hot: boolean
   organic: boolean
 }
@@ -123,7 +125,7 @@ export function emptyForm(): ProductForm {
   return {
     name: '', art: '', e: '📦', catId: 'veg',
     unit: 'шт', barcodes: [], plu: '', brand: '', desc: '', photo: '', photoThumb: '', sellType: 'piece',
-    weightStep: '1', unitGrams: '1000', hot: false, organic: false,
+    weightStep: '1', unitGrams: '1000', packWeightGrams: '', hot: false, organic: false,
   }
 }
 
@@ -159,6 +161,9 @@ export function formFromDuplicate(source: Product, products: Product[]): Product
     plu: isWeight && freePlu <= 9999 ? String(freePlu) : '',
     weightStep: String(source.weightStep || 1),
     unitGrams: String(source.unitGrams || 1000),
+    packWeightGrams: source.packWeightGrams && source.packWeightGrams > 0
+      ? String(source.packWeightGrams)
+      : '',
     hot: !!source.hot,
     organic: !!source.organic,
     photo: '',
@@ -184,6 +189,7 @@ export function formFromProduct(p: Product, photo?: string): ProductForm {
     sellType,
     weightStep: String(p.weightStep || 1),
     unitGrams: String(p.unitGrams || 1000),
+    packWeightGrams: p.packWeightGrams && p.packWeightGrams > 0 ? String(p.packWeightGrams) : '',
     hot: !!p.hot,
     organic: !!p.organic,
   }
@@ -244,10 +250,15 @@ export function buildProductPayload(
       weightStep: 1,
       minWeight: 1,
       unitGrams: 1000,
+      packWeightGrams: undefined,
     } : {
       weightStep: undefined,
       minWeight: undefined,
       unitGrams: undefined,
+      packWeightGrams: (() => {
+        const g = Math.round(Number(String(data.packWeightGrams || '').replace(',', '.')) || 0)
+        return g > 0 ? g : null
+      })(),
     }),
   }
 }
