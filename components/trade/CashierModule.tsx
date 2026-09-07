@@ -82,6 +82,7 @@ import {
 import { resolveCardAuthoritativeLevel } from '@/lib/loyaltyAdminLock'
 import { filterProductsBySearch, findProductsByExactBarcode, pickProductBySearch, productBarcodes, cleanScannedBarcode, barcodeDigitKeys } from '@/lib/productBarcodes'
 import { resolveProductPhoto } from '@/lib/productPhotos'
+import { useOfflinePhotoCacheVersion } from '@/lib/photoOfflineCache'
 import TradeProductThumb, { type TradeProductThumbLike } from '@/components/trade/TradeProductThumb'
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
@@ -2870,6 +2871,7 @@ export default function CashierModule({
    */
   const gridSearch = useMemo(() => deferredSearch.trim(), [deferredSearch])
   const favSet = useMemo(() => new Set(favIds), [favIds])
+  const photoCacheVer = useOfflinePhotoCacheVersion()
   const inStockProducts = useMemo(
     () => products
       .filter(p => liveStockForProduct(p) > 0)
@@ -2965,8 +2967,7 @@ export default function CashierModule({
   }, [])
 
   const renderProductTile = useCallback((p: Product) => {
-    // Только URL миниатюры с сервера (как в браузере). Локальные base64 не используем —
-    // иначе Electron раздувает память и диск на тысячах фото.
+    // URL миниатюры: сеть или локальный IndexedDB (photoOfflineCache)
     const photo = resolveProductPhoto(p, { preferThumb: true })
     return (
       <PosProductTile
@@ -2980,7 +2981,7 @@ export default function CashierModule({
         onToggleFav={onToggleFavoriteTile}
       />
     )
-  }, [favSet, liveStockForProduct, liveSellPriceForProduct, onAddProductTile, onToggleFavoriteTile])
+  }, [favSet, liveStockForProduct, liveSellPriceForProduct, onAddProductTile, onToggleFavoriteTile, photoCacheVer])
 
   function toggleFavorite(productId: number) {
     const owner = posFavOwnerKey(employeeId, settings.cashierId)

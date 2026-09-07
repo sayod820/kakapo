@@ -6,6 +6,7 @@ import { useCart, useWish, useToast } from '@/lib/store';
 import type { Product } from '@/lib/types';
 import { ROUTES } from '@/lib/routes';
 import { resolveProductPhoto } from '@/lib/productPhotos';
+import { useOfflinePhotoCacheVersion } from '@/lib/photoOfflineCache';
 
 interface Props {
   product:   Product;
@@ -20,6 +21,7 @@ export default function ProductCard({ product: p, variant = 'grid', animDelay = 
   const { show }        = useToast();
   const [popped, setPop] = useState(false);
 
+  useOfflinePhotoCacheVersion();
   const qty    = items[p.id] || 0;
   const wished = isWished(p.id);
   const disc   = p.oldPrice ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;

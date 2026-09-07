@@ -801,7 +801,13 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         try {
           const { readCachedProducts } = await import('./offline')
           const cached = await readCachedProducts()
-          if (cached && cached.length) set({ products: cached, loaded: true })
+          if (cached && cached.length) {
+            set({ products: cached, loaded: true })
+            void import('./photoOfflineCache').then(({ warmOfflinePhotoCache, schedulePhotoPrefetchFromProducts }) => {
+              void warmOfflinePhotoCache(cached)
+              schedulePhotoPrefetchFromProducts(cached)
+            }).catch(() => {})
+          }
         } catch { /* дальше сервер */ }
       }
       const raw = ensureArray<Product>(await api.getProducts(), 'products')
@@ -884,6 +890,9 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         const cached = await readCachedProducts()
         if (cached && cached.length) {
           set({ products: cached, loaded: true })
+          void import('./photoOfflineCache').then(({ warmOfflinePhotoCache }) => {
+            void warmOfflinePhotoCache(cached)
+          }).catch(() => {})
           return
         }
       } catch { /* нет кэша */ }

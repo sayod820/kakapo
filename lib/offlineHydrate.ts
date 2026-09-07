@@ -35,8 +35,15 @@ async function hydrateProducts() {
   const cached = await readCachedProducts()
   if (!cached || !cached.length) return
   const { useProducts } = await import('./store')
-  if (useProducts.getState().products.length) return
-  useProducts.setState({ products: cached as Product[], loaded: true })
+  if (!useProducts.getState().products.length) {
+    useProducts.setState({ products: cached as Product[], loaded: true })
+  }
+  // Поднять object URL из IndexedDB (в т.ч. если каталог уже пришёл с API)
+  try {
+    const { warmOfflinePhotoCache } = await import('./photoOfflineCache')
+    const list = useProducts.getState().products
+    await warmOfflinePhotoCache(list.length ? list : cached)
+  } catch { /* ignore */ }
 }
 
 async function hydratePos() {

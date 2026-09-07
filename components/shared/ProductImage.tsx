@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import { resolveProductPhoto } from '@/lib/productPhotos'
+import { useOfflinePhotoCacheVersion } from '@/lib/photoOfflineCache'
 
 type ProductLike = {
   id?: number
@@ -42,6 +43,7 @@ export default function ProductImage({
   style,
   className,
 }: Props) {
+  useOfflinePhotoCacheVersion()
   const src = resolveProductPhoto(product, { preferThumb, getPhoto })
   const fill = size === 'fill'
   const box: CSSProperties = {

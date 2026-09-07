@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { getApiUrl, USE_API } from './config';
 import { persistAppDataLocally } from './localCache';
+import { absolutePhotoUrl, peekOfflinePhotoUrl } from './photoOfflineCache';
 
 const PHOTOS_KEY = 'kakapo-product-photos';
 
@@ -59,8 +60,21 @@ export const useProductPhotos = create<ProductPhotosStore>((set, get) => ({
 export function resolvePhotoUrl(value?: string | null): string | undefined {
   const url = String(value || '').trim()
   if (!url) return undefined
-  // В API-режиме не тащим base64/blob в UI — только сетевые URL (как в браузере)
-  if (USE_API && (/^data:/i.test(url) || /^blob:/i.test(url))) return undefined
+  // В API-режиме не тащим сырые base64/blob из форм — только сеть или офлайн-кэш
+  if (USE_API && /^data:/i.test(url)) return undefined
+  if (USE_API && /^blob:/i.test(url)) {
+    // object URL из photoOfflineCache уже в peek; чужие blob отсекаем
+    return undefined
+  }
+
+  const abs = absolutePhotoUrl(url)
+  const local = abs ? peekOfflinePhotoUrl(abs) : peekOfflinePhotoUrl(url)
+  if (local) return local
+
+  // Холодный старт без сети: без локального файла не отдаём remote (сломается)
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+  if (offline) return undefined
+
   if (/^https?:\/\//i.test(url)) return url
   if (/^data:|^blob:/i.test(url)) return url
   const api = getApiUrl().replace(/\/$/, '')
@@ -73,7 +87,7 @@ export function resolvePhotoUrl(value?: string | null): string | undefined {
     return url
   }
   if (url.startsWith('/uploads/')) return `${api}${url}`
-  return url.startsWith('/') ? url : `/${url}`
+  return abs || (url.startsWith('/') ? url : `/${url}`)
 }
 
 /** URL фото товара: серверное → локальный fallback (демо без API) */

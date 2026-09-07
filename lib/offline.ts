@@ -216,9 +216,12 @@ async function kvGet<T>(key: string): Promise<T | null> {
 }
 
 export function cacheProducts(products: Product[]): Promise<void> {
-  // В локальную базу кладём только метаданные + URL миниатюр.
-  // Сами файлы картинок Electron не сохраняет — как в веб-браузере грузятся по сети.
-  return kvSet(KEY_PRODUCTS, (products || []).map(sanitizeProductForLocalCache))
+  // Метаданные + URL в KV; байты миниатюр — в IndexedDB (photoOfflineCache).
+  const clean = (products || []).map(sanitizeProductForLocalCache)
+  void import('./photoOfflineCache').then(({ schedulePhotoPrefetchFromProducts }) => {
+    schedulePhotoPrefetchFromProducts(clean)
+  }).catch(() => {})
+  return kvSet(KEY_PRODUCTS, clean)
 }
 export function readCachedProducts(): Promise<Product[] | null> {
   return kvGet<Product[]>(KEY_PRODUCTS)
