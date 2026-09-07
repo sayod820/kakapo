@@ -10157,8 +10157,19 @@ export default function CashierModule({
             aria-modal="true"
             aria-labelledby="barcode-pick-title"
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-              <h3 id="barcode-pick-title" style={{ marginBottom: 0 }}>Выберите товар</h3>
+            <div className="barcode-pick-head">
+              <div className="barcode-pick-head-text">
+                <h3 id="barcode-pick-title">Выберите товар</h3>
+                <p>
+                  {barcodePick.products.length} с одним штрихкодом
+                  {barcodePick.code ? (
+                    <>
+                      {' · '}
+                      <code>{barcodePick.code.length > 24 ? `${barcodePick.code.slice(0, 24)}…` : barcodePick.code}</code>
+                    </>
+                  ) : null}
+                </p>
+              </div>
               <button
                 type="button"
                 className="scan-block-x"
@@ -10168,19 +10179,11 @@ export default function CashierModule({
                 ✕
               </button>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 8 }}>
-              Найдено {barcodePick.products.length} товара с этим штрихкодом — выберите нужный. Автоматически не пробиваем.
-            </div>
-            {barcodePick.code ? (
-              <div className="scan-block-code" style={{ marginBottom: 12 }}>
-                <span>Код</span>
-                <b>{barcodePick.code.length > 32 ? `${barcodePick.code.slice(0, 32)}…` : barcodePick.code}</b>
-              </div>
-            ) : null}
             <div className="barcode-pick-list">
               {barcodePick.products.map(p => {
                 const stock = liveStockForProduct(p)
                 const out = stock <= 0
+                const price = liveSellPriceForProduct(p)
                 return (
                   <button
                     key={p.id}
@@ -10189,17 +10192,22 @@ export default function CashierModule({
                     disabled={out}
                     onClick={() => { if (!out) confirmBarcodePick(p) }}
                   >
-                    <span className="barcode-pick-name">{p.name}</span>
-                    <span className="barcode-pick-meta">
-                      <b>{fmtMoney(Number(p.price) || 0)}</b>
-                      <span>{out ? 'нет на складе' : `ост. ${stock}${isWeighted(p) ? ' кг' : ''}`}</span>
-                      {p.art ? <span>арт. {p.art}</span> : null}
+                    <span className="barcode-pick-thumb" aria-hidden>
+                      <TradeProductThumb product={p} size={44} radius={8} plate="theme" />
                     </span>
+                    <span className="barcode-pick-body">
+                      <span className="barcode-pick-name">{p.name}</span>
+                      <span className="barcode-pick-meta">
+                        {out ? 'нет на складе' : `ост. ${stock}${isWeighted(p) ? ' кг' : ''}`}
+                        {p.art ? ` · арт. ${p.art}` : ''}
+                      </span>
+                    </span>
+                    <span className="barcode-pick-price">{fmtMoney(Number(price) || 0)}</span>
                   </button>
                 )
               })}
             </div>
-            <div className="modal-card-actions" style={{ marginTop: 14 }}>
+            <div className="modal-card-actions barcode-pick-actions">
               <button type="button" className="btn-cancel" onClick={() => closeBarcodePick()}>
                 Отмена
               </button>
