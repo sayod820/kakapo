@@ -435,8 +435,10 @@ function productPackLabel(p: Product): string | undefined {
   if (!raw) return undefined
   const norm = raw.toLowerCase().replace(/\s+/g, '')
   if (!norm || norm === 'шт' || norm === 'pcs' || norm === 'piece' || norm === 'ед') return undefined
-  // «1/3 л», «500 мл», «0.5л», «10 кг», «400 г»
-  const hasMeasure = /(л|мл|литр|кг|г|гр|ml|kg)\b/i.test(raw) || /[лкгг]$/i.test(norm)
+  // «1/3 л», «500 мл», «10 кг», «400 г», «р. 42», «30 см»
+  const hasMeasure = /(л|мл|литр|кг|г|гр|ml|kg|см|размер|^р\.?\s|уп)\b/i.test(raw)
+    || /[лкгг]$/i.test(norm)
+    || /^р\./i.test(raw)
   const hasAmount = /\d/.test(raw) || /[½⅓⅔¼¾]/.test(raw) || /\d+\s*\/\s*\d+/.test(raw)
   if (hasMeasure && hasAmount) return displaySellUnit({ ...p, unit: raw } as Product)
   return undefined

@@ -17,7 +17,8 @@ export function sanitizeDecimal(raw: string): string {
 
 /** Единицы фасовки/размера для штучного товара */
 export const PACK_MEASURES = [
-  { id: 'шт', label: 'шт — без размера' },
+  { id: 'шт', label: 'шт' },
+  { id: 'размер', label: 'размер' },
   { id: 'г', label: 'г (граммы)' },
   { id: 'кг', label: 'кг' },
   { id: 'мл', label: 'мл' },
@@ -37,11 +38,12 @@ function normalizeMeasureLabel(raw: string): string {
   if (t === 'ml' || t === 'миллилитр') return 'мл'
   if (t === 'cm') return 'см'
   if (t === 'pcs' || t === 'piece' || t === 'ед') return 'шт'
+  if (t === 'size' || t === 'р' || t === 'р-р' || t === 'рр' || t === 'разм') return 'размер'
   if (t === 'упак' || t === 'упаковка' || t === 'pack') return 'уп'
   return t
 }
 
-/** Разбор «500 г» / «1/3 л» / «шт» → число + единица */
+/** Разбор «500 г» / «1/3 л» / «р. 42» / «шт» → число + единица */
 export function parsePackFields(unit: string): { amount: string; measure: PackMeasureId | string } {
   const raw = String(unit || '').trim()
   if (!raw) return { amount: '', measure: 'шт' }
@@ -49,7 +51,13 @@ export function parsePackFields(unit: string): { amount: string; measure: PackMe
   if (PACK_MEASURES.some(m => m.id === norm)) {
     return { amount: '', measure: norm }
   }
-  // 1/3 л · 500 г · 0,5л · ½ л
+  // «р. 42» / «размер 42»
+  const sizePref = /^(?:р\.?|размер)\s*[.:]?\s*(.+)$/iu.exec(raw)
+  if (sizePref) {
+    const amount = sanitizePackAmount(sizePref[1])
+    if (amount) return { amount, measure: 'размер' }
+  }
+  // 1/3 л · 500 г · 0,5л · ½ л · 42 размер
   const m = /^(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+(?:[.,]\d+)?)?|[½⅓⅔¼¾])\s*(.*)$/u.exec(raw)
   if (m) {
     const amount = m[1].replace(/\s+/g, '').replace(',', '.')
@@ -64,11 +72,12 @@ export function parsePackFields(unit: string): { amount: string; measure: PackMe
   return { amount: '', measure: 'шт' }
 }
 
-/** Сборка unit для сохранения: «80 г», «1/3 л», «шт» */
+/** Сборка unit для сохранения: «80 г», «1/3 л», «р. 42», «шт» */
 export function composePackUnit(amount: string, measure: string): string {
   const m = normalizeMeasureLabel(measure || 'шт') || 'шт'
   if (m === 'шт') return 'шт'
   const a = String(amount || '').trim().replace(',', '.').replace(/\s+/g, '')
+  if (m === 'размер') return a ? `р. ${a}` : 'размер'
   // Число ещё не ввели — держим выбранную единицу («г» / «л»), чтобы селект не сбрасывался
   if (!a) return m
   return `${a} ${m}`

@@ -227,8 +227,10 @@ export default function ProductFormFields({
             {isWeight
               ? 'Цена в партии — за 1 кг. На кассе пробитие по весу.'
               : pack.measure === 'шт'
-                ? 'Без размера — только штуки. Или выберите г / кг / мл / л…'
-                : `На кассе: ${composePackUnit(pack.amount || '…', pack.measure)} · цена и остаток в шт`}
+                ? 'Без размера — только штуки. Или выберите: размер, г, кг, мл, л…'
+                : pack.measure === 'размер'
+                  ? `На кассе: ${composePackUnit(pack.amount || '…', 'размер')} · продажа в шт`
+                  : `На кассе: ${composePackUnit(pack.amount || '…', pack.measure)} · цена и остаток в шт`}
           </div>
         </div>
         <div className="k-field">
