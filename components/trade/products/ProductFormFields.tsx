@@ -6,6 +6,12 @@ import { buildWeightMasterBarcode, findBarcodeOwners, nextFreeEan13 } from '@/li
 import { nextFreePlu, parseProductCodeNum } from '@/lib/productCodes'
 import type { Category, Product } from '@/lib/types'
 import type { ProductForm } from './productFormShared'
+import {
+  PACK_MEASURES,
+  composePackUnit,
+  parsePackFields,
+  sanitizePackAmount,
+} from './productFormShared'
 import type { SellType } from '@/lib/types'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
@@ -103,8 +109,26 @@ export default function ProductFormFields({
       })
       return
     }
-    // Штучный — PLU не нужен
-    setForm({ ...form, sellType, plu: '' })
+    // Штучный — PLU не нужен; фасовка по умолчанию «шт»
+    const nextUnit = !form.unit || form.unit === 'кг' ? 'шт' : form.unit
+    setForm({ ...form, sellType, plu: '', unit: nextUnit })
+  }
+
+  const pack = parsePackFields(form.unit)
+
+  function setPackAmount(amount: string) {
+    const a = sanitizePackAmount(amount)
+    const measure = pack.measure === 'шт' ? 'г' : pack.measure
+    setForm({ ...form, unit: composePackUnit(a, measure) })
+  }
+
+  function setPackMeasure(measure: string) {
+    if (measure === 'шт') {
+      setForm({ ...form, unit: 'шт' })
+      return
+    }
+    const amount = pack.amount || ''
+    setForm({ ...form, unit: composePackUnit(amount, measure) })
   }
 
   return (
@@ -166,17 +190,45 @@ export default function ProductFormFields({
           </select>
         </div>
         <div className="k-field">
-          <label>{isWeight ? 'Единица цены' : 'Фасовка / объём'}</label>
-          <input
-            className="k-inp"
-            value={form.unit}
-            onChange={e => setForm({ ...form, unit: e.target.value })}
-            placeholder={isWeight ? 'кг' : 'шт · 1/3 л · 500 мл · 10 кг'}
-          />
+          <label>{isWeight ? 'Единица цены' : 'Размер / фасовка'}</label>
+          {isWeight ? (
+            <select
+              className="k-sel"
+              value={form.unit === 'г' || form.unit === 'гр' ? 'г' : 'кг'}
+              onChange={e => setForm({ ...form, unit: e.target.value })}
+            >
+              <option value="кг">кг</option>
+              <option value="г">г</option>
+            </select>
+          ) : (
+            <div className="k-pack-edit">
+              <input
+                className="k-inp"
+                value={pack.measure === 'шт' ? '' : pack.amount}
+                onChange={e => setPackAmount(e.target.value)}
+                placeholder={pack.measure === 'шт' ? '—' : '80'}
+                inputMode="decimal"
+                disabled={pack.measure === 'шт'}
+                aria-label="Размер"
+              />
+              <select
+                className="k-sel"
+                value={PACK_MEASURES.some(m => m.id === pack.measure) ? pack.measure : 'г'}
+                onChange={e => setPackMeasure(e.target.value)}
+                aria-label="Единица размера"
+              >
+                {PACK_MEASURES.map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="k-hint">
             {isWeight
-              ? 'Для развеса обычно «кг». Цена в партии — за 1 кг.'
-              : 'Пишите объём упаковки: 1/3 л, 500 мл, 400 г, 10 кг. На кассе цена за шт, объём видно отдельно.'}
+              ? 'Цена в партии — за 1 кг. На кассе пробитие по весу.'
+              : pack.measure === 'шт'
+                ? 'Без размера — только штуки. Или выберите г / кг / мл / л…'
+                : `На кассе: ${composePackUnit(pack.amount || '…', pack.measure)} · цена и остаток в шт`}
           </div>
         </div>
         <div className="k-field">
@@ -203,14 +255,9 @@ export default function ProductFormFields({
       {isWeight ? (
         <div className="k-product-edit-note">
           <b>Весовой товар</b>
-          <span>Тип «На развес» · PLU для весов · в кассе пробитие в кг/граммах. Не путать с фасовкой «10 кг» у штучного мешка.</span>
+          <span>Тип «На развес» · PLU для весов · пробитие в кг/граммах.</span>
         </div>
-      ) : (
-        <div className="k-product-edit-note">
-          <b>Штучный + объём</b>
-          <span>В «Фасовка / объём» укажите 1/3 л или 500 мл — на плитке кассы объём будет крупно и цветом. Остаток считается в шт.</span>
-        </div>
-      )}
+      ) : null}
       <div className="k-field">
         <label>Штрихкоды</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

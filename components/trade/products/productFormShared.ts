@@ -15,6 +15,82 @@ export function sanitizeDecimal(raw: string): string {
   return v
 }
 
+/** Единицы фасовки/размера для штучного товара */
+export const PACK_MEASURES = [
+  { id: 'шт', label: 'шт — без размера' },
+  { id: 'г', label: 'г (граммы)' },
+  { id: 'кг', label: 'кг' },
+  { id: 'мл', label: 'мл' },
+  { id: 'л', label: 'л' },
+  { id: 'см', label: 'см' },
+  { id: 'м', label: 'м' },
+  { id: 'уп', label: 'уп.' },
+] as const
+
+export type PackMeasureId = (typeof PACK_MEASURES)[number]['id']
+
+function normalizeMeasureLabel(raw: string): string {
+  let t = raw.trim().toLowerCase().replace(/\./g, '')
+  if (t === 'гр' || t === 'g' || t === 'gram' || t === 'grams') return 'г'
+  if (t === 'kg' || t === 'килограмм' || t === 'килограмма') return 'кг'
+  if (t === 'l' || t === 'литр' || t === 'литра' || t === 'литров') return 'л'
+  if (t === 'ml' || t === 'миллилитр') return 'мл'
+  if (t === 'cm') return 'см'
+  if (t === 'pcs' || t === 'piece' || t === 'ед') return 'шт'
+  if (t === 'упак' || t === 'упаковка' || t === 'pack') return 'уп'
+  return t
+}
+
+/** Разбор «500 г» / «1/3 л» / «шт» → число + единица */
+export function parsePackFields(unit: string): { amount: string; measure: PackMeasureId | string } {
+  const raw = String(unit || '').trim()
+  if (!raw) return { amount: '', measure: 'шт' }
+  const norm = normalizeMeasureLabel(raw)
+  if (PACK_MEASURES.some(m => m.id === norm)) {
+    return { amount: '', measure: norm }
+  }
+  // 1/3 л · 500 г · 0,5л · ½ л
+  const m = /^(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+(?:[.,]\d+)?)?|[½⅓⅔¼¾])\s*(.*)$/u.exec(raw)
+  if (m) {
+    const amount = m[1].replace(/\s+/g, '').replace(',', '.')
+    const measureRaw = normalizeMeasureLabel(m[2] || '')
+    if (measureRaw && PACK_MEASURES.some(x => x.id === measureRaw)) {
+      return { amount, measure: measureRaw }
+    }
+    if (measureRaw) return { amount, measure: measureRaw }
+    // Только число «5» — размер без единицы (пользователь выберет г/л…)
+    return { amount, measure: 'г' }
+  }
+  return { amount: '', measure: 'шт' }
+}
+
+/** Сборка unit для сохранения: «80 г», «1/3 л», «шт» */
+export function composePackUnit(amount: string, measure: string): string {
+  const m = normalizeMeasureLabel(measure || 'шт') || 'шт'
+  if (m === 'шт') return 'шт'
+  const a = String(amount || '').trim().replace(',', '.').replace(/\s+/g, '')
+  // Число ещё не ввели — держим выбранную единицу («г» / «л»), чтобы селект не сбрасывался
+  if (!a) return m
+  return `${a} ${m}`
+}
+
+/** Ввод размера: число или дробь 1/3 */
+export function sanitizePackAmount(raw: string): string {
+  let v = raw.replace(',', '.').replace(/[^\d./½⅓⅔¼¾]/g, '')
+  // одна дробь
+  const slash = v.indexOf('/')
+  if (slash !== -1) {
+    const left = v.slice(0, slash).replace(/[^\d.]/g, '')
+    let right = v.slice(slash + 1).replace(/[^\d.]/g, '')
+    const dot = right.indexOf('.')
+    if (dot !== -1) right = right.slice(0, dot + 1) + right.slice(dot + 1).replace(/\./g, '')
+    v = `${left}/${right}`
+  } else if (!/[½⅓⅔¼¾]/.test(v)) {
+    v = sanitizeDecimal(v)
+  }
+  return v
+}
+
 export type ProductForm = {
   name: string
   art: string

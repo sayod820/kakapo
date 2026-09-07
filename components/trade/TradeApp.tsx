@@ -1000,6 +1000,8 @@ const CSS = `
   .k-card-b{padding:16px}
   .k-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .k-grid2-tight{gap:8px}
+  .k-pack-edit{display:grid;grid-template-columns:minmax(72px,0.9fr) minmax(0,1.3fr);gap:8px;align-items:stretch}
+  .k-pack-edit .k-inp:disabled{opacity:.45;cursor:not-allowed}
   .k-field{margin-bottom:12px}
   .k-field label{display:block;font-size:12px;color:var(--muted);font-weight:700;margin-bottom:5px}
   .k-hint{font-size:10px;color:var(--muted);line-height:1.35;margin-top:3px}
