@@ -137,13 +137,26 @@ export async function getPosLiteSyncCursor(): Promise<string> {
     const soft = String(localStorage.getItem('kakapo_pos_lite_cursor') || '')
     if (soft) return soft
   } catch { /* ignore */ }
-  return getSyncCursor()
+  // Не подставляем main syncCursor: он часто уезжает вперёд из‑за товаров/склада
+  // и softSync тогда пропускает чеки.
+  return ''
+}
+
+function maxIsoCursor(a: string, b: string): string {
+  const ta = Date.parse(a || '')
+  const tb = Date.parse(b || '')
+  if (!Number.isFinite(ta)) return Number.isFinite(tb) ? b : ''
+  if (!Number.isFinite(tb)) return a
+  return tb >= ta ? b : a
 }
 
 export async function setPosLiteSyncCursor(cursor: string): Promise<void> {
   const value = String(cursor || '')
   if (!value) return
   try {
-    localStorage.setItem('kakapo_pos_lite_cursor', value)
+    const prev = String(localStorage.getItem('kakapo_pos_lite_cursor') || '')
+    const next = maxIsoCursor(prev, value)
+    if (!next) return
+    localStorage.setItem('kakapo_pos_lite_cursor', next)
   } catch { /* ignore */ }
 }

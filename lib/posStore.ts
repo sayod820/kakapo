@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { api } from './api'
 import { USE_API } from './config'
-import { mergeInboundById, mergeSalesInbound } from './syncConflict'
+import { mergeAppendById, mergeInboundById, mergeSalesInbound } from './syncConflict'
 import type {
   CashVault,
   FinanceMove,
@@ -264,7 +264,7 @@ export const usePosStore = create<PosStore>((set) => ({
         }
       } catch { /* очередь недоступна */ }
       const delIds = await pendingDeleteIds()
-      snapshot.sales = omitInboundDeleted(mergeSalesInbound(local.sales, dropDeletedRemote(snapshot.sales, delIds)))
+      snapshot.sales = omitInboundDeleted(mergeSalesInbound(local.sales, dropDeletedRemote(snapshot.sales, delIds), { mode: 'full' }))
       snapshot.shifts = mergeInboundById(local.shifts, snapshot.shifts)
       snapshot.receipts = omitInboundDeleted(mergeInboundById(local.receipts, dropDeletedRemote(snapshot.receipts, delIds)))
       snapshot.writeoffs = omitInboundDeleted(mergeInboundById(local.writeoffs, dropDeletedRemote(snapshot.writeoffs, delIds)))
@@ -407,6 +407,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       let usedDelta = false
 
       let nextLiteCursor = ''
+      let deleteIds: string[] = []
       try {
         const delta = await api.getSyncChanges(since || undefined, { scope: 'pos-lite' })
         usedDelta = true
@@ -414,9 +415,13 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         shifts = (delta.pos?.shifts || []) as import('./types').PosShift[]
         if (Array.isArray(delta.clients) && delta.clients.length) deltaClients = delta.clients
         if (Array.isArray(delta.cards) && delta.cards.length) deltaCards = delta.cards
+        deleteIds = (Array.isArray(delta.deletes) ? delta.deletes : [])
+          .filter((d: { kind?: string }) => d.kind === 'sale' || d.kind === 'shift')
+          .map((d: { id?: string }) => String(d.id || ''))
+          .filter(Boolean)
         nextLiteCursor = String(delta.cursor || '')
-        // Пустая дельта — только двигаем курсор
-        if (!sales.length && !shifts.length && !deltaClients && !deltaCards) {
+        // Пустая дельта (и без deletes) — только курсор
+        if (!sales.length && !shifts.length && !deltaClients && !deltaCards && !deleteIds.length) {
           if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
           return
         }
@@ -435,8 +440,16 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
 
       // Состояние читаем после await — иначе потеряем чеки, пробитые во время запроса
       const localSales = usePosStore.getState().sales
-      // Серверные чеки + локальный вес/items (не затирать qty=1 вместо кг)
-      const mergedSales = mergeSalesInbound(localSales, sales as any) as typeof localSales
+      // Дельта = append; полный GET = prune. Иначе один новый чек стирал всю историю.
+      let mergedSales = (usedDelta
+        ? (sales.length
+          ? mergeSalesInbound(localSales, sales as any, { mode: 'delta' })
+          : localSales)
+        : mergeSalesInbound(localSales, sales as any, { mode: 'full' })) as typeof localSales
+      if (deleteIds.length) {
+        const del = new Set(deleteIds)
+        mergedSales = mergedSales.filter(s => !del.has(String(s.id)))
+      }
 
       const prevIds = new Set(localSales.map(s => String(s.id)))
       const hasNewFromServer = (sales || []).some(s => !prevIds.has(String(s.id)))
@@ -493,11 +506,16 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         }
         return next
       })
-      const mergedShifts = protectShifts
+      // Дельта смен — только append (как продажи). Полный GET — prune.
+      let mergedShifts = protectShifts
         ? localShifts
-        : (usedDelta && since && !enrichedShifts.length
-          ? localShifts
-          : mergeInboundById(localShifts, enrichedShifts))
+        : usedDelta
+          ? (enrichedShifts.length ? mergeAppendById(localShifts, enrichedShifts) : localShifts)
+          : mergeInboundById(localShifts, enrichedShifts)
+      if (deleteIds.length && !protectShifts) {
+        const del = new Set(deleteIds)
+        mergedShifts = mergedShifts.filter(sh => !del.has(String(sh.id)))
+      }
 
       const salesChanged = softListSig(mergedSales) !== softListSig(localSales)
         || hasNewFromServer

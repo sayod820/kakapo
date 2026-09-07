@@ -133,11 +133,17 @@ export function mergePosSalePreferItems<T extends SaleLike>(local: T, remote: T)
   }
 }
 
-/** Входящие продажи: сначала сохранить локальный вес/items, потом merge по id/clientRef */
+/** Входящие продажи: сохранить локальный вес/items, потом merge.
+ *  mode:
+ *   - 'delta' — только дописать/обновить (частичный /sync/changes) — НЕ удалять отсутствующие
+ *   - 'full'  — полный снимок GET /pos/sales — можно убрать id, которых нет на сервере
+ */
 export function mergeSalesInbound<T extends SaleLike>(
   localList: T[],
   remoteList: T[],
+  opts?: { mode?: 'delta' | 'full' },
 ): T[] {
+  const mode = opts?.mode === 'full' ? 'full' : 'delta'
   const localById = new Map<string, T>()
   const localByRef = new Map<string, T>()
   for (const row of localList || []) {
@@ -151,6 +157,10 @@ export function mergeSalesInbound<T extends SaleLike>(
       || (remote?.clientRef ? localByRef.get(String(remote.clientRef)) : undefined)
     return local ? mergePosSalePreferItems(local, remote) : remote
   })
+  if (mode === 'delta') {
+    // Частичная дельта: никогда не prune — иначе один новый чек стирает всю историю
+    return mergeAppendById(localList, enriched)
+  }
   return mergeInboundById(localList, enriched)
 }
 

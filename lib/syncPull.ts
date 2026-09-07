@@ -190,17 +190,30 @@ export async function pullSyncChanges(opts?: {
       const cur = usePosStore.getState()
       const patch: Record<string, unknown> = {}
 
-      if (Array.isArray(pos.sales)) {
-        patch.sales = mergeSalesInbound(cur.sales, pos.sales as any)
+      if (Array.isArray(pos.sales) && (delta.full || pos.sales.length || delOf('sale').length)) {
+        let nextSales = delta.full
+          ? mergeSalesInbound(cur.sales, pos.sales as any, { mode: 'full' })
+          : (pos.sales.length
+            ? mergeSalesInbound(cur.sales, pos.sales as any, { mode: 'delta' })
+            : cur.sales)
+        const saleDel = delOf('sale')
+        if (saleDel.length) {
+          const s = new Set(saleDel)
+          nextSales = nextSales.filter((row: { id?: string | number }) => !s.has(String(row?.id ?? '')))
+        }
+        patch.sales = nextSales
       }
-      if (Array.isArray(pos.shifts)) {
+      if (Array.isArray(pos.shifts) && (delta.full || pos.shifts.length || delOf('shift').length)) {
         const incoming = pos.shifts
+        let nextShifts: typeof cur.shifts
         if (delta.full) {
-          patch.shifts = incoming
+          nextShifts = incoming as typeof cur.shifts
+        } else if (!incoming.length) {
+          nextShifts = cur.shifts
         } else {
           const merged = mergeAppendById(cur.shifts, incoming)
           // Открытые смены: счётчики нал/карта/долг с сервера не должны залипать
-          patch.shifts = merged.map((sh: any) => {
+          nextShifts = merged.map((sh: any) => {
             if (String(sh?.status || '') !== 'open') return sh
             const remote = (incoming || []).find((r: any) => String(r?.id) === String(sh?.id))
             if (!remote) return sh
@@ -224,8 +237,14 @@ export async function pullSyncChanges(opts?: {
               salesCard: Math.max(Number(remote.salesCard) || 0, Number(sh.salesCard) || 0),
               salesCredit: Math.max(Number(remote.salesCredit) || 0, Number(sh.salesCredit) || 0),
             }
-          })
+          }) as typeof cur.shifts
         }
+        const shiftDel = delOf('shift')
+        if (shiftDel.length) {
+          const s = new Set(shiftDel)
+          nextShifts = nextShifts.filter(sh => !s.has(String(sh?.id ?? '')))
+        }
+        patch.shifts = nextShifts
       }
       if (Array.isArray(pos.receipts)) {
         patch.receipts = delta.full
@@ -276,10 +295,8 @@ export async function pullSyncChanges(opts?: {
     }
 
     if (delta.cursor) await setSyncCursor(delta.cursor)
-    try {
-      const { setPosLiteSyncCursor } = await import('./localEntities')
-      if (delta.cursor) await setPosLiteSyncCursor(delta.cursor)
-    } catch { /* ignore */ }
+    // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
+    // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()

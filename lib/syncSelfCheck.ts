@@ -2,7 +2,7 @@
  * Самопроверка двустороннего синка (LWW / append / clientRef).
  * Вызов: import { runSyncSelfCheck } from '@/lib/syncSelfCheck'; runSyncSelfCheck()
  */
-import { mergeAppendById, mergeByIdLww, mergeInboundById, shouldTakeRemoteLww } from './syncConflict'
+import { mergeAppendById, mergeByIdLww, mergeInboundById, mergeSalesInbound, shouldTakeRemoteLww } from './syncConflict'
 
 export type SelfCheckResult = { ok: boolean; checks: Array<{ name: string; ok: boolean; detail?: string }> }
 
@@ -101,6 +101,22 @@ export function runSyncSelfCheck(): SelfCheckResult {
     name: 'mergeInboundById: свежий серверный id не пропадает, пока GET догоняет',
     ok: fresh.some(s => s.id === 'FIN-fresh') && fresh.some(s => s.id === 'FIN-old'),
     detail: JSON.stringify(fresh.map(s => s.id)),
+  })
+
+  const deltaKeep = mergeSalesInbound(
+    [
+      { id: 'S1', total: 10, items: [{ productId: 1, qty: 2.5, unit: 'кг' }] },
+      { id: 'S2', total: 20, items: [{ productId: 2, qty: 1, unit: 'шт' }] },
+    ] as any,
+    [{ id: 'S3', total: 30, items: [{ productId: 3, qty: 1, unit: 'шт' }] }] as any,
+    { mode: 'delta' },
+  )
+  checks.push({
+    name: 'mergeSalesInbound delta: новый чек не стирает старые',
+    ok: deltaKeep.some((s: any) => s.id === 'S1')
+      && deltaKeep.some((s: any) => s.id === 'S2')
+      && deltaKeep.some((s: any) => s.id === 'S3'),
+    detail: JSON.stringify(deltaKeep.map((s: any) => s.id)),
   })
 
   const ok = checks.every(c => c.ok)
