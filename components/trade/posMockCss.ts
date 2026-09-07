@@ -1012,15 +1012,22 @@ export const POS_MOCK_CSS = `
   .p-grid .p-photo img{content-visibility:auto;}
   .p-weight-tag{position:absolute;top:6px;left:6px;font-size:9px;font-weight:800;background:rgba(3,11,5,.78);color:#F1FBF3;padding:2px 7px;border-radius:7px;z-index:1;}
   .pos-root[data-theme="light"] .p-weight-tag{background:rgba(12,26,16,.88);color:#FFFFFF;}
-  .p-pack{
-    display:inline-flex;align-items:center;margin:0 0 5px;padding:3px 9px;border-radius:8px;
-    font-size:13px;font-weight:900;line-height:1.2;letter-spacing:.02em;
-    font-variant-numeric:tabular-nums;
+  /* Фасовка на фото — не рвёт текст под названием */
+  .p-pack-tag{
+    position:absolute;left:6px;bottom:6px;z-index:1;
+    max-width:calc(100% - 12px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:11.5px;font-weight:900;line-height:1.15;letter-spacing:.02em;
+    font-variant-numeric:tabular-nums;padding:3px 8px;border-radius:8px;
+    box-shadow:0 1px 4px rgba(0,0,0,.12);
   }
-  .p-pack.is-vol{color:#0b6e8a;background:rgba(31,180,210,.14);border:1px solid rgba(31,160,190,.32);}
-  .p-pack.is-wt{color:#9a6200;background:rgba(255,184,0,.14);border:1px solid rgba(255,184,0,.32);}
-  .pos-root[data-theme="light"] .p-pack.is-vol{color:#05607a;background:rgba(14,140,170,.1);border-color:rgba(14,110,140,.22);}
-  .pos-root[data-theme="light"] .p-pack.is-wt{color:#8a5800;background:rgba(255,184,0,.12);border-color:rgba(200,140,20,.28);}
+  .p-pack-tag.is-vol{color:#E8FBFF;background:rgba(12,100,128,.9);border:1px solid rgba(140,220,240,.35);}
+  .p-pack-tag.is-wt{color:#FFF8E8;background:rgba(120,78,8,.88);border:1px solid rgba(255,200,80,.4);}
+  .pos-root[data-theme="light"] .p-pack-tag.is-vol{
+    color:#04566e;background:rgba(232,248,252,.96);border-color:rgba(14,110,140,.28);
+  }
+  .pos-root[data-theme="light"] .p-pack-tag.is-wt{
+    color:#7a4a00;background:rgba(255,248,232,.96);border-color:rgba(200,140,20,.35);
+  }
   .pos-root button.p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;transition:border-color .12s;contain:content;}
   .pos-root button.p-tile:hover{border-color:var(--accent);}
   .pos-root button.p-tile:active{transform:scale(.98);}

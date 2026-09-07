@@ -886,13 +886,13 @@ const PosProductTile = memo(function PosProductTile({
           (p.e || '📦')
         )}
         {weighted && <span className="p-weight-tag">⚖ {displaySellUnit(p)}</span>}
+        {!weighted && packLabel ? (
+          <span className={`p-pack-tag ${packIsVolume ? 'is-vol' : 'is-wt'}`} title="Фасовка / объём">
+            {packLabel}
+          </span>
+        ) : null}
       </div>
       <div className="p-name">{p.name}</div>
-      {!weighted && packLabel ? (
-        <div className={`p-pack ${packIsVolume ? 'is-vol' : 'is-wt'}`} title="Фасовка / объём из карточки">
-          {packLabel}
-        </div>
-      ) : null}
       <div className="p-codes">
         {plu ? <span className="p-plu">PLU {plu}</span> : null}
         {art ? <span>арт. {art}</span> : null}
