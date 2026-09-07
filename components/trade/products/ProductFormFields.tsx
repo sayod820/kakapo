@@ -161,13 +161,23 @@ export default function ProductFormFields({
         <div className="k-field">
           <label>Тип продажи</label>
           <select className="k-sel" value={form.sellType} onChange={e => setSellType(e.target.value as SellType)}>
-            <option value="piece">Поштучно</option>
-            <option value="weight">На развес (граммы)</option>
+            <option value="piece">Поштучно (бутылка / упаковка)</option>
+            <option value="weight">На развес (граммы / кг)</option>
           </select>
         </div>
         <div className="k-field">
-          <label>Единица</label>
-          <input className="k-inp" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} placeholder={isWeight ? 'кг' : 'шт'} />
+          <label>{isWeight ? 'Единица цены' : 'Фасовка / объём'}</label>
+          <input
+            className="k-inp"
+            value={form.unit}
+            onChange={e => setForm({ ...form, unit: e.target.value })}
+            placeholder={isWeight ? 'кг' : 'шт · 1/3 л · 500 мл · 10 кг'}
+          />
+          <div className="k-hint">
+            {isWeight
+              ? 'Для развеса обычно «кг». Цена в партии — за 1 кг.'
+              : 'Пишите объём упаковки: 1/3 л, 500 мл, 400 г, 10 кг. На кассе цена за шт, объём видно отдельно.'}
+          </div>
         </div>
         <div className="k-field">
           <label>Бренд</label>
@@ -190,13 +200,17 @@ export default function ProductFormFields({
 
       <div className="k-hint" style={{ marginBottom: 8 }}>Цена, остаток, себестоимость и опт — в «📦 Партии»</div>
 
-      {isWeight && (
+      {isWeight ? (
         <div className="k-product-edit-note">
-          <b>Расчёт по граммам</b>
-          <span>В кассе и на весах — по граммам. Цена за 1 кг в партии прихода.</span>
+          <b>Весовой товар</b>
+          <span>Тип «На развес» · PLU для весов · в кассе пробитие в кг/граммах. Не путать с фасовкой «10 кг» у штучного мешка.</span>
+        </div>
+      ) : (
+        <div className="k-product-edit-note">
+          <b>Штучный + объём</b>
+          <span>В «Фасовка / объём» укажите 1/3 л или 500 мл — на плитке кассы объём будет крупно и цветом. Остаток считается в шт.</span>
         </div>
       )}
-
       <div className="k-field">
         <label>Штрихкоды</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

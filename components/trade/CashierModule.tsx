@@ -425,6 +425,29 @@ function displaySellUnit(p: Product): string {
   return u
 }
 
+/**
+ * Фасовка/объём из карточки (1/3 л, 500 мл, 10 кг), когда продажа штучная.
+ * На плитке показываем отдельно крупно — чтобы сразу отличить объём.
+ */
+function productPackLabel(p: Product): string | undefined {
+  if (isWeighted(p)) return undefined
+  const raw = String(p.unit || '').trim()
+  if (!raw) return undefined
+  const norm = raw.toLowerCase().replace(/\s+/g, '')
+  if (!norm || norm === 'шт' || norm === 'pcs' || norm === 'piece' || norm === 'ед') return undefined
+  // «1/3 л», «500 мл», «0.5л», «10 кг», «400 г»
+  const hasMeasure = /(л|мл|литр|кг|г|гр|ml|kg)\b/i.test(raw) || /[лкгг]$/i.test(norm)
+  const hasAmount = /\d/.test(raw) || /[½⅓⅔¼¾]/.test(raw) || /\d+\s*\/\s*\d+/.test(raw)
+  if (hasMeasure && hasAmount) return displaySellUnit({ ...p, unit: raw } as Product)
+  return undefined
+}
+
+/** Единица в цене на плитке: при фасовке «1/3 л» цена за шт */
+function tilePriceUnit(p: Product): string {
+  if (productPackLabel(p)) return 'шт'
+  return displaySellUnit(p)
+}
+
 /** Единица в строке чека: для веса всегда кг */
 function cartLineUnit(line: Pick<CartLine, 'unit' | 'weightKg'>): string {
   if (line.weightKg != null) return 'кг'
@@ -791,8 +814,10 @@ const PosProductTile = memo(function PosProductTile({
   onToggleFav,
 }: PosTileProps) {
   const weighted = isWeighted(p)
-  const sellUnit = displaySellUnit(p)
+  const packLabel = productPackLabel(p)
+  const sellUnit = tilePriceUnit(p)
   const stockUnit = stockUnitLabel(p)
+  const packIsVolume = !!packLabel && /(л|мл|литр|ml)\b/i.test(packLabel)
   const barcode = productBarcodes(p)[0] || ''
   const art = String(p.art || '').trim()
   const plu = String(p.plu || '').replace(/\D/g, '') || String(p.plu || '').trim()
@@ -860,9 +885,14 @@ const PosProductTile = memo(function PosProductTile({
         ) : photo ? null : (
           (p.e || '📦')
         )}
-        {weighted && <span className="p-weight-tag">⚖ {sellUnit}</span>}
+        {weighted && <span className="p-weight-tag">⚖ {displaySellUnit(p)}</span>}
       </div>
       <div className="p-name">{p.name}</div>
+      {!weighted && packLabel ? (
+        <div className={`p-pack ${packIsVolume ? 'is-vol' : 'is-wt'}`} title="Фасовка / объём из карточки">
+          {packLabel}
+        </div>
+      ) : null}
       <div className="p-codes">
         {plu ? <span className="p-plu">PLU {plu}</span> : null}
         {art ? <span>арт. {art}</span> : null}
@@ -883,6 +913,9 @@ const PosProductTile = memo(function PosProductTile({
   && prev.onToggleFav === next.onToggleFav
   && Number(prev.product.price) === Number(next.product.price)
   && prev.product.name === next.product.name
+  && prev.product.unit === next.product.unit
+  && prev.product.sellType === next.product.sellType
+  && Number(prev.product.unitGrams || 0) === Number(next.product.unitGrams || 0)
 ))
 
 /** Сетка товаров: все позиции в списке, в DOM только видимые ряды (без пропажи при скролле) */
