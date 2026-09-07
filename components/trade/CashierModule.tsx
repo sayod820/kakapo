@@ -426,8 +426,8 @@ function displaySellUnit(p: Product): string {
 }
 
 /**
- * Фасовка/объём из карточки (1/3 л, 500 мл, 10 кг), когда продажа штучная.
- * На плитке показываем отдельно крупно — чтобы сразу отличить объём.
+ * Фасовка / размер из карточки для штучного товара.
+ * На плитке — бейдж на фото; в цене всегда «ЅМ/шт».
  */
 function productPackLabel(p: Product): string | undefined {
   if (isWeighted(p)) return undefined
@@ -435,19 +435,35 @@ function productPackLabel(p: Product): string | undefined {
   if (!raw) return undefined
   const norm = raw.toLowerCase().replace(/\s+/g, '')
   if (!norm || norm === 'шт' || norm === 'pcs' || norm === 'piece' || norm === 'ед') return undefined
-  // «1/3 л», «500 мл», «10 кг», «400 г», «р. 42», «30 см»
-  const hasMeasure = /(л|мл|литр|кг|г|гр|ml|kg|см|размер|^р\.?\s|уп)\b/i.test(raw)
-    || /[лкгг]$/i.test(norm)
-    || /^р\./i.test(raw)
+
+  // Только число «5» → размер 5 (памперсы и т.п.)
+  if (/^\d+([.,]\d+)?$/.test(raw)) return `р. ${raw.replace(',', '.')}`
+
+  // Ошибка ввода «4 шт» / «4шт» — это размер, не единица продажи
+  const asSizeSht = /^(\d+)\s*шт\.?$/i.exec(raw)
+  if (asSizeSht) return `р. ${asSizeSht[1]}`
+
+  // «р. 5» / «размер 5» / «5 размер»
+  const sizePref = /^(?:р\.?|размер)\s*[.:]?\s*(\d+(?:[.,]\d+)?)$/iu.exec(raw)
+  if (sizePref) return `р. ${sizePref[1].replace(',', '.')}`
+  const sizeSuf = /^(\d+(?:[.,]\d+)?)\s*размер$/iu.exec(raw)
+  if (sizeSuf) return `р. ${sizeSuf[1].replace(',', '.')}`
+
+  // «1/3 л», «500 мл», «10 кг», «400 г», «30 см»
+  const hasMeasure = /(л|мл|литр|кг|г|гр|ml|kg|см|уп)\b/i.test(raw)
+    || /(?:л|мл|кг|г|гр|см|уп)$/i.test(norm)
   const hasAmount = /\d/.test(raw) || /[½⅓⅔¼¾]/.test(raw) || /\d+\s*\/\s*\d+/.test(raw)
-  if (hasMeasure && hasAmount) return displaySellUnit({ ...p, unit: raw } as Product)
+  if (hasMeasure && hasAmount) {
+    return displaySellUnit({ ...p, unit: raw } as Product)
+  }
+  // «г» / «л» без числа — не показываем
   return undefined
 }
 
-/** Единица в цене на плитке: при фасовке «1/3 л» цена за шт */
+/** У штучных на плитке цена всегда за шт — размер/фасовка только в бейдже */
 function tilePriceUnit(p: Product): string {
-  if (productPackLabel(p)) return 'шт'
-  return displaySellUnit(p)
+  if (isWeighted(p)) return displaySellUnit(p)
+  return 'шт'
 }
 
 /** Единица в строке чека: для веса всегда кг */
@@ -820,6 +836,7 @@ const PosProductTile = memo(function PosProductTile({
   const sellUnit = tilePriceUnit(p)
   const stockUnit = stockUnitLabel(p)
   const packIsVolume = !!packLabel && /(л|мл|литр|ml)\b/i.test(packLabel)
+  const packIsSize = !!packLabel && /^р\./i.test(packLabel)
   const barcode = productBarcodes(p)[0] || ''
   const art = String(p.art || '').trim()
   const plu = String(p.plu || '').replace(/\D/g, '') || String(p.plu || '').trim()
@@ -889,7 +906,10 @@ const PosProductTile = memo(function PosProductTile({
         )}
         {weighted && <span className="p-weight-tag">⚖ {displaySellUnit(p)}</span>}
         {!weighted && packLabel ? (
-          <span className={`p-pack-tag ${packIsVolume ? 'is-vol' : 'is-wt'}`} title="Фасовка / объём">
+          <span
+            className={`p-pack-tag ${packIsVolume ? 'is-vol' : packIsSize ? 'is-size' : 'is-wt'}`}
+            title="Размер / фасовка"
+          >
             {packLabel}
           </span>
         ) : null}
@@ -5615,7 +5635,7 @@ export default function CashierModule({
           qty: weighted ? 1 : left,
           weightKg: weighted ? left : undefined,
           stock: Number(p?.stock) || 9999,
-          unit: weighted ? 'кг' : (p ? displaySellUnit(p) : 'шт'),
+          unit: weighted ? 'кг' : (p ? tilePriceUnit(p) : 'шт'),
         } as CartLine
       })
       .filter((x): x is CartLine => !!x)
@@ -5990,7 +6010,7 @@ export default function CashierModule({
         price,
         qty: 1,
         stock: stockHint,
-        unit: displaySellUnit(p),
+        unit: tilePriceUnit(p),
         art,
         barcode,
         weightKg: 0,
@@ -6037,7 +6057,7 @@ export default function CashierModule({
           price,
           qty: 1,
           stock: stockHint,
-        unit: displaySellUnit(p),
+        unit: tilePriceUnit(p),
           art,
           barcode,
           weightKg,
@@ -6100,7 +6120,7 @@ export default function CashierModule({
           price,
           qty: 1,
           stock: stockHint,
-          unit: displaySellUnit(p),
+          unit: tilePriceUnit(p),
           art,
           barcode,
           receiptId,
@@ -7024,7 +7044,7 @@ export default function CashierModule({
           const discPct = Math.min(90, Math.max(0, Number(l.discPct) || 0))
           const discAmount = Math.round(Math.max(0, gross - net) * 100) / 100
           const unit = cartLineUnit(l)
-          const pack = cartLinePack(l, p?.unit)
+          const pack = (p ? productPackLabel(p) : undefined) || cartLinePack(l, p?.unit)
           return {
             productId: l.productId,
             productName: l.name,
@@ -12239,7 +12259,7 @@ export default function CashierModule({
                     const weightedLine = isSaleLineWeighted(line, p)
                     const returnStep = returnQtyStep(weightedLine)
                     const unitLabel = String(line.unit || '').trim()
-                      || (p ? (isWeighted(p) ? 'кг' : displaySellUnit(p)) : '')
+                      || (p ? (isWeighted(p) ? 'кг' : tilePriceUnit(p)) : '')
                       || (Number.isInteger(Number(line.qty)) ? 'шт' : 'кг')
                     const qtyLabel = (n: number) => formatReturnQty(n, unitLabel, weightedLine)
                     const codes = productCodesForId(line.productId)

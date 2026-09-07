@@ -66,8 +66,8 @@ export function parsePackFields(unit: string): { amount: string; measure: PackMe
       return { amount, measure: measureRaw }
     }
     if (measureRaw) return { amount, measure: measureRaw }
-    // Только число «5» — размер без единицы (пользователь выберет г/л…)
-    return { amount, measure: 'г' }
+    // Только число «5» — это размер (памперсы и т.п.), не граммы
+    return { amount, measure: 'размер' }
   }
   return { amount: '', measure: 'шт' }
 }

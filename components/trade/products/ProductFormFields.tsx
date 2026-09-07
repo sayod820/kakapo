@@ -118,7 +118,8 @@ export default function ProductFormFields({
 
   function setPackAmount(amount: string) {
     const a = sanitizePackAmount(amount)
-    const measure = pack.measure === 'шт' ? 'г' : pack.measure
+    // Если стояло «шт» и вводят число — это размер, не граммы
+    const measure = pack.measure === 'шт' ? 'размер' : pack.measure
     setForm({ ...form, unit: composePackUnit(a, measure) })
   }
 

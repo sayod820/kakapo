@@ -1022,11 +1022,15 @@ export const POS_MOCK_CSS = `
   }
   .p-pack-tag.is-vol{color:#E8FBFF;background:rgba(12,100,128,.9);border:1px solid rgba(140,220,240,.35);}
   .p-pack-tag.is-wt{color:#FFF8E8;background:rgba(120,78,8,.88);border:1px solid rgba(255,200,80,.4);}
+  .p-pack-tag.is-size{color:#F3EEFF;background:rgba(80,50,140,.9);border:1px solid rgba(180,150,255,.4);}
   .pos-root[data-theme="light"] .p-pack-tag.is-vol{
     color:#04566e;background:rgba(232,248,252,.96);border-color:rgba(14,110,140,.28);
   }
   .pos-root[data-theme="light"] .p-pack-tag.is-wt{
     color:#7a4a00;background:rgba(255,248,232,.96);border-color:rgba(200,140,20,.35);
+  }
+  .pos-root[data-theme="light"] .p-pack-tag.is-size{
+    color:#4a2d8a;background:rgba(240,234,255,.96);border-color:rgba(100,70,180,.28);
   }
   .pos-root button.p-tile{position:relative;background:var(--surface);border:1.5px solid var(--border);border-radius:16px;padding:12px;text-align:left;transition:border-color .12s;contain:content;}
   .pos-root button.p-tile:hover{border-color:var(--accent);}
