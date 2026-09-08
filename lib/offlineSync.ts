@@ -65,6 +65,8 @@ let reconnectAttempt = 0
 let listenersBound = false
 let syncLock = false
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
+/** Пока шёл sync — снова изменили очередь/данные → сразу ещё один круг */
+let syncAgainNeeded = false
 
 /** Слабый интернет: ping дольше; при очереди крутим часто, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
@@ -76,6 +78,31 @@ const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
+/** После локального изменения — почти сразу (UI кадр успевает отрисоваться) */
+const KICK_AFTER_CHANGE_MS = 80
+
+/**
+ * Мгновенный синк после любого изменения (очередь / локальная запись).
+ * Не блокирует UI: короткий debounce + если sync уже идёт — ещё один круг после.
+ */
+export function kickSyncAfterChange(delayMs = KICK_AFTER_CHANGE_MS): void {
+  try {
+    // ПК: отдельный SYNC-канал (main) — UI не делает flush
+    void import('./syncChannel').then(async (m) => {
+      if (m.hasDesktopSyncChannel()) {
+        m.bindDesktopSyncChannelListeners()
+        // короткий debounce в UI только чтобы склеить пачку записей в очередь
+        useOfflineSync.getState().scheduleSyncDebounced(delayMs)
+        return
+      }
+      useOfflineSync.getState().scheduleSyncDebounced(delayMs)
+    }).catch(() => {
+      useOfflineSync.getState().scheduleSyncDebounced(delayMs)
+    })
+  } catch {
+    try { useOfflineSync.getState().scheduleSyncDebounced(delayMs) } catch { /* store ещё не готов */ }
+  }
+}
 
 /** Реальная проверка связи с API — не зависит от navigator.onLine */
 async function pingOnce(url: string, timeoutMs: number): Promise<boolean> {
@@ -142,64 +169,6 @@ async function refetchEverything() {
     syncClientsFromApi(),
     syncCardsFromApi(),
   ])
-}
-
-let inboundCatchupTimer: ReturnType<typeof setTimeout> | null = null
-let inboundCatchupRunning = false
-
-/**
- * Тот же inbound после flush (дельта + layers + heartbeat),
- * но старт вне оплаты и без удержания syncing на UI.
- * withLayers: после flush очереди — да; периодический syncNow без pending — как раньше без layers.
- */
-function scheduleInboundCatchup(
-  get: () => OfflineSyncState,
-  _set: (p: Partial<OfflineSyncState>) => void,
-  opts?: { withLayers?: boolean },
-) {
-  const withLayers = !!opts?.withLayers
-  if (inboundCatchupTimer) clearTimeout(inboundCatchupTimer)
-  inboundCatchupTimer = setTimeout(() => {
-    inboundCatchupTimer = null
-    void (async () => {
-      if (inboundCatchupRunning) return
-      if (isCashierPaymentCritical()) {
-        scheduleInboundCatchup(get, _set, opts)
-        return
-      }
-      if (get().pending > 0 || !get().online) return
-      inboundCatchupRunning = true
-      try {
-        const { syncBreath } = await import('./syncUiYield')
-        await syncBreath()
-        try {
-          const { pullSyncChanges } = await import('./syncPull')
-          await Promise.race([
-            pullSyncChanges(),
-            new Promise(resolve => setTimeout(resolve, withLayers ? 12000 : 10000)),
-          ])
-        } catch {
-          if (withLayers) {
-            try { await refetchEverything() } catch { /* следующий цикл */ }
-          }
-        }
-        if (withLayers) {
-          await syncBreath()
-          try {
-            const { pullStockLayersFromServer } = await import('./stockLayersLocal')
-            await pullStockLayersFromServer({ bumpProducts: true })
-          } catch { /* ignore */ }
-        }
-        try { await markLocalSyncAt() } catch { /* ignore */ }
-        try {
-          const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
-          void sendDeviceHeartbeat({ force: withLayers })
-        } catch { /* ignore */ }
-      } finally {
-        inboundCatchupRunning = false
-      }
-    })()
-  }, 400)
 }
 
 function nextBackoffMs() {
@@ -294,24 +263,7 @@ function withWatchdog<T>(promise: Promise<T>, ms: number): Promise<T> {
   })
 }
 
-export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
-  const set: typeof setRaw = ((partial: any, replace?: any) => {
-    setRaw(partial, replace)
-    try {
-      const s = get()
-      void import('./connectivityManager').then(m => {
-        m.notifyConnectivityChanged({
-          online: s.online,
-          syncing: s.syncing,
-          pending: s.pending,
-          failed: s.failed,
-          lastError: s.lastError,
-        })
-      })
-    } catch { /* ignore */ }
-  }) as typeof setRaw
-
-  return {
+export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   online: isOnline(),
   pending: 0,
   failed: 0,
@@ -326,25 +278,26 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
     const list = await getPending()
     set({
       items: list,
-      pending: list.filter(r => !r.failed && r.status !== 'failed').length,
-      failed: list.filter(r => !!r.failed || r.status === 'failed').length,
+      pending: list.filter(r => !r.failed).length,
+      failed: list.filter(r => r.failed).length,
     })
   },
 
   flush: async () => {
     if (get().syncing) return
+    try {
+      const { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } = await import('./syncChannel')
+      if (hasDesktopSyncChannel()) {
+        bindDesktopSyncChannelListeners()
+        set({ syncing: true, lastError: null })
+        await kickDesktopSyncChannel()
+        return
+      }
+    } catch { /* fallback */ }
     // Не блокируем flush по navigator.onLine — сначала пробуем отправить
     set({ syncing: true, lastError: null, progress: { done: 0, total: Math.max(1, get().pending) } })
-    let lastProgAt = 0
     try {
-      const res = await flushQueue((done, total) => {
-        const now = Date.now()
-        // Реже трогаем React — касса не дёргается на каждый чек из очереди
-        if (done >= total || done <= 1 || now - lastProgAt >= 280) {
-          lastProgAt = now
-          set({ progress: { done, total } })
-        }
-      })
+      const res = await flushQueue((done, total) => set({ progress: { done, total } }))
       let online = true
       if (res.stopped) {
         online = await pingServer({ quick: true })
@@ -363,9 +316,26 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
       })
       await get().refresh()
       if (res.sent > 0 || (res.remaining === 0 && online)) {
-        // Входящий pull — тот же, но не держим UI: старт после кадра / вне оплаты
+        // Только после пустой/успешной очереди — входящий pull (не overwrite поверх pending)
         if (get().pending === 0 && online) {
-          void scheduleInboundCatchup(get, set, { withLayers: true })
+          try {
+            const { pullSyncChanges } = await import('./syncPull')
+            await Promise.race([
+              pullSyncChanges(),
+              new Promise(resolve => setTimeout(resolve, 12000)),
+            ])
+          } catch {
+            try { await refetchEverything() } catch { /* следующий цикл */ }
+          }
+          try {
+            const { pullStockLayersFromServer } = await import('./stockLayersLocal')
+            await pullStockLayersFromServer({ bumpProducts: true })
+          } catch { /* ignore */ }
+          try { await markLocalSyncAt() } catch { /* ignore */ }
+          try {
+            const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+            void sendDeviceHeartbeat({ force: true })
+          } catch { /* ignore */ }
         }
       }
       if (get().pending > 0 || get().failed > 0) {
@@ -389,15 +359,15 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
   queueSale: async (payload) => {
     await enqueueSale(payload)
     void get().refresh()
-    // Сразу пробуем уйти на сервер (не ждём 10с опроса)
-    scheduleReconnect(get, set, 600)
+    // Сразу на сервер — не ждём таймер опроса
+    get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
     // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
     void get().refresh()
-    scheduleReconnect(get, set, 600)
+    get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
     return row
   },
 
@@ -414,26 +384,46 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
     await get().refresh()
   },
 
-  scheduleSyncDebounced: (delayMs = 450) => {
+  scheduleSyncDebounced: (delayMs = KICK_AFTER_CHANGE_MS) => {
+    if (syncLock || get().syncing) syncAgainNeeded = true
     if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
     syncDebounceTimer = setTimeout(() => {
       syncDebounceTimer = null
       void get().syncNow()
-    }, delayMs)
+    }, Math.max(0, delayMs))
   },
 
   syncNow: async () => {
+    // Desktop: очередь и HTTP уходят в отдельный SYNC-канал (main process)
+    try {
+      const { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } = await import('./syncChannel')
+      if (hasDesktopSyncChannel()) {
+        bindDesktopSyncChannelListeners()
+        if (isCashierPaymentCritical()) {
+          syncAgainNeeded = true
+          scheduleReconnect(get, set, 1500)
+          return
+        }
+        await get().refresh()
+        const ok = await kickDesktopSyncChannel()
+        if (ok) return
+        // канал не ответил — fallback на старый путь ниже
+      }
+    } catch { /* fallback */ }
+
     if (syncLock || get().syncing) {
-      scheduleReconnect(get, set, 2000)
+      syncAgainNeeded = true
       return
     }
     // Только оплата/пробитие — полный стоп. Поиск кассы НЕ блокирует отправку очереди.
     if (isCashierPaymentCritical()) {
-      scheduleReconnect(get, set, 2000)
+      syncAgainNeeded = true
+      scheduleReconnect(get, set, 1500)
       return
     }
 
     syncLock = true
+    syncAgainNeeded = false
     const run = async () => {
       await get().refresh()
       const hasWork = get().pending > 0 || get().failed > 0
@@ -467,18 +457,15 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
         return
       }
 
-      // Входящие чеки: при поиске не await (UI свободен), при простое — как раньше с лимитом.
+      // Входящие чеки с сервера — даже при фокусе в поиске (иначе браузер→ПК не доходит).
+      // Блокируем только реальное пробитие/оплату.
       if (alive && !isCashierPaymentCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
-          if (searchBusy) {
-            void softSyncPosAfterSale({ force: true })
-          } else {
-            await Promise.race([
-              softSyncPosAfterSale({ force: true }),
-              new Promise(resolve => setTimeout(resolve, 8000)),
-            ])
-          }
+          await Promise.race([
+            softSyncPosAfterSale({ force: true }),
+            new Promise(resolve => setTimeout(resolve, 8000)),
+          ])
         } catch { /* ignore */ }
       }
 
@@ -498,8 +485,18 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
         }
       } else if (alive && !searchBusy) {
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
-        // Тот же pull — в фоне, не блокируя syncNow/UI
-        void scheduleInboundCatchup(get, set, { withLayers: false })
+        try {
+          const { pullSyncChanges } = await import('./syncPull')
+          await Promise.race([
+            pullSyncChanges(),
+            new Promise(resolve => setTimeout(resolve, 10000)),
+          ])
+        } catch { /* ignore */ }
+        try { await markLocalSyncAt() } catch { /* ignore */ }
+        try {
+          const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+          void sendDeviceHeartbeat()
+        } catch { /* ignore */ }
       }
 
       if (get().pending > 0 || get().failed > 0 || !get().online) {
@@ -519,6 +516,11 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
     } finally {
       syncLock = false
       if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
+      // Пока синкали — снова что-то изменилось → сразу ещё круг (не крутим вечный loop по pending)
+      if (syncAgainNeeded) {
+        syncAgainNeeded = false
+        get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
+      }
     }
   },
 
@@ -648,6 +650,9 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
   start: () => {
     if (get().started || typeof window === 'undefined') return
     set({ started: true, online: isOnline() })
+    try {
+      void import('./syncChannel').then(m => m.bindDesktopSyncChannelListeners())
+    } catch { /* ignore */ }
 
     const reconnect = async () => {
       if (isCashierPaymentCritical()) {
@@ -684,14 +689,7 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
       })
     }
 
-    void get().refresh().then(async () => {
-      try {
-        const { recoverStuckQueueOps, startSyncEngine } = await import('./syncEngine')
-        await recoverStuckQueueOps()
-        startSyncEngine()
-      } catch { /* engine optional */ }
-      void reconnect()
-    })
+    void get().refresh().then(() => { void reconnect() })
 
     if (intervalId) clearInterval(intervalId)
     intervalId = setInterval(() => {
@@ -733,17 +731,7 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
           return
         }
 
-        // Очередь / офлайн — догон. Если Sync Engine уже крутит flush — не дублируем syncNow.
-        try {
-          const { getSyncEngineStatus } = await import('./syncEngine')
-          if (getSyncEngineStatus().started) {
-            try {
-              const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
-              void sendDeviceHeartbeat({ syncing: get().syncing })
-            } catch { /* ignore */ }
-            return
-          }
-        } catch { /* engine optional */ }
+        // Очередь / офлайн — частый догон (критичные пути не трогаем)
         await get().refresh()
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
@@ -753,5 +741,4 @@ export const useOfflineSync = create<OfflineSyncState>((setRaw, get) => {
       })()
     }, POLL_BUSY_MS)
   },
-  }
-})
+}))

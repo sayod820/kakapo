@@ -3,8 +3,6 @@
  * товар/клиента, который уже стёрли на сервере.
  */
 
-import { appendServerChange } from './serverChanges.js'
-
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
 const LIMIT = 8000
 
@@ -22,11 +20,6 @@ export function recordSyncDelete(db, kind, id) {
   const idx = rows.findIndex(r => String(r.kind) === k && String(r.id) === i)
   if (idx >= 0) rows.splice(idx, 1)
   rows.push({ kind: k, id: i, atIso })
-  appendServerChange(db, {
-    entityType: k,
-    entityId: i,
-    operation: 'delete',
-  })
   pruneSyncDeletes(db)
 }
 

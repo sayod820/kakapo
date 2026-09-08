@@ -13,10 +13,8 @@ import {
   DATA_DIR,
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
-import { buildSyncChanges, getSyncSeq } from './syncChanges.js'
+import { buildSyncChanges } from './syncChanges.js'
 import { recordSyncDelete } from './syncDeletes.js'
-import { appendServerChange } from './serverChanges.js'
-import { applySyncBatchOp } from './syncBatch.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import {
@@ -303,36 +301,6 @@ function rememberOpRef(kind, clientRef, result) {
   const rows = ensureOpRefs()
   rows.push({ clientRef: ref, kind, result, createdAtIso: new Date().toISOString() })
   pruneOpRefs()
-  const entityId = result?.id != null
-    ? result.id
-    : (result?.financeMove?.id != null ? result.financeMove.id : ref)
-  appendServerChange(db, {
-    entityType: kind,
-    entityId,
-    operation: 'upsert',
-  })
-  void rememberProcessedOpPg(kind, ref, entityId, result)
-}
-
-/** Mirror opRefs into PG processed_operations when DATABASE_URL is set (best-effort). */
-async function rememberProcessedOpPg(kind, clientRef, entityId, result) {
-  try {
-    const { isPostgresEnabled, getPool } = await import('./pg/client.js')
-    if (!isPostgresEnabled()) return
-    const pool = await getPool()
-    const operationId = `${kind}:${clientRef}`
-    await pool.query(
-      `INSERT INTO processed_operations (operation_id, entity_type, entity_id, result)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (operation_id) DO NOTHING`,
-      [
-        operationId,
-        String(kind || ''),
-        entityId != null ? String(entityId) : null,
-        JSON.stringify(result ?? null),
-      ],
-    )
-  } catch { /* JSON snapshot / opRefs remain source of truth */ }
 }
 
 const { replyIfKnownOp, remember: rememberKnownOp } = makeIdempotency(findOpRef, rememberOpRef)
@@ -943,90 +911,15 @@ app.get('/health', (_req, res) => {
 })
 
 /** Двусторонний синк: дельты после outbox flush на кассе.
- *  ?scope=pos-lite — только чеки/смены/клиенты/карты (лёгкий фон кассы).
- *  ?afterSequence=N | ?seq=N — change-log rows с sequence > N. */
+ *  ?scope=pos-lite — только чеки/смены/клиенты/карты (лёгкий фон кассы). */
 app.get('/sync/changes', (req, res) => {
   try {
     const since = String(req.query.since || '').trim()
     const historyDays = Number(req.query.historyDays)
     const scope = String(req.query.scope || '').trim()
-    const afterSequence = Number(req.query.afterSequence || req.query.seq || 0)
-    res.json(buildSyncChanges(db, { since, historyDays, scope, afterSequence }))
+    res.json(buildSyncChanges(db, { since, historyDays, scope }))
   } catch (e) {
     res.status(500).json({ detail: e?.message || 'sync/changes failed' })
-  }
-})
-
-/**
- * Batch apply outbox ops (max 50). Dispatch всех QueueKind через syncBatch.js;
- * сложные HTTP-only → { ok:false, fallback:true } — клиент шлёт sendOp.
- */
-app.post('/sync/batch', (req, res) => {
-  try {
-    const ops = Array.isArray(req.body?.ops) ? req.body.ops : []
-    if (ops.length === 0) {
-      return res.json({ results: [], sequence: getSyncSeq(db) })
-    }
-    if (ops.length > 50) {
-      return res.status(400).json({ detail: 'Максимум 50 операций в batch' })
-    }
-    const helpers = {
-      findOpRef,
-      rememberKnownOp,
-      persist,
-      broadcastPosUpdate,
-      broadcastProduct,
-      broadcastCategory,
-      notifyCrmChange,
-      recordSyncDelete,
-      createPosSale,
-      openPosShift,
-      closePosShift,
-      returnPosSale,
-      createFinanceMove,
-      deleteFinanceMove,
-      applyDebtRepayToShift,
-      applyDebtRepayment,
-      convertVaultCardToCash,
-      convertVaultCashToCard,
-      createStockReceipt,
-      updateStockReceipt,
-      deleteStockReceipt,
-      createStockWriteoff,
-      updateStockWriteoff,
-      deleteStockWriteoff,
-      updateProductStockLayer,
-      deleteProductStockLayer,
-      createStockRevision,
-      updateStockRevision,
-      deleteStockRevision,
-      createSupplier,
-      updateSupplier,
-      deleteSupplier,
-      createSupplierPayment,
-      deleteSupplierPayment,
-      createExpense,
-      deleteExpense,
-      createPosPoint,
-      updatePosPoint,
-      deletePosPoint,
-      createCashier,
-      updateCashier,
-      setProductStockExact,
-      removeCategoryTree,
-    }
-    const results = []
-    for (const op of ops) {
-      results.push(applySyncBatchOp(db, {
-        kind: op?.kind,
-        clientRef: op?.clientRef,
-        payload: op?.payload,
-        localId: op?.localId,
-      }, helpers))
-    }
-    res.json({ results, sequence: getSyncSeq(db) })
-  } catch (e) {
-    res.status(500).json({ detail: e?.message || 'sync/batch failed' })
   }
 })
 

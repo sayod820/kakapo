@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session, utilityProcess } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, nativeTheme, Menu, dialog, session } = require('electron')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -21,8 +21,9 @@ const {
 } = require('./receiptTemplate.cjs')
 const { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl, invalidateUiCacheOnAppUpdate } = require('./localServer.cjs')
 const { installUpdaterIpc } = require('./updater.cjs')
-const { installLocalDbIpc, initLocalDb } = require('./localDb.cjs')
+const { installLocalDbIpc, initLocalDb, getSyncDbBridge } = require('./localDb.cjs')
 const { syncOfflineUi } = require('./uiSync.cjs')
+const { installSyncChannelHost } = require('./syncChannelHost.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = (() => {
@@ -48,10 +49,6 @@ let uiVersionPollTimer = null
 let remoteRecoveryTimer = null
 let lastUiVersion = ''
 let offlineUiSyncTimer = null
-/** UtilityProcess для HTTP sync (вне renderer) */
-let syncWorkerChild = null
-let syncWorkerReqSeq = 0
-const syncWorkerPending = new Map()
 
 function bootLog(msg, extra) {
   const line = `[${new Date().toISOString()}] ${msg}${extra != null ? ' ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : ''}`
@@ -60,65 +57,6 @@ function bootLog(msg, extra) {
     fs.mkdirSync(path.dirname(BOOT_LOG_PATH()), { recursive: true })
     fs.appendFileSync(BOOT_LOG_PATH(), line + '\n', 'utf8')
   } catch { /* ignore */ }
-}
-
-function ensureSyncWorker() {
-  if (syncWorkerChild) return syncWorkerChild
-  try {
-    const workerPath = path.join(__dirname, 'syncWorker.cjs')
-    syncWorkerChild = utilityProcess.fork(workerPath, [], {
-      serviceName: 'kakapo-sync-worker',
-    })
-    syncWorkerChild.on('message', (msg) => {
-      const id = msg && msg.id != null ? String(msg.id) : ''
-      if (!id) return
-      const pending = syncWorkerPending.get(id)
-      if (!pending) return
-      syncWorkerPending.delete(id)
-      try { clearTimeout(pending.timer) } catch { /* ignore */ }
-      pending.resolve(msg)
-    })
-    syncWorkerChild.on('exit', (code) => {
-      bootLog('syncWorker exit', { code })
-      for (const [, p] of syncWorkerPending) {
-        try { clearTimeout(p.timer) } catch { /* ignore */ }
-        p.resolve({ ok: false, status: 0, error: 'sync worker exited' })
-      }
-      syncWorkerPending.clear()
-      syncWorkerChild = null
-    })
-    bootLog('syncWorker forked')
-  } catch (e) {
-    bootLog('syncWorker fork fail', e?.message || String(e))
-    syncWorkerChild = null
-  }
-  return syncWorkerChild
-}
-
-function syncWorkerRequest(payload) {
-  const child = ensureSyncWorker()
-  if (!child) {
-    return Promise.resolve({ ok: false, status: 0, error: 'sync worker unavailable' })
-  }
-  const id = payload?.id != null
-    ? String(payload.id)
-    : `sw-${Date.now()}-${++syncWorkerReqSeq}`
-  const msg = { ...payload, id }
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      if (!syncWorkerPending.has(id)) return
-      syncWorkerPending.delete(id)
-      resolve({ id, ok: false, status: 0, error: 'sync worker timeout' })
-    }, 120000)
-    syncWorkerPending.set(id, { resolve, timer })
-    try {
-      child.postMessage(msg)
-    } catch (e) {
-      syncWorkerPending.delete(id)
-      try { clearTimeout(timer) } catch { /* ignore */ }
-      resolve({ id, ok: false, status: 0, error: e?.message || 'postMessage failed' })
-    }
-  })
 }
 
 function tradeOriginFromUrl(url) {
@@ -1390,16 +1328,14 @@ app.whenReady().then(async () => {
   try {
     initLocalDb()
     installLocalDbIpc()
+    try {
+      installSyncChannelHost(() => getSyncDbBridge())
+      bootLog('syncChannelHost ok')
+    } catch (e) {
+      bootLog('syncChannelHost', e?.stack || String(e))
+    }
   } catch (e) {
     bootLog('localDb', e?.stack || String(e))
-  }
-  try {
-    ensureSyncWorker()
-    ipcMain.handle('desktop:syncWorkerRequest', async (_e, payload) => {
-      return syncWorkerRequest(payload && typeof payload === 'object' ? payload : {})
-    })
-  } catch (e) {
-    bootLog('syncWorker ipc', e?.message || String(e))
   }
   try {
     const inv = invalidateUiCacheOnAppUpdate()

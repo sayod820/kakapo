@@ -198,30 +198,6 @@ function sqlQueueLen() {
   return Number(row && row.n) || 0
 }
 
-/**
- * Атомарный бандл: kv sets + queue puts/deletes в одной SQLite-транзакции.
- * @param {{ kvSets?: [string, unknown][], queuePuts?: object[], queueDeletes?: string[] }} bundle
- */
-function sqlApplyBundle(bundle) {
-  const kvSets = Array.isArray(bundle && bundle.kvSets) ? bundle.kvSets : []
-  const queuePuts = Array.isArray(bundle && bundle.queuePuts) ? bundle.queuePuts : []
-  const queueDeletes = Array.isArray(bundle && bundle.queueDeletes) ? bundle.queueDeletes : []
-  const tx = db.transaction(() => {
-    for (const pair of kvSets) {
-      if (!pair || !pair.length) continue
-      sqlKvSet(pair[0], pair[1])
-    }
-    for (const row of queuePuts) {
-      sqlQueuePut(row)
-    }
-    for (const ref of queueDeletes) {
-      sqlQueueDelete(ref)
-    }
-  })
-  tx()
-  return { ok: true }
-}
-
 function sqlMirrorPut(kind, id, data) {
   const k = String(kind || '').trim()
   const i = String(id || '').trim()
@@ -621,15 +597,6 @@ function installLocalDbIpc() {
     }
   })
 
-  ipcMain.handle('desktop:localDbApplyBundle', (_e, bundle) => {
-    try {
-      return sqlApplyBundle(bundle || {})
-    } catch (e) {
-      console.error('[localDb] applyBundle', e)
-      return { ok: false, error: e && e.message ? String(e.message) : 'applyBundle failed' }
-    }
-  })
-
   ipcMain.handle('desktop:localDbMetaGet', () => ({
     ...sqlMetaGetAll(),
     bootstrapComplete: isSetupComplete(),
@@ -834,4 +801,16 @@ module.exports = {
   initLocalDb,
   installLocalDbIpc,
   isSetupComplete,
+  /** Мост для отдельного SYNC-канала (main process, не UI) */
+  getSyncDbBridge() {
+    return {
+      queueAll: () => sqlQueueAll(),
+      queuePut: (row) => sqlQueuePut(row),
+      queueDelete: (clientRef) => sqlQueueDelete(clientRef),
+      kvGet: (key) => sqlKvGet(key),
+      kvSet: (key, value) => sqlKvSet(key, value),
+      metaGet: () => sqlMetaGetAll(),
+      metaPatch: (patch) => sqlMetaPatch(patch || {}),
+    }
+  },
 }

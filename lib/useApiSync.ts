@@ -20,8 +20,8 @@ const INTERVAL_MS = 12000
 const POS_INTERVAL_MS = 90000
 /** Чеки с сервера (браузер → ПК): дельта pos-lite, не полный список */
 const POS_SALES_INBOUND_MS = 35000
-/** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
-const PULL_DEBOUNCE_MS = 600
+/** Схлопываем пачки WS-событий; коротко — изменения почти сразу на кассе */
+const PULL_DEBOUNCE_MS = 120
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -99,6 +99,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       return
     }
     if (msg.event === 'product_update') {
+      void import('./offlineSync').then(m => m.kickSyncAfterChange(50)).catch(() => {})
       const incoming = msg.product
       const reason = String((incoming as { reason?: string })?.reason || '')
       if (/receipt|stock|layer|warehouse|revision/i.test(reason)) {
@@ -200,6 +201,8 @@ export function useApiSync(mode: SyncMode = 'all') {
         }
         return
       }
+      // Любое изменение на сервере — сразу догнать очередь/дельту (фон, без блока UI)
+      void import('./offlineSync').then(m => m.kickSyncAfterChange(50)).catch(() => {})
       // CRM / лояльность — сразу клиенты и карты
       if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
         pull.crm()

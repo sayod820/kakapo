@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-android",
-  "version": "1.2.169",
+  "version": "1.2.171",
   "private": true,
   "description": "KAKAPO Trade — Android (локальный UI в APK, API kakappo.shop)",
   "scripts": {
@@ -15,7 +15,8 @@
     "@capacitor/app": "^6.0.2",
     "@capacitor/core": "^6.2.0",
     "@capacitor/splash-screen": "^6.0.3",
-    "@capacitor/status-bar": "^6.0.2"
+    "@capacitor/status-bar": "^6.0.2",
+    "kakapo-trade-android": "file:"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.0",

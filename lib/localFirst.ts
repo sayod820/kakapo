@@ -17,6 +17,6 @@ export async function localFirstOp<T>(
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
   const data = await localApply()
-  useOfflineSync.getState().scheduleSyncDebounced()
+  useOfflineSync.getState().scheduleSyncDebounced(80)
   return { offline: true, data }
 }

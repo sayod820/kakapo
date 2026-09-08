@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-desktop",
-  "version": "1.2.169",
+  "version": "1.2.171",
   "private": true,
   "description": "РљРђРљРђРџРћ РљР°СЃСЃР° вЂ” РѕРґРЅРѕ РїСЂРёР»РѕР¶РµРЅРёРµ: С‡РµРєРё, СЌС‚РёРєРµС‚РєРё, РѕР±РѕСЂСѓРґРѕРІР°РЅРёРµ",
   "main": "main.cjs",
@@ -33,7 +33,8 @@
       "updater.cjs",
       "uiSync.cjs",
       "localDb.cjs",
-      "syncWorker.cjs",
+      "syncChannelHost.cjs",
+      "syncOpHttp.cjs",
       "icon.png",
       "icon.ico",
       "splash.html",

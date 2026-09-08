@@ -6,19 +6,7 @@
 
 import { listAllOpenStockLayers } from './posLogic.js'
 import { listSyncDeletesSince } from './syncDeletes.js'
-import { listServerChangesSince } from './serverChanges.js'
 import { stripHeavyPhotoFields } from './productPhotoPipeline.js'
-
-/** Монотонный sequence для pull-курсоров / batch. bump при rememberOpRef и syncDeletes. */
-export function bumpSyncSeq(db) {
-  const n = (Number(db._syncSeq) || 0) + 1
-  db._syncSeq = n
-  return n
-}
-
-export function getSyncSeq(db) {
-  return Number(db._syncSeq) || 0
-}
 
 function asIso(v) {
   const s = String(v || '').trim()
@@ -111,18 +99,16 @@ function cursorFromPayload(payload, since) {
 
 /**
  * @param {object} db
- * @param {{ since?: string, historyDays?: number, scope?: string, afterSequence?: number }} opts
+ * @param {{ since?: string, historyDays?: number, scope?: string }} opts
  * scope:
  *  - '' | 'full' — всё (как раньше)
  *  - 'pos-lite' — только чеки/смены + клиенты/карты (частый фон кассы, без каталога/склада)
- * afterSequence > 0 → добавляет changes[] из serverChanges (курсор sequence).
  */
 export function buildSyncChanges(db, opts = {}) {
   const since = asIso(opts.since || '')
   const full = !since
   const scope = String(opts.scope || '').trim().toLowerCase()
   const lite = scope === 'pos-lite' || scope === 'pos' || scope === 'sales'
-  const afterSequence = Number(opts.afterSequence) || 0
   const rawDays = Number(opts.historyDays)
   const historyDays = Number.isFinite(rawDays) && rawDays > 0
     ? rawDays
@@ -170,10 +156,6 @@ export function buildSyncChanges(db, opts = {}) {
       },
     }
     payload.cursor = cursorFromPayload(payload, since)
-    payload.sequence = getSyncSeq(db)
-    if (afterSequence > 0) {
-      payload.changes = listServerChangesSince(db, afterSequence)
-    }
     return payload
   }
 
@@ -226,9 +208,5 @@ export function buildSyncChanges(db, opts = {}) {
     },
   }
   payload.cursor = cursorFromPayload(payload, since)
-  payload.sequence = getSyncSeq(db)
-  if (afterSequence > 0) {
-    payload.changes = listServerChangesSince(db, afterSequence)
-  }
   return payload
 }

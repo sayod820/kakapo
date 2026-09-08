@@ -27,11 +27,3 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 INSERT INTO schema_meta (key, value)
 VALUES ('version', '1')
 ON CONFLICT (key) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS processed_operations (
-  operation_id TEXT PRIMARY KEY,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT,
-  result JSONB,
-  processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
