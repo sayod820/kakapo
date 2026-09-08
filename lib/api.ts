@@ -450,17 +450,32 @@ export const api = {
   getProductStockLayers: (id: number) => request<ProductStockLayer[]>(`/products/${id}/stock-layers`),
   getAllStockLayers: () => request<ProductStockLayer[]>('/stock/layers'),
   /** Двусторонний синк: дельты с курсором since (ISO).
-   *  scope: 'pos-lite' — только чеки/смены + CRM (лёгкий фон кассы). */
-  getSyncChanges: (since?: string, opts?: { scope?: 'pos-lite' | 'full' }) => {
+   *  scope: 'pos-lite' — только чеки/смены + CRM (лёгкий фон кассы).
+   *  afterSequence — change-log sequence cursor. */
+  getSyncChanges: (since?: string, opts?: {
+    scope?: 'pos-lite' | 'full'
+    afterSequence?: number
+  }) => {
     const q = new URLSearchParams()
     if (since) q.set('since', since)
     if (opts?.scope && opts.scope !== 'full') q.set('scope', opts.scope)
+    const after = Number(opts?.afterSequence) || 0
+    if (after > 0) q.set('afterSequence', String(after))
     const qs = q.toString()
     return requestLongList<{
       cursor: string
       since: string | null
       full: boolean
       scope?: string
+      sequence?: number
+      changes?: Array<{
+        sequence: number
+        entity_type: string
+        entity_id: string
+        operation: string
+        changed_data?: unknown
+        created_at?: string
+      }>
       products: Product[]
       categories: unknown[]
       clients: unknown[]
@@ -482,6 +497,62 @@ export const api = {
         expiry: unknown[]
       }
     }>(`/sync/changes${qs ? `?${qs}` : ''}`)
+  },
+  /** Batch apply outbox ops (до 50). Desktop может слать через UtilityProcess. */
+  postSyncBatch: (body: {
+    ops: Array<{
+      kind: string
+      clientRef: string
+      payload?: unknown
+      localId?: string
+    }>
+  }) => {
+    const run = () => request<{
+      results: Array<{
+        clientRef?: string
+        ok: boolean
+        result?: unknown
+        localId?: string
+        idempotent?: boolean
+        fallback?: boolean
+        error?: string
+        kind?: string
+      }>
+      sequence?: number
+    }>('/sync/batch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }, 0, LIST_TIMEOUT_MS)
+
+    if (typeof window !== 'undefined') {
+      const desk = window.kakapoDesktop
+      if (desk?.isDesktop && typeof desk.syncWorkerRequest === 'function') {
+        return (async () => {
+          try {
+            const url = `${getApiUrl()}/sync/batch`
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+            }
+            const token = getToken()
+            if (token) headers.Authorization = `Bearer ${token}`
+            const res = await desk.syncWorkerRequest!({
+              type: 'http-batch',
+              id: `batch-${Date.now()}`,
+              url,
+              method: 'POST',
+              headers,
+              body,
+            })
+            if (res?.ok && res.json != null) return res.json as Awaited<ReturnType<typeof run>>
+            if (res?.ok && typeof res.text === 'string' && res.text.trim()) {
+              try { return JSON.parse(res.text) } catch { /* fall through */ }
+            }
+          } catch { /* renderer fetch fallback */ }
+          return run()
+        })()
+      }
+    }
+    return run()
   },
   reconcileStock: (data?: { createdBy?: string }) =>
     request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(

@@ -5,9 +5,10 @@
 import { api } from './api'
 import { isOnline } from './offline'
 import { getPending, cacheProducts, cacheClients, persistPosSnapshot } from './offline'
-import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
+import { getSyncCursor, setSyncCursor, getSyncSequence, setSyncSequence, entityUpsertMany } from './localEntities'
 import { cacheStockLayersAndSyncCatalog } from './stockLayersLocal'
 import { appendConflictLog, mergeAppendById, mergeByIdLww, mergeSalesInbound, shouldTakeRemoteLww } from './syncConflict'
+import { strategyForEntity } from './syncConflictPolicy'
 import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
@@ -38,7 +39,52 @@ export async function pullSyncChanges(opts?: {
 
   try {
     const since = opts?.forceFull ? '' : await getSyncCursor()
-    const delta = await api.getSyncChanges(since || undefined)
+    // Conflict policy guard (matrix only — merge paths below unchanged)
+    try {
+      const salePol = strategyForEntity('sale')
+      const productPol = strategyForEntity('product')
+      const clientPol = strategyForEntity('client')
+      if (salePol !== 'movement_append' || productPol !== 'lww' || clientPol !== 'field_merge') {
+        appendConflictLog({
+          kind: 'policy',
+          id: 'matrix',
+          note: `unexpected policy sale=${salePol} product=${productPol} client=${clientPol}`,
+        })
+      }
+    } catch { /* ignore */ }
+    const afterSequence = opts?.forceFull ? 0 : await getSyncSequence()
+    const delta = await api.getSyncChanges(since || undefined, {
+      afterSequence: afterSequence > 0 ? afterSequence : undefined,
+    })
+
+    // Sequence change-log: двигаем курсор; лёгкий merge по entity_type если есть changed_data
+    if (typeof delta.sequence === 'number' && Number.isFinite(delta.sequence)) {
+      await setSyncSequence(delta.sequence)
+    }
+    if (Array.isArray(delta.changes) && delta.changes.length) {
+      try {
+        for (const ch of delta.changes) {
+          const et = String(ch.entity_type || '')
+          const data = ch.changed_data
+          if (!data || typeof data !== 'object') continue
+          const id = String(ch.entity_id || (data as any).id || '')
+          if (!id) continue
+          if (et === 'product' || et === 'product_upsert') {
+            await entityUpsertMany('product', [{
+              id,
+              data,
+              updatedAtIso: String(ch.created_at || delta.cursor || ''),
+            }])
+          } else if (et === 'client' || et === 'client_upsert') {
+            await entityUpsertMany('client', [{
+              id,
+              data,
+              updatedAtIso: String(ch.created_at || delta.cursor || ''),
+            }])
+          }
+        }
+      } catch { /* soft — ISO delta ниже остаётся источником */ }
+    }
 
     const del = Array.isArray(delta.deletes) ? delta.deletes : []
     let pendingProtect = new Set<string>()
@@ -295,11 +341,22 @@ export async function pullSyncChanges(opts?: {
     }
 
     if (delta.cursor) await setSyncCursor(delta.cursor)
+    if (typeof delta.sequence === 'number' && Number.isFinite(delta.sequence)) {
+      await setSyncSequence(delta.sequence)
+    }
     // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
     // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()
+    } catch { /* ignore */ }
+    try {
+      const { isKakapoDesktop } = await import('./desktopBridge')
+      const { isTradeAndroidNative } = await import('./tradeAndroid')
+      if (isKakapoDesktop() || isTradeAndroidNative()) {
+        const { projectSqliteToStores } = await import('./localRepository')
+        void projectSqliteToStores({ light: true })
+      }
     } catch { /* ignore */ }
     return { ok: true, cursor: delta.cursor }
   } catch (e) {

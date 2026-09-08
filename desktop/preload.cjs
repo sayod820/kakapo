@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbQueueAll: () => ipcRenderer.invoke('desktop:localDbQueueAll'),
   localDbQueuePut: (row) => ipcRenderer.invoke('desktop:localDbQueuePut', row),
   localDbQueueDelete: (clientRef) => ipcRenderer.invoke('desktop:localDbQueueDelete', clientRef),
+  localDbApplyBundle: (bundle) => ipcRenderer.invoke('desktop:localDbApplyBundle', bundle),
   localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
   localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
   localDbMarkInstalled: () => ipcRenderer.invoke('desktop:localDbMarkInstalled'),
@@ -60,4 +61,5 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   photoCachePut: (url, base64, mime) => ipcRenderer.invoke('desktop:photoCachePut', url, base64, mime),
   photoCacheGet: (url) => ipcRenderer.invoke('desktop:photoCacheGet', url),
   photoFetchAndCache: (url) => ipcRenderer.invoke('desktop:photoFetchAndCache', url),
+  syncWorkerRequest: (payload) => ipcRenderer.invoke('desktop:syncWorkerRequest', payload),
 })

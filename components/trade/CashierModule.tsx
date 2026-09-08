@@ -5,6 +5,7 @@ import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMem
 import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
+import { connectivityLabel, deriveConnectivityState } from '@/lib/connectivityManager'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
@@ -1099,24 +1100,47 @@ const CashierNetChip = memo(function CashierNetChip({
   const netFailed = useOfflineSync(s => s.failed)
   const netSyncing = useOfflineSync(s => s.syncing)
   const netProgress = useOfflineSync(s => s.progress)
-  const title = netOnline
-    ? (netPending > 0
-        ? (netSyncing
-            ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
-            : `Онлайн · ${netPending} в очереди`)
-        : (onlineCode || 'Онлайн'))
-    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
-  const label = netOnline
-    ? (netPending > 0
-        ? (netSyncing
-            ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
-            : `очередь ${netPending}`)
-        : (onlineCode || 'Онлайн'))
-    : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+  const netLastError = useOfflineSync(s => s.lastError)
+  const conn = deriveConnectivityState({
+    online: netOnline,
+    syncing: netSyncing,
+    pending: netPending,
+    failed: netFailed,
+    lastError: netLastError,
+  })
+  const connBase = connectivityLabel(conn)
+  const title = conn === 'SYNCING'
+    ? (netProgress.total > 0
+        ? `Синхронизация ${netProgress.done} из ${netProgress.total}`
+        : connBase)
+    : conn === 'RECONNECTING'
+      ? `${connBase}${netPending > 0 ? ` · ${netPending} в очереди` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
+      : conn === 'ERROR'
+        ? `${connBase}${netLastError ? ` · ${netLastError}` : ''}`
+        : conn === 'OFFLINE'
+          ? `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
+          : (netPending > 0
+              ? (netSyncing
+                  ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
+                  : `Онлайн · ${netPending} в очереди`)
+              : (onlineCode || connBase))
+  const label = conn === 'SYNCING'
+    ? (netProgress.total > 0 ? `↻ ${netProgress.done}/${netProgress.total}` : '↻ синк')
+    : conn === 'RECONNECTING'
+      ? (netPending > 0 ? `⟳ ${netPending}` : '⟳…')
+      : conn === 'ERROR'
+        ? 'ошибка'
+        : conn === 'OFFLINE'
+          ? (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+          : (netPending > 0
+              ? (netSyncing
+                  ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
+                  : `очередь ${netPending}`)
+              : (onlineCode || connBase))
 
   return (
     <>
-      <span className="d" style={{ background: netOnline ? undefined : '#e11d48' }} />
+      <span className="d" style={{ background: netOnline && conn !== 'ERROR' ? undefined : '#e11d48' }} />
       <span
         className="net-status-txt"
         role="button"
@@ -1129,14 +1153,14 @@ const CashierNetChip = memo(function CashierNetChip({
         {label}
         {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
       </span>
-      {(!netOnline || netPending > 0 || netFailed > 0) && (
+      {(!netOnline || netPending > 0 || netFailed > 0 || conn === 'ERROR' || conn === 'RECONNECTING' || conn === 'SYNCING') && (
         <button
           type="button"
           className="net-sync-chip"
           onClick={onOpenQueue}
           title="Открыть очередь синхронизации"
         >
-          {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
+          {netSyncing || conn === 'SYNCING' || conn === 'RECONNECTING' ? '…' : (netOnline ? '⟳' : '⚠')}
         </button>
       )}
     </>
@@ -1795,7 +1819,7 @@ export default function CashierModule({
   /** Лёгкий подтягивание сроков — чтобы бейдж на колокольчике был актуален */
   useEffect(() => {
     if (!active || posSurface !== 'register') return
-    void softSyncWarehouse({ expiryDays: 14 })
+    void softSyncWarehouse({ expiryDays: 14, expiryOnly: true })
   }, [active, posSurface])
 
   useEffect(() => {

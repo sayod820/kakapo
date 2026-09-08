@@ -19,7 +19,12 @@
     "android:install": "npm install --prefix android-app",
     "android:build-ui": "node scripts/build-android-ui.mjs",
     "android:sync": "npm run sync --prefix android-app",
-    "android:apk": "npm run android:build-ui && npm run apk --prefix android-app"
+    "android:apk": "npm run android:build-ui && npm run apk --prefix android-app",
+    "store:android:install": "npm install --prefix store-android",
+    "store:android:build-ui": "node scripts/build-store-android-ui.mjs",
+    "store:android:sync": "npm run sync --prefix store-android",
+    "store:android:apk": "npm run store:android:build-ui && npm run apk --prefix store-android",
+    "test:sync-smoke": "node scripts/sync-engine-smoke.mjs"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",

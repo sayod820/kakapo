@@ -27,7 +27,7 @@ const backendUrl = (process.env.KAKAPO_ANDROID_BACKEND || 'https://kakappo.shop/
 const wsUrl = (process.env.KAKAPO_ANDROID_WS || 'wss://kakappo.shop').replace(/\/$/, '')
 
 const SKIP_ROOT = new Set([
-  'node_modules', '.next', 'out', 'android-app', 'desktop', '.git',
+  'node_modules', '.next', 'out', 'android-app', 'store-android', 'desktop', '.git',
   'server', 'data', 'tmp', '.claude', '.gradle-local',
 ])
 

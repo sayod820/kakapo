@@ -610,14 +610,25 @@ async function persistSoftPosSnapshot() {
 /**
  * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
  * Локальные off-* не затираются и склеиваются с сервером по clientRef.
+ * expiryOnly — только сроки годности (касса на register, без тяжёлого склада).
  */
 let warehouseSoftSyncInFlight: Promise<void> | null = null
 
-export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
+export async function softSyncWarehouse(opts?: { expiryDays?: number; expiryOnly?: boolean }) {
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
   warehouseSoftSyncInFlight = (async () => {
     try {
       const days = opts?.expiryDays ?? 14
+      if (opts?.expiryOnly) {
+        const expiry = await api.getStockExpiry(days)
+        usePosStore.setState({
+          expiry,
+          apiReady: true,
+          apiError: '',
+        })
+        await persistSoftPosSnapshot()
+        return
+      }
       const [receipts, writeoffs, revisions, suppliers, expiry] = await Promise.all([
         api.getStockReceipts(),
         api.getStockWriteoffs(),

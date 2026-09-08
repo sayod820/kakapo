@@ -28,3 +28,5 @@ deploy/hetzner/nginx/default.conf
 app-debug.apk
 *.apk
 android-app/www/
+store-android/www/
+store-android/dist/

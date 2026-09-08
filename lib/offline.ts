@@ -7,6 +7,7 @@ import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
 import { androidPersist } from './androidPersist'
+import { pendingPriorityNumber, queueSortKey } from './syncEngine/priorities'
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -108,7 +109,17 @@ export interface PendingOp<P = any> {
    * После отправки сопоставляется с настоящим id с сервера.
    */
   localId?: string
+  /** Sync Engine: pending | processing | failed (synced = удалена из очереди) */
+  status?: 'pending' | 'processing' | 'failed'
+  /** Когда можно снова пробовать (ISO) */
+  nextRetryAt?: string
+  /** Числовой приоритет (меньше = раньше); см. syncEngine/priorities */
+  priority?: number
+  updatedAtIso?: string
 }
+
+/** Размер чанка flushQueue — между чанками syncBreath (один HTTP на op через sendOp). */
+export const SYNC_BATCH_SIZE = 25
 
 /** Старое название — чек в очереди */
 export type PendingSale = PendingOp<PosSalePayload>
@@ -313,6 +324,12 @@ const KEY_SEQ = 'queue_seq'
 const KEY_IDMAP = 'queue_idmap'
 
 function normalizeRow(row: any): PendingOp {
+  const failed = !!row?.failed || row?.status === 'failed'
+  // processing после краша flush — на чтении считаем pending (recoverStuckQueueOps тоже перепишет)
+  let status: PendingOp['status'] = 'pending'
+  if (failed) status = 'failed'
+  else if (row?.status === 'processing') status = 'pending'
+  else if (row?.status === 'pending' || row?.status === 'failed') status = row.status
   return {
     clientRef: String(row?.clientRef || ''),
     kind: (row?.kind || 'sale') as QueueKind,
@@ -321,8 +338,12 @@ function normalizeRow(row: any): PendingOp {
     seq: Number(row?.seq) || 0,
     attempts: Number(row?.attempts) || 0,
     lastError: row?.lastError,
-    failed: !!row?.failed,
+    failed,
     localId: row?.localId,
+    status,
+    nextRetryAt: row?.nextRetryAt ? String(row.nextRetryAt) : undefined,
+    priority: Number.isFinite(Number(row?.priority)) ? Number(row.priority) : undefined,
+    updatedAtIso: row?.updatedAtIso ? String(row.updatedAtIso) : undefined,
   }
 }
 
@@ -343,13 +364,13 @@ const CATALOG_FIRST_KINDS = new Set<QueueKind>([
 ])
 
 function queueKindPriority(kind: QueueKind): number {
-  if (REVISION_QUEUE_KINDS.has(kind)) return 100
-  if (CATALOG_FIRST_KINDS.has(kind)) return -50
-  return 0
+  return queueSortKey(kind)
 }
 
 function byOrder(a: PendingOp, b: PendingOp) {
-  const prio = queueKindPriority(a.kind) - queueKindPriority(b.kind)
+  const pa = a.priority ?? queueKindPriority(a.kind)
+  const pb = b.priority ?? queueKindPriority(b.kind)
+  const prio = pa - pb
   if (prio !== 0) return prio
   const t = a.createdAtIso.localeCompare(b.createdAtIso)
   return t !== 0 ? t : a.seq - b.seq
@@ -451,11 +472,21 @@ export async function pendingBlocksStockLayerPull(): Promise<boolean> {
 }
 
 async function putPending(row: PendingOp): Promise<void> {
+  row.updatedAtIso = row.updatedAtIso || new Date().toISOString()
   const files = androidFiles()
   if (files) {
     try { await files.queuePut(row) } catch { /* fallback */ }
   }
   const desk = deskDb()
+  if (desk?.localDbApplyBundle) {
+    try {
+      await desk.localDbApplyBundle({ queuePuts: [row] })
+      if (hasIndexedDB()) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
+      }
+      return
+    } catch { /* fallback to put */ }
+  }
   if (desk?.localDbQueuePut) {
     try {
       await desk.localDbQueuePut(row)
@@ -471,6 +502,83 @@ async function putPending(row: PendingOp): Promise<void> {
   const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
   list.push(row)
   lsQueueWrite(list)
+}
+
+/**
+ * Атомарный бандл kv + queue на desktop SQLite (одна транзакция).
+ * На web/android — последовательно через существующие put/kv.
+ */
+export async function applyLocalBundle(bundle: {
+  kvSets?: Array<[string, unknown]>
+  queuePuts?: PendingOp[]
+  queueDeletes?: string[]
+}): Promise<void> {
+  const desk = deskDb()
+  if (desk?.localDbApplyBundle) {
+    await desk.localDbApplyBundle({
+      kvSets: bundle.kvSets,
+      queuePuts: bundle.queuePuts,
+      queueDeletes: bundle.queueDeletes,
+    })
+    if (hasIndexedDB() && bundle.queuePuts?.length) {
+      for (const row of bundle.queuePuts) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
+      }
+    }
+    if (hasIndexedDB() && bundle.queueDeletes?.length) {
+      for (const ref of bundle.queueDeletes) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(ref)) } catch { /* ignore */ }
+      }
+    }
+    return
+  }
+  if (bundle.kvSets) {
+    for (const [k, v] of bundle.kvSets) await kvSet(k, v)
+  }
+  if (bundle.queuePuts) {
+    for (const row of bundle.queuePuts) await putPending(row)
+  }
+  if (bundle.queueDeletes) {
+    for (const ref of bundle.queueDeletes) await deletePending(ref)
+  }
+}
+
+/** processing → pending после краша / обрыва flush */
+export async function recoverStuckQueueOps(): Promise<number> {
+  let n = 0
+  const seen = new Set<string>()
+  const raws: any[] = []
+  try {
+    const desk = deskDb()
+    const files = androidFiles()
+    if (files) {
+      try { raws.push(...((await files.queueAll()) || [])) } catch { /* ignore */ }
+    }
+    if (desk?.localDbQueueAll) {
+      try { raws.push(...((await desk.localDbQueueAll()) || [])) } catch { /* ignore */ }
+    }
+    if (hasIndexedDB()) {
+      try {
+        raws.push(...((await idbRun<any[]>(STORE_QUEUE, 'readonly', s => s.getAll())) || []))
+      } catch { /* ignore */ }
+    }
+    if (raws.length === 0) {
+      raws.push(...lsQueueRead())
+    }
+  } catch { /* ignore */ }
+
+  for (const raw of raws) {
+    const ref = String(raw?.clientRef || '')
+    if (!ref || seen.has(ref)) continue
+    seen.add(ref)
+    if (raw?.status !== 'processing') continue
+    const row = normalizeRow({ ...raw, status: 'pending', failed: !!raw?.failed })
+    row.status = 'pending'
+    row.updatedAtIso = new Date().toISOString()
+    await putPending(row)
+    n++
+  }
+  return n
 }
 
 async function deletePending(clientRef: string): Promise<void> {
@@ -505,6 +613,9 @@ export async function retryPending(clientRef: string): Promise<void> {
   if (!row) return
   row.failed = false
   row.lastError = ''
+  row.status = 'pending'
+  row.nextRetryAt = undefined
+  row.updatedAtIso = new Date().toISOString()
   await putPending(row)
 }
 
@@ -655,6 +766,9 @@ export async function enqueueOp<P>(
     seq: await nextSeq(),
     attempts: 0,
     localId: opts.localId,
+    status: 'pending',
+    priority: pendingPriorityNumber(kind),
+    updatedAtIso: new Date().toISOString(),
   }
   await putPending(row as PendingOp)
   return row
@@ -986,8 +1100,8 @@ async function refreshSalePayVersions(payload: Record<string, unknown>): Promise
   return true
 }
 
-/** Отправка одной операции. Возвращает id созданной записи, если он есть. */
-async function sendOp(row: PendingOp): Promise<string> {
+/** Отправка одной op на сервер (идемпотентность по clientRef). Используется SyncManager. */
+export async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
     case 'sale': {
       let payload = await resolveSalePayload(row.payload)
@@ -1715,6 +1829,8 @@ async function sendOp(row: PendingOp): Promise<string> {
 /**
  * Отправляет очередь на сервер строго по порядку:
  * справочники (поставщик/товар) → чеки/склад → ревизия в конце.
+ * Чанки SYNC_BATCH_SIZE → POST /sync/batch; fallback/missing → sendOp.
+ * Между ops / чанками — syncBreath; sendOp и идемпотентность без изменений.
  */
 export async function flushQueue(
   onProgress?: (done: number, total: number) => void,
@@ -1725,235 +1841,305 @@ export async function flushQueue(
   let failed = 0
   let stopped = false
   try {
+    const { syncBreath } = await import('./syncUiYield')
     const all = await getPending()
     const catalog = all.filter(r => CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
     const rest = all.filter(r => !r.failed && !CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
     const queue = [...catalog, ...rest]
     const total = queue.length
     let done = 0
-    for (const row of queue) {
-      const live = (await getPending()).find(r => r.clientRef === row.clientRef)
-      if (!live) {
-        done++
-        onProgress?.(done, total)
-        continue
+
+    const markSuccess = async (live: PendingOp, serverId: string) => {
+      if (live.localId && serverId) {
+        await rememberId(live.localId, serverId)
+        await applyLocalIdRemap(live.kind, live.localId, serverId)
       }
-      try {
-        const serverId = await sendOp(live)
-        if (live.localId && serverId) {
-          await rememberId(live.localId, serverId)
-          await applyLocalIdRemap(live.kind, live.localId, serverId)
+      await deletePending(live.clientRef)
+      if (
+        live.kind === 'sale'
+        || live.kind === 'sale_return'
+        || live.kind === 'debt_repay'
+        || live.kind === 'card_topup'
+      ) {
+        const p = (live.payload || {}) as Record<string, unknown>
+        if (live.kind === 'sale_return' && !p.clientId) {
+          try {
+            const { usePosStore } = await import('./posStore')
+            const sale = usePosStore.getState().sales.find(s => s.id === p.saleId)
+            if (sale) {
+              p.clientId = (sale as any).clientId
+              p.cardNum = (sale as any).cardNum
+            }
+          } catch { /* ignore */ }
         }
-        await deletePending(live.clientRef)
-        if (
-          live.kind === 'sale'
-          || live.kind === 'sale_return'
-          || live.kind === 'debt_repay'
-          || live.kind === 'card_topup'
-        ) {
-          const p = (live.payload || {}) as Record<string, unknown>
-          if (row.kind === 'sale_return' && !p.clientId) {
-            try {
+        const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
+        clearMoneyPendingFromOp(live.kind, p)
+      }
+    }
+
+    const handleSendFailure = async (live: PendingOp, e: unknown): Promise<'network' | 'handled' | 'failed'> => {
+      if (isNetworkError(e)) {
+        live.status = 'pending'
+        live.updatedAtIso = new Date().toISOString()
+        try { await putPending(live) } catch { /* ignore */ }
+        return 'network'
+      }
+      live.attempts += 1
+      live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
+      live.failed = true
+      live.status = 'failed'
+      live.updatedAtIso = new Date().toISOString()
+      const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
+      if (rejectRe.test(live.lastError)) {
+        try {
+          if (live.kind === 'supplier_payment_create') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
+            revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
+          } else if (live.kind === 'supplier_payment_delete') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')
+            revertLocalSupplierPaymentDeleteOnReject(
+              String(p.supplierId || ''),
+              Number(p.amount) || Number((p.payment as any)?.amount) || 0,
+              (p.payment as any) || null,
+            )
+          } else if (live.kind === 'debt_repay') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            if (!p.clientRef) p.clientRef = live.clientRef
+            const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
+            revertLocalDebtRepayOnReject(p as any)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'card_topup') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            if (!p.clientRef) p.clientRef = live.clientRef
+            const { revertLocalCardTopupOnReject } = await import('./offlinePosOps')
+            revertLocalCardTopupOnReject(p as any)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'sale') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const err = String(live.lastError || '')
+            if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(err)) {
+              try {
+                await refreshSalePayVersions(p)
+                live.payload = p
+                live.failed = false
+                live.status = 'pending'
+                live.lastError = ''
+              } catch { /* оставить failed */ }
+              await putPending(live)
+              return 'handled'
+            }
+            const { revertLocalSaleOnReject } = await import('./offlinePosOps')
+            revertLocalSaleOnReject(p, live.localId)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'sale_return') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalSaleReturnOnReject } = await import('./offlinePosOps')
+            revertLocalSaleReturnOnReject(p)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'finance_move') {
+            const { revertLocalFinanceMoveOnReject } = await import('./offlinePosOps')
+            const id = String(live.localId || '')
+            if (id) revertLocalFinanceMoveOnReject(id)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'vault_card_to_cash' || live.kind === 'vault_cash_to_card') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalVaultConvertOnReject } = await import('./offlinePosOps')
+            revertLocalVaultConvertOnReject(p)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'expense_create') {
+            const { revertLocalExpenseOnReject } = await import('./offlinePosOps')
+            const id = String(live.localId || '')
+            if (id) revertLocalExpenseOnReject(id)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'stock_receipt_create') {
+            const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
+            const id = String(live.localId || '')
+            if (id) await revertLocalStockReceiptCreateOnReject(id)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'stock_writeoff_create') {
+            const { revertLocalStockWriteoffCreateOnReject } = await import('./offlineWarehouseOps')
+            const id = String(live.localId || '')
+            if (id) await revertLocalStockWriteoffCreateOnReject(id)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'stock_revision_create') {
+            const { revertLocalStockRevisionCreateOnReject } = await import('./offlineWarehouseOps')
+            const id = String(live.localId || '')
+            if (id) await revertLocalStockRevisionCreateOnReject(id)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'product_upsert') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalProductUpsertOnReject } = await import('./offlineProductOps')
+            revertLocalProductUpsertOnReject(p)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'client_upsert') {
+            const p = (live.payload || {}) as Record<string, unknown>
+            const { revertLocalClientUpsertOnReject } = await import('./offlineClientOps')
+            revertLocalClientUpsertOnReject(p)
+            void persistPosSnapshot()
+            await deletePending(live.clientRef)
+            return 'handled'
+          } else if (live.kind === 'shift_open') {
+            const localId = String(live.localId || '')
+            if (localId) {
               const { usePosStore } = await import('./posStore')
-              const sale = usePosStore.getState().sales.find(s => s.id === p.saleId)
-              if (sale) {
-                p.clientId = (sale as any).clientId
-                p.cardNum = (sale as any).cardNum
-              }
-            } catch { /* ignore */ }
+              const { revertLocalOpeningFloat } = await import('./offlinePosOps')
+              revertLocalOpeningFloat(localId)
+              usePosStore.setState(s => ({
+                shifts: s.shifts.filter(sh => sh.id !== localId),
+              }))
+              void persistPosSnapshot()
+            }
+            await deletePending(live.clientRef)
+            return 'handled'
           }
-          const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
-          clearMoneyPendingFromOp(live.kind, p)
+          void persistPosSnapshot()
+        } catch { /* ignore */ }
+      }
+      await putPending(live)
+      return 'failed'
+    }
+
+    const serverIdFromBatch = (result: unknown): string => {
+      if (!result || typeof result !== 'object') return ''
+      const r = result as Record<string, unknown>
+      if (r.id != null) return String(r.id)
+      const fm = r.financeMove as { id?: string } | undefined
+      if (fm?.id != null) return String(fm.id)
+      return ''
+    }
+
+    for (let qi = 0; qi < queue.length && !stopped;) {
+      await syncBreath()
+      const chunk: PendingOp[] = []
+      while (chunk.length < SYNC_BATCH_SIZE && qi < queue.length) {
+        const row = queue[qi++]
+        const live = (await getPending()).find(r => r.clientRef === row.clientRef)
+        if (!live) {
+          done++
+          onProgress?.(done, total)
+          continue
         }
-        sent++
+        live.status = 'processing'
+        live.updatedAtIso = new Date().toISOString()
+        await putPending(live)
+        chunk.push(live)
+      }
+      if (!chunk.length) continue
+
+      type BatchRow = {
+        clientRef?: string
+        ok: boolean
+        result?: unknown
+        fallback?: boolean
+        error?: string
+      }
+      let batchByRef = new Map<string, BatchRow>()
+      let batchOk = false
+      try {
+        const batchRes = await api.postSyncBatch({
+          ops: chunk.map(op => ({
+            kind: op.kind,
+            clientRef: op.clientRef,
+            payload: op.payload,
+            localId: op.localId,
+          })),
+        })
+        batchOk = true
+        for (const r of batchRes.results || []) {
+          if (r?.clientRef) batchByRef.set(String(r.clientRef), r)
+        }
+        if (typeof batchRes.sequence === 'number' && Number.isFinite(batchRes.sequence)) {
+          try {
+            const { setSyncSequence } = await import('./localEntities')
+            await setSyncSequence(batchRes.sequence)
+          } catch { /* ignore */ }
+        }
       } catch (e) {
         if (isNetworkError(e)) {
+          for (const live of chunk) {
+            live.status = 'pending'
+            live.updatedAtIso = new Date().toISOString()
+            try { await putPending(live) } catch { /* ignore */ }
+          }
           stopped = true
           break
         }
-        live.attempts += 1
-        live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
-        live.failed = true
-        // Конфликт версии / нет остатка / нет денег — откатить локально, чтобы UI не врал
-        const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
-        if (rejectRe.test(live.lastError)) {
-          try {
-            if (live.kind === 'supplier_payment_create') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
-              revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
-            } else if (live.kind === 'supplier_payment_delete') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')
-              revertLocalSupplierPaymentDeleteOnReject(
-                String(p.supplierId || ''),
-                Number(p.amount) || Number((p.payment as any)?.amount) || 0,
-                (p.payment as any) || null,
-              )
-            } else if (live.kind === 'debt_repay') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              if (!p.clientRef) p.clientRef = live.clientRef
-              const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
-              revertLocalDebtRepayOnReject(p as any)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'card_topup') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              if (!p.clientRef) p.clientRef = live.clientRef
-              const { revertLocalCardTopupOnReject } = await import('./offlinePosOps')
-              revertLocalCardTopupOnReject(p as any)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'sale') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const err = String(live.lastError || '')
-              // Конфликт версии долга/бонусов — НЕ стираем чек (иначе «было 16, купил 91 → снова 16»)
-              if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(err)) {
-                try {
-                  await refreshSalePayVersions(p)
-                  live.payload = p
-                  live.failed = false
-                  live.lastError = ''
-                } catch { /* оставить failed, но чек и долг локально сохраняем */ }
-                await putPending(live)
-                failed++
-                done++
-                onProgress?.(done, total)
-                continue
-              }
-              const { revertLocalSaleOnReject } = await import('./offlinePosOps')
-              revertLocalSaleOnReject(p, live.localId)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'sale_return') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalSaleReturnOnReject } = await import('./offlinePosOps')
-              revertLocalSaleReturnOnReject(p)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'finance_move') {
-              const { revertLocalFinanceMoveOnReject } = await import('./offlinePosOps')
-              const id = String(live.localId || '')
-              if (id) revertLocalFinanceMoveOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'vault_card_to_cash' || live.kind === 'vault_cash_to_card') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalVaultConvertOnReject } = await import('./offlinePosOps')
-              revertLocalVaultConvertOnReject(p)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'expense_create') {
-              const { revertLocalExpenseOnReject } = await import('./offlinePosOps')
-              const id = String(live.localId || '')
-              if (id) revertLocalExpenseOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'stock_receipt_create') {
-              const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
-              const id = String(live.localId || '')
-              if (id) await revertLocalStockReceiptCreateOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'stock_writeoff_create') {
-              const { revertLocalStockWriteoffCreateOnReject } = await import('./offlineWarehouseOps')
-              const id = String(live.localId || '')
-              if (id) await revertLocalStockWriteoffCreateOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'stock_revision_create') {
-              const { revertLocalStockRevisionCreateOnReject } = await import('./offlineWarehouseOps')
-              const id = String(live.localId || '')
-              if (id) await revertLocalStockRevisionCreateOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'product_upsert') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalProductUpsertOnReject } = await import('./offlineProductOps')
-              revertLocalProductUpsertOnReject(p)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'client_upsert') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalClientUpsertOnReject } = await import('./offlineClientOps')
-              revertLocalClientUpsertOnReject(p)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            } else if (live.kind === 'shift_open') {
-              // Сервер: уже есть открытая смена — убрать локальный дубль и вернуть размен
-              const localId = String(live.localId || '')
-              if (localId) {
-                const { usePosStore } = await import('./posStore')
-                const { revertLocalOpeningFloat } = await import('./offlinePosOps')
-                revertLocalOpeningFloat(localId)
-                usePosStore.setState(s => ({
-                  shifts: s.shifts.filter(sh => sh.id !== localId),
-                }))
-                void persistPosSnapshot()
-              }
-              await deletePending(live.clientRef)
-              failed++
-              done++
-              onProgress?.(done, total)
-              continue
-            }
-            void persistPosSnapshot()
-          } catch { /* ignore */ }
-        }
-        await putPending(live)
-        failed++
+        // endpoint/ошибка — ниже sendOp по одной
+        batchByRef = new Map()
+        batchOk = false
       }
-      done++
-      onProgress?.(done, total)
+
+      for (const live of chunk) {
+        if (stopped) break
+        await syncBreath()
+        const still = (await getPending()).find(r => r.clientRef === live.clientRef)
+        if (!still) {
+          done++
+          onProgress?.(done, total)
+          continue
+        }
+        const br = batchOk ? batchByRef.get(still.clientRef) : undefined
+        if (br?.ok) {
+          try {
+            await markSuccess(still, serverIdFromBatch(br.result))
+            sent++
+          } catch (e) {
+            const outcome = await handleSendFailure(still, e)
+            if (outcome === 'network') { stopped = true; break }
+            failed++
+          }
+          done++
+          onProgress?.(done, total)
+          continue
+        }
+        // fallback:true / missing / batch down → sendOp как раньше
+        try {
+          const serverId = await sendOp(still)
+          await markSuccess(still, serverId)
+          sent++
+        } catch (e) {
+          const outcome = await handleSendFailure(still, e)
+          if (outcome === 'network') { stopped = true; break }
+          failed++
+        }
+        done++
+        onProgress?.(done, total)
+      }
+      await syncBreath()
     }
+
+    try {
+      const { isKakapoDesktop } = await import('./desktopBridge')
+      const { isTradeAndroidNative } = await import('./tradeAndroid')
+      if ((isKakapoDesktop() || isTradeAndroidNative()) && sent > 0) {
+        const { projectSqliteToStores } = await import('./localRepository')
+        void projectSqliteToStores({ light: true })
+      }
+    } catch { /* ignore */ }
   } finally {
     flushing = false
   }

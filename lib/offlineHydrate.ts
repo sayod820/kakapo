@@ -8,34 +8,49 @@ import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import type { PosStore } from './posStore'
+import { isKakapoDesktop } from './desktopBridge'
+import { isTradeAndroidNative } from './tradeAndroid'
 
 let hydrating: Promise<void> | null = null
 
 /**
- * Заполняет сторы из кэша, но только те, что ещё пустые:
- * если ответ сервера пришёл раньше, он остаётся источником правды.
+ * Заполняет сторы из кэша.
+ * На desktop/android (preferLocal) — кэш первичен даже если стор уже частично
+ * заполнен пустым ответом API.
  */
-export function hydrateOfflineCaches(): Promise<void> {
+export function hydrateOfflineCaches(opts?: { preferLocal?: boolean }): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve()
   if (hydrating) return hydrating
+  const preferLocal = opts?.preferLocal === true
+    || isKakapoDesktop()
+    || isTradeAndroidNative()
   hydrating = (async () => {
     await Promise.allSettled([
-      hydrateProducts(),
-      hydratePos(),
-      hydrateClients(),
-      hydrateCards(),
-      hydrateCategories(),
+      hydrateProducts(preferLocal),
+      hydratePos(preferLocal),
+      hydrateClients(preferLocal),
+      hydrateCards(preferLocal),
+      hydrateCategories(preferLocal),
       hydrateStockLayers(),
     ])
-  })()
+    if (preferLocal) {
+      try {
+        const { projectSqliteToStores } = await import('./localRepository')
+        await projectSqliteToStores({ force: true })
+      } catch { /* ignore */ }
+    }
+  })().finally(() => {
+    hydrating = null
+  })
   return hydrating
 }
 
-async function hydrateProducts() {
+async function hydrateProducts(preferLocal: boolean) {
   const cached = await readCachedProducts()
   if (!cached || !cached.length) return
   const { useProducts } = await import('./store')
-  if (!useProducts.getState().products.length) {
+  const cur = useProducts.getState().products
+  if (!cur.length || (preferLocal && cached.length >= cur.length)) {
     useProducts.setState({ products: cached as Product[], loaded: true })
   }
   // Поднять object URL из IndexedDB (в т.ч. если каталог уже пришёл с API)
@@ -49,38 +64,48 @@ async function hydrateProducts() {
   } catch { /* ignore */ }
 }
 
-async function hydratePos() {
+async function hydratePos(preferLocal: boolean) {
   const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
   if (!cached) return
   const { usePosStore } = await import('./posStore')
-  if (usePosStore.getState().apiReady) return
-  usePosStore.setState({ ...cached, apiReady: true, apiSyncing: false })
+  const st = usePosStore.getState()
+  if (st.apiReady && !preferLocal) return
+  if (preferLocal || !st.apiReady) {
+    usePosStore.setState({ ...cached, apiReady: true, apiSyncing: false })
+  }
 }
 
-async function hydrateClients() {
+async function hydrateClients(preferLocal: boolean) {
   const cached = await readCachedData<AdminClient[]>('clients')
   if (!cached || !cached.length) return
   const { useClientStore } = await import('./clientStore')
-  if (useClientStore.getState().clients.length) return
-  useClientStore.setState({ clients: cached, hydrated: true, apiReady: true })
+  const cur = useClientStore.getState().clients
+  if (cur.length && !preferLocal) return
+  if (!cur.length || (preferLocal && cached.length >= cur.length)) {
+    useClientStore.setState({ clients: cached, hydrated: true, apiReady: true })
+  }
 }
 
-async function hydrateCards() {
+async function hydrateCards(preferLocal: boolean) {
   const cached = await readCachedData<AdminCard[]>('cards')
   if (!cached || !cached.length) return
   const { useCardStore } = await import('./cardStore')
-  if (useCardStore.getState().cards.length) return
-  useCardStore.setState({ cards: cached, hydrated: true, apiReady: true })
+  const cur = useCardStore.getState().cards
+  if (cur.length && !preferLocal) return
+  if (!cur.length || (preferLocal && cached.length >= cur.length)) {
+    useCardStore.setState({ cards: cached, hydrated: true, apiReady: true })
+  }
 }
 
-async function hydrateCategories() {
+async function hydrateCategories(preferLocal: boolean) {
   const cached = await readCachedData<import('./types').Category[]>('categories')
   if (!cached || !cached.length) return
   const { applyCategoriesLocal, peekCategories } = await import('./useCategories')
-  // Не затираем уже загруженные с API
   const current = peekCategories()
-  if (current.length && current.some(c => Number(c.id) > 0)) return
-  applyCategoriesLocal(cached)
+  if (current.length && current.some(c => Number(c.id) > 0) && !preferLocal) return
+  if (!current.length || preferLocal) {
+    applyCategoriesLocal(cached)
+  }
 }
 
 async function hydrateStockLayers() {

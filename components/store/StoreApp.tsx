@@ -113,10 +113,16 @@ const CSS = `
 @media (min-width:600px){:root{--store-w:640px;}}
 @media (min-width:900px){:root{--store-w:920px;}}
 @media (min-width:1200px){:root{--store-w:1100px;}}
-.store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;overflow-x:clip;}
+.store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;}
 .store-nav{
   position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:200;
 }
+.store-top-bar{
+  position:fixed!important;top:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:var(--store-w);z-index:100;
+  padding-top:env(safe-area-inset-top,0px);box-sizing:border-box;
+}
+.store-top-bar-spacer{height:calc(65px + env(safe-area-inset-top,0px));flex-shrink:0;}
 .store-fixed-bar{left:50%!important;transform:translateX(-50%)!important;width:100%!important;max-width:var(--store-w)!important;}
 .store-prod-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 @media (min-width:600px){.store-prod-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
@@ -369,63 +375,69 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
   const qty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const qtyNum = sumCartUnits(cart || {}, prods);
   return (
-    <header style={{
-      position:"sticky", top:0, zIndex:100,
-      background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
-      backdropFilter:"blur(24px)",
-      borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
-      boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
-    }}>
-      <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-        {back ? (
-          <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Ic n="arrL" s={17} c="var(--t2)"/>
-          </button>
-        ) : (
-          <div style={{
-            width:40, height:40, borderRadius:12, position:"relative", flexShrink:0,
-            background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"Unbounded", fontSize:17, fontWeight:900,
-            color: isVip ? "#1a1000" : "var(--bg)",
-            animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite",
-            boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)",
-          }}>
-            K
-            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
-          </div>
-        )}
-        <div style={{ flex:1, minWidth:0 }}>
-          {title ? (
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
-              {isVip && <UserStatusBadge user={user} size="sm" />}
-            </div>
+    <>
+      <header
+        data-store-header
+        className="store-top-bar"
+        style={{
+          background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
+          backdropFilter:"blur(24px)",
+          borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
+          boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
+        }}
+      >
+        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
+          {back ? (
+            <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+              <Ic n="arrL" s={17} c="var(--t2)"/>
+            </button>
           ) : (
-            <>
-              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <div className="ub" style={{
-                  fontSize:16, fontWeight:900,
-                  background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800)" : "linear-gradient(135deg,var(--gr),var(--gd))",
-                  WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
-                }}>КАКАПО{isVip ? " VIP" : ""}</div>
-                {isVip && user && <UserStatusBadge user={user} size="sm" />}
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
-                <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
-                <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
-                  {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
-                </span>
-              </div>
-            </>
+            <div style={{
+              width:40, height:40, borderRadius:12, position:"relative", flexShrink:0,
+              background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontFamily:"Unbounded", fontSize:17, fontWeight:900,
+              color: isVip ? "#1a1000" : "var(--bg)",
+              animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite",
+              boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)",
+            }}>
+              K
+              {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
+            </div>
           )}
+          <div style={{ flex:1, minWidth:0 }}>
+            {title ? (
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
+                {isVip && <UserStatusBadge user={user} size="sm" />}
+              </div>
+            ) : (
+              <>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  <div className="ub" style={{
+                    fontSize:16, fontWeight:900,
+                    background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800)" : "linear-gradient(135deg,var(--gr),var(--gd))",
+                    WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+                  }}>КАКАПО{isVip ? " VIP" : ""}</div>
+                  {isVip && user && <UserStatusBadge user={user} size="sm" />}
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
+                  <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
+                  <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
+                    {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
+          </button>
+          <CartHeaderButton count={qty} qtyNum={qtyNum} onClick={() => go("cart")} isVip={isVip} />
         </div>
-        <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
-        </button>
-        <CartHeaderButton count={qty} qtyNum={qtyNum} onClick={() => go("cart")} isVip={isVip} />
-      </div>
-    </header>
+      </header>
+      <div className="store-top-bar-spacer" aria-hidden />
+    </>
   );
 };
 const PRODS = [
@@ -6891,6 +6903,15 @@ function KakapoAppInner() {
   }, []);
 
   useEffect(() => {
+    try {
+      document.documentElement.classList.add('kakapo-store-android')
+      ;(window as Window & { kakapoStoreAndroid?: boolean }).kakapoStoreAndroid = true
+      ;(window as Window & { __kakapoHideStoreBoot?: () => void }).__kakapoHideStoreBoot?.()
+    } catch { /* ignore */ }
+    void import('@/lib/hardwareBack').then(m => m.installHardwareBack()).catch(() => {})
+  }, []);
+
+  useEffect(() => {
     if (!sessionReady) return;
     if (!userPersistReadyRef.current) {
       userPersistReadyRef.current = true;
@@ -7312,7 +7333,10 @@ function KakapoAppInner() {
     <>
       <style>{CSS}</style>
       <Toast msg={toast} isVip={isVipUser}/>
-      <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
+      <div
+        data-store-app
+        className={`store-shell${isVipUser ? ' store-vip' : ''}`}
+      >
         {render()}
       </div>
     </>

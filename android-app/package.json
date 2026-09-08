@@ -1,6 +1,6 @@
 {
   "name": "kakapo-trade-android",
-  "version": "1.2.166",
+  "version": "1.2.169",
   "private": true,
   "description": "KAKAPO Trade — Android (локальный UI в APK, API kakappo.shop)",
   "scripts": {
@@ -8,7 +8,7 @@
     "open": "npx cap open android",
     "build:debug": "cd android && .\\gradlew.bat assembleDebug",
     "build:release": "cd android && .\\gradlew.bat assembleRelease",
-    "apk": "npm run sync && npm run build:debug"
+    "apk": "powershell -ExecutionPolicy Bypass -File .\\build-apk.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",

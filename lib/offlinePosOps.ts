@@ -2025,7 +2025,6 @@ export async function createSaleSafe(
 
     try {
       const { useProducts } = await import('./store')
-      const ps = useProducts.getState()
       const decById = new Map<number, number>()
       for (const l of input.cart) {
         const dec = l.weightKg != null ? l.weightKg : l.qty
@@ -2040,6 +2039,23 @@ export async function createSaleSafe(
             return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
           }),
         }))
+        try {
+          const { appendLocalStockMovement } = await import('./stockMovements')
+          let line = 0
+          for (const l of input.cart) {
+            const quantity = l.weightKg != null ? l.weightKg : l.qty
+            if (!(quantity > 0) || !l.productId) continue
+            line += 1
+            void appendLocalStockMovement({
+              movementId: `${offlineSaleId}:line:${line}`,
+              operationId: offlineSaleId,
+              productId: l.productId,
+              quantity,
+              type: 'SALE',
+              source: 'createSaleSafe',
+            })
+          }
+        } catch { /* ignore */ }
       }
       const layerLines = input.cart.map(l => ({
         productId: l.productId,
@@ -2152,6 +2168,35 @@ export async function createSaleSafe(
     }))
     shadowMirrorSale(offlineSale)
     void persistPosSnapshot()
+    try {
+      const { isKakapoDesktop } = await import('./desktopBridge')
+      if (isKakapoDesktop()) {
+        const { applyLocalBundle } = await import('./offline')
+        const cur = usePosStore.getState()
+        const { useProducts } = await import('./store')
+        await applyLocalBundle({
+          kvSets: [
+            ['data_pos_snapshot', {
+              cashiers: cur.cashiers,
+              posPoints: cur.posPoints,
+              shifts: cur.shifts,
+              sales: cur.sales,
+              receipts: cur.receipts,
+              writeoffs: cur.writeoffs,
+              revisions: cur.revisions,
+              suppliers: cur.suppliers,
+              expenses: cur.expenses,
+              financeMoves: cur.financeMoves,
+              cashVault: cur.cashVault,
+              expiry: cur.expiry,
+              financeSummary: cur.financeSummary,
+              report: cur.report,
+            }],
+            ['catalog_products', useProducts.getState().products],
+          ],
+        })
+      }
+    } catch { /* existing putPending + persistPosSnapshot remain */ }
     return offlineSale
   }
 

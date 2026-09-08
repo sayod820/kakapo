@@ -173,6 +173,12 @@ export type KakapoDesktopApi = {
   localDbQueueAll?: () => Promise<unknown[]>
   localDbQueuePut?: (row: unknown) => Promise<{ ok: boolean }>
   localDbQueueDelete?: (clientRef: string) => Promise<{ ok: boolean }>
+  /** Атомарный kv+queue бандл (одна SQLite-транзакция) */
+  localDbApplyBundle?: (bundle: {
+    kvSets?: Array<[string, unknown]>
+    queuePuts?: unknown[]
+    queueDeletes?: string[]
+  }) => Promise<{ ok: boolean; error?: string }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
   /** Пометить установку завершённой — больше не просить скачивание */
@@ -224,6 +230,22 @@ export type KakapoDesktopApi = {
     base64?: string
     cached?: boolean
     status?: number
+    error?: string
+  }>
+  /** UtilityProcess HTTP (batch/one) — сеть вне renderer */
+  syncWorkerRequest?: (payload: {
+    type: 'http-batch' | 'http-one'
+    id?: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: unknown
+  }) => Promise<{
+    id?: string
+    ok: boolean
+    status: number
+    json?: unknown
+    text?: string
     error?: string
   }>
 }
