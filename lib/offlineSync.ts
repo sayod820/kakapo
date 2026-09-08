@@ -365,7 +365,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
-    // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
+    // Счётчики и sync — в фоне, не тормозят «Пробить»
     void get().refresh()
     get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
     return row

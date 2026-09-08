@@ -379,13 +379,21 @@ export async function getPending(): Promise<PendingOp[]> {
   }
 
   const desk = deskDb()
+  let deskOk = false
   if (desk?.localDbQueueAll) {
     try {
       for (const raw of (await desk.localDbQueueAll()) || []) {
         const row = normalizeRow(raw)
         if (row.clientRef) byRef.set(row.clientRef, row)
       }
+      deskOk = true
     } catch { /* fallback */ }
+  }
+
+  // ПК: SQLite — источник правды. Не поднимаем «призраков» из IndexedDB обратно в очередь
+  // (иначе после успешного SYNC op снова появляется и уходит на сервер второй раз).
+  if (deskOk) {
+    return [...byRef.values()].sort(byOrder)
   }
 
   let idbOnly = 0
@@ -408,9 +416,6 @@ export async function getPending(): Promise<PendingOp[]> {
     for (const row of byRef.values()) {
       if (files) {
         try { await files.queuePut(row) } catch { /* ignore */ }
-      }
-      if (desk?.localDbQueuePut) {
-        try { await desk.localDbQueuePut(row) } catch { /* ignore */ }
       }
     }
   }
@@ -466,9 +471,7 @@ async function putPending(row: PendingOp): Promise<void> {
   if (desk?.localDbQueuePut) {
     try {
       await desk.localDbQueuePut(row)
-      if (hasIndexedDB()) {
-        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
-      }
+      // ПК: только SQLite. IndexedDB-копия давала «призраков» после SYNC-канала.
       kickSyncFromQueueWrite()
       return
     } catch { /* fallback */ }
@@ -507,9 +510,19 @@ async function deletePending(clientRef: string): Promise<void> {
   lsQueueWrite(lsQueueRead().filter(r => r.clientRef !== clientRef))
 }
 
-/** Внутреннее: не вызывать из UI кассы — очередь нельзя стирать вручную */
 export async function dropPending(clientRef: string): Promise<void> {
   await deletePending(clientRef)
+}
+
+/** ПК: стереть кэш очереди в IndexedDB (SYNC-канал держит правду в SQLite) */
+export async function clearDesktopIdbQueueGhosts(): Promise<void> {
+  if (!deskDb()?.localDbQueueAll) return
+  if (!hasIndexedDB()) return
+  try {
+    await idbRun(STORE_QUEUE, 'readwrite', (s) => {
+      s.clear()
+    })
+  } catch { /* ignore */ }
 }
 
 /** Повторить отклонённую операцию при следующей отправке */

@@ -59,7 +59,7 @@ const KEY_LOCAL_ORDER_SEQ = 'local_order_seq'
 const KEY_LOCAL_SALE_NUM = 'local_sale_num'
 
 /** Локальный K-… и №… для печати, пока сервер не присвоил свой номер */
-async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: string }> {
+function allocateLocalSaleDisplay(): { number: number; orderId: string } {
   const sales = usePosStore.getState().sales || []
   let maxOrder = 0
   let maxNum = 0
@@ -68,14 +68,13 @@ async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: st
     const m = String(s.orderId || '').match(/^K-(\d+)$/i)
     if (m) maxOrder = Math.max(maxOrder, Number(m[1]) || 0)
   }
-  let storedOrder = 0
-  let storedNum = 0
-  try {
-    storedOrder = Number(await readCachedData<number>(KEY_LOCAL_ORDER_SEQ)) || 0
-    storedNum = Number(await readCachedData<number>(KEY_LOCAL_SALE_NUM)) || 0
-  } catch { /* ignore */ }
-  const nextOrder = Math.max(maxOrder, storedOrder) + 1
-  const nextNum = Math.max(maxNum, storedNum) + 1
+  // Счётчики в памяти + фон на диск (не ждём IPC на каждый чек)
+  const memOrder = Number((allocateLocalSaleDisplay as any)._o) || 0
+  const memNum = Number((allocateLocalSaleDisplay as any)._n) || 0
+  const nextOrder = Math.max(maxOrder, memOrder) + 1
+  const nextNum = Math.max(maxNum, memNum) + 1
+  ;(allocateLocalSaleDisplay as any)._o = nextOrder
+  ;(allocateLocalSaleDisplay as any)._n = nextNum
   void cacheData(KEY_LOCAL_ORDER_SEQ, nextOrder)
   void cacheData(KEY_LOCAL_SALE_NUM, nextNum)
   return { number: nextNum, orderId: `K-${nextOrder}` }
@@ -1964,7 +1963,7 @@ export async function createSaleSafe(
     const { browserSaysOffline } = await import('./apiReachability')
     const syncOnline = useOfflineSync.getState().online
     const queuedOffline = browserSaysOffline() || syncOnline === false
-    useOfflineSync.getState().markOffline()
+    // НЕ markOffline() — иначе каждый чек гасит «online» и ломает входящий синк
     const offlineSaleId = newLocalId('sale')
     const linkedCard = client?.card
       ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
@@ -2023,6 +2022,7 @@ export async function createSaleSafe(
     }
     await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
 
+    // UI-обновления ниже — после постановки в очередь (чтобы при краше чек уже в SQLite)
     try {
       const { useProducts } = await import('./store')
       const ps = useProducts.getState()
@@ -2112,7 +2112,7 @@ export async function createSaleSafe(
       }
     }
 
-    const display = await allocateLocalSaleDisplay()
+    const display = allocateLocalSaleDisplay()
     const { _revert: _omitRevert, ...saleFields } = salePayload as Record<string, unknown>
     const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
       ...(saleFields as unknown as PosSale),

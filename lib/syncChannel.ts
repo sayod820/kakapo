@@ -39,6 +39,11 @@ export function bindDesktopSyncChannelListeners(): void {
   const desk = getKakapoDesktop()
   if (!desk) return
 
+  // Разовая чистка призраков IndexedDB (они возвращали уже отправленные op в SQLite)
+  void import('./offline').then(m => {
+    try { void m.clearDesktopIdbQueueGhosts() } catch { /* ignore */ }
+  }).catch(() => {})
+
   desk.onSyncChannelDelegate?.(async (msg) => {
     const id = Number(msg?.id)
     try {
@@ -60,14 +65,24 @@ export function bindDesktopSyncChannelListeners(): void {
 
   desk.onSyncChannelEvent?.(async (ev) => {
     try {
-      if (ev?.type === 'op-ok' && !ev.delegated) {
-        const { channelOnOpSuccess } = await import('./offline')
-        await channelOnOpSuccess({
-          kind: ev.kind as QueueKind,
-          localId: String(ev.localId || ''),
-          serverId: String(ev.serverId || ''),
-          clientRef: String(ev.clientRef || ''),
-        })
+      if (ev?.type === 'op-ok') {
+        const clientRef = String(ev.clientRef || '')
+        // Снять с UI-слоёв (IDB/кэш), даже если main уже удалил из SQLite
+        if (clientRef) {
+          try {
+            const { dropPending } = await import('./offline')
+            await dropPending(clientRef)
+          } catch { /* ignore */ }
+        }
+        if (!ev.delegated) {
+          const { channelOnOpSuccess } = await import('./offline')
+          await channelOnOpSuccess({
+            kind: ev.kind as QueueKind,
+            localId: String(ev.localId || ''),
+            serverId: String(ev.serverId || ''),
+            clientRef,
+          })
+        }
         try {
           const { useOfflineSync } = await import('./offlineSync')
           void useOfflineSync.getState().refresh()
@@ -101,13 +116,11 @@ export function bindDesktopSyncChannelListeners(): void {
           const { useOfflineSync } = await import('./offlineSync')
           void useOfflineSync.getState().refresh()
         } catch { /* ignore */ }
-        if (ev?.type === 'inbound' || ev?.type === 'done') {
-          try {
-            const { pullSyncChanges } = await import('./syncPull')
-            // Лёгкий догон сторов после того как канал сходил на сервер
-            void pullSyncChanges()
-          } catch { /* ignore */ }
-        }
+        // Входящие: после flush очередь должна быть пуста; ignorePending на всякий случай
+        try {
+          const { pullSyncChanges } = await import('./syncPull')
+          void pullSyncChanges({ ignorePending: ev?.type === 'done' })
+        } catch { /* ignore */ }
         if (ev?.type === 'done') {
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
