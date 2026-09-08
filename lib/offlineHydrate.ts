@@ -40,9 +40,12 @@ async function hydrateProducts() {
   }
   // Поднять object URL из IndexedDB (в т.ч. если каталог уже пришёл с API)
   try {
-    const { warmOfflinePhotoCache } = await import('./photoOfflineCache')
+    const { warmOfflinePhotoCache, schedulePhotoPrefetchFromProducts } = await import('./photoOfflineCache')
     const list = useProducts.getState().products
-    await warmOfflinePhotoCache(list.length ? list : cached)
+    const source = list.length ? list : cached
+    await warmOfflinePhotoCache(source)
+    // Недостающие миниатюры — в фоне; уже на диске не качаем
+    schedulePhotoPrefetchFromProducts(source)
   } catch { /* ignore */ }
 }
 

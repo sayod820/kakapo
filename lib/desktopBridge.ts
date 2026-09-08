@@ -214,6 +214,18 @@ export type KakapoDesktopApi = {
     deleted?: boolean
   }>>
   localDbEntityDelete?: (kind: string, id: string) => Promise<{ ok: boolean }>
+  /** Офлайн-фото: байты на диске userData (не HTTP-кэш Chromium) */
+  photoCachePut?: (url: string, base64: string, mime?: string) => Promise<{ ok: boolean }>
+  photoCacheGet?: (url: string) => Promise<{ url: string; mime: string; base64: string } | null>
+  photoFetchAndCache?: (url: string) => Promise<{
+    ok: boolean
+    url?: string
+    mime?: string
+    base64?: string
+    cached?: boolean
+    status?: number
+    error?: string
+  }>
 }
 
 declare global {

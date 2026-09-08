@@ -20,6 +20,10 @@ const config: CapacitorConfig = {
     appendUserAgent: ' KakapoTradeAndroid/1.0',
   },
   plugins: {
+    CapacitorHttp: {
+      // native HTTP — без CORS WebView, иначе prefetch фото в APK молча падает
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 2000,
       backgroundColor: '#F3F7F4',

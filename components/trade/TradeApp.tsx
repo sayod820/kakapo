@@ -2728,15 +2728,25 @@ const CSS = `
     padding-bottom:calc(120px + var(--k-android-nav-lift) + env(safe-area-inset-bottom,0px))
   }
 
-  /* Android Capacitor: склад/товары крутятся в .k-body — шапка .k-top остаётся на месте */
+  /* Android Capacitor: список крутится в .k-body — шапка .k-top остаётся на месте */
   html.kakapo-android .k-main:has(.k-body-warehouse),
-  html.kakapo-android .k-main:has(.k-body-products){
+  html.kakapo-android .k-main:has(.k-body-products),
+  html.kakapo-android .k-main:has(.k-body-clients),
+  html.kakapo-android .k-main:has(.k-body-suppliers),
+  html.kakapo-android .k-main:has(.k-body-finance),
+  html.kakapo-android .k-main:has(.k-body-reports){
     overflow:hidden!important
   }
   html.kakapo-android .k-main:has(.k-body-warehouse) .k-body,
-  html.kakapo-android .k-main:has(.k-body-products) .k-body{
-    overflow:auto!important;-webkit-overflow-scrolling:touch!important;
-    flex:1 1 auto!important;min-height:0!important
+  html.kakapo-android .k-main:has(.k-body-products) .k-body,
+  html.kakapo-android .k-main:has(.k-body-clients) .k-body,
+  html.kakapo-android .k-main:has(.k-body-suppliers) .k-body,
+  html.kakapo-android .k-main:has(.k-body-finance) .k-body,
+  html.kakapo-android .k-main:has(.k-body-reports) .k-body{
+    overflow-x:hidden!important;overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important;
+    touch-action:pan-y;flex:1 1 auto!important;min-height:0!important;
+    height:auto!important;max-height:none!important
   }
   html.kakapo-android .k-body-warehouse,
   html.kakapo-android .k-body-warehouse > .k-wh-shell,
@@ -2760,10 +2770,15 @@ const CSS = `
   html.kakapo-android .k-catalog-shell{
     flex:none!important;height:auto!important;min-height:0!important;overflow:visible!important
   }
-  html.kakapo-android .k-body-clients,
-  html.kakapo-android .k-body-clients > .k-clients-mod{
+  html.kakapo-android .k-body-clients > .k-clients-mod,
+  html.kakapo-android .k-body-suppliers > .k-suppliers-mod,
+  html.kakapo-android .k-body-finance > .k-finance-mod,
+  html.kakapo-android .k-body-reports > .k-reports-mod{
     flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;
     overflow:visible!important
+  }
+  html.kakapo-android .k-cli-list{
+    touch-action:pan-y
   }
   html.kakapo-android .k-catalog-body{
     overflow:visible!important;flex:none!important;height:auto!important;max-height:none!important

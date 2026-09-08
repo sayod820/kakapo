@@ -528,6 +528,8 @@ export const POS_MOCK_CSS = `
   .shop-order-st{font-style:normal;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:850;}
   .shop-order-st.st-new{background:rgba(255,69,69,.12);color:var(--red);}
   .shop-order-st.st-work{background:rgba(245,166,35,.14);color:#c47a00;}
+  .shop-order-st.st-ready{background:rgba(59,142,240,.12);color:#3B8EF0;}
+  .shop-order-st.st-hand{background:rgba(31,215,96,.14);color:var(--green);}
   .shop-order-detail{padding:12px 14px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0;}
   .shop-order-detail-info{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .shop-order-detail-info > div{

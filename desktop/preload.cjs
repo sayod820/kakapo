@@ -57,4 +57,7 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbEntityGet: (kind, id) => ipcRenderer.invoke('desktop:localDbEntityGet', kind, id),
   localDbEntityList: (kind, opts) => ipcRenderer.invoke('desktop:localDbEntityList', kind, opts),
   localDbEntityDelete: (kind, id) => ipcRenderer.invoke('desktop:localDbEntityDelete', kind, id),
+  photoCachePut: (url, base64, mime) => ipcRenderer.invoke('desktop:photoCachePut', url, base64, mime),
+  photoCacheGet: (url) => ipcRenderer.invoke('desktop:photoCacheGet', url),
+  photoFetchAndCache: (url) => ipcRenderer.invoke('desktop:photoFetchAndCache', url),
 })

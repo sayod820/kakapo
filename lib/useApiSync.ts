@@ -115,13 +115,21 @@ export function useApiSync(mode: SyncMode = 'all') {
           useProducts.setState(s => ({
             products: s.products.filter(p => !idSet.has(Number(p.id))),
           }))
+          void import('./offline').then(({ cacheProducts }) => {
+            void cacheProducts(useProducts.getState().products)
+          }).catch(() => {})
         }
-      } else if (incoming?.id && (
+        // Удаление уже локально — полный /products не нужен
+        return
+      }
+      if (incoming?.id && (
         incoming.name
         || Object.prototype.hasOwnProperty.call(incoming, 'photo')
+        || Object.prototype.hasOwnProperty.call(incoming, 'photoThumb')
         || incoming.price != null
         || incoming.stock != null
       )) {
+        // Точечный merge одного товара — без GET /products
         void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
           const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
           useProducts.setState(s => {
@@ -132,6 +140,9 @@ export function useApiSync(mode: SyncMode = 'all') {
             void cacheProducts(products)
             return { products }
           })
+          void import('./photoOfflineCache').then(({ prefetchProductPhotos }) => {
+            prefetchProductPhotos([cleaned])
+          }).catch(() => {})
         }).catch(() => {
           useProducts.setState(s => {
             const exists = s.products.some(p => p.id === Number(incoming.id))
@@ -142,7 +153,9 @@ export function useApiSync(mode: SyncMode = 'all') {
             }
           })
         })
+        return
       }
+      // Неполное WS-сообщение — редкий repair
       pull.products()
       return
     }
@@ -205,7 +218,7 @@ export function useApiSync(mode: SyncMode = 'all') {
         || kind.includes('supplier')
       ) {
         pull.posWarehouse()
-        pull.products()
+        // Остатки товара приходят дельтой / product_update — полный каталог не качаем
         return
       }
       // Вклады / расходы / ящик
@@ -273,12 +286,13 @@ export function useApiSync(mode: SyncMode = 'all') {
           posTickRef.current += 1
           const tick = posTickRef.current
           const { pullSyncChanges } = await import('./syncPull')
+          const delta = await pullSyncChanges().catch(() => ({ ok: false as const }))
           const tasks: Promise<unknown>[] = [
-            pullSyncChanges(),
             syncLoyaltyStatusConfigFromApi(),
           ]
-          // Каталог — редко (фото/тяжёлый JSON); изменённые товары уже в дельте
-          if (tick === 1 || tick % 3 === 0) {
+          const localEmpty = !useProducts.getState().products.length
+          // Полный каталог только: пустая локалка, или дельта сломалась (редко)
+          if (localEmpty || (!(delta as { ok?: boolean }).ok && tick % 20 === 0)) {
             tasks.push(useProducts.getState().fetchProducts())
           }
           // Полный POS — очень редко (рассинхрон после долгого офлайна)

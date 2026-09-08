@@ -5,7 +5,8 @@
 
 import type { CashVault, Order, PosShift } from '@/lib/types'
 import { shiftExpectedCashLocal } from '@/lib/offlinePosOps'
-import { getMarketStatus } from '@/lib/orderParts'
+import { getMarketStatus, normalizeOrder } from '@/lib/orderParts'
+import { isAssemblerStoreHandoffPending } from '@/lib/orderUiMap'
 
 export type CashierAlertGroupId = 'expiry' | 'shift' | 'money' | 'orders'
 
@@ -58,33 +59,79 @@ function expiryLabel(row: CashierExpiryRow): string {
   return String(row.productName || row.name || '').trim()
 }
 
-/** Заказы из клиентского магазина, где ещё нужна работа магазина/кассы */
-export function isShopIncomingOrder(o: Order): boolean {
-  if (!o || o.channel === 'pos') return false
-  if (o.status === 'cancelled' || o.status === 'delivered') return false
-  if (o.type === 'restaurant') return false
+/** Этап магазинной части для подписи в уведомлениях / списке */
+export type ShopOrderStage = 'new' | 'assembling' | 'ready' | 'handoff'
 
-  const pickups = Array.isArray(o.pickupIds) ? o.pickupIds : []
+export function getShopOrderStage(o: Order): ShopOrderStage | null {
+  if (!o || o.channel === 'pos') return null
+  if (o.status === 'cancelled' || o.status === 'delivered' || o.status === 'delivering') return null
+  if (o.type === 'restaurant') return null
+
+  const order = normalizeOrder(o)
+  const pickups = Array.isArray(order.pickupIds) ? order.pickupIds : []
   const touchesStore =
-    o.type === 'market'
-    || o.type === 'mixed'
+    order.type === 'market'
+    || order.type === 'mixed'
     || pickups.includes('store')
-    || (Array.isArray(o.items) && o.items.some(it => !it.restId && it.source !== 'restaurant'))
+    || (Array.isArray(order.items) && order.items.some(it => !it.restId && it.source !== 'restaurant'))
 
-  if (!touchesStore) return false
+  if (!touchesStore) return null
 
-  if (o.type === 'mixed') {
-    const ms = getMarketStatus(o)
-    return ms === 'new' || ms === 'assembling'
+  if (isAssemblerStoreHandoffPending(order)) return 'handoff'
+
+  if (order.type === 'mixed') {
+    const ms = getMarketStatus(order)
+    if (ms === 'new') return 'new'
+    if (ms === 'assembling') return 'assembling'
+    if (ms === 'done') return 'ready'
+    return null
   }
 
-  return o.status === 'new' || o.status === 'assembling'
+  if (order.status === 'new') return 'new'
+  if (order.status === 'assembling') return 'assembling'
+  if (order.status === 'assembler_done' || order.status === 'ready') return 'ready'
+  return null
+}
+
+export function shopOrderStageLabel(stage: ShopOrderStage): string {
+  if (stage === 'new') return 'Новый'
+  if (stage === 'assembling') return 'Собирается'
+  if (stage === 'ready') return 'Собран'
+  return 'Отдать курьеру'
+}
+
+export function shopOrderStageTone(stage: ShopOrderStage): 'critical' | 'warn' | 'info' {
+  if (stage === 'new' || stage === 'handoff') return 'critical'
+  if (stage === 'assembling') return 'warn'
+  return 'info'
+}
+
+export function shopOrderStageClass(stage: ShopOrderStage): string {
+  if (stage === 'new') return 'new'
+  if (stage === 'assembling') return 'work'
+  if (stage === 'handoff') return 'hand'
+  return 'ready'
+}
+
+/** Заказы из клиентского: новый → сборка → готов → отдать курьеру */
+export function isShopIncomingOrder(o: Order): boolean {
+  return getShopOrderStage(o) != null
 }
 
 export function listShopIncomingOrders(orders: Order[]): Order[] {
   return (orders || [])
     .filter(isShopIncomingOrder)
     .sort((a, b) => {
+      const stageRank = (o: Order) => {
+        const s = getShopOrderStage(o)
+        if (s === 'handoff') return 0
+        if (s === 'new') return 1
+        if (s === 'assembling') return 2
+        return 3
+      }
+      const ra = stageRank(a)
+      const rb = stageRank(b)
+      if (ra !== rb) return ra - rb
       const ta = new Date(a.createdAtIso || a.createdAt || 0).getTime()
       const tb = new Date(b.createdAtIso || b.createdAt || 0).getTime()
       return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0)
@@ -211,31 +258,31 @@ export function buildCashierAlertGroups(input: CashierAlertsInput): CashierAlert
     })
   }
 
-  // ── 4. Заказы из клиентского ──
+  // ── 4. Заказы из клиентского (весь процесс до передачи курьеру) ──
   const shopOrders = listShopIncomingOrders(input.shopOrders || [])
-  const newCount = shopOrders.filter((o) => {
-    if (o.type === 'mixed') return getMarketStatus(o) === 'new'
-    return o.status === 'new'
+  const hotCount = shopOrders.filter((o) => {
+    const s = getShopOrderStage(o)
+    return s === 'new' || s === 'handoff'
   }).length
   if (shopOrders.length) {
     const orderItems: CashierAlertItem[] = shopOrders.slice(0, MAX_ITEMS).map((o) => {
       const name = String(o.client?.name || 'Клиент').trim()
       const nItems = Array.isArray(o.items) ? o.items.length : 0
-      const st = o.type === 'mixed' ? getMarketStatus(o) : o.status
-      const stLabel = st === 'new' ? 'Новый' : st === 'assembling' ? 'Собирается' : String(st)
+      const stage = getShopOrderStage(o) || 'new'
+      const stLabel = shopOrderStageLabel(stage)
       return {
         id: `ord-${o.id}`,
         title: `${o.id} · ${name}`,
         detail: `${stLabel} · ${nItems} поз. · ${Math.round(Number(o.total) || 0)} с.`,
-        tone: st === 'new' ? 'critical' : 'warn',
+        tone: shopOrderStageTone(stage),
       }
     })
     groups.push({
       id: 'orders',
       title: 'Заказы',
-      hint: 'Из клиентского магазина',
+      hint: 'Онлайн: новый → сборка → отдать курьеру',
       icon: '🛒',
-      tone: newCount > 0 ? 'critical' : 'warn',
+      tone: hotCount > 0 ? 'critical' : 'warn',
       count: shopOrders.length,
       items: orderItems,
       go: 'shop-orders',

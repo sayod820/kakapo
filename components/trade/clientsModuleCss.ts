@@ -49,9 +49,10 @@ html.kakapo-android .k-clients-mod .k-cli-toolbar{
 html.kakapo-android .k-clients-mod .k-cli-toolbar .k-clients-chips,
 html.kakapo-android .k-clients-mod .k-clients-head .k-clients-chips{
   display:flex!important;flex-wrap:nowrap!important;gap:5px;
-  width:100%;padding:0;margin:0;overflow-x:auto!important;
+  width:100%;padding:0;margin:0;overflow-x:auto!important;overflow-y:hidden!important;
   background:transparent!important;border:none!important;
-  position:static!important;-webkit-overflow-scrolling:touch;scrollbar-width:none
+  position:static!important;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  touch-action:pan-x
 }
 html.kakapo-android .k-clients-mod .k-cli-toolbar .k-clients-chips .k-subtab,
 html.kakapo-android .k-clients-mod .k-clients-head .k-clients-chips .k-subtab{

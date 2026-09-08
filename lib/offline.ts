@@ -216,11 +216,9 @@ async function kvGet<T>(key: string): Promise<T | null> {
 }
 
 export function cacheProducts(products: Product[]): Promise<void> {
-  // Метаданные + URL в KV; байты миниатюр — в IndexedDB (photoOfflineCache).
+  // Только метаданные + URL. Prefetch байтов фото — отдельно (иначе каждый
+  // cacheProducts после дельты/WS гоняет весь каталог по сети).
   const clean = (products || []).map(sanitizeProductForLocalCache)
-  void import('./photoOfflineCache').then(({ schedulePhotoPrefetchFromProducts }) => {
-    schedulePhotoPrefetchFromProducts(clean)
-  }).catch(() => {})
   return kvSet(KEY_PRODUCTS, clean)
 }
 export function readCachedProducts(): Promise<Product[] | null> {

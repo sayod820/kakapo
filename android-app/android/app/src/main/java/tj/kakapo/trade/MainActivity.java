@@ -302,6 +302,17 @@ public class MainActivity extends BridgeActivity {
 
     @JavascriptInterface
     public boolean ingestQueuePut() { return files.ingestQueuePut(); }
+
+    @JavascriptInterface
+    public String photoGet(String key) { return files.photoGet(key); }
+
+    @JavascriptInterface
+    public boolean photoPut(String key, String base64, String mime) {
+      return files.photoPut(key, base64, mime);
+    }
+
+    @JavascriptInterface
+    public String httpGetBase64(String url) { return files.httpGetBase64(url); }
   }
 
   private void injectAndroidFlag() {
@@ -366,9 +377,24 @@ public class MainActivity extends BridgeActivity {
       + "html.kakapo-android .k-body{"
       + "flex:0 0 auto!important;height:auto!important;min-height:0!important;"
       + "overflow:visible!important;}"
-      /* POS/debts: nested. Warehouse/products/Сроки: scroll via .k-main */
+      /* POS/debts: nested. Lists (warehouse/products/clients/…): scroll in .k-body */
       + "html.kakapo-android .k-main:has(.k-body-pos),"
-      + "html.kakapo-android .k-main:has(.k-body-debts){overflow:hidden!important;}"
+      + "html.kakapo-android .k-main:has(.k-body-debts),"
+      + "html.kakapo-android .k-main:has(.k-body-warehouse),"
+      + "html.kakapo-android .k-main:has(.k-body-products),"
+      + "html.kakapo-android .k-main:has(.k-body-clients),"
+      + "html.kakapo-android .k-main:has(.k-body-suppliers),"
+      + "html.kakapo-android .k-main:has(.k-body-finance),"
+      + "html.kakapo-android .k-main:has(.k-body-reports){overflow:hidden!important;}"
+      + "html.kakapo-android .k-main:has(.k-body-warehouse) .k-body,"
+      + "html.kakapo-android .k-main:has(.k-body-products) .k-body,"
+      + "html.kakapo-android .k-main:has(.k-body-clients) .k-body,"
+      + "html.kakapo-android .k-main:has(.k-body-suppliers) .k-body,"
+      + "html.kakapo-android .k-main:has(.k-body-finance) .k-body,"
+      + "html.kakapo-android .k-main:has(.k-body-reports) .k-body{"
+      + "flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;"
+      + "overflow-x:hidden!important;overflow-y:auto!important;"
+      + "-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important;touch-action:pan-y;}"
       + "html.kakapo-android .k-body-pos,"
       + "html.kakapo-android .k-body-debts{"
       + "flex:1 1 0%!important;min-height:0!important;height:auto!important;"
@@ -389,7 +415,11 @@ public class MainActivity extends BridgeActivity {
       + "html.kakapo-android .k-body-products > .k-products-mod,"
       + "html.kakapo-android .k-products-mod,"
       + "html.kakapo-android .k-products-mod-body,"
-      + "html.kakapo-android .k-catalog-shell{"
+      + "html.kakapo-android .k-catalog-shell,"
+      + "html.kakapo-android .k-body-clients > .k-clients-mod,"
+      + "html.kakapo-android .k-body-suppliers > .k-suppliers-mod,"
+      + "html.kakapo-android .k-body-finance > .k-finance-mod,"
+      + "html.kakapo-android .k-body-reports > .k-reports-mod{"
       + "flex:none!important;height:auto!important;min-height:0!important;max-height:none!important;"
       + "overflow:visible!important;}"
       + "html.kakapo-android .k-wh-body,"
@@ -397,7 +427,8 @@ public class MainActivity extends BridgeActivity {
       + "html.kakapo-android .k-wh-panel-body,"
       + "html.kakapo-android .k-wh-receipts-body,"
       + "html.kakapo-android .k-catalog-body,"
-      + "html.kakapo-android .k-product-list-body{"
+      + "html.kakapo-android .k-product-list-body,"
+      + "html.kakapo-android .k-cli-list{"
       + "flex:none!important;height:auto!important;max-height:none!important;overflow:visible!important;}"
       + "html.kakapo-android .k-debts-list-b,"
       + "html.kakapo-android .k-debts-detail-b,"

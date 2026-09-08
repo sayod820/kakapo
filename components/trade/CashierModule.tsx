@@ -91,10 +91,19 @@ import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi, usePosStore } 
 import {
   buildCashierAlertGroups,
   cashierAlertsTotal,
+  getShopOrderStage,
   listShopIncomingOrders,
+  shopOrderStageClass,
+  shopOrderStageLabel,
   type CashierAlertGroup,
 } from '@/lib/cashierAlerts'
-import { getMarketStatus } from '@/lib/orderParts'
+import {
+  getAllPickupIds,
+  getPendingPartsForCourier,
+  isPickupPointReady,
+  normalizeOrder,
+} from '@/lib/orderParts'
+import { isAssemblerStoreHandoffPending } from '@/lib/orderUiMap'
 import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStorage'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
@@ -1735,13 +1744,10 @@ export default function CashierModule({
     await Promise.all([syncPosFromApi(), syncClientsFromApi(), syncCardsFromApi(), fetchProducts()])
   }, [fetchProducts])
 
-  // При старте — лёгкий sync, без ожидания всего склада/финансов (иначе слабый интернет = долгий чёрный экран)
+  // При старте — только лёгкая дельта чеков; каталог/клиенты уже через useApiSync + /sync/changes
   useEffect(() => {
     void softSyncPosAfterSale()
-    void fetchProducts()
-    void syncClientsFromApi()
-    void syncCardsFromApi()
-  }, [fetchProducts])
+  }, [])
 
   // Имя сотрудника Trade → кассир (если в настройках ещё «Кассир»)
   useEffect(() => {
@@ -2758,6 +2764,34 @@ export default function CashierModule({
   }, [stockLayersByProduct, stockLayersLoaded])
 
   const shopIncomingOrders = useMemo(() => listShopIncomingOrders(orders), [orders])
+  const shopOrderStageSigRef = useRef<string>('')
+
+  useEffect(() => {
+    const nextSig = shopIncomingOrders
+      .map(o => `${o.id}:${getShopOrderStage(o) || ''}`)
+      .sort()
+      .join('|')
+    const prev = shopOrderStageSigRef.current
+    shopOrderStageSigRef.current = nextSig
+    if (!prev) return
+    const prevMap = new Map(prev.split('|').filter(Boolean).map(p => {
+      const i = p.indexOf(':')
+      return [p.slice(0, i), p.slice(i + 1)] as const
+    }))
+    for (const o of shopIncomingOrders) {
+      const stage = getShopOrderStage(o)
+      if (!stage) continue
+      const was = prevMap.get(o.id)
+      if (was === stage) continue
+      if (!was && stage === 'new') {
+        showToast('Новый заказ', `${o.id} · ${o.client?.name || 'Клиент'}`)
+      } else if (stage === 'assembling' && was === 'new') {
+        showToast('Заказ', `${o.id} · собирается`)
+      } else if (stage === 'handoff' && was !== 'handoff') {
+        showToast('Отдать курьеру', `${o.id} · собран`)
+      }
+    }
+  }, [shopIncomingOrders])
 
   const cashierAlertGroups = useMemo(() => {
     return buildCashierAlertGroups({
@@ -2826,7 +2860,7 @@ export default function CashierModule({
       } else if (order.status === 'new') {
         await updateOrderStatus(order.id, 'assembling')
       }
-      showToast('Заказ', `${order.id} · в сборке`)
+      showToast('Заказ', `${order.id} · собирается`)
       void fetchOrders()
     } catch {
       showToast('Заказ', 'Не удалось обновить статус')
@@ -2840,11 +2874,30 @@ export default function CashierModule({
       } else if (order.status === 'assembling' || order.status === 'new') {
         await updateOrderStatus(order.id, 'assembler_done')
       }
-      showToast('Заказ', `${order.id} · готов`)
-      setShopOrderDetailId(null)
+      showToast('Заказ', `${order.id} · собран · отдайте курьеру`)
       void fetchOrders()
     } catch {
       showToast('Заказ', 'Не удалось отметить готовым')
+    }
+  }
+
+  /** Как у сборщика «Забрал курьер» — касса отдаёт собранный заказ курьеру */
+  async function handoffShopOrderToCourier(order: Order) {
+    try {
+      const normalized = normalizeOrder(order)
+      const pickedUpIds = [...new Set([...(normalized.pickedUpIds || []), 'store'])]
+      const patched = { ...normalized, pickedUpIds }
+      const readyPoints = getAllPickupIds(normalized).filter(pid => isPickupPointReady(patched, pid))
+      const allReadyPicked = readyPoints.length > 0 && readyPoints.every(pid => pickedUpIds.includes(pid))
+      const nextStatus = allReadyPicked && !getPendingPartsForCourier(patched).length
+        ? 'delivering'
+        : 'courier_picked'
+      await updateOrderStatus(order.id, nextStatus, { pickedUpIds })
+      showToast('Заказ', `${order.id} · отдан курьеру`)
+      setShopOrderDetailId(null)
+      void fetchOrders()
+    } catch {
+      showToast('Заказ', 'Не удалось передать курьеру')
     }
   }
 
@@ -8787,9 +8840,10 @@ export default function CashierModule({
         const detail = shopOrderDetailId
           ? (shopIncomingOrders.find(o => o.id === shopOrderDetailId) || orders.find(o => o.id === shopOrderDetailId) || null)
           : null
-        const marketSt = detail
-          ? (detail.type === 'mixed' ? getMarketStatus(detail) : detail.status)
-          : null
+        const detailStage = detail ? getShopOrderStage(detail) : null
+        const handoffPending = detail ? isAssemblerStoreHandoffPending(detail) : false
+        const canAccept = detailStage === 'new'
+        const canMarkReady = detailStage === 'new' || detailStage === 'assembling'
         return (
           <div className="overlay" {...backdropCloseProps(() => {
             if (shopOrderDetailId) setShopOrderDetailId(null)
@@ -8801,9 +8855,9 @@ export default function CashierModule({
                   <b>{detail ? `Заказ ${detail.id}` : 'Заказы из клиентского'}</b>
                   <span>
                     {detail
-                      ? (detail.client?.name || 'Клиент')
+                      ? `${detail.client?.name || 'Клиент'}${detailStage ? ` · ${shopOrderStageLabel(detailStage)}` : ''}`
                       : (shopIncomingOrders.length
-                        ? `${shopIncomingOrders.length} ждут магазин`
+                        ? `${shopIncomingOrders.length} в работе`
                         : 'Новых заказов нет')}
                   </span>
                 </div>
@@ -8829,14 +8883,14 @@ export default function CashierModule({
                     </div>
                   ) : (
                     shopIncomingOrders.map(o => {
-                      const st = o.type === 'mixed' ? getMarketStatus(o) : o.status
-                      const stLabel = st === 'new' ? 'Новый' : st === 'assembling' ? 'Собирается' : String(st)
+                      const stage = getShopOrderStage(o) || 'new'
+                      const stLabel = shopOrderStageLabel(stage)
                       const nItems = Array.isArray(o.items) ? o.items.length : 0
                       return (
                         <button
                           key={o.id}
                           type="button"
-                          className={`shop-order-row ${st === 'new' ? 'new' : ''}`}
+                          className={`shop-order-row ${stage === 'new' || stage === 'handoff' ? 'new' : ''}`}
                           onClick={() => setShopOrderDetailId(o.id)}
                         >
                           <span className="shop-order-row-main">
@@ -8844,7 +8898,7 @@ export default function CashierModule({
                             <i>{o.client?.name || 'Клиент'}{o.client?.phone ? ` · ${o.client.phone}` : ''}</i>
                           </span>
                           <span className="shop-order-row-meta">
-                            <em className={`shop-order-st st-${st === 'new' ? 'new' : 'work'}`}>{stLabel}</em>
+                            <em className={`shop-order-st st-${shopOrderStageClass(stage)}`}>{stLabel}</em>
                             <span>{nItems} поз.</span>
                             <b>{fmtMoney(Number(o.total) || 0)}</b>
                           </span>
@@ -8856,6 +8910,7 @@ export default function CashierModule({
               ) : (
                 <div className="shop-order-detail">
                   <div className="shop-order-detail-info">
+                    <div><span>Статус</span><b>{detailStage ? shopOrderStageLabel(detailStage) : (detail.status || '—')}</b></div>
                     <div><span>Клиент</span><b>{detail.client?.name || '—'}</b></div>
                     <div><span>Телефон</span><b>{detail.client?.phone || '—'}</b></div>
                     <div><span>Адрес</span><b>{detail.client?.addr || '—'}</b></div>
@@ -8876,14 +8931,19 @@ export default function CashierModule({
                     <b>{fmtMoney(Number(detail.total) || 0)}</b>
                   </div>
                   <div className="shop-order-actions">
-                    {(marketSt === 'new' || detail.status === 'new') && (
+                    {canAccept && (
                       <button type="button" className="btn-gate" onClick={() => void acceptShopOrder(detail)}>
                         Взять в сборку
                       </button>
                     )}
-                    {(marketSt === 'assembling' || marketSt === 'new' || detail.status === 'assembling' || detail.status === 'new') && (
+                    {canMarkReady && (
                       <button type="button" className="btn-gate" onClick={() => void markShopOrderReady(detail)}>
                         Готов к выдаче
+                      </button>
+                    )}
+                    {handoffPending && (
+                      <button type="button" className="btn-gate" onClick={() => void handoffShopOrderToCourier(detail)}>
+                        Дать курьеру
                       </button>
                     )}
                     {detail.client?.phone ? (

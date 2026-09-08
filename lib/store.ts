@@ -804,8 +804,10 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           if (cached && cached.length) {
             set({ products: cached, loaded: true })
             void import('./photoOfflineCache').then(({ warmOfflinePhotoCache, schedulePhotoPrefetchFromProducts }) => {
-              void warmOfflinePhotoCache(cached)
-              schedulePhotoPrefetchFromProducts(cached)
+              void warmOfflinePhotoCache(cached).then(() => {
+                // С диска уже тёплое — сеть только для недостающих миниатюр
+                schedulePhotoPrefetchFromProducts(cached)
+              })
             }).catch(() => {})
           }
         } catch { /* дальше сервер */ }
@@ -881,6 +883,10 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       set({ products, loaded: true })
       try {
         void cacheProducts(products)
+        // Prefetch фото только после полного GET /products (bootstrap/repair), не после каждой дельты
+        void import('./photoOfflineCache').then(({ schedulePhotoPrefetchFromProducts }) => {
+          schedulePhotoPrefetchFromProducts(products)
+        }).catch(() => {})
       } catch { /* кэш недоступен */ }
     } catch (e) {
       console.error(e)

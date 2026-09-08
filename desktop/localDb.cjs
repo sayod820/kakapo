@@ -8,7 +8,8 @@
 
 const fs = require('fs')
 const path = require('path')
-const { app, ipcMain } = require('electron')
+const crypto = require('crypto')
+const { app, ipcMain, net } = require('electron')
 
 const DB_FILE = 'kakapo.sqlite'
 const FILE_KV = 'local-kv.json'
@@ -697,6 +698,103 @@ function installLocalDbIpc() {
       return { ok: false }
     }
   })
+
+  // Фото товаров на диске userData — переживают clearCache и холодный старт офлайн
+  ipcMain.handle('desktop:photoCachePut', (_e, url, base64, mime) => {
+    try {
+      const u = String(url || '').trim()
+      const b64 = String(base64 || '')
+      if (!u || !b64) return { ok: false }
+      const { bin, meta } = photoPaths(u)
+      fs.writeFileSync(bin, Buffer.from(b64, 'base64'))
+      fs.writeFileSync(meta, JSON.stringify({
+        url: u,
+        mime: String(mime || 'image/webp'),
+        at: Date.now(),
+        bytes: fs.statSync(bin).size,
+      }))
+      return { ok: true }
+    } catch (e) {
+      console.error('[localDb] photoCachePut', e && e.message)
+      return { ok: false }
+    }
+  })
+
+  ipcMain.handle('desktop:photoCacheGet', (_e, url) => {
+    try {
+      const u = String(url || '').trim()
+      if (!u) return null
+      const { bin, meta } = photoPaths(u)
+      if (!fs.existsSync(bin)) return null
+      const buf = fs.readFileSync(bin)
+      if (!buf || buf.length < 32) return null
+      let mime = 'image/webp'
+      try {
+        const m = JSON.parse(fs.readFileSync(meta, 'utf8'))
+        if (m && m.mime) mime = String(m.mime)
+      } catch { /* ignore */ }
+      return { url: u, mime, base64: buf.toString('base64') }
+    } catch (e) {
+      console.error('[localDb] photoCacheGet', e && e.message)
+      return null
+    }
+  })
+
+  /** Скачать фото через Electron net (без CORS WebView) и сразу сохранить на диск */
+  ipcMain.handle('desktop:photoFetchAndCache', async (_e, url) => {
+    const u = String(url || '').trim()
+    if (!u || !/^https?:\/\//i.test(u)) return { ok: false }
+    try {
+      const existing = (() => {
+        try {
+          const { bin, meta } = photoPaths(u)
+          if (!fs.existsSync(bin)) return null
+          const buf = fs.readFileSync(bin)
+          if (!buf || buf.length < 32) return null
+          let mime = 'image/webp'
+          try {
+            const m = JSON.parse(fs.readFileSync(meta, 'utf8'))
+            if (m && m.mime) mime = String(m.mime)
+          } catch { /* ignore */ }
+          return { url: u, mime, base64: buf.toString('base64') }
+        } catch { return null }
+      })()
+      if (existing) return { ok: true, ...existing, cached: true }
+
+      const res = await net.fetch(u, { method: 'GET', bypassCustomProtocolHandlers: true })
+      if (!res.ok) return { ok: false, status: res.status }
+      const ab = await res.arrayBuffer()
+      const buf = Buffer.from(ab)
+      if (buf.length < 32) return { ok: false }
+      const mime = String(res.headers.get('content-type') || 'image/webp').split(';')[0].trim() || 'image/webp'
+      const { bin, meta } = photoPaths(u)
+      fs.writeFileSync(bin, buf)
+      fs.writeFileSync(meta, JSON.stringify({ url: u, mime, at: Date.now(), bytes: buf.length }))
+      return { ok: true, url: u, mime, base64: buf.toString('base64'), cached: false }
+    } catch (e) {
+      console.error('[localDb] photoFetchAndCache', e && e.message)
+      return { ok: false, error: String((e && e.message) || e) }
+    }
+  })
+}
+
+function photosDir() {
+  const d = path.join(rootDir || path.join(app.getPath('userData'), 'kakapo-local-db'), 'photos')
+  ensureDir(d)
+  return d
+}
+
+function photoHash(url) {
+  return crypto.createHash('sha1').update(String(url || '')).digest('hex')
+}
+
+function photoPaths(url) {
+  const h = photoHash(url)
+  const dir = photosDir()
+  return {
+    bin: path.join(dir, `${h}.bin`),
+    meta: path.join(dir, `${h}.json`),
+  }
 }
 
 module.exports = {

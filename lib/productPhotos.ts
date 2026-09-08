@@ -2,7 +2,8 @@
 import { create } from 'zustand';
 import { getApiUrl, USE_API } from './config';
 import { persistAppDataLocally } from './localCache';
-import { absolutePhotoUrl, peekOfflinePhotoUrl } from './photoOfflineCache';
+import { absolutePhotoUrl, peekOfflinePhotoUrl, requestOfflinePhoto } from './photoOfflineCache';
+import { isTradeLocalFirst } from './offlineV2';
 
 const PHOTOS_KEY = 'kakapo-product-photos';
 
@@ -71,9 +72,15 @@ export function resolvePhotoUrl(value?: string | null): string | undefined {
   const local = abs ? peekOfflinePhotoUrl(abs) : peekOfflinePhotoUrl(url)
   if (local) return local
 
-  // Холодный старт без сети: без локального файла не отдаём remote (сломается)
+  // Сначала пробуем диск/IDB (и офлайн, и онлайн на кассе) — иначе <img> + prefetch
+  // качают одно и то же дважды.
+  requestOfflinePhoto(abs || url)
+
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false
   if (offline) return undefined
+
+  // Касса local-first: пока тёплый кэш не поднялся — не дёргаем CDN; emoji → фото после warm
+  if (isTradeLocalFirst()) return undefined
 
   if (/^https?:\/\//i.test(url)) return url
   if (/^data:|^blob:/i.test(url)) return url
