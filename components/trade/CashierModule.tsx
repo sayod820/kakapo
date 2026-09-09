@@ -10218,7 +10218,9 @@ export default function CashierModule({
               <>
                 <h3>Код администратора</h3>
                 <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 12 }}>
-                  Чек из другой или закрытой смены. Введите код: <b>АДМИН</b>
+                  Чек из смены другого кассира. Введите один из вариантов:
+                  <br />• код <b>АДМИН</b> или <b>ADMIN</b>
+                  <br />• пароль старшего сотрудника (как при входе в Торговлю)
                 </div>
                 <input
                   className="cash-recv-field"
@@ -10231,7 +10233,7 @@ export default function CashierModule({
                       void executeReturnConfirm()
                     }
                   }}
-                  placeholder="АДМИН"
+                  placeholder="АДМИН / пароль старшего"
                   style={{ marginBottom: 16 }}
                 />
                 <div className="modal-card-actions" style={{ gap: 8 }}>
