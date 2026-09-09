@@ -1,7 +1,6 @@
 // ════════════════════════════════════════════════
 // Local-first: UI ↔ база; SYNC-канал ↔ сервер
 // ════════════════════════════════════════════════
-import { isTradeLocalFirst } from './offlineV2'
 import { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } from './syncChannel'
 
 export type SyncKickMode = 'flush' | 'inbound' | 'both'
@@ -11,9 +10,9 @@ const INBOUND_KICK_MIN_MS = 4000
 let lastInboundKickAt = 0
 let deferredInboundTimer: ReturnType<typeof setTimeout> | null = null
 
-/** Trade/POS local-first: UI не ходит на API за синками */
+/** Trade/POS: SYNC-канал временно ВЫКЛ — снова softSync HTTP как раньше */
 export function isSyncChannelMode(): boolean {
-  return isTradeLocalFirst()
+  return false
 }
 
 function scheduleDeferredInbound(delayMs: number) {

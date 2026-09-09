@@ -394,39 +394,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   syncNow: async () => {
-    // Local-first: весь сервер только через SYNC-канал
-    try {
-      const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-      if (isSyncChannelMode()) {
-        const { bindDesktopSyncChannelListeners, hasDesktopSyncChannel } = await import('./syncChannel')
-        if (hasDesktopSyncChannel()) bindDesktopSyncChannelListeners()
-        if (isCashierPaymentCritical()) {
-          syncAgainNeeded = true
-          scheduleReconnect(get, set, 1500)
-          return
-        }
-        void get().refresh()
-        const ok = await kickSyncChannel({ mode: 'both' })
-        if (ok) return
-      }
-    } catch { /* fallback */ }
-
-    // Legacy (браузер без local-first)
-    try {
-      const { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } = await import('./syncChannel')
-      if (hasDesktopSyncChannel()) {
-        bindDesktopSyncChannelListeners()
-        if (isCashierPaymentCritical()) {
-          syncAgainNeeded = true
-          scheduleReconnect(get, set, 1500)
-          return
-        }
-        void get().refresh()
-        const ok = await kickDesktopSyncChannel({ mode: 'both' })
-        if (ok) return
-      }
-    } catch { /* fallback */ }
-
+    // SYNC-канал выкл — очередь flushQueue + softSync HTTP как раньше
     if (syncLock || get().syncing) {
       syncAgainNeeded = true
       return
@@ -473,7 +441,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Входящие: лёгкий pos-lite без force — иначе syncNow+канал+WS одновременно лагают UI.
+      // Входящие: лёгкий pos-lite
       if (alive && !isCashierPaymentCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')

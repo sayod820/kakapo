@@ -7328,7 +7328,9 @@ export default function CashierModule({
               if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
             } catch { /* без карты погашение с чеком пропустим */ }
             if (cardClient.card) {
-              const prevDebt = Number(loyalty?.debt) || clientDebt
+              const liveClient = useClientStore.getState().clients.find(c => c.id === cardClient.id) || cardClient
+              const liveCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, cardClient.card!))
+              const prevDebt = effectiveDebt(liveCard, liveClient)
               const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
               try {
                 const repaid = await debtRepaySafe(cardClient.card, {

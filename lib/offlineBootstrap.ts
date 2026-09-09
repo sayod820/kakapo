@@ -283,10 +283,16 @@ export async function runLocalBootstrap(
       await reloadStoresFromSqlite(['all'])
     } catch { /* ignore */ }
 
-    // Запустить SYNC-канал (дальше только он ↔ сервер)
+    // После bootstrap — обычный softSync / очередь (SYNC-канал выкл)
     try {
-      const { kickSyncChannel } = await import('./syncGate')
-      void kickSyncChannel({ mode: 'both' })
+      const { useOfflineSync } = await import('./offlineSync')
+      void useOfflineSync.getState().syncNow()
+    } catch { /* ignore */ }
+    try {
+      const { softSyncPosAfterSale, softSyncWarehouse, softSyncFinance } = await import('./posStore')
+      void softSyncPosAfterSale({ force: true })
+      void softSyncWarehouse()
+      void softSyncFinance()
     } catch { /* ignore */ }
 
     report(total, 'done', 'Готово')
@@ -302,31 +308,26 @@ export async function runLocalBootstrap(
   }
 }
 
-/** После bootstrap: только SYNC-канал, без полного API dump */
+/** После bootstrap: softSync / очередь (SYNC-канал выкл) */
 export async function silentSyncFromServer(): Promise<void> {
   if (!isOnline()) return
-  try {
-    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-    if (isSyncChannelMode()) {
-      void kickSyncChannel({ mode: 'both' })
-      await markLocalSyncAt()
-      return
-    }
-  } catch { /* fall */ }
   const alive = await pingApiForBootstrap(4000)
   if (!alive) return
   try {
-    const { getPending } = await import('./offline')
-    const pending = await getPending()
-    if (pending.some(r => !r.failed)) return
+    const { useOfflineSync } = await import('./offlineSync')
+    void useOfflineSync.getState().syncNow()
   } catch { /* ignore */ }
   try {
-    const { pullSyncChanges } = await import('./syncPull')
-    const res = await pullSyncChanges()
-    if (res.ok) {
-      await markLocalSyncAt()
-      return
-    }
+    const { softSyncPosAfterSale, softSyncWarehouse, softSyncFinance } = await import('./posStore')
+    void softSyncPosAfterSale({ force: true })
+    void softSyncWarehouse()
+    void softSyncFinance()
+  } catch { /* ignore */ }
+  try {
+    const { syncClientsFromApi } = await import('./clientStore')
+    const { syncCardsFromApi } = await import('./cardStore')
+    void syncClientsFromApi()
+    void syncCardsFromApi()
   } catch { /* ignore */ }
   await markLocalSyncAt()
 }

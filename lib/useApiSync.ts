@@ -12,7 +12,6 @@ import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
 import { getTradeDeviceIdSync } from './tradeDevice'
-import { isKakapoDesktop } from './desktopBridge'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
@@ -79,70 +78,17 @@ function createDebouncedPullers() {
   }
 }
 
-function kickChannelInbound() {
-  void import('./syncGate').then(m => {
-    if (m.isSyncChannelMode()) void m.kickSyncChannel({ mode: 'inbound' })
-  }).catch(() => {})
-}
-
 export function useApiSync(mode: SyncMode = 'all') {
   const pullersRef = useRef<ReturnType<typeof createDebouncedPullers> | null>(null)
   if (!pullersRef.current) pullersRef.current = createDebouncedPullers()
   const pull = pullersRef.current
   const posTickRef = useRef(0)
-  const posChannel = mode === 'pos'
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
 
-    // Desktop POS: WS в SYNC-канале — этот handler почти no-op (сокет выключен)
-    if (posChannel && isKakapoDesktop()) {
-      return
-    }
-
-    // Android POS local-first: WS только будит канал + точечный merge без GET
-    if (posChannel) {
-      kickChannelInbound()
-      if (msg.event === 'product_update') {
-        const incoming = msg.product
-        if (incoming?.deleted) {
-          const ids = Array.isArray(incoming.ids)
-            ? incoming.ids.map(Number).filter((n: number) => Number.isFinite(n))
-            : incoming.id != null ? [Number(incoming.id)] : []
-          if (ids.length) {
-            const idSet = new Set(ids)
-            useProducts.setState(s => ({
-              products: s.products.filter(p => !idSet.has(Number(p.id))),
-            }))
-          }
-          return
-        }
-        if (incoming?.id) {
-          void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
-            const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
-            useProducts.setState(s => {
-              const exists = s.products.some(p => p.id === Number(cleaned.id))
-              const products = exists
-                ? s.products.map(p => p.id === Number(cleaned.id) ? { ...p, ...cleaned } : p)
-                : [...s.products, cleaned]
-              void cacheProducts(products)
-              return { products }
-            })
-          }).catch(() => {})
-        }
-      }
-      if (msg.event === 'pos_update') {
-        const kind = String(msg.payload?.kind || msg.payload?.reason || '')
-        if (kind === 'device-unbind') {
-          const unboundId = String(msg.payload?.deviceId || '')
-          const mine = getTradeDeviceIdSync()
-          if (unboundId && mine && unboundId === mine) {
-            window.dispatchEvent(new CustomEvent('kakapo:device-revoked'))
-          }
-        }
-      }
-      return
-    }
+    // Список softSync как раньше: crm / posSoft / posWarehouse / posFinance
+    // (SYNC-канал выключен — WS снова будит эти pull'ы)
 
     if (msg.event === 'loyalty_update') {
       pull.crm()
@@ -303,7 +249,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
     else if (mode === 'all') orders.fetchOrders()
-  }, { enabled: !(posChannel && isKakapoDesktop()) })
+  })
 
   useEffect(() => {
     if (!USE_API) return
@@ -312,24 +258,6 @@ export function useApiSync(mode: SyncMode = 'all') {
       try {
         if (mode === 'pos' && isCashierPaymentCritical()) return
         if (mode === 'pos' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-
-        if (mode === 'pos') {
-          const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-          if (isSyncChannelMode()) {
-            const { bindDesktopSyncChannelListeners, hasDesktopSyncChannel } = await import('./syncChannel')
-            if (hasDesktopSyncChannel()) bindDesktopSyncChannelListeners()
-            else {
-              const { ensureInProcessSyncTimers } = await import('./syncChannelInProcess')
-              ensureInProcessSyncTimers()
-            }
-            // flush + периодический inbound (иначе сервер→UI почти не доходит)
-            posTickRef.current += 1
-            const tick = posTickRef.current
-            const modeKick = tick === 1 || tick % 3 === 0 ? 'both' : 'flush'
-            await kickSyncChannel({ mode: modeKick })
-            return
-          }
-        }
 
         if (mode === 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
@@ -343,15 +271,24 @@ export function useApiSync(mode: SyncMode = 'all') {
           }
           posTickRef.current += 1
           const tick = posTickRef.current
+          // Прежний список softSync (без SYNC-канала)
           const { pullSyncChanges } = await import('./syncPull')
           const delta = await pullSyncChanges().catch(() => ({ ok: false as const }))
-          const tasks: Promise<unknown>[] = [syncLoyaltyStatusConfigFromApi()]
+          const tasks: Promise<unknown>[] = [
+            syncLoyaltyStatusConfigFromApi(),
+            softSyncPosAfterSale(),
+          ]
+          if (tick === 1 || tick % 3 === 0) tasks.push(softSyncWarehouse())
+          if (tick === 1 || tick % 4 === 0) tasks.push(softSyncFinance())
           const localEmpty = !useProducts.getState().products.length
           if (localEmpty || (!(delta as { ok?: boolean }).ok && tick % 20 === 0)) {
             tasks.push(useProducts.getState().fetchProducts())
           }
           if (tick > 1 && tick % 8 === 0) {
             tasks.push(syncPosFromApi())
+          }
+          if (tick === 1 || tick % 5 === 0) {
+            tasks.push(syncClientsFromApi(), syncCardsFromApi())
           }
           await Promise.allSettled(tasks)
           return
@@ -386,11 +323,7 @@ export function useApiSync(mode: SyncMode = 'all') {
       salesId = setInterval(() => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
-        void import('./syncGate').then(m => {
-          // Редкий inbound (throttle внутри kick). Не softSync HTTP.
-          if (m.isSyncChannelMode()) void m.kickSyncChannel({ mode: 'inbound' })
-          else void softSyncPosAfterSale()
-        }).catch(() => { void softSyncPosAfterSale() })
+        void softSyncPosAfterSale()
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

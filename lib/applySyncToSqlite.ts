@@ -112,6 +112,14 @@ export async function applySyncDeltaToSqlite(json: any): Promise<string[]> {
     list = dropDeletes(list as any, deletes, ['client']) as any
     await cacheClients(list as any[])
     await cacheData('clients', list)
+    const desk = (await import('./desktopBridge')).getKakapoDesktop()
+    if (desk?.localDbKvSet) {
+      try {
+        await desk.localDbKvSet('catalog_clients', list)
+        await desk.localDbKvSet('clients', list)
+        await desk.localDbKvSet('data_clients', list)
+      } catch { /* ignore */ }
+    }
     scopes.push('clients')
   }
 
@@ -129,7 +137,10 @@ export async function applySyncDeltaToSqlite(json: any): Promise<string[]> {
     list = dropDeletes(list, deletes, ['card'])
     await cacheData('cards', list)
     if (desk?.localDbKvSet) {
-      try { await desk.localDbKvSet('cards', list) } catch { /* ignore */ }
+      try {
+        await desk.localDbKvSet('cards', list)
+        await desk.localDbKvSet('data_cards', list)
+      } catch { /* ignore */ }
     }
     scopes.push('cards')
   }

@@ -263,10 +263,11 @@ export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient 
 
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
   let merged = apiCard
+  const moneyGuard = !!(localCard && isMoneyPendingCard(apiCard.num))
   if (localCard && isRecent(cardSavedAt, cardKey(apiCard.num))) {
-    merged = mergeLoyaltyFields(apiCard, localCard, false)
+    merged = mergeLoyaltyFields(apiCard, localCard, moneyGuard)
   }
-  if (localCard && isMoneyPendingCard(apiCard.num)) {
+  if (localCard && moneyGuard) {
     merged = {
       ...merged,
       bonus: localCard.bonus ?? merged.bonus,
@@ -304,14 +305,15 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
   let merged = apiClient
-  if (localClient && isRecent(clientSavedAt, localClient.id)) {
-    merged = mergeLoyaltyFields(apiClient, localClient, false)
-  }
-  // Только пока локальная money-операция в полёте — не держим долг «навечно»
   const moneyGuard = !!(localClient && (
     isMoneyPendingClient(localClient.id)
     || (!!localClient.card && isMoneyPendingCard(localClient.card))
   ))
+  // isRecent раньше брал серверный долг (keepMoney=false) — после чека inbound
+  // откатывал локальный долг из устаревшего catalog_clients
+  if (localClient && isRecent(clientSavedAt, localClient.id)) {
+    merged = mergeLoyaltyFields(apiClient, localClient, moneyGuard)
+  }
   if (localClient && moneyGuard) {
     merged = {
       ...merged,

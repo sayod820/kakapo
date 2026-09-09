@@ -102,23 +102,26 @@ function applyDeltaToSqlite(dbBridge, json) {
     scopes.push('categories')
   }
 
-  // Clients
   if (asArr(json.clients).length || deletes.some(d => d.kind === 'client')) {
     let list = asArr(dbBridge.kvGet('catalog_clients'))
     if (!list.length) list = asArr(dbBridge.kvGet('clients'))
+    if (!list.length) list = asArr(dbBridge.kvGet('data_clients'))
     list = mergeById(list, json.clients, full)
     list = dropDeletes(list, deletes, ['client'])
     dbBridge.kvSet('catalog_clients', list)
     dbBridge.kvSet('clients', list)
+    dbBridge.kvSet('data_clients', list)
     scopes.push('clients')
   }
 
   // Cards
   if (asArr(json.cards).length || deletes.some(d => d.kind === 'card')) {
     let list = asArr(dbBridge.kvGet('cards'))
+    if (!list.length) list = asArr(dbBridge.kvGet('data_cards'))
     list = mergeById(list, json.cards, full)
     list = dropDeletes(list, deletes, ['card'])
     dbBridge.kvSet('cards', list)
+    dbBridge.kvSet('data_cards', list)
     scopes.push('cards')
   }
 

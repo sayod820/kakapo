@@ -368,6 +368,7 @@ async function runFlush(mode = 'both') {
             localId: row.localId || '',
             serverId: result.serverId || '',
             delegated: !!result.delegated,
+            payload: row.payload,
           })
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)

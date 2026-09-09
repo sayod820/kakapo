@@ -81,6 +81,7 @@ export function bindDesktopSyncChannelListeners(): void {
             localId: String(ev.localId || ''),
             serverId: String(ev.serverId || ''),
             clientRef,
+            payload: ev.payload,
           })
         }
         try {
