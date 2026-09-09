@@ -967,9 +967,15 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     return p
   },
 
-  updateProduct: (id, updates) => set(s => ({
-    products: s.products.map(p => p.id === id ? { ...p, ...updates } : p)
-  })),
+  updateProduct: (id, updates) => {
+    set(s => ({
+      products: s.products.map(p => p.id === id ? { ...p, ...updates } : p),
+    }))
+    // Local-first: иначе inbound из SQLite откатит stock после чека/списания
+    void import('./offline').then(m => {
+      void m.cacheProducts(get().products)
+    }).catch(() => {})
+  },
 
   addProduct: (p) => set(s => ({ products: [...s.products, p] })),
 

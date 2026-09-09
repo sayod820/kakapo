@@ -406,7 +406,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           return
         }
         void get().refresh()
-        const ok = await kickSyncChannel({ mode: 'flush' })
+        const ok = await kickSyncChannel({ mode: 'both' })
         if (ok) return
       }
     } catch { /* fallback */ }
@@ -422,7 +422,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           return
         }
         void get().refresh()
-        const ok = await kickDesktopSyncChannel({ mode: 'flush' })
+        const ok = await kickDesktopSyncChannel({ mode: 'both' })
         if (ok) return
       }
     } catch { /* fallback */ }

@@ -77,6 +77,15 @@ async function bumpProductStock(
   ps.updateProduct(productId, patch as any)
 }
 
+async function persistWarehouseAfterStock() {
+  try {
+    const { useProducts } = await import('./store')
+    const { cacheProducts, persistPosSnapshot } = await import('./offline')
+    void cacheProducts(useProducts.getState().products)
+    void persistPosSnapshot()
+  } catch { /* ignore */ }
+}
+
 /** Применить/откатить суммы прихода к долгу поставщика (+ bump supplyVersion). */
 async function applySupplierReceiptTotals(
   supplierId: string | undefined,
@@ -351,6 +360,7 @@ async function applyReceiptStock(
     const { applyLocalReceiptLayers } = await import('./stockLayersLocal')
     await applyLocalReceiptLayers(receipt, sign)
   } catch { /* ignore */ }
+  await persistWarehouseAfterStock()
 }
 
 /** Откат локального прихода, если сервер отклонил из‑за версии долга */
@@ -437,6 +447,7 @@ export async function createStockReceiptSafe(
     await applyReceiptStock(receipt, 1)
     usePosStore.setState(s => ({ receipts: [receipt, ...s.receipts] }))
     shadowMirrorPut('stock_receipt', receipt.id, receipt)
+    void persistWarehouseAfterStock()
     return receipt
   }
 
@@ -568,6 +579,7 @@ async function applyWriteoffStock(items: { productId: number; qty: number }[], s
       } catch { /* ignore */ }
     }
   }
+  await persistWarehouseAfterStock()
 }
 
 async function buildLocalWriteoff(
@@ -614,6 +626,7 @@ export async function createStockWriteoffSafe(
     await applyWriteoffStock(payload.items, 1)
     usePosStore.setState(s => ({ writeoffs: [writeoff, ...s.writeoffs] }))
     shadowMirrorPut('stock_writeoff', writeoff.id, writeoff)
+    void persistWarehouseAfterStock()
     return writeoff
   }
 
@@ -642,6 +655,7 @@ export async function updateStockWriteoffSafe(
     usePosStore.setState(s => ({
       writeoffs: s.writeoffs.map(w => (w.id === id ? writeoff : w)),
     }))
+    void persistWarehouseAfterStock()
     return writeoff
   }
 
@@ -663,6 +677,7 @@ export async function deleteStockWriteoffSafe(id: string): Promise<OfflineResult
     if (old) await applyWriteoffStock(old.items, -1)
     await useOfflineSync.getState().queueOp('stock_writeoff_delete', body)
     usePosStore.setState(s => ({ writeoffs: s.writeoffs.filter(w => w.id !== id) }))
+    void persistWarehouseAfterStock()
     return { id }
   }
 
@@ -709,6 +724,7 @@ async function applyRevisionDelta(
     const target = Math.max(0, round2(liveNow + (counted - frozen)))
     await setProductStockExact(it.productId, target)
   }
+  await persistWarehouseAfterStock()
 }
 
 async function reverseRevision(items: { productId: number; systemStock: number; stockBefore?: number }[]) {
@@ -806,6 +822,7 @@ export async function createStockRevisionSafe(
     }
     usePosStore.setState(s => ({ revisions: [revision, ...s.revisions] }))
     shadowMirrorPut('stock_receipt', `rev:${revision.id}`, revision)
+    void persistWarehouseAfterStock()
     return revision
   }
 
@@ -853,6 +870,7 @@ export async function updateStockRevisionSafe(
     usePosStore.setState(s => ({
       revisions: s.revisions.map(r => (r.id === id ? revision : r)),
     }))
+    void persistWarehouseAfterStock()
     return revision
   }
 
@@ -874,6 +892,7 @@ export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult
     if (old) await reverseRevision(old.items)
     await useOfflineSync.getState().queueOp('stock_revision_delete', body)
     usePosStore.setState(s => ({ revisions: s.revisions.filter(r => r.id !== id) }))
+    void persistWarehouseAfterStock()
     return { id }
   }
 

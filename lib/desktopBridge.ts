@@ -233,6 +233,7 @@ export type KakapoDesktopApi = {
     deviceId?: string
     wsBase?: string
     mode?: 'flush' | 'inbound' | 'both'
+    expiryDays?: number
     extraHeaders?: Record<string, string>
   }) => Promise<{ ok: boolean; running?: boolean }>
   syncChannelStatus?: () => Promise<{ ok: boolean; running?: boolean; hasBridge?: boolean }>

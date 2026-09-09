@@ -5,8 +5,8 @@
 import { readCachedProducts, readCachedClients, readCachedData } from './offline'
 
 let reloadInFlight: Promise<void> | null = null
-let lastReloadAt = 0
-const RELOAD_MIN_MS = 400
+let pendingScopes: Set<string> | null = null
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
 
 export type SqliteReloadScope =
   | 'products'
@@ -15,13 +15,30 @@ export type SqliteReloadScope =
   | 'categories'
   | 'pos'
   | 'stockLayers'
+  | 'loyalty'
   | 'all'
+
+function scheduleDeferredReload() {
+  if (pendingTimer) return
+  pendingTimer = setTimeout(() => {
+    pendingTimer = null
+    const scopes = pendingScopes ? ([...pendingScopes] as SqliteReloadScope[]) : undefined
+    pendingScopes = null
+    void reloadStoresFromSqlite(scopes?.includes('all') ? ['all'] : scopes)
+  }, 120)
+}
 
 export async function reloadStoresFromSqlite(scopes?: SqliteReloadScope[]): Promise<void> {
   if (typeof window === 'undefined') return
-  const now = Date.now()
-  if (reloadInFlight) return reloadInFlight
-  if (now - lastReloadAt < RELOAD_MIN_MS) return
+
+  // Не роняем апдейт: если уже идёт reload — копим scopes и повторим
+  if (reloadInFlight) {
+    if (!pendingScopes) pendingScopes = new Set()
+    if (!scopes?.length || scopes.includes('all')) pendingScopes.add('all')
+    else for (const s of scopes) pendingScopes.add(s)
+    scheduleDeferredReload()
+    return reloadInFlight
+  }
 
   const want = new Set(scopes?.length ? scopes : ['all'])
   const all = want.has('all')
@@ -40,7 +57,19 @@ export async function reloadStoresFromSqlite(scopes?: SqliteReloadScope[]): Prom
         if (!cached?.length) cached = await readCachedData('clients')
         if (cached?.length) {
           const { useClientStore } = await import('./clientStore')
-          useClientStore.setState({ clients: cached as any, hydrated: true, apiReady: true })
+          const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+          const local = useClientStore.getState().clients || []
+          const byId = new Map(local.map(c => [String(c.id), c]))
+          const merged = (cached as any[]).map(row => {
+            const prev = byId.get(String(row.id))
+              || local.find(x => String(x.phone || '') === String(row.phone || ''))
+            return mergeClientLoyaltyIfRecent(row as any, prev)
+          })
+          for (const lc of local) {
+            if (!merged.some(m => String(m.id) === String(lc.id))) merged.push(lc as any)
+          }
+          useClientStore.setState({ clients: merged as any, hydrated: true, apiReady: true })
+          // НЕ пишем merge обратно в SQLite — иначе локальная защита отравляет серверные апдейты
         }
       }
       if (all || want.has('cards')) {
@@ -56,7 +85,10 @@ export async function reloadStoresFromSqlite(scopes?: SqliteReloadScope[]): Prom
         }
         if (cached?.length) {
           const { useCardStore } = await import('./cardStore')
-          useCardStore.setState({ cards: cached, hydrated: true, apiReady: true })
+          const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
+          const local = useCardStore.getState().cards || []
+          const merged = cached.map(row => mergeCardLoyaltyIfRecent(row as any, findLocalCard(local, row.num)))
+          useCardStore.setState({ cards: merged as any, hydrated: true, apiReady: true })
         }
       }
       if (all || want.has('categories')) {
@@ -108,13 +140,36 @@ export async function reloadStoresFromSqlite(scopes?: SqliteReloadScope[]): Prom
       }
       if (all || want.has('stockLayers')) {
         try {
-          const { readCachedStockLayers } = await import('./stockLayersLocal')
-          await readCachedStockLayers()
+          const { readCachedStockLayers, cacheStockLayersAndSyncCatalog } = await import('./stockLayersLocal')
+          const layers = await readCachedStockLayers()
+          if (layers?.length) await cacheStockLayersAndSyncCatalog(layers)
         } catch { /* ignore */ }
       }
-      lastReloadAt = Date.now()
+      if (all || want.has('loyalty')) {
+        try {
+          const desk = (await import('./desktopBridge')).getKakapoDesktop()
+          let raw: unknown = null
+          if (desk?.localDbKvGet) {
+            try { raw = await desk.localDbKvGet('loyalty_status_config') } catch { /* ignore */ }
+          }
+          if (!raw) {
+            try {
+              const s = localStorage.getItem('kakapo-loyalty-status-config')
+              if (s) raw = JSON.parse(s)
+            } catch { /* ignore */ }
+          }
+          if (raw && typeof raw === 'object') {
+            const { LOYALTY_STATUS_CONFIG_EVENT } = await import('./loyaltyStatusConfig')
+            try {
+              localStorage.setItem('kakapo-loyalty-status-config', JSON.stringify(raw))
+            } catch { /* ignore */ }
+            window.dispatchEvent(new CustomEvent(LOYALTY_STATUS_CONFIG_EVENT, { detail: raw }))
+          }
+        } catch { /* ignore */ }
+      }
     } finally {
       reloadInFlight = null
+      if (pendingScopes && pendingScopes.size) scheduleDeferredReload()
     }
   })()
   return reloadInFlight

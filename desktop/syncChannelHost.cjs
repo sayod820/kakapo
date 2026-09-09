@@ -9,6 +9,7 @@
 const { net, ipcMain, BrowserWindow } = require('electron')
 const { buildHttpJob, extractServerId, isLocalId } = require('./syncOpHttp.cjs')
 const { deltaHasWork, applyDeltaToSqlite } = require('./syncInboundSqlite.cjs')
+const { pullChannelExtras } = require('./syncChannelExtras.cjs')
 
 const KEY_IDMAP = 'queue_idmap'
 const KEY_POS_LITE_CURSOR = 'kakapo_pos_lite_cursor'
@@ -210,8 +211,39 @@ async function pullInbound() {
   if (!base || !dbBridge) return { scopes: [] }
 
   const scopes = []
+  const MONEY_KINDS = new Set(['debt_repay', 'card_topup', 'sale', 'sale_return'])
+  const STOCK_KINDS = new Set([
+    'sale', 'sale_return',
+    'stock_writeoff_create', 'stock_writeoff_update', 'stock_writeoff_delete',
+    'stock_revision_create', 'stock_revision_update', 'stock_revision_delete',
+    'stock_receipt_create', 'stock_receipt_update', 'stock_receipt_delete',
+    'stock_layer_update', 'stock_layer_delete',
+  ])
+  const pendingKinds = () => {
+    try {
+      return (dbBridge.queueAll() || []).filter(r => r && !r.failed).map(r => String(r.kind || ''))
+    } catch {
+      return []
+    }
+  }
+  // CRM money / склад: не затирать локальные списания старым снимком сервера
+  const stripPendingCrmStock = (json) => {
+    if (!json || typeof json !== 'object') return json
+    const kinds = pendingKinds()
+    if (!kinds.length) return json
+    const next = { ...json }
+    if (kinds.some(k => MONEY_KINDS.has(k))) {
+      delete next.clients
+      delete next.cards
+    }
+    if (kinds.some(k => STOCK_KINDS.has(k))) {
+      delete next.products
+      delete next.stockLayers
+    }
+    return next
+  }
 
-  // 1) pos-lite → сразу в SQLite (не в UI)
+  // 1) pos-lite → SQLite
   try {
     let liteCursor = ''
     try { liteCursor = String(dbBridge.kvGet(KEY_POS_LITE_CURSOR) || '') } catch { /* ignore */ }
@@ -223,40 +255,56 @@ async function pullInbound() {
       path: `/sync/changes?${q.toString()}`,
       timeoutMs: 12000,
     })
-    const json = res.json || {}
+    let json = res.json || {}
     if (json.cursor) {
       try { dbBridge.kvSet(KEY_POS_LITE_CURSOR, String(json.cursor)) } catch { /* ignore */ }
     }
+    json = stripPendingCrmStock(json)
     if (deltaHasWork(json)) {
       const r = applyDeltaToSqlite(dbBridge, json)
       scopes.push(...(r.scopes || []))
     }
   } catch { /* best-effort */ }
 
-  // 2) полный sync/changes → SQLite (если очередь пуста)
+  // 2) полный sync/changes → SQLite ВСЕГДА (очередь больше не блокирует inbound)
   try {
-    const pending = (dbBridge.queueAll() || []).filter(r => r && !r.failed)
-    if (pending.length === 0) {
-      let cursor = ''
-      try {
-        const meta = dbBridge.metaGet ? dbBridge.metaGet() : {}
-        cursor = String(meta?.syncCursor || '') || ''
-      } catch { /* ignore */ }
-      const qs = cursor ? `?since=${encodeURIComponent(cursor)}` : ''
-      const res = await httpRequest({
-        method: 'GET',
-        path: `/sync/changes${qs}`,
-        timeoutMs: 15000,
-      })
-      const json = res.json || {}
-      if (json.cursor && dbBridge.metaPatch) {
-        try { dbBridge.metaPatch({ syncCursor: String(json.cursor) }) } catch { /* ignore */ }
-      }
-      if (deltaHasWork(json)) {
-        const r = applyDeltaToSqlite(dbBridge, json)
-        scopes.push(...(r.scopes || []))
-      }
+    let cursor = ''
+    try {
+      const meta = dbBridge.metaGet ? dbBridge.metaGet() : {}
+      cursor = String(meta?.syncCursor || '') || ''
+    } catch { /* ignore */ }
+    const qs = cursor ? `?since=${encodeURIComponent(cursor)}` : ''
+    const res = await httpRequest({
+      method: 'GET',
+      path: `/sync/changes${qs}`,
+      timeoutMs: 15000,
+    })
+    let json = res.json || {}
+    if (json.cursor && dbBridge.metaPatch) {
+      try { dbBridge.metaPatch({ syncCursor: String(json.cursor) }) } catch { /* ignore */ }
     }
+    json = stripPendingCrmStock(json)
+    if (deltaHasWork(json)) {
+      const r = applyDeltaToSqlite(dbBridge, json)
+      scopes.push(...(r.scopes || []))
+    }
+  } catch { /* best-effort */ }
+
+  // 3) extras: vault / layers / expiry / loyalty (как старый softSync*)
+  try {
+    const kinds = pendingKinds()
+    const stockBusy = kinds.some(k => STOCK_KINDS.has(k))
+    const vaultBusy = kinds.some(k =>
+      k === 'vault_card_to_cash' || k === 'vault_cash_to_card' || k === 'finance_move' || k === 'expense_create',
+    )
+    const extraScopes = await pullChannelExtras({
+      httpRequest,
+      dbBridge,
+      expiryDays: Number(session.expiryDays) || 14,
+      skipLayers: stockBusy,
+      skipVault: vaultBusy,
+    })
+    scopes.push(...extraScopes)
   } catch { /* best-effort */ }
 
   const uniq = [...new Set(scopes)]
@@ -372,11 +420,11 @@ async function runFlush(mode = 'both') {
 
 function ensureInboundTimer() {
   if (inboundTimer) return
-  // Реже: UI не должен постоянно получать inbound-ready
+  // 20с: сервер→SQLite→UI; UI сам не долбит HTTP
   inboundTimer = setInterval(() => {
     if (!session.apiBase || !dbBridge) return
     void runFlush('inbound')
-  }, 60000)
+  }, 20000)
 }
 
 function wsUrl() {
@@ -450,6 +498,7 @@ function kick(opts = {}) {
   if (opts.token != null) session.token = String(opts.token || '')
   if (opts.deviceId != null) session.deviceId = String(opts.deviceId || '')
   if (opts.wsBase) session.wsBase = String(opts.wsBase || '')
+  if (opts.expiryDays != null) session.expiryDays = Number(opts.expiryDays) || 14
   if (opts.extraHeaders && typeof opts.extraHeaders === 'object') {
     session.extraHeaders = opts.extraHeaders
   }

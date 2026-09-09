@@ -17,8 +17,8 @@ import { isKakapoDesktop } from './desktopBridge'
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
-const POS_INTERVAL_MS = 90000
-const POS_SALES_INBOUND_MS = 35000
+const POS_INTERVAL_MS = 45000
+const POS_SALES_INBOUND_MS = 20000
 const PULL_DEBOUNCE_MS = 120
 
 function wsRoleForMode(mode: SyncMode) {
@@ -322,9 +322,11 @@ export function useApiSync(mode: SyncMode = 'all') {
               const { ensureInProcessSyncTimers } = await import('./syncChannelInProcess')
               ensureInProcessSyncTimers()
             }
-            // Только flush очереди. Inbound делает сам канал по таймеру —
-            // иначе каждые 90с merge → лаг кассы/истории без очереди.
-            await kickSyncChannel({ mode: 'flush' })
+            // flush + периодический inbound (иначе сервер→UI почти не доходит)
+            posTickRef.current += 1
+            const tick = posTickRef.current
+            const modeKick = tick === 1 || tick % 3 === 0 ? 'both' : 'flush'
+            await kickSyncChannel({ mode: modeKick })
             return
           }
         }
@@ -389,7 +391,7 @@ export function useApiSync(mode: SyncMode = 'all') {
           if (m.isSyncChannelMode()) void m.kickSyncChannel({ mode: 'inbound' })
           else void softSyncPosAfterSale()
         }).catch(() => { void softSyncPosAfterSale() })
-      }, Math.max(POS_SALES_INBOUND_MS, 55000))
+      }, POS_SALES_INBOUND_MS)
     }
     return () => {
       clearInterval(id)

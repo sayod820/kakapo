@@ -34,6 +34,11 @@ function persistClientsAndCards() {
   void cacheData('cards', useCardStore.getState().cards)
 }
 
+/** После погашения/пополнения — сразу в SQLite, иначе inbound откатит UI */
+export function persistCrmMoneyToSqlite() {
+  persistClientsAndCards()
+}
+
 function findCardForClient(client: AdminClient, cards: AdminCard[]): AdminCard | undefined {
   if (client.card) {
     const byNum = cards.find(c => String(c.num).replace(/\s/g, '') === String(client.card).replace(/\s/g, ''))

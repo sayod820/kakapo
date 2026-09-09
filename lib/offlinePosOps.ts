@@ -1081,6 +1081,15 @@ export async function cardTopupSafe(
       { skipApi: true },
     )
     markMoneyPending({ cardNum: num, clientId: card?.clientId })
+    try {
+      const { markCardLoyaltySaved, markClientLoyaltySaved } = await import('./loyaltySaveGuard')
+      markCardLoyaltySaved(num)
+      if (card?.clientId) markClientLoyaltySaved(card.clientId)
+    } catch { /* ignore */ }
+    try {
+      const { persistCrmMoneyToSqlite } = await import('./offlineLoyaltyOps')
+      persistCrmMoneyToSqlite()
+    } catch { /* ignore */ }
     return { clientRef }
   }
 
@@ -1332,6 +1341,15 @@ export async function debtRepaySafe(
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
     markMoneyPending({ clientId: input.clientId, cardNum: num })
+    try {
+      const { markCardLoyaltySaved, markClientLoyaltySaved } = await import('./loyaltySaveGuard')
+      markCardLoyaltySaved(num)
+      if (input.clientId) markClientLoyaltySaved(input.clientId)
+    } catch { /* ignore */ }
+    try {
+      const { persistCrmMoneyToSqlite } = await import('./offlineLoyaltyOps')
+      persistCrmMoneyToSqlite()
+    } catch { /* ignore */ }
     return { nextDebt, bonusEarned: 0, clientRef }
   }
 
@@ -1397,6 +1415,9 @@ export function revertLocalDebtRepayOnReject(payload: {
   }
 
   clearMoneyPending({ clientId: payload.clientId, cardNum: num })
+  try {
+    void import('./offlineLoyaltyOps').then(m => m.persistCrmMoneyToSqlite()).catch(() => {})
+  } catch { /* ignore */ }
 }
 
 // ── Возврат чека ──
@@ -2043,6 +2064,9 @@ export async function createSaleSafe(
                 return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
               }),
             }))
+            void import('./offline').then(m => {
+              void m.cacheProducts(useProducts.getState().products)
+            }).catch(() => {})
           } catch { /* ignore */ }
         }
         void import('./stockLayersLocal')
@@ -2122,6 +2146,15 @@ export async function createSaleSafe(
           }
           if (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0) {
             markMoneyPending({ clientId: client.id, cardNum: client.card })
+            try {
+              void import('./loyaltySaveGuard').then(({ markCardLoyaltySaved, markClientLoyaltySaved }) => {
+                markClientLoyaltySaved(client.id)
+                if (client.card) markCardLoyaltySaved(client.card)
+              }).catch(() => {})
+            } catch { /* ignore */ }
+            try {
+              void import('./offlineLoyaltyOps').then(m => m.persistCrmMoneyToSqlite()).catch(() => {})
+            } catch { /* ignore */ }
           }
           if (debtAdded > 0.001) {
             const histKey = debtAccountKey({ id: client.id, phone: client.phone })

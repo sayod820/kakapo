@@ -639,7 +639,7 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   try {
     const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
     if (isSyncChannelMode()) {
-      void kickSyncChannel({ mode: 'inbound' })
+      void kickSyncChannel({ mode: 'inbound', expiryDays: opts?.expiryDays })
       return
     }
   } catch { /* fallback */ }

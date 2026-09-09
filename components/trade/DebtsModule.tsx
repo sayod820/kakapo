@@ -501,12 +501,20 @@ export default function DebtsModule({
   const desktopAutoPicked = useRef(false)
 
   const refreshAll = useCallback(() => {
-    void Promise.all([
-      hydrateOfflineCaches(),
-      softSyncPosAfterSale(),
-      syncClientsFromApi(),
-      syncCardsFromApi(),
-    ])
+    // Local-first: flush + inbound через канал (CRM strip пока money pending)
+    void hydrateOfflineCaches()
+    void import('@/lib/syncGate').then(m => {
+      if (m.isSyncChannelMode()) void m.kickSyncChannel({ mode: 'both' })
+      else {
+        void softSyncPosAfterSale()
+        void syncClientsFromApi()
+        void syncCardsFromApi()
+      }
+    }).catch(() => {
+      void softSyncPosAfterSale()
+      void syncClientsFromApi()
+      void syncCardsFromApi()
+    })
   }, [])
 
   useEffect(() => { refreshAll() }, [refreshAll])
