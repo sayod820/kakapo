@@ -22,18 +22,19 @@ export interface WSMessage {
 export function useWebSocket(
   role: WSRole,
   onMessage: (msg: WSMessage) => void,
-  meta?: { phone?: string },
+  meta?: { phone?: string; enabled?: boolean },
 ) {
   const wsRef = useRef<WebSocket | null>(null)
   const onMsgRef = useRef(onMessage)
   const [connected, setConnected] = useState(false)
   const phoneRef = useRef(meta?.phone)
   phoneRef.current = meta?.phone
+  const enabled = meta?.enabled !== false
 
   useEffect(() => { onMsgRef.current = onMessage }, [onMessage])
 
   useEffect(() => {
-    if (!USE_API) return
+    if (!USE_API || !enabled) return
     let stopped = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pingTimer: ReturnType<typeof setInterval> | null = null
@@ -95,7 +96,7 @@ export function useWebSocket(
       if (pingTimer) clearInterval(pingTimer)
       if (wsRef.current) { try { wsRef.current.close() } catch {} }
     }
-  }, [role, meta?.phone])
+  }, [role, meta?.phone, enabled])
 
   return { connected }
 }

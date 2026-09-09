@@ -2,7 +2,7 @@
 // KAKAPO — клиент отдельного SYNC-канала (UI сторона)
 // UI ↔ SQLite; SYNC (main) ↔ сервер + SQLite
 // ════════════════════════════════════════════════
-import { getApiUrl } from './config'
+import { getApiUrl, getWsUrl } from './config'
 import { getToken } from './api'
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 import { getTradeDeviceIdSync } from './tradeDevice'
@@ -17,7 +17,7 @@ export function hasDesktopSyncChannel(): boolean {
 }
 
 /** Разбудить SYNC-канал (сеть+очередь в main). UI не делает flush. */
-export async function kickDesktopSyncChannel(): Promise<boolean> {
+export async function kickDesktopSyncChannel(opts?: { mode?: 'flush' | 'inbound' | 'both' }): Promise<boolean> {
   if (!hasDesktopSyncChannel()) return false
   const desk = getKakapoDesktop()
   try {
@@ -25,6 +25,8 @@ export async function kickDesktopSyncChannel(): Promise<boolean> {
       apiBase: getApiUrl().replace(/\/$/, ''),
       token: getToken() || '',
       deviceId: getTradeDeviceIdSync() || '',
+      wsBase: getWsUrl().replace(/\/$/, ''),
+      mode: opts?.mode || 'both',
     })
     return true
   } catch {
@@ -39,7 +41,6 @@ export function bindDesktopSyncChannelListeners(): void {
   const desk = getKakapoDesktop()
   if (!desk) return
 
-  // Разовая чистка призраков IndexedDB (они возвращали уже отправленные op в SQLite)
   void import('./offline').then(m => {
     try { void m.clearDesktopIdbQueueGhosts() } catch { /* ignore */ }
   }).catch(() => {})
@@ -67,7 +68,6 @@ export function bindDesktopSyncChannelListeners(): void {
     try {
       if (ev?.type === 'op-ok') {
         const clientRef = String(ev.clientRef || '')
-        // Снять с UI-слоёв (IDB/кэш), даже если main уже удалил из SQLite
         if (clientRef) {
           try {
             const { dropPending } = await import('./offline')
@@ -111,27 +111,31 @@ export function bindDesktopSyncChannelListeners(): void {
         } catch { /* ignore */ }
         return
       }
-      if (ev?.type === 'inbound' || ev?.type === 'done') {
+      if (ev?.type === 'device-unbind') {
+        try {
+          const unboundId = String(ev.deviceId || '')
+          const { getTradeDeviceIdSync } = await import('./tradeDevice')
+          const mine = getTradeDeviceIdSync()
+          if (unboundId && mine && unboundId === mine) {
+            window.dispatchEvent(new CustomEvent('kakapo:device-revoked'))
+          }
+        } catch { /* ignore */ }
+        return
+      }
+      // Канал положил дельту в SQLite — UI только читает базу (без HTTP)
+      if (ev?.type === 'inbound-ready' || ev?.type === 'inbound' || ev?.type === 'done') {
+        try {
+          const { consumeInboundFromLocal } = await import('./applyInboundLocal')
+          await consumeInboundFromLocal()
+        } catch { /* ignore */ }
         try {
           const { useOfflineSync } = await import('./offlineSync')
           void useOfflineSync.getState().refresh()
         } catch { /* ignore */ }
-        // Входящие: после flush очередь должна быть пуста; ignorePending на всякий случай
-        try {
-          const { pullSyncChanges } = await import('./syncPull')
-          void pullSyncChanges({ ignorePending: ev?.type === 'done' })
-        } catch { /* ignore */ }
-        if (ev?.type === 'done') {
-          try {
-            const { softSyncPosAfterSale } = await import('./posStore')
-            void softSyncPosAfterSale({ force: true })
-          } catch { /* ignore */ }
-        }
       }
       if (ev?.type === 'start' || ev?.type === 'progress') {
         try {
           const { useOfflineSync } = await import('./offlineSync')
-          const st = useOfflineSync.getState()
           if (ev.type === 'start') {
             useOfflineSync.setState({ syncing: true, lastError: null })
           }
@@ -141,7 +145,6 @@ export function bindDesktopSyncChannelListeners(): void {
               progress: { done: Number(ev.done) || 0, total: Number(ev.total) || 0 },
             })
           }
-          void st
         } catch { /* ignore */ }
       }
       if (ev?.type === 'done' || ev?.type === 'error' || ev?.type === 'network') {

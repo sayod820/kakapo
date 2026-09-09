@@ -78,8 +78,8 @@ const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
-/** После локального изменения — почти сразу (UI кадр успевает отрисоваться) */
-const KICK_AFTER_CHANGE_MS = 80
+/** После локального изменения — дать UI отрисоваться, потом kick */
+const KICK_AFTER_CHANGE_MS = 160
 
 /**
  * Мгновенный синк после любого изменения (очередь / локальная запись).
@@ -394,7 +394,24 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   syncNow: async () => {
-    // Desktop: очередь и HTTP уходят в отдельный SYNC-канал (main process)
+    // Local-first: весь сервер только через SYNC-канал
+    try {
+      const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+      if (isSyncChannelMode()) {
+        const { bindDesktopSyncChannelListeners, hasDesktopSyncChannel } = await import('./syncChannel')
+        if (hasDesktopSyncChannel()) bindDesktopSyncChannelListeners()
+        if (isCashierPaymentCritical()) {
+          syncAgainNeeded = true
+          scheduleReconnect(get, set, 1500)
+          return
+        }
+        void get().refresh()
+        const ok = await kickSyncChannel({ mode: 'both' })
+        if (ok) return
+      }
+    } catch { /* fallback */ }
+
+    // Legacy (браузер без local-first)
     try {
       const { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } = await import('./syncChannel')
       if (hasDesktopSyncChannel()) {
@@ -404,10 +421,9 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           scheduleReconnect(get, set, 1500)
           return
         }
-        await get().refresh()
+        void get().refresh()
         const ok = await kickDesktopSyncChannel()
         if (ok) return
-        // канал не ответил — fallback на старый путь ниже
       }
     } catch { /* fallback */ }
 
@@ -457,15 +473,11 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Входящие чеки с сервера — даже при фокусе в поиске (иначе браузер→ПК не доходит).
-      // Блокируем только реальное пробитие/оплату.
+      // Входящие: лёгкий pos-lite без force — иначе syncNow+канал+WS одновременно лагают UI.
       if (alive && !isCashierPaymentCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
-          await Promise.race([
-            softSyncPosAfterSale({ force: true }),
-            new Promise(resolve => setTimeout(resolve, 8000)),
-          ])
+          void softSyncPosAfterSale()
         } catch { /* ignore */ }
       }
 
@@ -476,22 +488,16 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
       if (get().pending > 0) {
         await get().flush()
-        // После flush снова подтянуть продажи (чеки с других клиентов)
         if (alive && !isCashierPaymentCritical()) {
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
-            void softSyncPosAfterSale({ force: true })
+            void softSyncPosAfterSale()
           } catch { /* ignore */ }
         }
       } else if (alive && !searchBusy) {
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
-        try {
-          const { pullSyncChanges } = await import('./syncPull')
-          await Promise.race([
-            pullSyncChanges(),
-            new Promise(resolve => setTimeout(resolve, 10000)),
-          ])
-        } catch { /* ignore */ }
+        // Полный pullSyncChanges — не на каждый syncNow (после чека): только heartbeat.
+        // Delta продаж уже через softSync / WS / канал.
         try { await markLocalSyncAt() } catch { /* ignore */ }
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')

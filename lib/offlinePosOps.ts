@@ -3,6 +3,7 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
+import { browserSaysOffline } from './apiReachability'
 import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
@@ -12,6 +13,7 @@ import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLo
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore, noteInboundDeletedIds } from './posStore'
+import { useProducts } from './store'
 import { supplierPayVersion } from './offlineSupplierOps'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
@@ -1950,7 +1952,8 @@ export async function createSaleSafe(
   const client = input.client || null
   const salePayload = { ...input.salePayload }
   if (!(Number(salePayload.opSeq) > 0)) {
-    await ensurePosOpSeqReady()
+    // Не ждём диск — лента греется при старте модуля; alloc синхронный
+    void ensurePosOpSeqReady()
     const posId = String(salePayload.posId || '').trim()
     const deviceId = String(salePayload.deviceId || getTradeDeviceIdSync() || '').trim()
     salePayload.deviceId = deviceId || undefined
@@ -1959,11 +1962,8 @@ export async function createSaleSafe(
   }
 
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
-    // Флаг ДО markOffline: иначе любой local-first чек считался бы «офлайн» для ревизии
-    const { browserSaysOffline } = await import('./apiReachability')
     const syncOnline = useOfflineSync.getState().online
     const queuedOffline = browserSaysOffline() || syncOnline === false
-    // НЕ markOffline() — иначе каждый чек гасит «online» и ломает входящий синк
     const offlineSaleId = newLocalId('sale')
     const linkedCard = client?.card
       ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
@@ -2020,26 +2020,29 @@ export async function createSaleSafe(
         cart: input.cart,
       }
     }
-    await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
 
-    // UI-обновления ниже — после постановки в очередь (чтобы при краше чек уже в SQLite)
     try {
-      const { useProducts } = await import('./store')
-      const ps = useProducts.getState()
       const decById = new Map<number, number>()
       for (const l of input.cart) {
         const dec = l.weightKg != null ? l.weightKg : l.qty
         if (!(dec > 0)) continue
         decById.set(l.productId, (decById.get(l.productId) || 0) + dec)
       }
+      // Остатки каталога — после кадра (иначе лаг сетки товаров на «Печатать»)
       if (decById.size) {
-        useProducts.setState(s => ({
-          products: s.products.map(p => {
-            const dec = decById.get(p.id)
-            if (!dec) return p
-            return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
-          }),
-        }))
+        const applyStock = () => {
+          try {
+            useProducts.setState(s => ({
+              products: s.products.map(p => {
+                const dec = decById.get(p.id)
+                if (!dec) return p
+                return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
+              }),
+            }))
+          } catch { /* ignore */ }
+        }
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(applyStock)
+        else setTimeout(applyStock, 0)
       }
       const layerLines = input.cart.map(l => ({
         productId: l.productId,
@@ -2150,8 +2153,19 @@ export async function createSaleSafe(
           : {}),
       } : sh),
     }))
-    shadowMirrorSale(offlineSale)
-    void persistPosSnapshot()
+    // Тень + SQLite snapshot — не на критическом пути «Печатать»
+    queueMicrotask(() => {
+      try { shadowMirrorSale(offlineSale) } catch { /* ignore */ }
+      void persistPosSnapshot()
+    })
+
+    // Очередь после UI — не блокирует «Нет / Печатать»
+    void useOfflineSync.getState().queueOp('sale', {
+      ...salePayload,
+      number: display.number,
+      orderId: display.orderId,
+    }, { localId: offlineSaleId })
+
     return offlineSale
   }
 

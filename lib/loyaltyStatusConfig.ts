@@ -346,6 +346,13 @@ export async function syncLoyaltyStatusConfigFromApi(): Promise<LoyaltyStatusCon
   const { USE_API } = await import('./config')
   if (!USE_API) return loadLoyaltyStatusConfig()
   try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'inbound' })
+      return memoryLoyaltyConfig || loadLoyaltyStatusConfig()
+    }
+  } catch { /* fall */ }
+  try {
     const { api } = await import('./api')
     const remote = await api.getLoyalty() as ApiLoyaltySettings
     const merged = apiLoyaltyToStatusConfig(remote, DEFAULT_LOYALTY_STATUS_CONFIG)

@@ -551,18 +551,21 @@ export function isLocalId(value: unknown): boolean {
 }
 
 let seqCounter = 0
-async function nextSeq(): Promise<number> {
-  if (!seqCounter) {
-    const stored = await kvGet<number>(KEY_SEQ)
-    seqCounter = Number(stored) || 0
-    // Полный скан очереди — только если счётчика ещё нет (дорого на кассе)
-    if (!seqCounter) {
-      const queued = await getPending()
-      seqCounter = Math.max(0, ...queued.map(r => r.seq), 0)
-    }
+let seqReady = false
+function nextSeq(): number {
+  if (!seqReady) {
+    seqReady = true
+    // Подтянуть с диска в фоне; для текущего чека берём max(memory, Date)
+    void (async () => {
+      try {
+        const stored = Number(await kvGet<number>(KEY_SEQ)) || 0
+        if (stored > seqCounter) seqCounter = stored
+      } catch { /* ignore */ }
+    })()
+    if (!seqCounter) seqCounter = Date.now() % 1000000
   }
   seqCounter += 1
-  await kvSet(KEY_SEQ, seqCounter)
+  void kvSet(KEY_SEQ, seqCounter)
   return seqCounter
 }
 
@@ -678,7 +681,7 @@ export async function enqueueOp<P>(
         ? { appliedLocal: true, skipBalances: true } : {}),
     },
     createdAtIso,
-    seq: await nextSeq(),
+    seq: nextSeq(),
     attempts: 0,
     localId: opts.localId,
   }

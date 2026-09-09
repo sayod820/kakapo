@@ -310,6 +310,13 @@ export const usePosStore = create<PosStore>((set) => ({
 }))
 
 export async function syncPosFromApi() {
+  try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'inbound' })
+      return
+    }
+  } catch { /* fallback */ }
   await usePosStore.getState().fetchFromApi()
 }
 
@@ -387,12 +394,27 @@ let posSoftSyncDirtyForce = false
 const POS_SOFT_MIN_GAP_MS = 4000
 
 export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
+  // Local-first: сервер только через SYNC-канал; UI не делает GET
+  try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'inbound' })
+      return
+    }
+  } catch { /* fallback */ }
+
   const wantForce = !!opts?.force
   if (posSoftSyncInFlight) {
     // Снимок GET уже ушёл — после него нужен ещё один pull, иначе чек с браузера не приедет
     posSoftSyncDirty = true
     if (wantForce) posSoftSyncDirtyForce = true
     return posSoftSyncInFlight
+  }
+  // force не чаще 2.5с — иначе после чека канал+касса+таймер одновременно лагают UI
+  if (wantForce && Date.now() - posSoftSyncLastAt < 2500) {
+    posSoftSyncDirty = true
+    posSoftSyncDirtyForce = true
+    return
   }
   if (!wantForce && Date.now() - posSoftSyncLastAt < POS_SOFT_MIN_GAP_MS) return
 
@@ -614,6 +636,13 @@ async function persistSoftPosSnapshot() {
 let warehouseSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
+  try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'inbound' })
+      return
+    }
+  } catch { /* fallback */ }
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
   warehouseSoftSyncInFlight = (async () => {
     try {
@@ -657,6 +686,13 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
 let financeSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncFinance() {
+  try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'inbound' })
+      return
+    }
+  } catch { /* fallback */ }
   if (financeSoftSyncInFlight) return financeSoftSyncInFlight
   financeSoftSyncInFlight = (async () => {
     try {

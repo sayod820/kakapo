@@ -26,6 +26,11 @@ export type DeviceHeartbeatContext = {
 
 export async function sendDeviceHeartbeat(ctx?: DeviceHeartbeatContext): Promise<void> {
   if (!USE_API || typeof window === 'undefined') return
+  try {
+    const { isSyncChannelMode } = await import('./syncGate')
+    // Heartbeat — сеть; в local-first уходит только через канал (пока: не из UI)
+    if (isSyncChannelMode()) return
+  } catch { /* fall */ }
 
   const now = Date.now()
   if (!ctx?.force && now - lastSentAt < MIN_INTERVAL_MS) return

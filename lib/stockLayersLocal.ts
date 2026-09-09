@@ -177,6 +177,13 @@ export async function pullStockLayersFromServer(opts?: {
   try {
     const { USE_API } = await import('./config')
     if (!USE_API) return null
+    try {
+      const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+      if (isSyncChannelMode()) {
+        void kickSyncChannel({ mode: 'inbound' })
+        return await readCachedStockLayers()
+      }
+    } catch { /* fall */ }
     const { isOnline, pendingBlocksStockLayerPull } = await import('./offline')
     const { useOfflineSync } = await import('./offlineSync')
     const st = useOfflineSync.getState()
