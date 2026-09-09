@@ -1674,8 +1674,9 @@ export const POS_MOCK_CSS = `
     font-size:12px;font-weight:800;color:var(--t2);background:var(--surface2);border:1.5px solid var(--border);
   }
   .pos-root button.cash-pad-toggle.on{border-color:var(--accent);color:var(--accent);background:rgba(31,215,96,.1);}
-  .cash-actions{margin-top:4px;}
+  .cash-actions{margin-top:4px;flex-wrap:wrap;}
   .pos-root button.cash-accept{font-size:14px;min-height:48px;}
+  .pos-root button.cash-print-tog.on{border-color:var(--accent);color:var(--accent);}
   @media (max-width:420px){
     .cash-bills{grid-template-columns:repeat(3,1fr);}
     .cash-change-val{font-size:clamp(34px,12vw,48px);}

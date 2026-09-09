@@ -342,9 +342,45 @@ const CATALOG_FIRST_KINDS = new Set<QueueKind>([
   'client_upsert',
 ])
 
+/** Справочники / склад / деньги / ревизия — порядок flush (меньше = раньше). */
 function queueKindPriority(kind: QueueKind): number {
+  if (
+    CATALOG_FIRST_KINDS.has(kind)
+    || kind === 'product_delete'
+    || kind === 'category_delete'
+    || kind === 'client_delete'
+    || kind === 'supplier_delete'
+  ) return -50
+  if (kind === 'shift_open' || kind === 'pos_point_upsert' || kind === 'cashier_upsert') return -40
+  if (
+    kind === 'stock_receipt_create'
+    || kind === 'stock_receipt_update'
+    || kind === 'stock_receipt_delete'
+    || kind === 'stock_writeoff_create'
+    || kind === 'stock_writeoff_update'
+    || kind === 'stock_writeoff_delete'
+    || kind === 'stock_layer_update'
+    || kind === 'stock_layer_delete'
+    || kind === 'supplier_payment_create'
+    || kind === 'supplier_payment_delete'
+  ) return -20
+  if (
+    kind === 'sale'
+    || kind === 'sale_return'
+    || kind === 'debt_repay'
+    || kind === 'card_topup'
+    || kind === 'card_loyalty_patch'
+  ) return 0
+  if (
+    kind === 'finance_move'
+    || kind === 'finance_move_delete'
+    || kind === 'expense_create'
+    || kind === 'expense_delete'
+    || kind === 'vault_card_to_cash'
+    || kind === 'vault_cash_to_card'
+  ) return 10
+  if (kind === 'shift_close' || kind === 'pos_point_delete') return 20
   if (REVISION_QUEUE_KINDS.has(kind)) return 100
-  if (CATALOG_FIRST_KINDS.has(kind)) return -50
   return 0
 }
 
@@ -404,6 +440,11 @@ export async function getPending(): Promise<PendingOp[]> {
 
   if (byRef.size === 0) return lsQueueRead().sort(byOrder)
 
+  // LS может опережать SQLite на долю секунды после мгновенного пробития
+  for (const row of lsQueueRead()) {
+    if (row.clientRef && !byRef.has(row.clientRef)) byRef.set(row.clientRef, row)
+  }
+
   if (idbOnly > 0) {
     for (const row of byRef.values()) {
       if (files) {
@@ -451,26 +492,32 @@ export async function pendingBlocksStockLayerPull(): Promise<boolean> {
 }
 
 async function putPending(row: PendingOp): Promise<void> {
+  // Сразу localStorage — пробитие не ждёт SQLite/IDB
+  try {
+    const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
+    list.push(row)
+    lsQueueWrite(list)
+  } catch { /* quota */ }
+
   const files = androidFiles()
-  if (files) {
-    try { await files.queuePut(row) } catch { /* fallback */ }
-  }
   const desk = deskDb()
   if (desk?.localDbQueuePut) {
-    try {
-      await desk.localDbQueuePut(row)
-      if (hasIndexedDB()) {
-        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
-      }
-      return
-    } catch { /* fallback */ }
+    void desk.localDbQueuePut(row)
+      .then(() => {
+        if (hasIndexedDB()) {
+          void idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)).catch(() => {})
+        }
+      })
+      .catch(() => {})
+    if (files) void files.queuePut(row).catch(() => {})
+    return
+  }
+  if (files) {
+    void files.queuePut(row).catch(() => {})
   }
   if (hasIndexedDB()) {
-    try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)); return } catch { /* fallback */ }
+    void idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)).catch(() => {})
   }
-  const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
-  list.push(row)
-  lsQueueWrite(list)
 }
 
 async function deletePending(clientRef: string): Promise<void> {
@@ -536,7 +583,8 @@ async function nextSeq(): Promise<number> {
     }
   }
   seqCounter += 1
-  await kvSet(KEY_SEQ, seqCounter)
+  // Не ждём KV на пробитии — пишем в фоне
+  void kvSet(KEY_SEQ, seqCounter)
   return seqCounter
 }
 
@@ -1726,9 +1774,7 @@ export async function flushQueue(
   let stopped = false
   try {
     const all = await getPending()
-    const catalog = all.filter(r => CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
-    const rest = all.filter(r => !r.failed && !CATALOG_FIRST_KINDS.has(r.kind)).sort(byOrder)
-    const queue = [...catalog, ...rest]
+    const queue = all.filter(r => !r.failed).sort(byOrder)
     const total = queue.length
     let done = 0
     for (const row of queue) {

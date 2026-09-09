@@ -3633,6 +3633,8 @@ app.patch('/clients/:id', (req, res) => {
           if (debtRequested > prevDebt) linkedCard.debtEnabled = true
           // Ручная правка → лента погашений (риск 2.3)
           linkedCard.debtPayVersion = (Number(linkedCard.debtPayVersion) || 0) + 1
+          linkedCard.updatedAtIso = c.updatedAtIso
+          linkedCard.serverAtIso = c.updatedAtIso
         }
         deliverDebtNotifications(notifications)
       } catch (e) {
@@ -4239,6 +4241,8 @@ function normalizeCardRow(raw) {
     levelValidUntil: raw.levelValidUntil === null ? undefined : (raw.levelValidUntil || undefined),
     vipUntil: raw.vipUntil === null ? undefined : (raw.vipUntil || undefined),
     bonusEligibleFrom: raw.bonusEligibleFrom || undefined,
+    updatedAtIso: raw.updatedAtIso || undefined,
+    serverAtIso: raw.serverAtIso || undefined,
   }
 }
 
@@ -4398,6 +4402,10 @@ function syncClientFromCardRow(card) {
   if (card.vipUntil) client.vipUntil = card.vipUntil
   else if (card.vipUntil === null || card.vipUntil === '') client.vipUntil = undefined
   if (card.bonusEligibleFrom) client.bonusEligibleFrom = card.bonusEligibleFrom
+  if (card.updatedAtIso) {
+    client.updatedAtIso = card.updatedAtIso
+    client.serverAtIso = card.serverAtIso || card.updatedAtIso
+  }
   syncDebtLedgerFromCard(card, client)
 }
 
@@ -4647,6 +4655,11 @@ app.patch('/cards/:num', (req, res) => {
       if (body.vip === false) body.vipUntil = undefined
     }
     Object.assign(card, normalizeCardRow({ ...card, ...body, num }))
+    {
+      const stamp = new Date().toISOString()
+      card.updatedAtIso = stamp
+      card.serverAtIso = stamp
+    }
     if (body.client != null && !isPlaceholderClientName(body.client)) {
       const named = (db.clients || []).find(c =>
         c.card === num
@@ -4802,6 +4815,11 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
     card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
     card.wallet = 0
+    {
+      const stamp = new Date().toISOString()
+      card.updatedAtIso = stamp
+      card.serverAtIso = stamp
+    }
     syncClientFromCardRow(card)
     auditFromReq(db, req, {
       app: 'trade',
@@ -4894,6 +4912,15 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       card.debt = nextDebt
     }
     card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+    {
+      const stamp = new Date().toISOString()
+      card.updatedAtIso = stamp
+      card.serverAtIso = stamp
+      if (linkedClient) {
+        linkedClient.updatedAtIso = stamp
+        linkedClient.serverAtIso = stamp
+      }
+    }
     Object.assign(card, normalizeCardRow(card))
 
     const bonusEarned = 0

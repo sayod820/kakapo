@@ -20,9 +20,26 @@ export type SyncPullResult = {
   error?: string
 }
 
+let pullInFlight: Promise<SyncPullResult> | null = null
+
 export async function pullSyncChanges(opts?: {
   forceFull?: boolean
   /** даже если есть pending — только для явного bootstrap */
+  ignorePending?: boolean
+}): Promise<SyncPullResult> {
+  if (pullInFlight && !opts?.forceFull && !opts?.ignorePending) {
+    return pullInFlight
+  }
+  const run = doPullSyncChanges(opts)
+  if (!opts?.forceFull && !opts?.ignorePending) {
+    pullInFlight = run.finally(() => { pullInFlight = null })
+    return pullInFlight
+  }
+  return run
+}
+
+async function doPullSyncChanges(opts?: {
+  forceFull?: boolean
   ignorePending?: boolean
 }): Promise<SyncPullResult> {
   if (!isOnline()) return { ok: false, skipped: 'offline' }
@@ -53,6 +70,30 @@ export async function pullSyncChanges(opts?: {
         if (r.kind === 'client_upsert') {
           const id = String((r.payload as any)?.localId || (r.payload as any)?.client?.id || '')
           if (id) pendingProtect.add(`client:${id}`)
+        }
+        if (
+          r.kind === 'sale'
+          || r.kind === 'sale_return'
+          || r.kind === 'debt_repay'
+          || r.kind === 'card_topup'
+          || r.kind === 'card_loyalty_patch'
+        ) {
+          const cid = String((r.payload as any)?.clientId || '')
+          if (cid) pendingProtect.add(`client:${cid}`)
+          const cnum = String((r.payload as any)?.cardNum || (r.payload as any)?.num || '')
+          if (cnum) pendingProtect.add(`card:${cnum}`)
+        }
+        if (r.kind === 'stock_receipt_create' || r.kind === 'stock_receipt_update' || r.kind === 'stock_receipt_delete') {
+          const id = String(r.localId || (r.payload as any)?.id || '')
+          if (id) pendingProtect.add(`receipt:${id}`)
+        }
+        if (r.kind === 'stock_writeoff_create' || r.kind === 'stock_writeoff_update' || r.kind === 'stock_writeoff_delete') {
+          const id = String(r.localId || (r.payload as any)?.id || '')
+          if (id) pendingProtect.add(`writeoff:${id}`)
+        }
+        if (r.kind === 'stock_revision_create' || r.kind === 'stock_revision_update' || r.kind === 'stock_revision_delete') {
+          const id = String(r.localId || (r.payload as any)?.id || '')
+          if (id) pendingProtect.add(`revision:${id}`)
         }
       }
     } catch { /* ignore */ }
@@ -246,32 +287,42 @@ export async function pullSyncChanges(opts?: {
         }
         patch.shifts = nextShifts
       }
-      if (Array.isArray(pos.receipts)) {
-        patch.receipts = delta.full
-          ? pos.receipts
-          : mergeAppendById(cur.receipts, pos.receipts)
+      if (Array.isArray(pos.receipts) || delOf('receipt').length) {
+        const incoming = Array.isArray(pos.receipts) ? pos.receipts : []
+        const base = delta.full
+          ? incoming
+          : (incoming.length ? mergeAppendById(cur.receipts, incoming) : cur.receipts)
+        patch.receipts = dropById(base as any, delOf('receipt'))
       }
-      if (Array.isArray(pos.writeoffs)) {
-        patch.writeoffs = delta.full
-          ? pos.writeoffs
-          : mergeAppendById(cur.writeoffs, pos.writeoffs)
+      if (Array.isArray(pos.writeoffs) || delOf('writeoff').length) {
+        const incoming = Array.isArray(pos.writeoffs) ? pos.writeoffs : []
+        const base = delta.full
+          ? incoming
+          : (incoming.length ? mergeAppendById(cur.writeoffs, incoming) : cur.writeoffs)
+        patch.writeoffs = dropById(base as any, delOf('writeoff'))
       }
-      if (Array.isArray(pos.revisions)) {
+      if (Array.isArray(pos.revisions) || delOf('revision').length) {
         const prevRevisions = cur.revisions
-        patch.revisions = delta.full
-          ? pos.revisions
-          : mergeAppendById(cur.revisions, pos.revisions)
+        const incoming = Array.isArray(pos.revisions) ? pos.revisions : []
+        const base = delta.full
+          ? incoming
+          : (incoming.length ? mergeAppendById(cur.revisions, incoming) : cur.revisions)
+        patch.revisions = dropById(base as any, delOf('revision'))
         void refreshStockAfterRevisionsDone(prevRevisions, patch.revisions as typeof prevRevisions)
       }
-      if (Array.isArray(pos.financeMoves)) {
-        patch.financeMoves = delta.full
-          ? pos.financeMoves
-          : mergeAppendById(cur.financeMoves, pos.financeMoves)
+      if (Array.isArray(pos.financeMoves) || delOf('finance_move').length) {
+        const incoming = Array.isArray(pos.financeMoves) ? pos.financeMoves : []
+        const base = delta.full
+          ? incoming
+          : (incoming.length ? mergeAppendById(cur.financeMoves, incoming) : cur.financeMoves)
+        patch.financeMoves = dropById(base as any, delOf('finance_move'))
       }
-      if (Array.isArray(pos.expenses)) {
-        patch.expenses = delta.full
-          ? pos.expenses
-          : mergeAppendById(cur.expenses, pos.expenses)
+      if (Array.isArray(pos.expenses) || delOf('expense').length) {
+        const incoming = Array.isArray(pos.expenses) ? pos.expenses : []
+        const base = delta.full
+          ? incoming
+          : (incoming.length ? mergeAppendById(cur.expenses, incoming) : cur.expenses)
+        patch.expenses = dropById(base as any, delOf('expense'))
       }
       if (delta.full || delOf('supplier').length || (Array.isArray(pos.suppliers) && pos.suppliers.length)) {
         const incoming = Array.isArray(pos.suppliers) ? pos.suppliers : []

@@ -50,12 +50,14 @@ function createDebouncedPullers() {
 
   return {
     crm: () => schedule('crm', () => {
-      void syncClientsFromApi()
-      void syncCardsFromApi()
+      // Дельта pos-lite (клиенты/карты), не полный getClients/getCards
+      void softSyncPosAfterSale({ force: true })
     }),
     pos: () => schedule('pos', () => {
       if (isCashierCritical()) return
-      void syncPosFromApi()
+      void import('./syncPull').then(({ pullSyncChanges }) => {
+        void pullSyncChanges().catch(() => {})
+      })
     }),
     products: () => schedule('products', () => {
       if (isCashierCritical()) return
@@ -296,7 +298,7 @@ export function useApiSync(mode: SyncMode = 'all') {
             tasks.push(useProducts.getState().fetchProducts())
           }
           // Полный POS — очень редко (рассинхрон после долгого офлайна)
-          if (tick > 1 && tick % 8 === 0) {
+          if (tick > 1 && tick % 40 === 0) {
             tasks.push(syncPosFromApi())
           }
           await Promise.allSettled(tasks)

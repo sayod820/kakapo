@@ -57,6 +57,8 @@ export type { OfflineResult }
 
 const KEY_LOCAL_ORDER_SEQ = 'local_order_seq'
 const KEY_LOCAL_SALE_NUM = 'local_sale_num'
+let memLocalOrderSeq = 0
+let memLocalSaleNum = 0
 
 /** Локальный K-… и №… для печати, пока сервер не присвоил свой номер */
 async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: string }> {
@@ -68,17 +70,26 @@ async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: st
     const m = String(s.orderId || '').match(/^K-(\d+)$/i)
     if (m) maxOrder = Math.max(maxOrder, Number(m[1]) || 0)
   }
-  let storedOrder = 0
-  let storedNum = 0
-  try {
-    storedOrder = Number(await readCachedData<number>(KEY_LOCAL_ORDER_SEQ)) || 0
-    storedNum = Number(await readCachedData<number>(KEY_LOCAL_SALE_NUM)) || 0
-  } catch { /* ignore */ }
-  const nextOrder = Math.max(maxOrder, storedOrder) + 1
-  const nextNum = Math.max(maxNum, storedNum) + 1
+  // Память — без await на горячем пути пробития
+  const nextOrder = Math.max(maxOrder, memLocalOrderSeq) + 1
+  const nextNum = Math.max(maxNum, memLocalSaleNum) + 1
+  memLocalOrderSeq = nextOrder
+  memLocalSaleNum = nextNum
   void cacheData(KEY_LOCAL_ORDER_SEQ, nextOrder)
   void cacheData(KEY_LOCAL_SALE_NUM, nextNum)
   return { number: nextNum, orderId: `K-${nextOrder}` }
+}
+
+/** Прогрев счётчиков чека (фон) — чтобы первый чек не ждал KV */
+export function warmLocalSaleDisplayCounters() {
+  void (async () => {
+    try {
+      const o = Number(await readCachedData<number>(KEY_LOCAL_ORDER_SEQ)) || 0
+      const n = Number(await readCachedData<number>(KEY_LOCAL_SALE_NUM)) || 0
+      if (o > memLocalOrderSeq) memLocalOrderSeq = o
+      if (n > memLocalSaleNum) memLocalSaleNum = n
+    } catch { /* ignore */ }
+  })()
 }
 
 function round2(v: number) {

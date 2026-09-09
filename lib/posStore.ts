@@ -408,6 +408,8 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
 
       let nextLiteCursor = ''
       let deleteIds: string[] = []
+      let crmDeleteClients: string[] = []
+      let crmDeleteCards: string[] = []
       try {
         const delta = await api.getSyncChanges(since || undefined, { scope: 'pos-lite' })
         usedDelta = true
@@ -415,13 +417,30 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         shifts = (delta.pos?.shifts || []) as import('./types').PosShift[]
         if (Array.isArray(delta.clients) && delta.clients.length) deltaClients = delta.clients
         if (Array.isArray(delta.cards) && delta.cards.length) deltaCards = delta.cards
-        deleteIds = (Array.isArray(delta.deletes) ? delta.deletes : [])
+        const dels = Array.isArray(delta.deletes) ? delta.deletes : []
+        deleteIds = dels
           .filter((d: { kind?: string }) => d.kind === 'sale' || d.kind === 'shift')
+          .map((d: { id?: string }) => String(d.id || ''))
+          .filter(Boolean)
+        crmDeleteClients = dels
+          .filter((d: { kind?: string }) => d.kind === 'client')
+          .map((d: { id?: string }) => String(d.id || ''))
+          .filter(Boolean)
+        crmDeleteCards = dels
+          .filter((d: { kind?: string }) => d.kind === 'card')
           .map((d: { id?: string }) => String(d.id || ''))
           .filter(Boolean)
         nextLiteCursor = String(delta.cursor || '')
         // Пустая дельта (и без deletes) — только курсор
-        if (!sales.length && !shifts.length && !deltaClients && !deltaCards && !deleteIds.length) {
+        if (
+          !sales.length
+          && !shifts.length
+          && !deltaClients
+          && !deltaCards
+          && !deleteIds.length
+          && !crmDeleteClients.length
+          && !crmDeleteCards.length
+        ) {
           if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
           return
         }
@@ -536,28 +555,42 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       }
 
       // CRM из той же дельты — долг/бонусы без отдельного полного getClients
-      if (deltaClients?.length) {
+      if (deltaClients?.length || crmDeleteClients.length) {
         try {
           const { useClientStore } = await import('./clientStore')
           const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
           const { mergeByIdLww } = await import('./syncConflict')
           const local = useClientStore.getState().clients || []
-          const incoming = mergeByIdLww(local as any, deltaClients as any)
-          const merged = incoming.map((row: any) => {
-            const prev = local.find(x => String(x.id) === String(row.id))
-            return mergeClientLoyaltyIfRecent(row, prev)
-          })
+          let merged = local
+          if (deltaClients?.length) {
+            const incoming = mergeByIdLww(local as any, deltaClients as any)
+            merged = incoming.map((row: any) => {
+              const prev = local.find(x => String(x.id) === String(row.id))
+              return mergeClientLoyaltyIfRecent(row, prev)
+            })
+          }
+          if (crmDeleteClients.length) {
+            const s = new Set(crmDeleteClients)
+            merged = merged.filter((row: { id?: string | number }) => !s.has(String(row.id)))
+          }
           useClientStore.setState({ clients: merged })
         } catch { /* ignore */ }
       }
-      if (deltaCards?.length) {
+      if (deltaCards?.length || crmDeleteCards.length) {
         try {
           const { useCardStore } = await import('./cardStore')
           const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
           const { mergeByIdLww } = await import('./syncConflict')
           const local = useCardStore.getState().cards || []
-          const incoming = mergeByIdLww(local as any, deltaCards as any) as typeof local
-          const merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
+          let merged = local
+          if (deltaCards?.length) {
+            const incoming = mergeByIdLww(local as any, deltaCards as any) as typeof local
+            merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
+          }
+          if (crmDeleteCards.length) {
+            const s = new Set(crmDeleteCards)
+            merged = merged.filter(row => !s.has(String(row.num)) && !s.has(String((row as any).id || '')))
+          }
           useCardStore.setState({ cards: merged })
         } catch { /* ignore */ }
       }
@@ -617,33 +650,21 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
   warehouseSoftSyncInFlight = (async () => {
     try {
-      const days = opts?.expiryDays ?? 14
-      const [receipts, writeoffs, revisions, suppliers, expiry] = await Promise.all([
-        api.getStockReceipts(),
-        api.getStockWriteoffs(),
-        api.getStockRevisions(),
-        api.getSuppliers(),
-        api.getStockExpiry(days),
-      ])
+      // Только дельта /sync/changes — не полные getStockReceipts/…
+      const { pullSyncChanges } = await import('./syncPull')
+      const res = await pullSyncChanges({ forceFull: false })
+      if (res.skipped === 'pending') return
 
-      const delIds = await pendingDeleteIds()
-      const cur = usePosStore.getState()
-      usePosStore.setState({
-        receipts: omitInboundDeleted(mergeInboundById(cur.receipts, dropDeletedRemote(receipts, delIds))),
-        writeoffs: omitInboundDeleted(mergeInboundById(cur.writeoffs, dropDeletedRemote(writeoffs, delIds))),
-        revisions: omitInboundDeleted(mergeInboundById(cur.revisions, dropDeletedRemote(revisions, delIds))),
-        suppliers: mergeInboundById(cur.suppliers, suppliers) as typeof cur.suppliers,
-        expiry,
-        apiReady: true,
-        apiError: '',
-      })
-      await persistSoftPosSnapshot()
+      const days = opts?.expiryDays ?? 14
+      try {
+        const expiry = await api.getStockExpiry(days)
+        usePosStore.setState({ expiry, apiReady: true, apiError: '' })
+        await persistSoftPosSnapshot()
+      } catch { /* expiry опционален */ }
 
       try {
         const { pullStockLayersFromServer } = await import('./stockLayersLocal')
         await pullStockLayersFromServer({ bumpProducts: true })
-        const { useProducts } = await import('./store')
-        void useProducts.getState().fetchProducts()
       } catch { /* ignore */ }
     } catch { /* нет связи — оставляем локальный снимок */ }
     finally {
@@ -660,23 +681,23 @@ export async function softSyncFinance() {
   if (financeSoftSyncInFlight) return financeSoftSyncInFlight
   financeSoftSyncInFlight = (async () => {
     try {
-      const [financeMoves, expenses, cashVault] = await Promise.all([
-        api.getFinanceMoves(),
-        api.getExpenses(),
-        api.getCashVault().catch(() => null),
-      ])
-      const delIds = await pendingDeleteIds()
-      const cur = usePosStore.getState()
-      usePosStore.setState({
-        financeMoves: omitInboundDeleted(mergeInboundById(cur.financeMoves, dropDeletedRemote(financeMoves, delIds))),
-        expenses: omitInboundDeleted(mergeInboundById(cur.expenses, dropDeletedRemote(expenses, delIds))),
-        ...(cashVault
-          ? { cashVault: mergeCashVault(cur.cashVault, cashVault) }
-          : {}),
-        apiReady: true,
-        apiError: '',
-      })
-      await persistSoftPosSnapshot()
+      const { pullSyncChanges } = await import('./syncPull')
+      const res = await pullSyncChanges({ forceFull: false })
+      if (res.skipped === 'pending') return
+
+      // cashVault нет в /sync/changes — точечный GET
+      const cashVault = await api.getCashVault().catch(() => null)
+      if (cashVault) {
+        const cur = usePosStore.getState()
+        usePosStore.setState({
+          cashVault: mergeCashVault(cur.cashVault, cashVault),
+          apiReady: true,
+          apiError: '',
+        })
+        await persistSoftPosSnapshot()
+      } else {
+        usePosStore.setState({ apiReady: true, apiError: '' })
+      }
     } catch { /* нет связи */ }
     finally {
       financeSoftSyncInFlight = null

@@ -7,6 +7,7 @@ import {
   applyDebtRepayment,
   canTakeNewDebt,
 } from './debtLedger.js'
+import { recordSyncDelete } from './syncDeletes.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -25,6 +26,15 @@ function touchShift(shift) {
   if (!shift) return shift
   shift.updatedAtIso = nowIso()
   return shift
+}
+
+/** Клиент/карта попадут в /sync/changes только с свежей меткой */
+function touchCrmRow(row) {
+  if (!row) return row
+  const stamp = nowIso()
+  row.updatedAtIso = stamp
+  row.serverAtIso = stamp
+  return row
 }
 
 /** Время события с кассы: если ушло из офлайна — не подменять временем сервера. */
@@ -366,6 +376,7 @@ export function deletePosPoint(db, id) {
     throw new Error('Нельзя удалить последнюю точку продаж')
   }
   db.posPoints.splice(idx, 1)
+  recordSyncDelete(db, 'pos_point', id)
   return { id }
 }
 
@@ -595,10 +606,12 @@ function applyDebtToPair(client, card, nextDebt) {
   if (client) {
     client.debt = d
     if (d > 0) client.debtEnabled = true
+    touchCrmRow(client)
   }
   if (card) {
     card.debt = d
     if (d > 0) card.debtEnabled = true
+    touchCrmRow(card)
   }
 }
 
@@ -1760,8 +1773,7 @@ export function deleteSupplier(db, id) {
   }
   db.suppliers.splice(idx, 1)
   db.supplierPayments = (db.supplierPayments || []).filter(p => p.supplierId !== id)
-  if (!Array.isArray(db.syncDeletes)) db.syncDeletes = []
-  db.syncDeletes.push({ kind: 'supplier', id: String(id), atIso: nowIso() })
+  recordSyncDelete(db, 'supplier', id)
   return { id }
 }
 
@@ -1900,6 +1912,7 @@ export function deleteExpense(db, id) {
   db.moneyLedger = (db.moneyLedger || []).filter(
     e => !(e.refType === 'expense' && String(e.refId) === String(id)),
   )
+  recordSyncDelete(db, 'expense', id)
   return { id }
 }
 
@@ -2204,6 +2217,7 @@ export function deleteFinanceMove(db, id) {
     e => !(e.refType === 'finance_move' && String(e.refId) === String(id)),
   )
 
+  recordSyncDelete(db, 'finance_move', id)
   return { id }
 }
 
@@ -2601,6 +2615,7 @@ export function deleteStockReceipt(db, id) {
   const receipt = (db.stockReceipts || []).find(r => r.id === id)
   if (!receipt) throw new Error('Приход не найден')
   reverseStockReceipt(db, receipt)
+  recordSyncDelete(db, 'receipt', id)
   return { id }
 }
 
@@ -2670,6 +2685,7 @@ export function deleteStockWriteoff(db, id) {
   const old = db.writeOffs[idx]
   reverseStockWriteoff(db, old)
   db.writeOffs.splice(idx, 1)
+  recordSyncDelete(db, 'writeoff', id)
   return { id }
 }
 
@@ -2770,6 +2786,7 @@ export function deleteStockRevision(db, id) {
     reverseStockRevision(db, old)
   }
   db.stockRevisions.splice(idx, 1)
+  recordSyncDelete(db, 'revision', id)
   return { id }
 }
 
@@ -3007,9 +3024,11 @@ export function createPosSale(db, data = {}) {
     }
     if (walletCard) {
       walletCard.wallet = round2(Math.max(0, (Number(walletCard.wallet) || 0) - paidWallet))
+      touchCrmRow(walletCard)
     }
     if (walletClient) {
       walletClient.wallet = round2(Math.max(0, (Number(walletClient.wallet) || 0) - paidWallet))
+      touchCrmRow(walletClient)
     }
   }
   if (debtAdded > 0 && !skipBalances) {
@@ -3056,8 +3075,14 @@ export function createPosSale(db, data = {}) {
         throw new Error('Недостаточно средств на кошельке клиента')
       }
       const nextW = round2(Math.max(0, balance - paidWallet))
-      if (card) card.wallet = nextW
-      if (client) client.wallet = nextW
+      if (card) {
+        card.wallet = nextW
+        touchCrmRow(card)
+      }
+      if (client) {
+        client.wallet = nextW
+        touchCrmRow(client)
+      }
     }
     if (bonusSpent > 0 || bonusEarned > 0) {
       assertCardBonusPayVersion(card, data.expectedBonusPayVersion)
@@ -3069,12 +3094,22 @@ export function createPosSale(db, data = {}) {
           card.posCashBonus = Math.max(0, Math.floor(Number(card.posCashBonus) || 0) - bonusSpent)
         }
         card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
+        touchCrmRow(card)
       }
-      if (client) client.bonus = nextB
+      if (client) {
+        client.bonus = nextB
+        touchCrmRow(client)
+      }
     } else if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
       const b = Math.max(0, Math.floor(Number(data.bonusAfter ?? data.bonusBalanceAfter)))
-      if (card) card.bonus = b
-      if (client) client.bonus = b
+      if (card) {
+        card.bonus = b
+        touchCrmRow(card)
+      }
+      if (client) {
+        client.bonus = b
+        touchCrmRow(client)
+      }
     }
     if (debtAdded > 0 && client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
@@ -3415,8 +3450,14 @@ export function returnPosSale(db, saleId, meta = {}) {
       }
     }
     if (cutWallet > 0) {
-      if (card) card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
-      if (client) client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
+      if (card) {
+        card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
+        touchCrmRow(card)
+      }
+      if (client) {
+        client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
+        touchCrmRow(client)
+      }
     }
     if (cutBonus > 0) {
       assertCardBonusPayVersion(card, meta.expectedBonusPayVersion)
@@ -3424,11 +3465,13 @@ export function returnPosSale(db, saleId, meta = {}) {
         card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
         card.posCashBonus = round2((Number(card.posCashBonus) || 0) + cutBonus)
         card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
+        touchCrmRow(card)
       }
       if (client) {
         client.bonus = card
           ? card.bonus
           : round2((Number(client.bonus) || 0) + cutBonus)
+        touchCrmRow(client)
       }
       const order = (db.orders || []).find(o => String(o.id) === String(sale.orderId || ''))
       if (order) {
