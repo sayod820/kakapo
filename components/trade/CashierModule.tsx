@@ -1611,10 +1611,20 @@ export default function CashierModule({
     paidCard?: number
     debtAmt?: number
   } | null>(null)
-  /** Печать после пробития — без второго окна «Пробить чек?» */
-  const [printAfterSale, setPrintAfterSale] = useState(() => {
-    try { return localStorage.getItem('kakapo_cashier_print_sale') === '1' } catch { return false }
-  })
+  /** Вопрос «печатать?» ДО пробития — после выбора чек пробивается мгновенно */
+  const [saleConfirm, setSaleConfirm] = useState<{
+    ticketId: string
+    paidCash: number
+    method?: PayMethod
+    bonusSpend?: number
+    paidCard?: number
+    debtAmt?: number
+    debtRepayAmt?: number
+    saleNote?: string
+    returnTo: 'payPick' | 'cash' | 'splitCard' | 'creditNote'
+    previewTotal: number
+    clientName?: string
+  } | null>(null)
   const printChoiceLockedRef = useRef(false)
   const printingSaleIdsRef = useRef(new Set<string>())
   const [printingSaleId, setPrintingSaleId] = useState<string | null>(null)
@@ -1686,6 +1696,7 @@ export default function CashierModule({
     return pushBackHandler(() => {
       if (camScanOpen) { setCamScanOpen(false); return true }
       if (clientScanOpen) { setClientScanOpen(false); return true }
+      if (saleConfirm) { cancelSaleConfirm(); return true }
       if (qtyEditOpen) { setQtyEditOpen(false); return true }
       if (amountPad) { setAmountPad(false); return true }
       if (payPickOpen) { setPayPickOpen(false); return true }
@@ -1813,6 +1824,7 @@ export default function CashierModule({
     }
     const critical =
       busy
+      || !!saleConfirm
       || payPickOpen
       || cashOpen
       || splitCardOpen
@@ -1827,6 +1839,7 @@ export default function CashierModule({
   }, [
     active,
     busy,
+    saleConfirm,
     payPickOpen,
     cashOpen,
     splitCardOpen,
@@ -2091,7 +2104,7 @@ export default function CashierModule({
     || catModalOpen || clientOpen || clientScanOpen || camScanOpen || discOpen || discPickOpen
     || qtyEditOpen || cashOpen || splitCardOpen || topupOpen || repayOpen || chargeOpen
     || !!tillMoveKind || layerPickOpen
-    || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen
+    || histOpen || payPickOpen || creditNoteOpen || receiptTemplateOpen || !!saleConfirm
     || !!returnConfirm
     || !!dashMenuPosId
     || !!scanBlockAlert
@@ -6420,6 +6433,8 @@ export default function CashierModule({
     setDiscOpen(false)
     setQtyEditOpen(false)
     setQtyEditKey(null)
+    setSaleConfirm(null)
+    printChoiceLockedRef.current = false
     showToast('Новый чек', `Чек ${tickets.length + 1}`)
     // после клика по «+» фокус остаётся на кнопке — вернуть в поиск
     window.setTimeout(focusProductSearch, 0)
@@ -6438,6 +6453,8 @@ export default function CashierModule({
     setDiscOpen(false)
     setDiscPickOpen(false)
     setCreditNoteOpen(false)
+    setSaleConfirm(null)
+    printChoiceLockedRef.current = false
     setActiveTicketId(id)
     window.setTimeout(focusProductSearch, 0)
     window.setTimeout(focusProductSearch, 60)
@@ -6837,34 +6854,72 @@ export default function CashierModule({
     previewTotal: number
   }) {
     if (busy || printChoiceLockedRef.current) return
-    printChoiceLockedRef.current = true
-    const ticketId = activeTicketIdRef.current
-    const debtRepayAmt = currentPayDebtAmt()
-    const shouldPrint = printAfterSale
     setCashOpen(false)
     setSplitCardOpen(false)
     setPayPickOpen(false)
     setCreditNoteOpen(false)
     setAmountPad(false)
-    // Мгновенно: без второго окна «Пробить чек?»
+    printChoiceLockedRef.current = false
+    setSaleConfirm({
+      ticketId: activeTicketIdRef.current,
+      paidCash: opts.paidCash ?? 0,
+      method: opts.method,
+      bonusSpend: opts.bonusSpend,
+      paidCard: opts.paidCard,
+      debtAmt: opts.debtAmt,
+      debtRepayAmt: currentPayDebtAmt(),
+      saleNote: opts.saleNote,
+      returnTo: opts.returnTo,
+      previewTotal: opts.previewTotal,
+      clientName: client?.name,
+    })
+  }
+
+  function cancelSaleConfirm() {
+    const p = saleConfirm
+    if (!p || busy || printChoiceLockedRef.current) return
+    setSaleConfirm(null)
+    if (p.ticketId && p.ticketId !== activeTicketIdRef.current) {
+      setActiveTicketId(p.ticketId)
+    }
+    if (p.returnTo === 'cash') {
+      setCashOpen(true)
+    } else if (p.returnTo === 'splitCard') {
+      setCashOpen(true)
+      setSplitCardOpen(true)
+    } else if (p.returnTo === 'creditNote') {
+      setCreditNoteOpen(true)
+    } else {
+      setPayPickOpen(true)
+    }
+  }
+
+  /** После «Нет» / «Печатать» — сразу пробитие (без ожидания сервера) */
+  function finishSaleConfirm(shouldPrint: boolean) {
+    const p = saleConfirm
+    if (!p || printChoiceLockedRef.current || busy) return
+    printChoiceLockedRef.current = true
+    const ticketId = p.ticketId
+    const debtRepayAmt = Math.max(0, Number(p.debtRepayAmt) || 0)
+    setSaleConfirm(null)
     void (async () => {
       try {
         const ok = await submitSale(
-          opts.paidCash ?? 0,
-          opts.method,
-          opts.bonusSpend,
-          opts.paidCard,
-          opts.debtAmt,
-          opts.saleNote,
+          p.paidCash,
+          p.method,
+          p.bonusSpend,
+          p.paidCard,
+          p.debtAmt,
+          p.saleNote,
           { shouldPrint, ticketId, debtRepayAmt },
         )
         if (!ok) {
           if (ticketId && ticketId !== activeTicketIdRef.current) {
             setActiveTicketId(ticketId)
           }
-          if (opts.returnTo === 'cash') setCashOpen(true)
-          else if (opts.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
-          else if (opts.returnTo === 'creditNote') setCreditNoteOpen(true)
+          if (p.returnTo === 'cash') setCashOpen(true)
+          else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
+          else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
           else setPayPickOpen(true)
         }
       } finally {
@@ -6873,19 +6928,10 @@ export default function CashierModule({
     })()
   }
 
-  function togglePrintAfterSale() {
-    setPrintAfterSale(v => {
-      const next = !v
-      try { localStorage.setItem('kakapo_cashier_print_sale', next ? '1' : '0') } catch { /* ignore */ }
-      return next
-    })
-  }
-
   async function confirmCreditNote() {
     if (!creditPending) return
     const note = creditNoteBuf.trim()
     const { paidCash, method, paidCard, debtAmt } = creditPending
-    // Сумма чека — не чек + долг: долг уже часть этой суммы (нал + карта + долг = total)
     const preview = Math.max(0, afterDisc - Math.floor(usedBonus))
     askSaleConfirm({
       paidCash,
@@ -10028,15 +10074,6 @@ export default function CashierModule({
 
             <div className="modal-card-actions">
               <button type="button" className="btn-cancel" disabled={busy} onClick={() => { setPayPickOpen(false); setBonusUsed(0); setPayDebtOn(false); setPayDebtBuf(''); setPayGivenBuf('') }}>Отмена</button>
-              <button
-                type="button"
-                className={`btn-cancel${printAfterSale ? ' on' : ''}`}
-                disabled={busy}
-                title={printAfterSale ? 'Печать включена' : 'Печать выключена'}
-                onClick={() => togglePrintAfterSale()}
-              >
-                🖨 {printAfterSale ? 'С печатью' : 'Без печати'}
-              </button>
             </div>
           </div>
         </div>
@@ -10350,6 +10387,47 @@ export default function CashierModule({
             <div className="modal-card-actions barcode-pick-actions">
               <button type="button" className="btn-cancel" onClick={() => closeBarcodePick()}>
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saleConfirm && (
+        <div className="overlay" {...backdropCloseProps(() => cancelSaleConfirm())}>
+          <div className="modal-card pay-checkout-card" onClick={e => e.stopPropagation()}>
+            <h3>Пробить чек?</h3>
+            <div className="pay-breakdown" style={{ marginBottom: 14 }}>
+              <div className="due">
+                <span>Сумма</span>
+                <b className="bank-fig sum">{fmtMoney(Number(saleConfirm.previewTotal) || 0)}</b>
+              </div>
+              {saleConfirm.clientName && (
+                <div><span>Клиент</span><b>{saleConfirm.clientName}</b></div>
+              )}
+              {client?.card && cashSaleBonus > 0 && saleConfirm.method !== 'credit' && saleConfirm.method !== 'wallet' && saleConfirm.method !== 'balance' && (Number(saleConfirm.debtAmt) || 0) < 0.001 && (
+                <div><span>Кэшбэк статуса</span><b style={{ color: 'var(--gr)' }}>+{cashSaleBonus} ⭐</b></div>
+              )}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
+              Печатать чек? После выбора чек пробьётся сразу.
+            </div>
+            <div className="modal-card-actions" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="btn-cancel"
+                disabled={busy}
+                onClick={() => finishSaleConfirm(false)}
+              >
+                Нет
+              </button>
+              <button
+                type="button"
+                className="btn-confirm"
+                disabled={busy}
+                onClick={() => finishSaleConfirm(true)}
+              >
+                {busy ? 'Пробиваем…' : '🖨 Печатать'}
               </button>
             </div>
           </div>
@@ -10871,15 +10949,6 @@ export default function CashierModule({
                   onClick={() => { setCashOpen(false); setPayPickOpen(true) }}
                 >
                   Назад
-                </button>
-                <button
-                  type="button"
-                  className={`btn-cancel cash-print-tog${printAfterSale ? ' on' : ''}`}
-                  disabled={busy}
-                  title={printAfterSale ? 'Печать включена' : 'Печать выключена'}
-                  onClick={() => togglePrintAfterSale()}
-                >
-                  🖨 {printAfterSale ? 'С печатью' : 'Без печати'}
                 </button>
                 <button
                   type="button"
