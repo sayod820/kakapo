@@ -1363,6 +1363,8 @@ export async function debtRepaySafe(
       clientId: input.clientId,
       method,
       note: input.note,
+      prevDebt: input.prevDebt,
+      expectedDebtPayVersion,
     })
     if (dup) {
       return {
@@ -1372,6 +1374,8 @@ export async function debtRepaySafe(
         clientRef: String((dup.payload as any)?.clientRef || clientRef),
       }
     }
+    // До записи долга — иначе soft sync может вернуть старый долг и UI провоцирует повтор
+    markMoneyPending({ clientId: input.clientId, cardNum: num })
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
     await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
     if (input.shiftId) {
@@ -1393,7 +1397,6 @@ export async function debtRepaySafe(
     if (input.clientId) {
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
-    markMoneyPending({ clientId: input.clientId, cardNum: num })
     return { nextDebt, bonusEarned: 0, clientRef }
   }
 

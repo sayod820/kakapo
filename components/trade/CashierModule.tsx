@@ -1424,6 +1424,7 @@ export default function CashierModule({
   }
 
   const [busy, setBusy] = useState(false)
+  const repayBusyRef = useRef(false)
   const [msg, setMsg] = useState('')
   const [toast, setToast] = useState<{ title: string; sub: string } | null>(null)
   /** Блокировка кассы после скана неизвестного штрихкода — пока не нажали Отмена / ✕ */
@@ -7607,7 +7608,7 @@ export default function CashierModule({
   }
 
   async function submitDebtRepay() {
-    if (!client || busy) return
+    if (!client || busy || repayBusyRef.current) return
     const amount = Number(repayBuf) || 0
     const prevDebt = clientDebt
     if (amount <= 0) return
@@ -7624,6 +7625,7 @@ export default function CashierModule({
       showToast('Смена закрыта', 'Откройте смену, чтобы принять погашение в кассу')
       return
     }
+    repayBusyRef.current = true
     setBusy(true)
     try {
       const withCard = await ensureClientHasCard(client)
@@ -7736,6 +7738,7 @@ export default function CashierModule({
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось погасить долг')
     } finally {
+      repayBusyRef.current = false
       setBusy(false)
     }
   }

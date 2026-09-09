@@ -597,8 +597,6 @@ async function nextSeq(): Promise<number> {
   return seqCounter
 }
 
-const DEBT_REPAY_DOUBLE_TAP_MS = 2500
-
 function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
   num: string
   amount: number
@@ -615,6 +613,8 @@ function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
     && String(a?.note || '').trim() === b.note
 }
 
+/** Дубль погашения: тот же отпечаток + тот же prevDebt/версия, пока op ещё в очереди (в т.ч. failed).
+ * Без лимита 2.5с — иначе повторные клики после синка плодят очередь. */
 export async function findDuplicateDebtRepay(payload: {
   num?: string
   amount?: number
@@ -623,6 +623,8 @@ export async function findDuplicateDebtRepay(payload: {
   clientId?: string
   method?: string
   note?: string
+  prevDebt?: number
+  expectedDebtPayVersion?: number
 }): Promise<PendingOp | null> {
   const clientRef = String(payload.clientRef || '').trim()
   const num = String(payload.num || '').trim()
@@ -631,15 +633,28 @@ export async function findDuplicateDebtRepay(payload: {
   const clientId = String(payload.clientId || '')
   const method = payload.method === 'card' ? 'card' : 'cash'
   const note = String(payload.note || '').trim()
-  const now = Date.now()
-  const pending = (await getPending()).filter(r => !r.failed && r.kind === 'debt_repay')
+  const prevDebt = payload.prevDebt != null
+    ? Math.round((Number(payload.prevDebt) || 0) * 100) / 100
+    : null
+  const expectedVer = payload.expectedDebtPayVersion != null
+    ? Number(payload.expectedDebtPayVersion)
+    : null
+  const pending = (await getPending()).filter(r => r.kind === 'debt_repay')
   return pending.find(r => {
     const p = (r.payload || {}) as Record<string, unknown>
     if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
     if (!num || !(amount > 0)) return false
     if (!sameDebtRepayFingerprint(p, { num, amount, shiftId, clientId, method, note })) return false
-    const ts = Date.parse(r.createdAtIso) || 0
-    return ts > 0 && Math.abs(now - ts) < DEBT_REPAY_DOUBLE_TAP_MS
+    // Разный остаток долга до погашения = другое легитимное погашение той же суммы
+    if (prevDebt != null && Number.isFinite(prevDebt)) {
+      const pPrev = Math.round((Number(p.prevDebt) || 0) * 100) / 100
+      if (Math.abs(pPrev - prevDebt) > 0.009) return false
+    }
+    if (expectedVer != null && Number.isFinite(expectedVer)) {
+      const pVer = Number(p.expectedDebtPayVersion)
+      if (Number.isFinite(pVer) && pVer !== expectedVer) return false
+    }
+    return true
   }) || null
 }
 

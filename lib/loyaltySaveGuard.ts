@@ -273,6 +273,7 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
       debt: localCard.debt ?? merged.debt,
       wallet: localCard.wallet ?? merged.wallet,
       posCashBonus: localCard.posCashBonus ?? merged.posCashBonus,
+      debtPayVersion: localCard.debtPayVersion ?? merged.debtPayVersion,
     }
   }
   return applyManualLoyaltyToCard(merged)

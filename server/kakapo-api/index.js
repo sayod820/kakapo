@@ -4887,6 +4887,23 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
     const repaidTowardDebt = Math.round(Math.max(0, prevDebt - nextDebt) * 100) / 100
 
+    // Дубль из очереди после уже погашенного долга — не крутим кассу и debtPayVersion
+    if (appliedLocal && repaidTowardDebt < 0.001) {
+      const result = {
+        client: linkedClient || null,
+        amount: 0,
+        method,
+        prevDebt,
+        nextDebt: prevDebt,
+        bonusEarned: 0,
+        till: null,
+        noop: true,
+      }
+      rememberOpRef('debt_repay', clientRef, result)
+      persist()
+      return res.json({ card, ...result })
+    }
+
     if (linkedClient) {
       if (!appliedLocal) {
         try {
@@ -4927,7 +4944,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     syncClientFromCardRow(card)
 
     const till = applyDebtRepayToShift(db, {
-      amount,
+      amount: repaidTowardDebt,
       method,
       shiftId: req.body?.shiftId,
       posId: req.body?.posId,
