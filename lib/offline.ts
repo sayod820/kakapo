@@ -546,6 +546,15 @@ export async function dropPending(clientRef: string): Promise<void> {
   await deletePending(clientRef)
 }
 
+/** Стереть всю очередь (браузер online-only / ремонт) */
+export async function clearAllPending(): Promise<void> {
+  const list = await getPending()
+  for (const row of list) {
+    try { await deletePending(row.clientRef) } catch { /* ignore */ }
+  }
+  try { lsQueueWrite([]) } catch { /* ignore */ }
+}
+
 /** Повторить отклонённую операцию при следующей отправке */
 export async function retryPending(clientRef: string): Promise<void> {
   const row = (await getPending()).find(r => r.clientRef === clientRef)

@@ -1099,37 +1099,40 @@ const CashierNetChip = memo(function CashierNetChip({
   const netFailed = useOfflineSync(s => s.failed)
   const netSyncing = useOfflineSync(s => s.syncing)
   const netProgress = useOfflineSync(s => s.progress)
+  const showQueue = isTradeLocalFirst()
+  const pending = showQueue ? netPending : 0
+  const failed = showQueue ? netFailed : 0
   const title = netOnline
-    ? (netPending > 0
+    ? (pending > 0
         ? (netSyncing
             ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
-            : `Онлайн · ${netPending} в очереди`)
+            : `Онлайн · ${pending} в очереди`)
         : (onlineCode || 'Онлайн'))
-    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
+    : `Офлайн${pending > 0 ? ` · ${pending} операц. ждут` : ''}${failed > 0 ? ` · повтор: ${failed}` : ''}`
   const label = netOnline
-    ? (netPending > 0
+    ? (pending > 0
         ? (netSyncing
             ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
-            : `очередь ${netPending}`)
+            : `очередь ${pending}`)
         : (onlineCode || 'Онлайн'))
-    : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+    : (pending > 0 ? `офлайн · ${pending}` : 'Офлайн')
 
   return (
     <>
       <span className="d" style={{ background: netOnline ? undefined : '#e11d48' }} />
       <span
         className="net-status-txt"
-        role="button"
-        tabIndex={0}
-        style={{ cursor: 'pointer' }}
-        onClick={onOpenQueue}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpenQueue() }}
+        role={showQueue ? 'button' : undefined}
+        tabIndex={showQueue ? 0 : undefined}
+        style={{ cursor: showQueue ? 'pointer' : 'default' }}
+        onClick={showQueue ? onOpenQueue : undefined}
+        onKeyDown={showQueue ? (e => { if (e.key === 'Enter' || e.key === ' ') onOpenQueue() }) : undefined}
         title={title}
       >
         {label}
-        {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
+        {failed > 0 ? ` · ${failed}⚠` : ''}
       </span>
-      {(!netOnline || netPending > 0 || netFailed > 0) && (
+      {showQueue && (!netOnline || pending > 0 || failed > 0) && (
         <button
           type="button"
           className="net-sync-chip"

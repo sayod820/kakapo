@@ -1302,6 +1302,58 @@ export async function debtRepaySafe(
     histKey: histKey || undefined,
   }
 
+  // Браузер: сразу API, без очереди
+  if (!isTradeLocalFirst()) {
+    const run = (async (): Promise<OfflineResult<DebtRepayResult>> => {
+      const res = await api.debtRepayCard(num, {
+        amount,
+        method,
+        note: input.note,
+        cashierId: input.cashierId,
+        cashierName: input.cashierName,
+        shiftId: input.shiftId,
+        posId: input.posId,
+        clientId: input.clientId,
+        clientRef,
+        expectedDebtPayVersion,
+      } as any)
+      const nextDebt = round2(Number((res as any)?.card?.debt ?? Math.max(0, input.prevDebt - amount)))
+      const bonusEarned = Math.max(0, Math.floor(Number((res as any)?.bonusEarned) || 0))
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        {
+          debt: nextDebt,
+          debtPayVersion: (Number(cardNow?.debtPayVersion) || 0) + 1,
+          ...((res as any)?.card || {}),
+        } as any,
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
+      }
+      if (input.shiftId && method === 'cash') {
+        const shift = shiftById(input.shiftId)
+        if (shift) patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
+      }
+      if (histKey) {
+        recordStoreDebtRepayment(histKey, amount, {
+          desc: input.note || (method === 'cash' ? 'Погашение нал' : 'Погашение карта'),
+          method,
+          source: 'pos',
+          clientRef,
+        })
+      }
+      void persistPosSnapshot()
+      return { offline: false, data: { nextDebt, bonusEarned, clientRef } }
+    })()
+    debtRepayInflight.set(key, run)
+    try {
+      return await run
+    } finally {
+      debtRepayInflight.delete(key)
+    }
+  }
+
   const applyLocal = async (): Promise<DebtRepayResult> => {
     const dup = await findDuplicateDebtRepay({
       num,
@@ -2195,7 +2247,25 @@ export async function createSaleSafe(
     shadowMirrorSale(created)
   }
 
-  // Всегда local-first: нал и карта сразу, сервер из очереди в фоне
+  // Всегда local-first на ПК/Android. Браузер — сразу на сервер, без очереди.
+  if (!isTradeLocalFirst()) {
+    const { _revert: _omit, ...cleanPayload } = salePayload as Record<string, unknown>
+    const created = await api.createPosSale(cleanPayload as any, { mode: 'sync' }) as PosSale & {
+      orderId?: string
+      _offline?: boolean
+    }
+    patchShiftOnline(created)
+    if (client && (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0)) {
+      try {
+        const { syncClientsFromApi } = await import('./clientStore')
+        const { syncCardsFromApi } = await import('./cardStore')
+        void syncClientsFromApi()
+        void syncCardsFromApi()
+      } catch { /* softSync догонит */ }
+    }
+    return { offline: false, data: { ...created, _offline: false } }
+  }
+
   return localFirstOp(applyLocal)
 }
 

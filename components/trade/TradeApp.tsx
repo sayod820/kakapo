@@ -28,6 +28,7 @@ import {
   type DesktopUpdateStatus,
 } from '@/lib/desktopBridge'
 import { isTradeAndroidNative } from '@/lib/tradeAndroid'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { isLocalBootstrapComplete } from '@/lib/offlineBootstrap'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import { USE_API } from '@/lib/config'
@@ -2933,15 +2934,19 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
   const [queueOpen, setQueueOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Браузер: только индикатор онлайн, без очереди
+  const showQueue = mounted && isTradeLocalFirst()
+
   if (!mounted) {
     return compact
       ? <span className="k-online-chip" data-state="online"><span className="d" /><span className="t">Онлайн</span></span>
       : <div className="k-online"><span className="d" />Онлайн</div>
   }
 
-  const state = syncing ? 'sync' : !online ? 'offline' : failed > 0 ? 'failed' : 'online'
-  const shortLabel = syncing ? 'Синхр.' : online ? 'Онлайн' : 'Офлайн'
-  const label = syncing
+  const state = syncing && showQueue ? 'sync' : !online ? 'offline' : (showQueue && failed > 0) ? 'failed' : 'online'
+  const shortLabel = (syncing && showQueue) ? 'Синхр.' : online ? 'Онлайн' : 'Офлайн'
+  const label = (syncing && showQueue)
     ? `Синхронизация ${progress.total > 0 ? `${progress.done} из ${progress.total}` : ''}`.trim()
     : online
       ? 'Онлайн'
@@ -2956,7 +2961,24 @@ function NetworkStatus({ compact = false }: { compact?: boolean }) {
   const openQueue = (e?: MouseEvent) => {
     e?.preventDefault()
     e?.stopPropagation()
+    if (!showQueue) return
     setQueueOpen(true)
+  }
+
+  if (!showQueue) {
+    return compact
+      ? (
+        <span className="k-online-chip" data-state={online ? 'online' : 'offline'}>
+          <span className="d" />
+          <span className="t">{online ? 'Онлайн' : 'Офлайн'}</span>
+        </span>
+      )
+      : (
+        <div className="k-online" data-state={online ? 'online' : 'offline'}>
+          <span className="d" />
+          {online ? 'Онлайн' : 'Нет связи с сервером'}
+        </div>
+      )
   }
 
   if (compact) {
@@ -3706,7 +3728,10 @@ function TradeAppGate() {
       ;(window as Window & { __kakapoHideBoot?: () => void }).__kakapoHideBoot?.()
     } catch { /* ignore */ }
     void import('@/lib/hardwareBack').then(m => m.installHardwareBack()).catch(() => {})
-    void import('@/lib/offlineV2').then(m => m.ensureDesktopLocalFirst()).catch(() => {})
+    void import('@/lib/offlineV2').then(m => {
+      m.ensureDesktopLocalFirst()
+      void m.ensureBrowserOnlineOnly()
+    }).catch(() => {})
     void hydrateOfflineCaches()
     useOfflineSync.getState().start()
     setSession(loadTradeEmployeeSession())

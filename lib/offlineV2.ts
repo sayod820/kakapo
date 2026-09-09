@@ -32,26 +32,22 @@ const LS_KEY = 'kakapo-offline-v2'
 
 export function getOfflineV2Mode(): OfflineV2Mode {
   if (typeof window === 'undefined') return 'off'
-  // ПК-приложение: всегда полный local-first, нельзя выключить через LS
+  // ПК-приложение / Android: всегда полный local-first
   if (isKakapoDesktop()) return 'on'
   if (isTradeAndroidNative()) return 'on'
-  try {
-    const raw = String(localStorage.getItem(LS_KEY) || '').trim().toLowerCase()
-    if (raw === 'shadow' || raw === 'on' || raw === 'off') return raw
-  } catch { /* ignore */ }
+  // Браузер: всегда онлайн, без очереди (LS флаг игнорируем)
   return 'off'
 }
 
 export function setOfflineV2Mode(mode: OfflineV2Mode) {
   if (typeof window === 'undefined') return
-  // На ПК режим всегда on — не даём записать off/shadow
   if (isKakapoDesktop() || isTradeAndroidNative()) {
     try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
     return
   }
-  try {
-    localStorage.setItem(LS_KEY, mode)
-  } catch { /* ignore */ }
+  // Браузер не хранит offline-v2 — всегда off
+  try { localStorage.setItem(LS_KEY, 'off') } catch { /* ignore */ }
+  void mode
 }
 
 export function isOfflineV2Shadow(): boolean {
@@ -65,16 +61,32 @@ export function isOfflineV2Full(): boolean {
 
 /**
  * Trade local-first: сначала локально (SQLite/стор/очередь), потом sync.
- * На ПК-приложении всегда true.
+ * Только ПК-касса и Android. Браузер — false.
  */
 export function isTradeLocalFirst(): boolean {
-  return isKakapoDesktop() || isTradeAndroidNative() || isOfflineV2Full()
+  return isKakapoDesktop() || isTradeAndroidNative()
 }
 
 /** Вызвать при старте Trade: зафиксировать on на ПК и в Android-приложении */
 export function ensureDesktopLocalFirst(): void {
   if (!isKakapoDesktop() && !isTradeAndroidNative()) return
   try { localStorage.setItem(LS_KEY, 'on') } catch { /* ignore */ }
+}
+
+/**
+ * Браузер: выключить local-first в LS и сбросить застрявшую очередь
+ * (раньше чеки могли попасть в IndexedDB/localStorage).
+ */
+export async function ensureBrowserOnlineOnly(): Promise<void> {
+  if (typeof window === 'undefined') return
+  if (isKakapoDesktop() || isTradeAndroidNative()) return
+  try { localStorage.setItem(LS_KEY, 'off') } catch { /* ignore */ }
+  try {
+    const { clearAllPending } = await import('./offline')
+    await clearAllPending()
+    const { useOfflineSync } = await import('./offlineSync')
+    await useOfflineSync.getState().refresh()
+  } catch { /* ignore */ }
 }
 
 /**
