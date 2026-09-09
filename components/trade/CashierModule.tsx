@@ -6837,28 +6837,29 @@ export default function CashierModule({
     }
   }
 
-  async function finishSaleConfirm(shouldPrint: boolean) {
+  function finishSaleConfirm(shouldPrint: boolean) {
     const p = saleConfirm
     if (!p || printChoiceLockedRef.current) return
     printChoiceLockedRef.current = true
     const ticketId = p.ticketId
     const debtRepayAmt = Math.max(0, Number(p.debtRepayAmt) || 0)
-    // Снимок ДО сброса UI — иначе ticketsRef уже пустой
     const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
     if (!ticketSnap?.cart?.length) {
       printChoiceLockedRef.current = false
       setSaleConfirm(null)
       return
     }
-    // Мгновенно в этом же кадре: закрыть диалог + очистить корзину
-    flushSync(() => {
-      setSaleConfirm(null)
+
+    // ТОЛЬКО закрыть диалог — без flushSync/сброса корзины (иначе весь CashierModule
+    // пересчитывается синхронно в клике и «Нет/Печатать» тормозит).
+    setSaleConfirm(null)
+
+    const runAfterPaint = () => {
       afterSaleTicketReset(ticketId)
-    })
-    showToast('Чек проведён', shouldPrint ? 'Печать…' : '')
-    void (async () => {
-      try {
-        const ok = await submitSale(
+      showToast('Чек проведён', shouldPrint ? 'Печать…' : '')
+      // Ещё один кадр — потом запись/очередь/печать
+      window.setTimeout(() => {
+        void submitSale(
           p.paidCash,
           p.method,
           p.bonusSpend,
@@ -6873,21 +6874,28 @@ export default function CashierModule({
             cartAlreadyReset: true,
             ticketSnap,
           },
-        )
-        if (!ok) {
-          showToast('Ошибка', 'Не удалось провести чек — вернитесь к оплате')
-          if (ticketId && ticketId !== activeTicketIdRef.current) {
-            setActiveTicketId(ticketId)
+        ).then(ok => {
+          if (!ok) {
+            showToast('Ошибка', 'Не удалось провести чек — вернитесь к оплате')
+            if (ticketId && ticketId !== activeTicketIdRef.current) {
+              setActiveTicketId(ticketId)
+            }
+            if (p.returnTo === 'cash') setCashOpen(true)
+            else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
+            else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
+            else setPayPickOpen(true)
           }
-          if (p.returnTo === 'cash') setCashOpen(true)
-          else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
-          else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
-          else setPayPickOpen(true)
-        }
-      } finally {
-        printChoiceLockedRef.current = false
-      }
-    })()
+        }).finally(() => {
+          printChoiceLockedRef.current = false
+        })
+      }, 0)
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => { requestAnimationFrame(runAfterPaint) })
+    } else {
+      window.setTimeout(runAfterPaint, 16)
+    }
   }
 
   async function confirmCreditNote() {
@@ -7243,8 +7251,8 @@ export default function CashierModule({
       // Фон: история / лояльность / погашение / sync — после сброса чека
       void (async () => {
         try {
-          // Один kick очереди. Не softSync+pull здесь — иначе при интернете лаг.
-          useOfflineSync.getState().scheduleSyncDebounced(120)
+          // Sync сильно позже — иначе inbound merge лагает кассу сразу после «Печатать»
+          useOfflineSync.getState().scheduleSyncDebounced(1200)
 
           if (soldClient?.id) {
             const itemsSummary = soldCart.slice(0, 5).map(l => (

@@ -78,8 +78,8 @@ const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
-/** После локального изменения — дать UI отрисоваться, потом kick */
-const KICK_AFTER_CHANGE_MS = 160
+/** После локального изменения — дать UI 2–3 кадра, потом kick */
+const KICK_AFTER_CHANGE_MS = 700
 
 /**
  * Мгновенный синк после любого изменения (очередь / локальная запись).
@@ -406,7 +406,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           return
         }
         void get().refresh()
-        const ok = await kickSyncChannel({ mode: 'both' })
+        const ok = await kickSyncChannel({ mode: 'flush' })
         if (ok) return
       }
     } catch { /* fallback */ }
@@ -422,7 +422,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           return
         }
         void get().refresh()
-        const ok = await kickDesktopSyncChannel()
+        const ok = await kickDesktopSyncChannel({ mode: 'flush' })
         if (ok) return
       }
     } catch { /* fallback */ }
