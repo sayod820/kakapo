@@ -6,6 +6,10 @@ import { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelLi
 
 export type SyncKickMode = 'flush' | 'inbound' | 'both'
 
+/** Не чаще чем раз в N мс будить inbound с UI — канал сам тянет по WS/таймеру */
+const INBOUND_KICK_MIN_MS = 8000
+let lastInboundKickAt = 0
+
 /** Trade/POS local-first: UI не ходит на API за синками */
 export function isSyncChannelMode(): boolean {
   return isTradeLocalFirst()
@@ -13,7 +17,18 @@ export function isSyncChannelMode(): boolean {
 
 export async function kickSyncChannel(opts?: { mode?: SyncKickMode }): Promise<boolean> {
   if (!isSyncChannelMode()) return false
-  const mode = opts?.mode || 'both'
+  let mode = opts?.mode || 'both'
+
+  // Inbound throttle: пустая очередь + частые kick ломали кассу/историю
+  if (mode === 'inbound' || mode === 'both') {
+    const now = Date.now()
+    if (now - lastInboundKickAt < INBOUND_KICK_MIN_MS) {
+      if (mode === 'inbound') return true
+      mode = 'flush'
+    } else {
+      lastInboundKickAt = now
+    }
+  }
 
   if (hasDesktopSyncChannel()) {
     try {
@@ -32,7 +47,7 @@ export async function kickSyncChannel(opts?: { mode?: SyncKickMode }): Promise<b
       return true
     } catch {
       try {
-        return await kickDesktopSyncChannel()
+        return await kickDesktopSyncChannel({ mode })
       } catch {
         return false
       }

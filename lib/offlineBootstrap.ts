@@ -14,11 +14,10 @@ import { getApiUrl } from './config'
 import { api } from './api'
 
 const STEPS: { id: BootstrapStepId; label: string }[] = [
-  { id: 'products', label: 'Товары и остатки' },
-  { id: 'categories', label: 'Категории' },
-  { id: 'pos', label: 'Кассы, смены, сотрудники' },
-  { id: 'clients', label: 'Клиенты' },
-  { id: 'cards', label: 'Карты лояльности' },
+  { id: 'products', label: 'Каталог, склад, касса (полный снимок)' },
+  { id: 'pos', label: 'Ящик / финансы / лояльность' },
+  { id: 'clients', label: 'Сотрудники для входа' },
+  { id: 'done', label: 'Готово' },
 ]
 
 async function cacheEmployeesForOfflineLogin(): Promise<void> {
@@ -94,9 +93,9 @@ export async function sealEmployeePasswordsForOffline(
 
 export type BootstrapStepId =
   | 'products'
-  | 'categories'
   | 'pos'
   | 'clients'
+  | 'categories'
   | 'cards'
   | 'done'
 
@@ -120,10 +119,20 @@ export async function hasOfflineEmployeeAuth(): Promise<boolean> {
   }
 }
 
-/** Готово только если на диске есть товары И сотрудники с паролями */
+/** Готово: meta bootstrap ИЛИ (товары + пароли) на диске */
 export async function isLocalBootstrapComplete(): Promise<boolean> {
   if (!needsLocalInstall()) return true
   try {
+    const desk = getKakapoDesktop()
+    if (desk?.localDbMetaGet) {
+      try {
+        const meta = await desk.localDbMetaGet()
+        if (meta?.bootstrapComplete || meta?.installComplete) {
+          const products = await readCachedProducts()
+          if (products && products.length > 0 && (await hasOfflineEmployeeAuth())) return true
+        }
+      } catch { /* fall */ }
+    }
     const products = await readCachedProducts()
     if (!products || products.length === 0) return false
     if (!(await hasOfflineEmployeeAuth())) return false
@@ -184,9 +193,8 @@ async function withRetries<T>(label: string, fn: () => Promise<T>, tries = 5): P
 }
 
 /**
- * Один раз при первом запуске после установки — качает всё на диск ПК.
- * Потом касса работает локально без интернета.
- * Логин не показывают, пока нет товаров + паролей сотрудников.
+ * Один раз после device-check: полный снимок сервера → SQLite.
+ * Дальше UI только из SQLite; обмен — SYNC-канал.
  */
 export async function runLocalBootstrap(
   onProgress?: (p: BootstrapProgress) => void,
@@ -204,69 +212,83 @@ export async function runLocalBootstrap(
   }
 
   try {
-    const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
-      import('./store'),
-      import('./posStore'),
-      import('./clientStore'),
-      import('./cardStore'),
-    ])
+    const { applySyncDeltaToSqlite } = await import('./applySyncToSqlite')
+    const { api } = await import('./api')
 
+    // 1) Один полный /sync/changes → SQLite (товары, категории, клиенты, карты, склад, POS…)
     report(0, 'products', STEPS[0].label)
-    await withRetries('products', () => useProducts.getState().fetchProducts())
+    const delta = await withRetries('full-sync', () => api.getSyncChanges(undefined), 4)
+    // force full apply even if server omitted full flag
+    const payload = { ...delta, full: true }
+    await applySyncDeltaToSqlite(payload)
+    {
+      const products = await readCachedProducts()
+      if (!products?.length) {
+        return {
+          ok: false,
+          error: 'Сервер не отдал каталог. Проверьте привязку устройства и нажмите «Повторить».',
+        }
+      }
+    }
     report(1, 'products', STEPS[0].label)
 
-    report(1, 'categories', STEPS[1].label)
-    await withRetries('categories', async () => {
-      const { api } = await import('./api')
-      const { applyCategoriesLocal } = await import('./useCategories')
-      const { cacheCategories } = await import('./offline')
-      const data = await api.getCategories()
-      const list = Array.isArray(data) ? data : []
-      applyCategoriesLocal(list)
-      await cacheCategories(list)
-    })
-    report(2, 'categories', STEPS[1].label)
+    // 2) То, чего нет в /sync/changes: vault + loyalty
+    report(1, 'pos', STEPS[1].label)
+    await withRetries('extras', async () => {
+      const { readCachedData, cacheData } = await import('./offline')
+      const snap = (await readCachedData<Record<string, unknown>>('pos_snapshot')) || {}
+      try {
+        const vault = await api.getCashVault()
+        if (vault) {
+          const next = { ...snap, cashVault: vault }
+          await cacheData('pos_snapshot', next)
+          const desk = getKakapoDesktop()
+          if (desk?.localDbKvSet) {
+            try { await desk.localDbKvSet('pos_snapshot', next) } catch { /* ignore */ }
+          }
+        }
+      } catch { /* optional */ }
+      try {
+        const { bootstrapLoyaltyConfigFromServer } = await import('./loyaltyStatusConfig')
+        await bootstrapLoyaltyConfigFromServer()
+      } catch { /* optional */ }
+    }, 3)
+    report(2, 'pos', STEPS[1].label)
 
-    report(2, 'pos', STEPS[2].label)
-    await withRetries('pos', () => syncPosFromApi())
-    report(3, 'pos', STEPS[2].label)
-
-    report(3, 'clients', STEPS[3].label)
-    await withRetries('clients', () => syncClientsFromApi())
-    report(4, 'clients', STEPS[3].label)
-
-    report(4, 'cards', STEPS[4].label)
-    await withRetries('cards', () => syncCardsFromApi())
-    report(5, 'cards', STEPS[4].label)
-
-    try {
-      const { api } = await import('./api')
-      const { cacheStockLayers } = await import('./stockLayersLocal')
-      const layers = await api.getAllStockLayers()
-      await cacheStockLayers(layers || [])
-    } catch { /* партии подтянутся при синке */ }
-
-    // Сотрудники с паролями — обязательно до экрана логина
+    // 3) Сотрудники с паролями — обязательно до логина
+    report(2, 'clients', STEPS[2].label)
     try {
       await withRetries('employees', () => cacheEmployeesForOfflineLogin(), 3)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Не удалось скачать сотрудников'
-      report(5, 'pos', 'Сотрудники')
       return {
         ok: false,
         error: `${msg}. Проверьте привязку устройства и интернет, затем «Повторить».`,
       }
     }
-
     if (!(await hasOfflineEmployeeAuth())) {
       return {
         ok: false,
         error: 'Не удалось сохранить пароли сотрудников. Повторите загрузку.',
       }
     }
+    report(3, 'clients', STEPS[2].label)
 
     await markLocalBootstrapComplete()
     await markLocalSyncAt()
+
+    // UI сторы из SQLite (force)
+    try {
+      const { reloadStoresFromSqlite } = await import('./reloadFromSqlite')
+      await reloadStoresFromSqlite(['all'])
+    } catch { /* ignore */ }
+
+    // Запустить SYNC-канал (дальше только он ↔ сервер)
+    try {
+      const { kickSyncChannel } = await import('./syncGate')
+      void kickSyncChannel({ mode: 'both' })
+    } catch { /* ignore */ }
+
     report(total, 'done', 'Готово')
     return { ok: true }
   } catch (e) {
@@ -280,9 +302,17 @@ export async function runLocalBootstrap(
   }
 }
 
-/** Тихий синк при появлении интернета (остатки, цены, товары…) */
+/** После bootstrap: только SYNC-канал, без полного API dump */
 export async function silentSyncFromServer(): Promise<void> {
   if (!isOnline()) return
+  try {
+    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
+    if (isSyncChannelMode()) {
+      void kickSyncChannel({ mode: 'both' })
+      await markLocalSyncAt()
+      return
+    }
+  } catch { /* fall */ }
   const alive = await pingApiForBootstrap(4000)
   if (!alive) return
   try {
@@ -297,39 +327,7 @@ export async function silentSyncFromServer(): Promise<void> {
       await markLocalSyncAt()
       return
     }
-  } catch { /* fallback */ }
-  const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
-    import('./store'),
-    import('./posStore'),
-    import('./clientStore'),
-    import('./cardStore'),
-  ])
-  await Promise.allSettled([
-    useProducts.getState().fetchProducts(),
-    syncPosFromApi(),
-    syncClientsFromApi(),
-    syncCardsFromApi(),
-    cacheEmployeesForOfflineLogin(),
-    (async () => {
-      try {
-        const { api } = await import('./api')
-        const { applyCategoriesLocal } = await import('./useCategories')
-        const { cacheCategories } = await import('./offline')
-        const data = await api.getCategories()
-        const list = Array.isArray(data) ? data : []
-        applyCategoriesLocal(list)
-        await cacheCategories(list)
-      } catch { /* ignore */ }
-    })(),
-    (async () => {
-      try {
-        const { api } = await import('./api')
-        const { cacheStockLayers } = await import('./stockLayersLocal')
-        const layers = await api.getAllStockLayers()
-        await cacheStockLayers(layers || [])
-      } catch { /* ignore */ }
-    })(),
-  ])
+  } catch { /* ignore */ }
   await markLocalSyncAt()
 }
 

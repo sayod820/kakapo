@@ -322,7 +322,9 @@ export function useApiSync(mode: SyncMode = 'all') {
               const { ensureInProcessSyncTimers } = await import('./syncChannelInProcess')
               ensureInProcessSyncTimers()
             }
-            await kickSyncChannel({ mode: 'inbound' })
+            // Только flush очереди. Inbound делает сам канал по таймеру —
+            // иначе каждые 90с merge → лаг кассы/истории без очереди.
+            await kickSyncChannel({ mode: 'flush' })
             return
           }
         }
@@ -383,10 +385,11 @@ export function useApiSync(mode: SyncMode = 'all') {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
         void import('./syncGate').then(m => {
+          // Редкий inbound (throttle внутри kick). Не softSync HTTP.
           if (m.isSyncChannelMode()) void m.kickSyncChannel({ mode: 'inbound' })
           else void softSyncPosAfterSale()
         }).catch(() => { void softSyncPosAfterSale() })
-      }, POS_SALES_INBOUND_MS)
+      }, Math.max(POS_SALES_INBOUND_MS, 55000))
     }
     return () => {
       clearInterval(id)

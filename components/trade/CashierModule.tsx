@@ -7251,8 +7251,8 @@ export default function CashierModule({
       // Фон: история / лояльность / погашение / sync — после сброса чека
       void (async () => {
         try {
-          // Sync сильно позже — иначе inbound merge лагает кассу сразу после «Печатать»
-          useOfflineSync.getState().scheduleSyncDebounced(1200)
+          // Только flush очереди — сервер узнаёт об этом чеке; inbound отдельно в канале
+          useOfflineSync.getState().scheduleSyncDebounced(200)
 
           if (soldClient?.id) {
             const itemsSummary = soldCart.slice(0, 5).map(l => (

@@ -394,7 +394,7 @@ let posSoftSyncDirtyForce = false
 const POS_SOFT_MIN_GAP_MS = 4000
 
 export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
-  // Local-first: сервер только через SYNC-канал; UI не делает GET
+  // Local-first: сервер только через SYNC-канал; UI читает SQLite
   try {
     const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
     if (isSyncChannelMode()) {

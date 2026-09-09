@@ -122,21 +122,28 @@ export function bindDesktopSyncChannelListeners(): void {
         } catch { /* ignore */ }
         return
       }
-      // Канал положил дельту в SQLite — UI применяет ПОЗЖЕ, не в том же тике что «Печатать»
-      if (ev?.type === 'inbound-ready' || ev?.type === 'inbound' || ev?.type === 'done') {
-        const applyLater = () => {
+      // Канал уже записал SQLite — UI только читает базу
+      if (ev?.type === 'sqlite-updated' || ev?.type === 'inbound-ready') {
+        const scopes = Array.isArray(ev.scopes) ? ev.scopes : undefined
+        window.setTimeout(() => {
           void import('./cashierUiGate').then(({ isCashierPaymentCritical }) => {
             if (isCashierPaymentCritical()) {
-              window.setTimeout(applyLater, 800)
+              window.setTimeout(() => {
+                void import('./reloadFromSqlite').then(m => m.reloadStoresFromSqlite(scopes as any)).catch(() => {})
+              }, 600)
               return
             }
-            void import('./applyInboundLocal').then(m => m.consumeInboundFromLocal()).catch(() => {})
-            void import('./offlineSync').then(m => { void m.useOfflineSync.getState().refresh() }).catch(() => {})
+            void import('./reloadFromSqlite').then(m => m.reloadStoresFromSqlite(scopes as any)).catch(() => {})
           }).catch(() => {
-            void import('./applyInboundLocal').then(m => m.consumeInboundFromLocal()).catch(() => {})
+            void import('./reloadFromSqlite').then(m => m.reloadStoresFromSqlite(scopes as any)).catch(() => {})
           })
-        }
-        window.setTimeout(applyLater, ev?.type === 'done' ? 700 : 250)
+        }, 80)
+      }
+      if (ev?.type === 'inbound' || ev?.type === 'done') {
+        try {
+          const { useOfflineSync } = await import('./offlineSync')
+          void useOfflineSync.getState().refresh()
+        } catch { /* ignore */ }
       }
       if (ev?.type === 'start' || ev?.type === 'progress') {
         try {

@@ -8,10 +8,9 @@
 
 const { net, ipcMain, BrowserWindow } = require('electron')
 const { buildHttpJob, extractServerId, isLocalId } = require('./syncOpHttp.cjs')
+const { deltaHasWork, applyDeltaToSqlite } = require('./syncInboundSqlite.cjs')
 
 const KEY_IDMAP = 'queue_idmap'
-const KEY_INBOUND_SYNC = 'kakapo_inbound_sync'
-const KEY_INBOUND_LITE = 'kakapo_inbound_pos_lite'
 const KEY_POS_LITE_CURSOR = 'kakapo_pos_lite_cursor'
 
 const CATALOG_FIRST = new Set([
@@ -31,6 +30,7 @@ let started = false
 let inboundTimer = null
 let wsHandle = null
 let wsReconnectTimer = null
+let wsInboundDebounce = null
 let session = {
   apiBase: '',
   token: '',
@@ -205,64 +205,13 @@ async function sendOne(row) {
   return { serverId, json: res.json }
 }
 
-function stashEntitiesFromDelta(json) {
-  if (!dbBridge || !json || typeof json !== 'object') return
-  const putMany = dbBridge.entityPutMany
-  if (typeof putMany !== 'function') return
-  const stamp = String(json.cursor || new Date().toISOString())
-  try {
-    if (Array.isArray(json.products) && json.products.length) {
-      putMany(json.products.map((p) => ({
-        kind: 'product',
-        id: String(p.id),
-        data: p,
-        updatedAtIso: String(p.updatedAtIso || p.updatedAt || stamp),
-      })))
-    }
-    if (Array.isArray(json.clients) && json.clients.length) {
-      putMany(json.clients.map((c) => ({
-        kind: 'client',
-        id: String(c.id),
-        data: c,
-        updatedAtIso: String(c.updatedAtIso || stamp),
-      })))
-    }
-    if (Array.isArray(json.cards) && json.cards.length) {
-      putMany(json.cards.map((c) => ({
-        kind: 'card',
-        id: String(c.id || c.num),
-        data: c,
-        updatedAtIso: String(c.updatedAtIso || stamp),
-      })))
-    }
-    const pos = json.pos || {}
-    if (Array.isArray(pos.sales) && pos.sales.length) {
-      putMany(pos.sales.map((s) => ({
-        kind: 'sale',
-        id: String(s.id),
-        data: s,
-        updatedAtIso: String(s.createdAtIso || s.updatedAtIso || stamp),
-      })))
-    }
-    if (Array.isArray(pos.shifts) && pos.shifts.length) {
-      putMany(pos.shifts.map((s) => ({
-        kind: 'shift',
-        id: String(s.id),
-        data: s,
-        updatedAtIso: String(s.updatedAtIso || s.openedAtIso || stamp),
-      })))
-    }
-  } catch { /* ignore */ }
-}
-
 async function pullInbound() {
   const base = String(session.apiBase || '').replace(/\/$/, '')
-  if (!base || !dbBridge) return { lite: false, sync: false }
+  if (!base || !dbBridge) return { scopes: [] }
 
-  let liteOk = false
-  let syncOk = false
+  const scopes = []
 
-  // 1) pos-lite → SQLite
+  // 1) pos-lite → сразу в SQLite (не в UI)
   try {
     let liteCursor = ''
     try { liteCursor = String(dbBridge.kvGet(KEY_POS_LITE_CURSOR) || '') } catch { /* ignore */ }
@@ -275,12 +224,13 @@ async function pullInbound() {
       timeoutMs: 12000,
     })
     const json = res.json || {}
-    dbBridge.kvSet(KEY_INBOUND_LITE, { ts: Date.now(), json })
     if (json.cursor) {
       try { dbBridge.kvSet(KEY_POS_LITE_CURSOR, String(json.cursor)) } catch { /* ignore */ }
     }
-    stashEntitiesFromDelta(json)
-    liteOk = true
+    if (deltaHasWork(json)) {
+      const r = applyDeltaToSqlite(dbBridge, json)
+      scopes.push(...(r.scopes || []))
+    }
   } catch { /* best-effort */ }
 
   // 2) полный sync/changes → SQLite (если очередь пуста)
@@ -299,23 +249,24 @@ async function pullInbound() {
         timeoutMs: 15000,
       })
       const json = res.json || {}
-      dbBridge.kvSet(KEY_INBOUND_SYNC, { ts: Date.now(), json })
       if (json.cursor && dbBridge.metaPatch) {
         try { dbBridge.metaPatch({ syncCursor: String(json.cursor) }) } catch { /* ignore */ }
       }
-      stashEntitiesFromDelta(json)
-      syncOk = true
+      if (deltaHasWork(json)) {
+        const r = applyDeltaToSqlite(dbBridge, json)
+        scopes.push(...(r.scopes || []))
+      }
     }
   } catch { /* best-effort */ }
 
-  if (liteOk || syncOk) {
+  const uniq = [...new Set(scopes)]
+  if (uniq.length) {
     emitToUi('desktop:syncChannelEvent', {
-      type: 'inbound-ready',
-      lite: liteOk,
-      sync: syncOk,
+      type: 'sqlite-updated',
+      scopes: uniq,
     })
   }
-  return { lite: liteOk, sync: syncOk }
+  return { scopes: uniq }
 }
 
 async function runFlush(mode = 'both') {
@@ -421,10 +372,11 @@ async function runFlush(mode = 'both') {
 
 function ensureInboundTimer() {
   if (inboundTimer) return
+  // Реже: UI не должен постоянно получать inbound-ready
   inboundTimer = setInterval(() => {
     if (!session.apiBase || !dbBridge) return
     void runFlush('inbound')
-  }, 35000)
+  }, 60000)
 }
 
 function wsUrl() {
@@ -468,7 +420,11 @@ function connectWs() {
           }
         }
         if (/pos_update|product_update|loyalty_update|category_update/i.test(evName)) {
-          void runFlush('inbound')
+          if (wsInboundDebounce) clearTimeout(wsInboundDebounce)
+          wsInboundDebounce = setTimeout(() => {
+            wsInboundDebounce = null
+            void runFlush('inbound')
+          }, 1500)
         }
       } catch { /* ignore */ }
     }

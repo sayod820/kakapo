@@ -22,27 +22,48 @@ function emitUi(type: string, extra?: Record<string, unknown>) {
   } catch { /* ignore */ }
 }
 
-async function pullInbound() {
-  // pos-lite
+function deltaHasWork(json: any): boolean {
+  if (!json || typeof json !== 'object') return false
+  if (json.full) return true
+  if (Array.isArray(json.deletes) && json.deletes.length) return true
+  if (Array.isArray(json.products) && json.products.length) return true
+  if (Array.isArray(json.clients) && json.clients.length) return true
+  if (Array.isArray(json.cards) && json.cards.length) return true
+  if (Array.isArray(json.stockLayers) && json.stockLayers.length) return true
+  const pos = json.pos || {}
+  for (const k of ['sales', 'shifts', 'receipts', 'writeoffs', 'revisions', 'financeMoves', 'expenses', 'suppliers']) {
+    if (Array.isArray(pos[k]) && pos[k].length) return true
+  }
+  return false
+}
+
+async function pullInbound(): Promise<boolean> {
+  let has = false
   try {
     const since = await getPosLiteSyncCursor()
     const delta = await api.getSyncChanges(since || undefined, { scope: 'pos-lite' })
-    await stashInboundLocal('pos-lite', delta)
     if (delta?.cursor) {
       await setPosLiteSyncCursor(String(delta.cursor))
       try { localStorage.setItem(POS_LITE_CURSOR_KEY, String(delta.cursor)) } catch { /* ignore */ }
     }
+    if (deltaHasWork(delta)) {
+      await stashInboundLocal('pos-lite', delta)
+      has = true
+    }
   } catch { /* best-effort */ }
 
-  // full delta (если очередь пуста)
   try {
     const pending = await getPending()
-    if (pending.some(r => !r.failed)) return
+    if (pending.some(r => !r.failed)) return has
     const since = await getSyncCursor()
     const delta = await api.getSyncChanges(since || undefined)
-    await stashInboundLocal('sync', delta)
     if (delta?.cursor) await setSyncCursor(String(delta.cursor))
+    if (deltaHasWork(delta)) {
+      await stashInboundLocal('sync', delta)
+      has = true
+    }
   } catch { /* best-effort */ }
+  return has
 }
 
 async function run(mode: SyncKickMode) {
@@ -61,11 +82,11 @@ async function run(mode: SyncKickMode) {
       }
     }
     if (mode === 'inbound' || mode === 'both') {
-      await pullInbound()
-      emitUi('inbound')
-      try {
-        await consumeInboundFromLocal()
-      } catch { /* ignore */ }
+      const has = await pullInbound()
+      if (has) {
+        emitUi('inbound-ready')
+        try { await consumeInboundFromLocal() } catch { /* ignore */ }
+      }
     }
     emitUi('done')
   } catch (e) {
@@ -88,10 +109,9 @@ export async function kickInProcessSyncChannel(opts?: { mode?: SyncKickMode }): 
 export function ensureInProcessSyncTimers(): void {
   if (startedTimer || typeof window === 'undefined') return
   startedTimer = true
-  // Периодический inbound без участия UI-логики
   setInterval(() => {
     if (document.visibilityState === 'hidden') return
     if (isCashierPaymentCritical()) return
     void run('inbound')
-  }, 35000)
+  }, 60000)
 }

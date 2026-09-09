@@ -115,30 +115,52 @@ export async function applyPosLiteFromLocal(delta: any): Promise<boolean> {
 }
 
 /** Забрать pending inbound из SQLite/кэша и применить в сторы */
+let consumeInFlight: Promise<{ sync: boolean; lite: boolean }> | null = null
+let lastConsumeAt = 0
+const CONSUME_MIN_GAP_MS = 2500
+
 export async function consumeInboundFromLocal(): Promise<{ sync: boolean; lite: boolean }> {
-  let sync = false
-  let lite = false
-
-  const liteBlob = await kvGet(INBOUND_POS_LITE_KEY)
-  if (liteBlob && typeof liteBlob === 'object' && (liteBlob as any).json) {
-    lite = await applyPosLiteFromLocal((liteBlob as any).json)
-    await kvClear(INBOUND_POS_LITE_KEY)
-  } else if (liteBlob && typeof liteBlob === 'object' && (liteBlob as any).pos) {
-    lite = await applyPosLiteFromLocal(liteBlob)
-    await kvClear(INBOUND_POS_LITE_KEY)
+  // Desktop: канал уже слил дельту в SQLite — UI только читает базу
+  if (isKakapoDesktop()) {
+    const { reloadStoresFromSqlite } = await import('./reloadFromSqlite')
+    await reloadStoresFromSqlite()
+    return { sync: true, lite: true }
   }
 
-  const syncBlob = await kvGet(INBOUND_SYNC_KEY)
-  if (syncBlob && typeof syncBlob === 'object') {
-    const json = (syncBlob as any).json || syncBlob
-    if (json && (json.cursor != null || json.pos || json.products)) {
-      const res = await applySyncDelta(json)
-      sync = !!res.ok
-      await kvClear(INBOUND_SYNC_KEY)
+  if (consumeInFlight) return consumeInFlight
+  if (Date.now() - lastConsumeAt < CONSUME_MIN_GAP_MS) {
+    return { sync: false, lite: false }
+  }
+
+  consumeInFlight = (async () => {
+    let sync = false
+    let lite = false
+    try {
+      const liteBlob = await kvGet(INBOUND_POS_LITE_KEY)
+      if (liteBlob && typeof liteBlob === 'object' && (liteBlob as any).json) {
+        lite = await applyPosLiteFromLocal((liteBlob as any).json)
+        await kvClear(INBOUND_POS_LITE_KEY)
+      } else if (liteBlob && typeof liteBlob === 'object' && (liteBlob as any).pos) {
+        lite = await applyPosLiteFromLocal(liteBlob)
+        await kvClear(INBOUND_POS_LITE_KEY)
+      }
+
+      const syncBlob = await kvGet(INBOUND_SYNC_KEY)
+      if (syncBlob && typeof syncBlob === 'object') {
+        const json = (syncBlob as any).json || syncBlob
+        if (json && (json.cursor != null || json.pos || json.products)) {
+          const res = await applySyncDelta(json)
+          sync = !!res.ok
+          await kvClear(INBOUND_SYNC_KEY)
+        }
+      }
+      if (sync || lite) lastConsumeAt = Date.now()
+      return { sync, lite }
+    } finally {
+      consumeInFlight = null
     }
-  }
-
-  return { sync, lite }
+  })()
+  return consumeInFlight
 }
 
 /** Канал (in-process) кладёт дельту в локаль для UI */

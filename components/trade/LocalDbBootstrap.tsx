@@ -68,8 +68,9 @@ export default function LocalDbBootstrap({
       setError(res.error || 'Неверный пароль')
       return
     }
-    // докачаем клиентов/карты если ещё не успели
+    // докачаем только через канал
     void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
+    void import('@/lib/reloadFromSqlite').then(m => m.reloadStoresFromSqlite(['all'])).catch(() => {})
     onDone()
   }
 
