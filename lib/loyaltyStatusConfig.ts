@@ -340,35 +340,11 @@ function applyLoyaltyConfigLocally(next: LoyaltyStatusConfig) {
   return next
 }
 
-/** Bootstrap (первый запуск): всегда с сервера, даже в sync-channel mode */
-export async function bootstrapLoyaltyConfigFromServer(): Promise<LoyaltyStatusConfig> {
-  if (typeof window === 'undefined') return DEFAULT_LOYALTY_STATUS_CONFIG
-  try {
-    const { api } = await import('./api')
-    const remote = await api.getLoyalty() as ApiLoyaltySettings
-    const merged = apiLoyaltyToStatusConfig(remote, DEFAULT_LOYALTY_STATUS_CONFIG)
-    const desk = (await import('./desktopBridge')).getKakapoDesktop()
-    if (desk?.localDbKvSet) {
-      try { await desk.localDbKvSet('loyalty_status_config', merged) } catch { /* ignore */ }
-    }
-    return applyLoyaltyConfigLocally(merged)
-  } catch {
-    return memoryLoyaltyConfig || DEFAULT_LOYALTY_STATUS_CONFIG
-  }
-}
-
 /** Загрузить актуальные % и пороги с сервера (магазин + админка). */
 export async function syncLoyaltyStatusConfigFromApi(): Promise<LoyaltyStatusConfig> {
   if (typeof window === 'undefined') return DEFAULT_LOYALTY_STATUS_CONFIG
   const { USE_API } = await import('./config')
   if (!USE_API) return loadLoyaltyStatusConfig()
-  try {
-    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-    if (isSyncChannelMode()) {
-      void kickSyncChannel({ mode: 'inbound' })
-      return memoryLoyaltyConfig || loadLoyaltyStatusConfig()
-    }
-  } catch { /* fall */ }
   try {
     const { api } = await import('./api')
     const remote = await api.getLoyalty() as ApiLoyaltySettings

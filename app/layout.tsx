@@ -14,7 +14,6 @@ export const viewport: Viewport = {
 }
 
 const tradeAndroidBundle = process.env.NEXT_PUBLIC_TRADE_ANDROID === 'true'
-const storeAndroidBundle = process.env.NEXT_PUBLIC_STORE_ANDROID === 'true'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -65,54 +64,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     var el=document.getElementById('kakapo-boot-screen');
     if(el) el.textContent='Касса не открылась. Закройте приложение и откройте снова. Если снова белый экран — переустановите APK.';
   },15000);
-})();`,
-              }}
-            />
-          </>
-        ) : null}
-        {storeAndroidBundle ? (
-          <>
-            <script
-              dangerouslySetInnerHTML={{
-                __html: 'window.kakapoStoreAndroid=true;document.documentElement.classList.add("kakapo-store-android")',
-              }}
-            />
-            <div
-              id="kakapo-store-boot"
-              style={{
-                position: 'fixed',
-                inset: 0,
-                zIndex: 99999,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: '#030B05',
-                color: '#8FB897',
-                fontFamily: 'system-ui,sans-serif',
-                fontWeight: 800,
-                fontSize: 16,
-                textAlign: 'center',
-                padding: 24,
-              }}
-            >
-              Загрузка магазина…
-            </div>
-            <script
-              dangerouslySetInnerHTML={{
-                __html: `
-(function(){
-  window.__kakapoHideStoreBoot=function(){
-    var el=document.getElementById('kakapo-store-boot');
-    if(el) el.remove();
-  };
-  setTimeout(function(){
-    if(document.querySelector('[data-store-app],.store-shell,[data-store-page]')){
-      window.__kakapoHideStoreBoot&&window.__kakapoHideStoreBoot();
-      return;
-    }
-    var el=document.getElementById('kakapo-store-boot');
-    if(el) el.textContent='Магазин не открылся. Закройте приложение и откройте снова.';
-  },12000);
 })();`,
               }}
             />

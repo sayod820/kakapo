@@ -801,19 +801,4 @@ module.exports = {
   initLocalDb,
   installLocalDbIpc,
   isSetupComplete,
-  /** Мост для отдельного SYNC-канала (main process, не UI) */
-  getSyncDbBridge() {
-    return {
-      queueAll: () => sqlQueueAll(),
-      queuePut: (row) => sqlQueuePut(row),
-      queueDelete: (clientRef) => sqlQueueDelete(clientRef),
-      kvGet: (key) => sqlKvGet(key),
-      kvSet: (key, value) => sqlKvSet(key, value),
-      metaGet: () => sqlMetaGetAll(),
-      metaPatch: (patch) => sqlMetaPatch(patch || {}),
-      entityPutMany: (rows) => sqlEntityPutMany(rows),
-      entityDelete: (kind, id) => sqlEntityDelete(kind, id),
-      entityList: (kind, opts) => sqlEntityList(kind, opts || {}),
-    }
-  },
 }

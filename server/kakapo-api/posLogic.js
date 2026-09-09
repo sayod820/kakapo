@@ -590,18 +590,6 @@ function resolveSaleClientAndCard(db, sale) {
   return { client, card }
 }
 
-function touchCrmMoneyStamp(client, card) {
-  const stamp = nowIso()
-  if (client) {
-    client.updatedAtIso = stamp
-    client.serverAtIso = stamp
-  }
-  if (card) {
-    card.updatedAtIso = stamp
-    card.serverAtIso = stamp
-  }
-}
-
 function applyDebtToPair(client, card, nextDebt) {
   const d = Math.max(0, round2(nextDebt))
   if (client) {
@@ -612,7 +600,6 @@ function applyDebtToPair(client, card, nextDebt) {
     card.debt = d
     if (d > 0) card.debtEnabled = true
   }
-  touchCrmMoneyStamp(client, card)
 }
 
 function assertCardDebtPayVersion(card, expected) {
@@ -3024,7 +3011,6 @@ export function createPosSale(db, data = {}) {
     if (walletClient) {
       walletClient.wallet = round2(Math.max(0, (Number(walletClient.wallet) || 0) - paidWallet))
     }
-    touchCrmMoneyStamp(walletClient, walletCard)
   }
   if (debtAdded > 0 && !skipBalances) {
     const { client, card } = resolveSaleClientAndCard(db, data)
@@ -3072,7 +3058,6 @@ export function createPosSale(db, data = {}) {
       const nextW = round2(Math.max(0, balance - paidWallet))
       if (card) card.wallet = nextW
       if (client) client.wallet = nextW
-      touchCrmMoneyStamp(client, card)
     }
     if (bonusSpent > 0 || bonusEarned > 0) {
       assertCardBonusPayVersion(card, data.expectedBonusPayVersion)
@@ -3086,12 +3071,10 @@ export function createPosSale(db, data = {}) {
         card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
       }
       if (client) client.bonus = nextB
-      touchCrmMoneyStamp(client, card)
     } else if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
       const b = Math.max(0, Math.floor(Number(data.bonusAfter ?? data.bonusBalanceAfter)))
       if (card) card.bonus = b
       if (client) client.bonus = b
-      touchCrmMoneyStamp(client, card)
     }
     if (debtAdded > 0 && client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')

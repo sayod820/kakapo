@@ -3714,35 +3714,25 @@ function TradeAppGate() {
   }, [])
 
   useEffect(() => {
-    setReady(true)
-    if (!(isKakapoDesktop() || isTradeAndroidNative())) {
+    if (isKakapoDesktop() || isTradeAndroidNative()) {
+      void isLocalBootstrapComplete().then(done => {
+        setLocalDbReady(done)
+        if (done) {
+          void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
+        }
+      }).catch(() => {
+        // IPC/диск тормозит — не держим чёрный экран, пускаем в логин
+        setLocalDbReady(true)
+      })
+      // страховка: через 2.5с всё равно показываем UI
+      window.setTimeout(() => {
+        setLocalDbReady(prev => (prev === null ? true : prev))
+      }, 2500)
+    } else {
       setLocalDbReady(true)
     }
+    setReady(true)
   }, [])
-
-  // Bootstrap только после device-check
-  useEffect(() => {
-    if (!deviceReady) return
-    if (!(isKakapoDesktop() || isTradeAndroidNative())) return
-    let cancelled = false
-    void isLocalBootstrapComplete().then(done => {
-      if (cancelled) return
-      setLocalDbReady(done)
-      if (done) {
-        void import('@/lib/reloadFromSqlite').then(m => m.reloadStoresFromSqlite(['all'])).catch(() => {})
-        void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
-      }
-    }).catch(() => {
-      if (!cancelled) setLocalDbReady(true)
-    })
-    const t = window.setTimeout(() => {
-      if (!cancelled) setLocalDbReady(prev => (prev === null ? true : prev))
-    }, 2500)
-    return () => {
-      cancelled = true
-      window.clearTimeout(t)
-    }
-  }, [deviceReady])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -3755,7 +3745,16 @@ function TradeAppGate() {
     saveTradeTheme(next)
   }
 
-  // 1) Привязка устройства
+  if (!ready || localDbReady === null) {
+    return (
+      <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+        <style>{CSS}</style>
+        <div style={{ color: 'var(--muted)', fontWeight: 700 }}>Загрузка…</div>
+      </div>
+    )
+  }
+
+  // Сначала привязка устройства — иначе чужой телефон не качает пароли
   if (!deviceReady) {
     return (
       <TradeDeviceGate
@@ -3768,24 +3767,13 @@ function TradeAppGate() {
     )
   }
 
-  if (!ready || localDbReady === null) {
-    return (
-      <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
-        <style>{CSS}</style>
-        <div style={{ color: 'var(--muted)', fontWeight: 700 }}>Загрузка…</div>
-      </div>
-    )
-  }
-
-  // 2) Полный dump сервера → SQLite (один раз)
+  // Пока данные не скачаны (товары + пароли) — только экран загрузки, без логина
   if ((isKakapoDesktop() || isTradeAndroidNative()) && localDbReady === false) {
     return (
       <LocalDbBootstrap
         theme={theme}
         onDone={() => {
-          void import('@/lib/reloadFromSqlite').then(m => m.reloadStoresFromSqlite(['all'])).catch(() => {
-            void hydrateOfflineCaches()
-          })
+          void hydrateOfflineCaches()
           setLocalDbReady(true)
         }}
       />

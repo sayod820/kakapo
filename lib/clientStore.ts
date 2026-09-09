@@ -315,13 +315,6 @@ export function useClients() {
 }
 
 export async function syncClientsFromApi() {
-  try {
-    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-    if (isSyncChannelMode()) {
-      void kickSyncChannel({ mode: 'inbound' })
-      return
-    }
-  } catch { /* fallback */ }
   await useClientStore.getState().fetchFromApi()
 }
 
@@ -348,13 +341,6 @@ export function hydrateClientStore() {
       }
     } catch { /* ignore */ }
     if (USE_API) {
-      try {
-        const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-        if (isSyncChannelMode()) {
-          void kickSyncChannel({ mode: 'inbound' })
-          return
-        }
-      } catch { /* fall */ }
       void useClientStore.getState().fetchFromApi()
       return
     }

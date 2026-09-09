@@ -812,26 +812,6 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           }
         } catch { /* дальше сервер */ }
       }
-      // Local-first: каталог с сервера только через SYNC-канал
-      try {
-        const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-        if (isSyncChannelMode()) {
-          if (!get().products.length) {
-            try {
-              const { readCachedProducts } = await import('./offline')
-              const cached = await readCachedProducts()
-              if (cached?.length) set({ products: cached, loaded: true })
-              else set({ loaded: true })
-            } catch {
-              set({ loaded: true })
-            }
-          } else {
-            set({ loaded: true })
-          }
-          void kickSyncChannel({ mode: 'inbound' })
-          return
-        }
-      } catch { /* fallback */ }
       const raw = ensureArray<Product>(await api.getProducts(), 'products')
       const { sanitizeProductForLocalCache, cacheProducts, getPending } = await import('./offline')
       let products = raw.map(sanitizeProductForLocalCache)
@@ -967,15 +947,9 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     return p
   },
 
-  updateProduct: (id, updates) => {
-    set(s => ({
-      products: s.products.map(p => p.id === id ? { ...p, ...updates } : p),
-    }))
-    // Local-first: иначе inbound из SQLite откатит stock после чека/списания
-    void import('./offline').then(m => {
-      void m.cacheProducts(get().products)
-    }).catch(() => {})
-  },
+  updateProduct: (id, updates) => set(s => ({
+    products: s.products.map(p => p.id === id ? { ...p, ...updates } : p)
+  })),
 
   addProduct: (p) => set(s => ({ products: [...s.products, p] })),
 

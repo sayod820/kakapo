@@ -65,8 +65,6 @@ let reconnectAttempt = 0
 let listenersBound = false
 let syncLock = false
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
-/** Пока шёл sync — снова изменили очередь/данные → сразу ещё один круг */
-let syncAgainNeeded = false
 
 /** Слабый интернет: ping дольше; при очереди крутим часто, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
@@ -78,31 +76,6 @@ const POLL_BUSY_MS = 4000
 const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
-/** После локального изменения — сразу flush ТОЛЬКО очереди (сервер узнаёт об изменении) */
-const KICK_AFTER_CHANGE_MS = 120
-
-/**
- * Мгновенный синк после любого изменения (очередь / локальная запись).
- * Не блокирует UI: короткий debounce + если sync уже идёт — ещё один круг после.
- */
-export function kickSyncAfterChange(delayMs = KICK_AFTER_CHANGE_MS): void {
-  try {
-    // ПК: отдельный SYNC-канал (main) — UI не делает flush
-    void import('./syncChannel').then(async (m) => {
-      if (m.hasDesktopSyncChannel()) {
-        m.bindDesktopSyncChannelListeners()
-        // короткий debounce в UI только чтобы склеить пачку записей в очередь
-        useOfflineSync.getState().scheduleSyncDebounced(delayMs)
-        return
-      }
-      useOfflineSync.getState().scheduleSyncDebounced(delayMs)
-    }).catch(() => {
-      useOfflineSync.getState().scheduleSyncDebounced(delayMs)
-    })
-  } catch {
-    try { useOfflineSync.getState().scheduleSyncDebounced(delayMs) } catch { /* store ещё не готов */ }
-  }
-}
 
 /** Реальная проверка связи с API — не зависит от navigator.onLine */
 async function pingOnce(url: string, timeoutMs: number): Promise<boolean> {
@@ -285,15 +258,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   flush: async () => {
     if (get().syncing) return
-    try {
-      const { hasDesktopSyncChannel, kickDesktopSyncChannel, bindDesktopSyncChannelListeners } = await import('./syncChannel')
-      if (hasDesktopSyncChannel()) {
-        bindDesktopSyncChannelListeners()
-        set({ syncing: true, lastError: null })
-        await kickDesktopSyncChannel()
-        return
-      }
-    } catch { /* fallback */ }
     // Не блокируем flush по navigator.onLine — сначала пробуем отправить
     set({ syncing: true, lastError: null, progress: { done: 0, total: Math.max(1, get().pending) } })
     try {
@@ -359,15 +323,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   queueSale: async (payload) => {
     await enqueueSale(payload)
     void get().refresh()
-    // Сразу на сервер — не ждём таймер опроса
-    get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
+    // Сразу пробуем уйти на сервер (не ждём 10с опроса)
+    scheduleReconnect(get, set, 600)
   },
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
-    // Счётчики и sync — в фоне, не тормозят «Пробить»
+    // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
     void get().refresh()
-    get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
+    scheduleReconnect(get, set, 600)
     return row
   },
 
@@ -384,30 +348,26 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     await get().refresh()
   },
 
-  scheduleSyncDebounced: (delayMs = KICK_AFTER_CHANGE_MS) => {
-    if (syncLock || get().syncing) syncAgainNeeded = true
+  scheduleSyncDebounced: (delayMs = 450) => {
     if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
     syncDebounceTimer = setTimeout(() => {
       syncDebounceTimer = null
       void get().syncNow()
-    }, Math.max(0, delayMs))
+    }, delayMs)
   },
 
   syncNow: async () => {
-    // SYNC-канал выкл — очередь flushQueue + softSync HTTP как раньше
     if (syncLock || get().syncing) {
-      syncAgainNeeded = true
+      scheduleReconnect(get, set, 2000)
       return
     }
     // Только оплата/пробитие — полный стоп. Поиск кассы НЕ блокирует отправку очереди.
     if (isCashierPaymentCritical()) {
-      syncAgainNeeded = true
-      scheduleReconnect(get, set, 1500)
+      scheduleReconnect(get, set, 2000)
       return
     }
 
     syncLock = true
-    syncAgainNeeded = false
     const run = async () => {
       await get().refresh()
       const hasWork = get().pending > 0 || get().failed > 0
@@ -441,11 +401,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Входящие: лёгкий pos-lite
+      // Входящие чеки с сервера — даже при фокусе в поиске (иначе браузер→ПК не доходит).
+      // Блокируем только реальное пробитие/оплату.
       if (alive && !isCashierPaymentCritical()) {
         try {
           const { softSyncPosAfterSale } = await import('./posStore')
-          void softSyncPosAfterSale()
+          await Promise.race([
+            softSyncPosAfterSale({ force: true }),
+            new Promise(resolve => setTimeout(resolve, 8000)),
+          ])
         } catch { /* ignore */ }
       }
 
@@ -456,16 +420,22 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
       if (get().pending > 0) {
         await get().flush()
+        // После flush снова подтянуть продажи (чеки с других клиентов)
         if (alive && !isCashierPaymentCritical()) {
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
-            void softSyncPosAfterSale()
+            void softSyncPosAfterSale({ force: true })
           } catch { /* ignore */ }
         }
       } else if (alive && !searchBusy) {
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
-        // Полный pullSyncChanges — не на каждый syncNow (после чека): только heartbeat.
-        // Delta продаж уже через softSync / WS / канал.
+        try {
+          const { pullSyncChanges } = await import('./syncPull')
+          await Promise.race([
+            pullSyncChanges(),
+            new Promise(resolve => setTimeout(resolve, 10000)),
+          ])
+        } catch { /* ignore */ }
         try { await markLocalSyncAt() } catch { /* ignore */ }
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
@@ -490,11 +460,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     } finally {
       syncLock = false
       if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
-      // Пока синкали — снова что-то изменилось → сразу ещё круг (не крутим вечный loop по pending)
-      if (syncAgainNeeded) {
-        syncAgainNeeded = false
-        get().scheduleSyncDebounced(KICK_AFTER_CHANGE_MS)
-      }
     }
   },
 
@@ -624,9 +589,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   start: () => {
     if (get().started || typeof window === 'undefined') return
     set({ started: true, online: isOnline() })
-    try {
-      void import('./syncChannel').then(m => m.bindDesktopSyncChannelListeners())
-    } catch { /* ignore */ }
 
     const reconnect = async () => {
       if (isCashierPaymentCritical()) {

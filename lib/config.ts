@@ -39,8 +39,7 @@ export function getApiUrl(): string {
     // Десктоп / Android APK: явный URL API (без локального прокси)
     if (explicit && /^https?:\/\//i.test(explicit)) return explicit
     const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
-      || !!(window as Window & { kakapoStoreAndroid?: boolean }).kakapoStoreAndroid
-      || /KakapoTradeAndroid|KakapoStoreAndroid/i.test(navigator.userAgent || '')
+      || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
       || !!(window as Window & { KakapoAndroid?: { kvGet?: unknown } }).KakapoAndroid
       || !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
     if (nativeApk) {
@@ -66,8 +65,7 @@ export function getWsUrl(): string {
   if (typeof window !== 'undefined') {
     if (explicit) return explicit.replace(/\/$/, '')
     const nativeApk = !!(window as Window & { kakapoAndroid?: boolean }).kakapoAndroid
-      || !!(window as Window & { kakapoStoreAndroid?: boolean }).kakapoStoreAndroid
-      || /KakapoTradeAndroid|KakapoStoreAndroid/i.test(navigator.userAgent || '')
+      || /KakapoTradeAndroid/i.test(navigator.userAgent || '')
       || !!(window as Window & { KakapoAndroid?: { kvGet?: unknown } }).KakapoAndroid
       || !!(window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
     if (nativeApk) return 'wss://kakappo.shop'

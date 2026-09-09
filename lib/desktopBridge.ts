@@ -226,26 +226,6 @@ export type KakapoDesktopApi = {
     status?: number
     error?: string
   }>
-  /** Отдельный SYNC-канал (main process) */
-  syncChannelKick?: (opts?: {
-    apiBase?: string
-    token?: string
-    deviceId?: string
-    wsBase?: string
-    mode?: 'flush' | 'inbound' | 'both'
-    expiryDays?: number
-    extraHeaders?: Record<string, string>
-  }) => Promise<{ ok: boolean; running?: boolean }>
-  syncChannelStatus?: () => Promise<{ ok: boolean; running?: boolean; hasBridge?: boolean }>
-  syncChannelDelegateResult?: (payload: {
-    id: number
-    ok?: boolean
-    serverId?: string
-    error?: string
-    network?: boolean
-  }) => Promise<{ ok: boolean }>
-  onSyncChannelEvent?: (handler: (payload: Record<string, unknown>) => void) => () => void
-  onSyncChannelDelegate?: (handler: (payload: { id: number; row: unknown }) => void | Promise<void>) => () => void
 }
 
 declare global {

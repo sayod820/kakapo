@@ -21,9 +21,8 @@ const {
 } = require('./receiptTemplate.cjs')
 const { startLocalUi, stopLocalUi, restartLocalUi, localUiUrl, invalidateUiCacheOnAppUpdate } = require('./localServer.cjs')
 const { installUpdaterIpc } = require('./updater.cjs')
-const { installLocalDbIpc, initLocalDb, getSyncDbBridge } = require('./localDb.cjs')
+const { installLocalDbIpc, initLocalDb } = require('./localDb.cjs')
 const { syncOfflineUi } = require('./uiSync.cjs')
-const { installSyncChannelHost } = require('./syncChannelHost.cjs')
 
 const CONFIG_PATH = path.join(__dirname, 'config.json')
 const APP_ICON_PATH = (() => {
@@ -1328,12 +1327,6 @@ app.whenReady().then(async () => {
   try {
     initLocalDb()
     installLocalDbIpc()
-    try {
-      installSyncChannelHost(() => getSyncDbBridge())
-      bootLog('syncChannelHost ok')
-    } catch (e) {
-      bootLog('syncChannelHost', e?.stack || String(e))
-    }
   } catch (e) {
     bootLog('localDb', e?.stack || String(e))
   }

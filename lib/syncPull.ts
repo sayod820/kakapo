@@ -20,13 +20,27 @@ export type SyncPullResult = {
   error?: string
 }
 
-/** Применить уже скачанную дельту (из SQLite / канала). Без HTTP. */
-export async function applySyncDelta(
-  delta: any,
-  opts?: { forceFull?: boolean },
-): Promise<SyncPullResult> {
+export async function pullSyncChanges(opts?: {
+  forceFull?: boolean
+  /** даже если есть pending — только для явного bootstrap */
+  ignorePending?: boolean
+}): Promise<SyncPullResult> {
+  if (!isOnline()) return { ok: false, skipped: 'offline' }
+
+  if (!opts?.ignorePending) {
+    try {
+      const pending = await getPending()
+      if (pending.some(r => !r.failed)) {
+        return { ok: false, skipped: 'pending' }
+      }
+    } catch { /* ignore */ }
+  }
+
   try {
-    const del = Array.isArray(delta?.deletes) ? delta.deletes : []
+    const since = opts?.forceFull ? '' : await getSyncCursor()
+    const delta = await api.getSyncChanges(since || undefined)
+
+    const del = Array.isArray(delta.deletes) ? delta.deletes : []
     let pendingProtect = new Set<string>()
     try {
       const pending = await getPending()
@@ -280,50 +294,14 @@ export async function applySyncDelta(
       }
     }
 
-    if (delta?.cursor) await setSyncCursor(String(delta.cursor))
+    if (delta.cursor) await setSyncCursor(delta.cursor)
+    // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
+    // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()
     } catch { /* ignore */ }
-    return { ok: true, cursor: delta?.cursor }
-  } catch (e) {
-    return {
-      ok: false,
-      skipped: 'error',
-      error: e instanceof Error ? e.message : 'pull failed',
-    }
-  }
-}
-
-export async function pullSyncChanges(opts?: {
-  forceFull?: boolean
-  /** даже если есть pending — только для явного bootstrap */
-  ignorePending?: boolean
-}): Promise<SyncPullResult> {
-  // Local-first: сервер только через SYNC-канал; UI читает дельту из базы
-  try {
-    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-    if (isSyncChannelMode()) {
-      await kickSyncChannel({ mode: opts?.forceFull ? 'both' : 'inbound' })
-      return { ok: true, skipped: undefined, cursor: await getSyncCursor() }
-    }
-  } catch { /* fallback ниже */ }
-
-  if (!isOnline()) return { ok: false, skipped: 'offline' }
-
-  if (!opts?.ignorePending) {
-    try {
-      const pending = await getPending()
-      if (pending.some(r => !r.failed)) {
-        return { ok: false, skipped: 'pending' }
-      }
-    } catch { /* ignore */ }
-  }
-
-  try {
-    const since = opts?.forceFull ? '' : await getSyncCursor()
-    const delta = await api.getSyncChanges(since || undefined)
-    return await applySyncDelta(delta, opts)
+    return { ok: true, cursor: delta.cursor }
   } catch (e) {
     return {
       ok: false,

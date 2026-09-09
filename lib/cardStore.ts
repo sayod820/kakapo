@@ -425,13 +425,6 @@ export function useCards() {
 }
 
 export async function syncCardsFromApi() {
-  try {
-    const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-    if (isSyncChannelMode()) {
-      void kickSyncChannel({ mode: 'inbound' })
-      return
-    }
-  } catch { /* fallback */ }
   await useCardStore.getState().fetchFromApi()
 }
 
@@ -454,13 +447,6 @@ export function hydrateCardStore() {
       }
     } catch { /* ignore */ }
     if (USE_API) {
-      try {
-        const { isSyncChannelMode, kickSyncChannel } = await import('./syncGate')
-        if (isSyncChannelMode()) {
-          void kickSyncChannel({ mode: 'inbound' })
-          return
-        }
-      } catch { /* fall */ }
       void useCardStore.getState().fetchFromApi()
       return
     }

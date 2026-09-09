@@ -4890,16 +4890,8 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       linkedClient.debt = nextDebt
       card.debt = nextDebt
       syncDebtLedgerToCard(linkedClient, card)
-      const stamp = new Date().toISOString()
-      linkedClient.updatedAtIso = stamp
-      linkedClient.serverAtIso = stamp
-      card.updatedAtIso = stamp
-      card.serverAtIso = stamp
     } else {
       card.debt = nextDebt
-      const stamp = new Date().toISOString()
-      card.updatedAtIso = stamp
-      card.serverAtIso = stamp
     }
     card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
     Object.assign(card, normalizeCardRow(card))

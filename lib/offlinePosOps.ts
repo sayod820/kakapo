@@ -3,7 +3,6 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { browserSaysOffline } from './apiReachability'
 import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
@@ -13,7 +12,6 @@ import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLo
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore, noteInboundDeletedIds } from './posStore'
-import { useProducts } from './store'
 import { supplierPayVersion } from './offlineSupplierOps'
 import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
@@ -61,7 +59,7 @@ const KEY_LOCAL_ORDER_SEQ = 'local_order_seq'
 const KEY_LOCAL_SALE_NUM = 'local_sale_num'
 
 /** Локальный K-… и №… для печати, пока сервер не присвоил свой номер */
-function allocateLocalSaleDisplay(): { number: number; orderId: string } {
+async function allocateLocalSaleDisplay(): Promise<{ number: number; orderId: string }> {
   const sales = usePosStore.getState().sales || []
   let maxOrder = 0
   let maxNum = 0
@@ -70,13 +68,14 @@ function allocateLocalSaleDisplay(): { number: number; orderId: string } {
     const m = String(s.orderId || '').match(/^K-(\d+)$/i)
     if (m) maxOrder = Math.max(maxOrder, Number(m[1]) || 0)
   }
-  // Счётчики в памяти + фон на диск (не ждём IPC на каждый чек)
-  const memOrder = Number((allocateLocalSaleDisplay as any)._o) || 0
-  const memNum = Number((allocateLocalSaleDisplay as any)._n) || 0
-  const nextOrder = Math.max(maxOrder, memOrder) + 1
-  const nextNum = Math.max(maxNum, memNum) + 1
-  ;(allocateLocalSaleDisplay as any)._o = nextOrder
-  ;(allocateLocalSaleDisplay as any)._n = nextNum
+  let storedOrder = 0
+  let storedNum = 0
+  try {
+    storedOrder = Number(await readCachedData<number>(KEY_LOCAL_ORDER_SEQ)) || 0
+    storedNum = Number(await readCachedData<number>(KEY_LOCAL_SALE_NUM)) || 0
+  } catch { /* ignore */ }
+  const nextOrder = Math.max(maxOrder, storedOrder) + 1
+  const nextNum = Math.max(maxNum, storedNum) + 1
   void cacheData(KEY_LOCAL_ORDER_SEQ, nextOrder)
   void cacheData(KEY_LOCAL_SALE_NUM, nextNum)
   return { number: nextNum, orderId: `K-${nextOrder}` }
@@ -1081,15 +1080,6 @@ export async function cardTopupSafe(
       { skipApi: true },
     )
     markMoneyPending({ cardNum: num, clientId: card?.clientId })
-    try {
-      const { markCardLoyaltySaved, markClientLoyaltySaved } = await import('./loyaltySaveGuard')
-      markCardLoyaltySaved(num)
-      if (card?.clientId) markClientLoyaltySaved(card.clientId)
-    } catch { /* ignore */ }
-    try {
-      const { persistCrmMoneyToSqlite } = await import('./offlineLoyaltyOps')
-      persistCrmMoneyToSqlite()
-    } catch { /* ignore */ }
     return { clientRef }
   }
 
@@ -1341,15 +1331,6 @@ export async function debtRepaySafe(
       useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
     }
     markMoneyPending({ clientId: input.clientId, cardNum: num })
-    try {
-      const { markCardLoyaltySaved, markClientLoyaltySaved } = await import('./loyaltySaveGuard')
-      markCardLoyaltySaved(num)
-      if (input.clientId) markClientLoyaltySaved(input.clientId)
-    } catch { /* ignore */ }
-    try {
-      const { persistCrmMoneyToSqliteAsync } = await import('./offlineLoyaltyOps')
-      await persistCrmMoneyToSqliteAsync()
-    } catch { /* ignore */ }
     return { nextDebt, bonusEarned: 0, clientRef }
   }
 
@@ -1415,9 +1396,6 @@ export function revertLocalDebtRepayOnReject(payload: {
   }
 
   clearMoneyPending({ clientId: payload.clientId, cardNum: num })
-  try {
-    void import('./offlineLoyaltyOps').then(m => m.persistCrmMoneyToSqlite()).catch(() => {})
-  } catch { /* ignore */ }
 }
 
 // ── Возврат чека ──
@@ -1973,8 +1951,7 @@ export async function createSaleSafe(
   const client = input.client || null
   const salePayload = { ...input.salePayload }
   if (!(Number(salePayload.opSeq) > 0)) {
-    // Не ждём диск — лента греется при старте модуля; alloc синхронный
-    void ensurePosOpSeqReady()
+    await ensurePosOpSeqReady()
     const posId = String(salePayload.posId || '').trim()
     const deviceId = String(salePayload.deviceId || getTradeDeviceIdSync() || '').trim()
     salePayload.deviceId = deviceId || undefined
@@ -1983,8 +1960,11 @@ export async function createSaleSafe(
   }
 
   const applyLocal = async (): Promise<PosSale & { orderId?: string; _offline?: boolean }> => {
+    // Флаг ДО markOffline: иначе любой local-first чек считался бы «офлайн» для ревизии
+    const { browserSaysOffline } = await import('./apiReachability')
     const syncOnline = useOfflineSync.getState().online
     const queuedOffline = browserSaysOffline() || syncOnline === false
+    useOfflineSync.getState().markOffline()
     const offlineSaleId = newLocalId('sale')
     const linkedCard = client?.card
       ? useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
@@ -2041,41 +2021,98 @@ export async function createSaleSafe(
         cart: input.cart,
       }
     }
+    await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
 
     try {
+      const { useProducts } = await import('./store')
+      const ps = useProducts.getState()
       const decById = new Map<number, number>()
       for (const l of input.cart) {
         const dec = l.weightKg != null ? l.weightKg : l.qty
         if (!(dec > 0)) continue
         decById.set(l.productId, (decById.get(l.productId) || 0) + dec)
       }
+      if (decById.size) {
+        useProducts.setState(s => ({
+          products: s.products.map(p => {
+            const dec = decById.get(p.id)
+            if (!dec) return p
+            return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
+          }),
+        }))
+      }
       const layerLines = input.cart.map(l => ({
         productId: l.productId,
         qty: l.weightKg != null ? l.weightKg : l.qty,
       }))
-      // Слои/остатки — только после кадра
-      window.setTimeout(() => {
-        if (decById.size) {
-          try {
-            useProducts.setState(s => ({
-              products: s.products.map(p => {
-                const dec = decById.get(p.id)
-                if (!dec) return p
-                return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
-              }),
-            }))
-            void import('./offline').then(m => {
-              void m.cacheProducts(useProducts.getState().products)
-            }).catch(() => {})
-          } catch { /* ignore */ }
-        }
-        void import('./stockLayersLocal')
-          .then(m => m.consumeLocalLayersFifoBatch(layerLines))
-          .catch(() => {})
-      }, 40)
+      void import('./stockLayersLocal')
+        .then(m => m.consumeLocalLayersFifoBatch(layerLines))
+        .catch(() => {})
     } catch { /* ignore */ }
 
-    const display = allocateLocalSaleDisplay()
+    if (client) {
+      if (debtAdded > 0.001) {
+        useClientStore.getState().updateClient(
+          client.id,
+          { debt: nextDebt, debtEnabled: true },
+          { skipApi: true },
+        )
+        markClientLoyaltySaved(client.id)
+        if (client.card) {
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            {
+              debt: nextDebt,
+              debtEnabled: true,
+              debtPayVersion: expectedDebtPayVersion + 1,
+            },
+            { skipApi: true },
+          )
+          markCardLoyaltySaved(client.card)
+        }
+      }
+
+      if (walletPaid > 0.001) {
+        const nextWallet = round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
+        useClientStore.getState().updateClient(client.id, { wallet: nextWallet }, { skipApi: true })
+        if (client.card) {
+          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            { wallet: round2(Math.max(0, (Number(currentCard?.wallet) || Number(client.wallet) || 0) - walletPaid)) },
+            { skipApi: true },
+          )
+        }
+      }
+
+      if (client.card && (spend > 0 || earn > 0)) {
+        const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+        const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
+        const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
+        const nextBonus = Math.max(0, base - spend + earn)
+        const nextPos = Math.max(0, prevPos - spend)
+        useCardStore.getState().updateCardLoyalty(
+          client.card,
+          {
+            bonus: nextBonus,
+            posCashBonus: nextPos,
+            ...(spend > 0
+              ? {
+                  allowBonusDecrease: true,
+                  bonusPayVersion: expectedBonusPayVersion + 1,
+                }
+              : {}),
+          } as any,
+          { skipApi: true },
+        )
+        useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
+      }
+      if (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0) {
+        markMoneyPending({ clientId: client.id, cardNum: client.card })
+      }
+    }
+
+    const display = await allocateLocalSaleDisplay()
     const { _revert: _omitRevert, ...saleFields } = salePayload as Record<string, unknown>
     const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
       ...(saleFields as unknown as PosSale),
@@ -2086,114 +2123,35 @@ export async function createSaleSafe(
       _offline: true,
     }
 
-    // CRM money — сразу (до очереди), иначе sync затрёт долг старым catalog_clients
-    if (client && (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0)) {
-      try {
-        if (debtAdded > 0.001) {
-          useClientStore.getState().updateClient(
-            client.id,
-            { debt: nextDebt, debtEnabled: true },
-            { skipApi: true },
-          )
-          markClientLoyaltySaved(client.id)
-          if (client.card) {
-            useCardStore.getState().updateCardLoyalty(
-              client.card,
-              {
-                debt: nextDebt,
-                debtEnabled: true,
-                debtPayVersion: expectedDebtPayVersion + 1,
-              },
-              { skipApi: true },
-            )
-            markCardLoyaltySaved(client.card)
-          }
-        }
-        if (walletPaid > 0.001) {
-          const nextWallet = round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
-          useClientStore.getState().updateClient(client.id, { wallet: nextWallet }, { skipApi: true })
-          if (client.card) {
-            const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
-            useCardStore.getState().updateCardLoyalty(
-              client.card,
-              { wallet: round2(Math.max(0, (Number(currentCard?.wallet) || Number(client.wallet) || 0) - walletPaid)) },
-              { skipApi: true },
-            )
-          }
-        }
-        if (client.card && (spend > 0 || earn > 0)) {
-          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
-          const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
-          const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
-          const nextBonus = Math.max(0, base - spend + earn)
-          const nextPos = Math.max(0, prevPos - spend)
-          useCardStore.getState().updateCardLoyalty(
-            client.card,
-            {
-              bonus: nextBonus,
-              posCashBonus: nextPos,
-              ...(spend > 0
-                ? {
-                    allowBonusDecrease: true,
-                    bonusPayVersion: expectedBonusPayVersion + 1,
-                  }
-                : {}),
-            } as any,
-            { skipApi: true },
-          )
-          useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
-        }
-        markMoneyPending({ clientId: client.id, cardNum: client.card })
-        markClientLoyaltySaved(client.id)
-        if (client.card) markCardLoyaltySaved(client.card)
-        try {
-          const { persistCrmMoneyToSqliteAsync } = await import('./offlineLoyaltyOps')
-          await persistCrmMoneyToSqliteAsync()
-        } catch { /* ignore */ }
-        if (debtAdded > 0.001) {
-          const histKey = debtAccountKey({ id: client.id, phone: client.phone })
-          if (histKey) {
-            const note = String(input.creditNote || '').trim()
-            const baseDesc = debtAdded >= round2(input.total) - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
-            recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
-              orderId: display.orderId || offlineSaleId,
-              itemsSummary: input.itemsSummary,
-              source: 'pos',
-            })
-          }
-        }
-      } catch { /* ignore */ }
+    // Долг в историю сразу вместе с чеком (не ждать фона кассы — иначе «чек есть, в долгах нет»)
+    if (client && debtAdded > 0.001) {
+      const histKey = debtAccountKey({ id: client.id, phone: client.phone })
+      if (histKey) {
+        const note = String(input.creditNote || '').trim()
+        const baseDesc = debtAdded >= round2(input.total) - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
+        recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
+          orderId: display.orderId || offlineSaleId,
+          itemsSummary: input.itemsSummary,
+          source: 'pos',
+        })
+      }
     }
 
-    // CRM / sales / история — после отрисовки закрытого диалога
-    const finishStores = () => {
-      try {
-        usePosStore.setState(st => ({
-          sales: [offlineSale, ...st.sales],
-          shifts: st.shifts.map(sh => sh.id === input.shiftId ? {
-            ...sh,
-            salesCash: round2((sh.salesCash || 0) + cashPaid),
-            salesCard: round2((sh.salesCard || 0) + cardPaid),
-            salesCredit: round2((sh.salesCredit || 0) + debtAdded),
-            salesCount: (sh.salesCount || 0) + 1,
-            ...(walletPaid > 0.001
-              ? { salesWallet: round2((Number((sh as any).salesWallet) || 0) + walletPaid) }
-              : {}),
-          } : sh),
-        }))
-        try { shadowMirrorSale(offlineSale) } catch { /* ignore */ }
-        void persistPosSnapshot()
-      } catch { /* ignore */ }
-    }
-    window.setTimeout(finishStores, 48)
-
-    // Очередь сразу (без ожидания setState) — CRM money уже в SQLite
-    void useOfflineSync.getState().queueOp('sale', {
-      ...salePayload,
-      number: display.number,
-      orderId: display.orderId,
-    }, { localId: offlineSaleId })
-
+    usePosStore.setState(st => ({
+      sales: [offlineSale, ...st.sales],
+      shifts: st.shifts.map(sh => sh.id === input.shiftId ? {
+        ...sh,
+        salesCash: round2((sh.salesCash || 0) + cashPaid),
+        salesCard: round2((sh.salesCard || 0) + cardPaid),
+        salesCredit: round2((sh.salesCredit || 0) + debtAdded),
+        salesCount: (sh.salesCount || 0) + 1,
+        ...(walletPaid > 0.001
+          ? { salesWallet: round2((Number((sh as any).salesWallet) || 0) + walletPaid) }
+          : {}),
+      } : sh),
+    }))
+    shadowMirrorSale(offlineSale)
+    void persistPosSnapshot()
     return offlineSale
   }
 

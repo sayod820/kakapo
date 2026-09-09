@@ -16,9 +16,12 @@ import { getTradeDeviceIdSync } from './tradeDevice'
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
 const INTERVAL_MS = 12000
-const POS_INTERVAL_MS = 45000
-const POS_SALES_INBOUND_MS = 20000
-const PULL_DEBOUNCE_MS = 120
+/** Торговля: полный/тяжёлый фон реже — слабые ПК меньше фризятся онлайн */
+const POS_INTERVAL_MS = 90000
+/** Чеки с сервера (браузер → ПК): дельта pos-lite, не полный список */
+const POS_SALES_INBOUND_MS = 35000
+/** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
+const PULL_DEBOUNCE_MS = 600
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -59,8 +62,9 @@ function createDebouncedPullers() {
       void useProducts.getState().fetchProducts()
     }),
     posSoft: () => schedule('posSoft', () => {
+      // Поиск кассы НЕ блокирует: иначе чек с браузера не доходит, пока курсор в поиске
       if (isCashierPaymentCritical()) return
-      void softSyncPosAfterSale()
+      void softSyncPosAfterSale({ force: true })
     }),
     posWarehouse: () => schedule('posWarehouse', () => {
       if (isCashierPaymentCritical()) return
@@ -86,10 +90,6 @@ export function useApiSync(mode: SyncMode = 'all') {
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
-
-    // Список softSync как раньше: crm / posSoft / posWarehouse / posFinance
-    // (SYNC-канал выключен — WS снова будит эти pull'ы)
-
     if (msg.event === 'loyalty_update') {
       pull.crm()
       return
@@ -99,7 +99,6 @@ export function useApiSync(mode: SyncMode = 'all') {
       return
     }
     if (msg.event === 'product_update') {
-      void import('./offlineSync').then(m => m.kickSyncAfterChange(50)).catch(() => {})
       const incoming = msg.product
       const reason = String((incoming as { reason?: string })?.reason || '')
       if (/receipt|stock|layer|warehouse|revision/i.test(reason)) {
@@ -120,6 +119,7 @@ export function useApiSync(mode: SyncMode = 'all') {
             void cacheProducts(useProducts.getState().products)
           }).catch(() => {})
         }
+        // Удаление уже локально — полный /products не нужен
         return
       }
       if (incoming?.id && (
@@ -129,6 +129,7 @@ export function useApiSync(mode: SyncMode = 'all') {
         || incoming.price != null
         || incoming.stock != null
       )) {
+        // Точечный merge одного товара — без GET /products
         void import('./offline').then(({ sanitizeProductForLocalCache, cacheProducts }) => {
           const cleaned = sanitizeProductForLocalCache(incoming as import('./types').Product)
           useProducts.setState(s => {
@@ -154,6 +155,7 @@ export function useApiSync(mode: SyncMode = 'all') {
         })
         return
       }
+      // Неполное WS-сообщение — редкий repair
       pull.products()
       return
     }
@@ -198,14 +200,16 @@ export function useApiSync(mode: SyncMode = 'all') {
         }
         return
       }
-      void import('./offlineSync').then(m => m.kickSyncAfterChange(50)).catch(() => {})
+      // CRM / лояльность — сразу клиенты и карты
       if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
         pull.crm()
       }
+      // Продажа / смена — только лёгкий sync (как касса)
       if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
         pull.posSoft()
         return
       }
+      // Склад / поставщики
       if (
         kind.includes('stock')
         || kind.includes('receipt')
@@ -214,8 +218,10 @@ export function useApiSync(mode: SyncMode = 'all') {
         || kind.includes('supplier')
       ) {
         pull.posWarehouse()
+        // Остатки товара приходят дельтой / product_update — полный каталог не качаем
         return
       }
+      // Вклады / расходы / ящик
       if (
         kind.includes('expense')
         || kind.includes('finance')
@@ -226,6 +232,7 @@ export function useApiSync(mode: SyncMode = 'all') {
         if (kind === 'client-cash-topup') pull.posSoft()
         return
       }
+      // Неизвестный kind — мягко, не полный снимок
       pull.posSoft()
       return
     }
@@ -248,6 +255,10 @@ export function useApiSync(mode: SyncMode = 'all') {
     if (mode === 'assembler') orders.fetchAssemblerOrders()
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
+    else if (mode === 'pos') {
+      pull.posSoft()
+      pull.crm()
+    }
     else if (mode === 'all') orders.fetchOrders()
   })
 
@@ -256,6 +267,7 @@ export function useApiSync(mode: SyncMode = 'all') {
 
     const load = async () => {
       try {
+        // Только оплата/пробитие — полный стоп. Фокус поиска НЕ блокирует входящие чеки.
         if (mode === 'pos' && isCashierPaymentCritical()) return
         if (mode === 'pos' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
@@ -265,30 +277,27 @@ export function useApiSync(mode: SyncMode = 'all') {
         const { syncLoyaltyStatusConfigFromApi } = await import('./loyaltyStatusConfig')
         if (mode === 'pos') {
           const searchBusy = isCashierCritical() && !isCashierPaymentCritical()
+          // Во время поиска — только лёгкая дельта чеков (mutex внутри), без склада/каталога
           if (searchBusy) {
             await softSyncPosAfterSale()
             return
           }
+          // Один /sync/changes (дельта since=cursor) вместо полных sales/clients/warehouse/finance
           posTickRef.current += 1
           const tick = posTickRef.current
-          // Прежний список softSync (без SYNC-канала)
           const { pullSyncChanges } = await import('./syncPull')
           const delta = await pullSyncChanges().catch(() => ({ ok: false as const }))
           const tasks: Promise<unknown>[] = [
             syncLoyaltyStatusConfigFromApi(),
-            softSyncPosAfterSale(),
           ]
-          if (tick === 1 || tick % 3 === 0) tasks.push(softSyncWarehouse())
-          if (tick === 1 || tick % 4 === 0) tasks.push(softSyncFinance())
           const localEmpty = !useProducts.getState().products.length
+          // Полный каталог только: пустая локалка, или дельта сломалась (редко)
           if (localEmpty || (!(delta as { ok?: boolean }).ok && tick % 20 === 0)) {
             tasks.push(useProducts.getState().fetchProducts())
           }
+          // Полный POS — очень редко (рассинхрон после долгого офлайна)
           if (tick > 1 && tick % 8 === 0) {
             tasks.push(syncPosFromApi())
-          }
-          if (tick === 1 || tick % 5 === 0) {
-            tasks.push(syncClientsFromApi(), syncCardsFromApi())
           }
           await Promise.allSettled(tasks)
           return
@@ -300,6 +309,7 @@ export function useApiSync(mode: SyncMode = 'all') {
           useRestaurants.getState().fetchRestaurants(),
           syncCourierStoresFromApi(),
         ]
+        // layout ApiSyncProvider уже тянет /products — не качаем каталог дважды (магазин)
         if (mode !== 'catalog') {
           tasks.push(useProducts.getState().fetchProducts())
         }
@@ -316,14 +326,17 @@ export function useApiSync(mode: SyncMode = 'all') {
       }
     }
 
+    // Не блокируем UI: старт в фоне
     void load()
     const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
+    // Отдельный inbound продаж (браузер → ПК/Android). Читать можно даже при очереди —
+    // иначе локаль не видит чек в долг, который уже есть в браузере/на сервере.
     let salesId: ReturnType<typeof setInterval> | null = null
     if (mode === 'pos') {
       salesId = setInterval(() => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
-        void softSyncPosAfterSale()
+        void softSyncPosAfterSale({ force: true })
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

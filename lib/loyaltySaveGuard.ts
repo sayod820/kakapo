@@ -263,41 +263,16 @@ export function applyManualLoyaltyToClient(apiClient: AdminClient): AdminClient 
 
 export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCard): AdminCard {
   let merged = apiCard
-  const moneyGuard = !!(localCard && isMoneyPendingCard(apiCard.num))
   if (localCard && isRecent(cardSavedAt, cardKey(apiCard.num))) {
-    merged = mergeLoyaltyFields(apiCard, localCard, moneyGuard)
+    merged = mergeLoyaltyFields(apiCard, localCard, false)
   }
-  if (localCard && moneyGuard) {
+  if (localCard && isMoneyPendingCard(apiCard.num)) {
     merged = {
       ...merged,
       bonus: localCard.bonus ?? merged.bonus,
       debt: localCard.debt ?? merged.debt,
       wallet: localCard.wallet ?? merged.wallet,
       posCashBonus: localCard.posCashBonus ?? merged.posCashBonus,
-      debtPayVersion: localCard.debtPayVersion ?? merged.debtPayVersion,
-      bonusPayVersion: localCard.bonusPayVersion ?? merged.bonusPayVersion,
-    }
-  }
-  // Локальная версия долга/бонусов новее сервера — не откатывать погашение/пополнение
-  if (localCard) {
-    const localDebtVer = Number(localCard.debtPayVersion) || 0
-    const apiDebtVer = Number(apiCard.debtPayVersion) || 0
-    if (localDebtVer > apiDebtVer) {
-      merged = {
-        ...merged,
-        debt: localCard.debt ?? merged.debt,
-        debtPayVersion: localCard.debtPayVersion,
-      }
-    }
-    const localBonusVer = Number(localCard.bonusPayVersion) || 0
-    const apiBonusVer = Number(apiCard.bonusPayVersion) || 0
-    if (localBonusVer > apiBonusVer) {
-      merged = {
-        ...merged,
-        bonus: localCard.bonus ?? merged.bonus,
-        posCashBonus: localCard.posCashBonus ?? merged.posCashBonus,
-        bonusPayVersion: localCard.bonusPayVersion,
-      }
     }
   }
   return applyManualLoyaltyToCard(merged)
@@ -305,16 +280,10 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
 
 export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?: AdminClient): AdminClient {
   let merged = apiClient
-  const moneyGuard = !!(localClient && (
-    isMoneyPendingClient(localClient.id)
-    || (!!localClient.card && isMoneyPendingCard(localClient.card))
-  ))
-  // isRecent раньше брал серверный долг (keepMoney=false) — после чека inbound
-  // откатывал локальный долг из устаревшего catalog_clients
   if (localClient && isRecent(clientSavedAt, localClient.id)) {
-    merged = mergeLoyaltyFields(apiClient, localClient, moneyGuard)
+    merged = mergeLoyaltyFields(apiClient, localClient, false)
   }
-  if (localClient && moneyGuard) {
+  if (localClient && isMoneyPendingClient(localClient.id)) {
     merged = {
       ...merged,
       bonus: localClient.bonus ?? merged.bonus,

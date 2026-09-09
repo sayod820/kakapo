@@ -379,21 +379,13 @@ export async function getPending(): Promise<PendingOp[]> {
   }
 
   const desk = deskDb()
-  let deskOk = false
   if (desk?.localDbQueueAll) {
     try {
       for (const raw of (await desk.localDbQueueAll()) || []) {
         const row = normalizeRow(raw)
         if (row.clientRef) byRef.set(row.clientRef, row)
       }
-      deskOk = true
     } catch { /* fallback */ }
-  }
-
-  // ПК: SQLite — источник правды. Не поднимаем «призраков» из IndexedDB обратно в очередь
-  // (иначе после успешного SYNC op снова появляется и уходит на сервер второй раз).
-  if (deskOk) {
-    return [...byRef.values()].sort(byOrder)
   }
 
   let idbOnly = 0
@@ -416,6 +408,9 @@ export async function getPending(): Promise<PendingOp[]> {
     for (const row of byRef.values()) {
       if (files) {
         try { await files.queuePut(row) } catch { /* ignore */ }
+      }
+      if (desk?.localDbQueuePut) {
+        try { await desk.localDbQueuePut(row) } catch { /* ignore */ }
       }
     }
   }
@@ -455,13 +450,6 @@ export async function pendingBlocksStockLayerPull(): Promise<boolean> {
   }
 }
 
-function kickSyncFromQueueWrite(): void {
-  // Динамический import — без цикла offline ↔ offlineSync на загрузке модуля
-  void import('./offlineSync').then(m => {
-    try { m.kickSyncAfterChange() } catch { /* ignore */ }
-  }).catch(() => {})
-}
-
 async function putPending(row: PendingOp): Promise<void> {
   const files = androidFiles()
   if (files) {
@@ -471,22 +459,18 @@ async function putPending(row: PendingOp): Promise<void> {
   if (desk?.localDbQueuePut) {
     try {
       await desk.localDbQueuePut(row)
-      // ПК: только SQLite. IndexedDB-копия давала «призраков» после SYNC-канала.
-      kickSyncFromQueueWrite()
+      if (hasIndexedDB()) {
+        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)) } catch { /* ignore */ }
+      }
       return
     } catch { /* fallback */ }
   }
   if (hasIndexedDB()) {
-    try {
-      await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row))
-      kickSyncFromQueueWrite()
-      return
-    } catch { /* fallback */ }
+    try { await idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)); return } catch { /* fallback */ }
   }
   const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
   list.push(row)
   lsQueueWrite(list)
-  kickSyncFromQueueWrite()
 }
 
 async function deletePending(clientRef: string): Promise<void> {
@@ -510,19 +494,9 @@ async function deletePending(clientRef: string): Promise<void> {
   lsQueueWrite(lsQueueRead().filter(r => r.clientRef !== clientRef))
 }
 
+/** Внутреннее: не вызывать из UI кассы — очередь нельзя стирать вручную */
 export async function dropPending(clientRef: string): Promise<void> {
   await deletePending(clientRef)
-}
-
-/** ПК: стереть кэш очереди в IndexedDB (SYNC-канал держит правду в SQLite) */
-export async function clearDesktopIdbQueueGhosts(): Promise<void> {
-  if (!deskDb()?.localDbQueueAll) return
-  if (!hasIndexedDB()) return
-  try {
-    await idbRun(STORE_QUEUE, 'readwrite', (s) => {
-      s.clear()
-    })
-  } catch { /* ignore */ }
 }
 
 /** Повторить отклонённую операцию при следующей отправке */
@@ -551,21 +525,18 @@ export function isLocalId(value: unknown): boolean {
 }
 
 let seqCounter = 0
-let seqReady = false
-function nextSeq(): number {
-  if (!seqReady) {
-    seqReady = true
-    // Подтянуть с диска в фоне; для текущего чека берём max(memory, Date)
-    void (async () => {
-      try {
-        const stored = Number(await kvGet<number>(KEY_SEQ)) || 0
-        if (stored > seqCounter) seqCounter = stored
-      } catch { /* ignore */ }
-    })()
-    if (!seqCounter) seqCounter = Date.now() % 1000000
+async function nextSeq(): Promise<number> {
+  if (!seqCounter) {
+    const stored = await kvGet<number>(KEY_SEQ)
+    seqCounter = Number(stored) || 0
+    // Полный скан очереди — только если счётчика ещё нет (дорого на кассе)
+    if (!seqCounter) {
+      const queued = await getPending()
+      seqCounter = Math.max(0, ...queued.map(r => r.seq), 0)
+    }
   }
   seqCounter += 1
-  void kvSet(KEY_SEQ, seqCounter)
+  await kvSet(KEY_SEQ, seqCounter)
   return seqCounter
 }
 
@@ -681,7 +652,7 @@ export async function enqueueOp<P>(
         ? { appliedLocal: true, skipBalances: true } : {}),
     },
     createdAtIso,
-    seq: nextSeq(),
+    seq: await nextSeq(),
     attempts: 0,
     localId: opts.localId,
   }
@@ -723,7 +694,7 @@ function collapseRemappedIds<T extends { id?: string }>(list: T[], serverId: str
 }
 
 /** После flush: подменить локальные id на серверные в сторах и кэшах */
-export async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: string): Promise<void> {
+async function applyLocalIdRemap(kind: QueueKind, localId: string, serverId: string): Promise<void> {
   if (!localId || !serverId || localId === serverId) return
   try {
     if (kind === 'stock_receipt_create' || kind === 'stock_receipt_update') {
@@ -1989,103 +1960,3 @@ export async function flushQueue(
   const remaining = (await getPending()).length
   return { sent, failed, stopped, remaining }
 }
-
-/**
- * Одна op для SYNC-канала (delegate): HTTP+стор в UI только если канал не смог сам.
- * Не для горячего пути кассы.
- */
-export async function channelSendOneOp(row: PendingOp): Promise<{ serverId: string }> {
-  const serverId = await sendOp(row)
-  if (row.localId && serverId) {
-    await rememberId(row.localId, serverId)
-    await applyLocalIdRemap(row.kind, row.localId, serverId)
-  }
-  await deletePending(row.clientRef)
-  if (
-    row.kind === 'sale'
-    || row.kind === 'sale_return'
-    || row.kind === 'debt_repay'
-    || row.kind === 'card_topup'
-  ) {
-    try {
-      const p = (row.payload || {}) as Record<string, unknown>
-      const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
-      clearMoneyPendingFromOp(row.kind, p)
-    } catch { /* ignore */ }
-  }
-  return { serverId }
-}
-
-/** Успех op из SYNC-канала (main) — только лёгкий remap сторов, без сети */
-export async function channelOnOpSuccess(opts: {
-  kind: QueueKind
-  localId?: string
-  serverId?: string
-  clientRef?: string
-  payload?: unknown
-}): Promise<void> {
-  const localId = String(opts.localId || '')
-  const serverId = String(opts.serverId || '')
-  if (localId && serverId) {
-    try { await rememberId(localId, serverId) } catch { /* host already */ }
-    await applyLocalIdRemap(opts.kind, localId, serverId)
-  }
-  if (
-    opts.kind === 'sale'
-    || opts.kind === 'sale_return'
-    || opts.kind === 'debt_repay'
-    || opts.kind === 'card_topup'
-  ) {
-    try {
-      const p = (opts.payload || {}) as Record<string, unknown>
-      const { clearMoneyPendingFromOp } = await import('./loyaltySaveGuard')
-      clearMoneyPendingFromOp(opts.kind, p)
-    } catch { /* ignore */ }
-  }
-}
-
-/** Отказ сервера из SYNC-канала — откат локального UI при жёстком reject */
-export async function channelOnOpFail(row: PendingOp, errorMsg: string): Promise<void> {
-  const live = { ...row, failed: true, lastError: errorMsg, attempts: (Number(row.attempts) || 0) + 1 }
-  const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
-  if (!rejectRe.test(errorMsg)) {
-    try { await putPending(live) } catch { /* host already */ }
-    return
-  }
-  try {
-    if (live.kind === 'sale') {
-      const p = (live.payload || {}) as Record<string, unknown>
-      const { revertLocalSaleOnReject } = await import('./offlinePosOps')
-      revertLocalSaleOnReject(p, live.localId)
-      void persistPosSnapshot()
-      await deletePending(live.clientRef)
-      return
-    }
-    if (live.kind === 'sale_return') {
-      const p = (live.payload || {}) as Record<string, unknown>
-      const { revertLocalSaleReturnOnReject } = await import('./offlinePosOps')
-      revertLocalSaleReturnOnReject(p)
-      void persistPosSnapshot()
-      await deletePending(live.clientRef)
-      return
-    }
-    if (live.kind === 'debt_repay') {
-      const p = (live.payload || {}) as Record<string, unknown>
-      const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
-      revertLocalDebtRepayOnReject(p as any)
-      void persistPosSnapshot()
-      await deletePending(live.clientRef)
-      return
-    }
-    if (live.kind === 'card_topup') {
-      const p = (live.payload || {}) as Record<string, unknown>
-      const { revertLocalCardTopupOnReject } = await import('./offlinePosOps')
-      revertLocalCardTopupOnReject(p as any)
-      void persistPosSnapshot()
-      await deletePending(live.clientRef)
-      return
-    }
-  } catch { /* ignore */ }
-  try { await putPending(live) } catch { /* ignore */ }
-}
-

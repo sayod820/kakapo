@@ -17,7 +17,6 @@ export async function localFirstOp<T>(
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
   const data = await localApply()
-  // Сразу отправить ИМЕННО эту op из очереди (flush), без inbound-шторма
-  useOfflineSync.getState().scheduleSyncDebounced(120)
+  useOfflineSync.getState().scheduleSyncDebounced()
   return { offline: true, data }
 }

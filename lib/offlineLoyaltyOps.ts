@@ -30,52 +30,8 @@ async function raceOp<T>(
 }
 
 function persistClientsAndCards() {
-  const clients = useClientStore.getState().clients
-  const cards = useCardStore.getState().cards
-  // data_* — UI cacheData; catalog_clients/clients/cards — канон inbound/reload
-  void cacheData('clients', clients)
-  void cacheData('cards', cards)
-  void import('./offline').then(m => {
-    void m.cacheClients(clients as any)
-  }).catch(() => {})
-  void (async () => {
-    try {
-      const desk = (await import('./desktopBridge')).getKakapoDesktop()
-      if (!desk?.localDbKvSet) return
-      await desk.localDbKvSet('catalog_clients', clients)
-      await desk.localDbKvSet('clients', clients)
-      await desk.localDbKvSet('cards', cards)
-      await desk.localDbKvSet('data_clients', clients)
-      await desk.localDbKvSet('data_cards', cards)
-    } catch { /* ignore */ }
-  })()
-}
-
-/** После погашения/пополнения — сразу во ВСЕ ключи SQLite, иначе inbound откатит UI */
-export function persistCrmMoneyToSqlite() {
-  persistClientsAndCards()
-}
-
-/** То же, но ждём запись (перед queueOp / sync) */
-export async function persistCrmMoneyToSqliteAsync() {
-  const clients = useClientStore.getState().clients
-  const cards = useCardStore.getState().cards
-  try { await cacheData('clients', clients) } catch { /* ignore */ }
-  try { await cacheData('cards', cards) } catch { /* ignore */ }
-  try {
-    const { cacheClients } = await import('./offline')
-    await cacheClients(clients as any)
-  } catch { /* ignore */ }
-  try {
-    const desk = (await import('./desktopBridge')).getKakapoDesktop()
-    if (desk?.localDbKvSet) {
-      await desk.localDbKvSet('catalog_clients', clients)
-      await desk.localDbKvSet('clients', clients)
-      await desk.localDbKvSet('cards', cards)
-      await desk.localDbKvSet('data_clients', clients)
-      await desk.localDbKvSet('data_cards', cards)
-    }
-  } catch { /* ignore */ }
+  void cacheData('clients', useClientStore.getState().clients)
+  void cacheData('cards', useCardStore.getState().cards)
 }
 
 function findCardForClient(client: AdminClient, cards: AdminCard[]): AdminCard | undefined {

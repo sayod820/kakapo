@@ -5,6 +5,7 @@ import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMem
 import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
+import { connectivityLabel, deriveConnectivityState } from '@/lib/connectivityManager'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
@@ -73,9 +74,7 @@ import {
   cashDepositTierForAmount,
   cashDepositTierLabel,
   resolveEffectiveDebtLimit,
-  loadLoyaltyStatusConfig,
 } from '@/lib/loyaltyStatusConfig'
-import { calcMarginalBonusEarned } from '@/lib/loyaltyBonus'
 import {
   previewPosStatusCashBonus,
   statusFieldsAfterPosCashPurchase,
@@ -1101,24 +1100,47 @@ const CashierNetChip = memo(function CashierNetChip({
   const netFailed = useOfflineSync(s => s.failed)
   const netSyncing = useOfflineSync(s => s.syncing)
   const netProgress = useOfflineSync(s => s.progress)
-  const title = netOnline
-    ? (netPending > 0
-        ? (netSyncing
-            ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
-            : `Онлайн · ${netPending} в очереди`)
-        : (onlineCode || 'Онлайн'))
-    : `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
-  const label = netOnline
-    ? (netPending > 0
-        ? (netSyncing
-            ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
-            : `очередь ${netPending}`)
-        : (onlineCode || 'Онлайн'))
-    : (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+  const netLastError = useOfflineSync(s => s.lastError)
+  const conn = deriveConnectivityState({
+    online: netOnline,
+    syncing: netSyncing,
+    pending: netPending,
+    failed: netFailed,
+    lastError: netLastError,
+  })
+  const connBase = connectivityLabel(conn)
+  const title = conn === 'SYNCING'
+    ? (netProgress.total > 0
+        ? `Синхронизация ${netProgress.done} из ${netProgress.total}`
+        : connBase)
+    : conn === 'RECONNECTING'
+      ? `${connBase}${netPending > 0 ? ` · ${netPending} в очереди` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
+      : conn === 'ERROR'
+        ? `${connBase}${netLastError ? ` · ${netLastError}` : ''}`
+        : conn === 'OFFLINE'
+          ? `Офлайн${netPending > 0 ? ` · ${netPending} операц. ждут` : ''}${netFailed > 0 ? ` · повтор: ${netFailed}` : ''}`
+          : (netPending > 0
+              ? (netSyncing
+                  ? `Синхронизация ${netProgress.total > 0 ? `${netProgress.done} из ${netProgress.total}` : '…'}`
+                  : `Онлайн · ${netPending} в очереди`)
+              : (onlineCode || connBase))
+  const label = conn === 'SYNCING'
+    ? (netProgress.total > 0 ? `↻ ${netProgress.done}/${netProgress.total}` : '↻ синк')
+    : conn === 'RECONNECTING'
+      ? (netPending > 0 ? `⟳ ${netPending}` : '⟳…')
+      : conn === 'ERROR'
+        ? 'ошибка'
+        : conn === 'OFFLINE'
+          ? (netPending > 0 ? `офлайн · ${netPending}` : 'Офлайн')
+          : (netPending > 0
+              ? (netSyncing
+                  ? `↻ ${netProgress.total > 0 ? `${netProgress.done}/${netProgress.total}` : '…'}`
+                  : `очередь ${netPending}`)
+              : (onlineCode || connBase))
 
   return (
     <>
-      <span className="d" style={{ background: netOnline ? undefined : '#e11d48' }} />
+      <span className="d" style={{ background: netOnline && conn !== 'ERROR' ? undefined : '#e11d48' }} />
       <span
         className="net-status-txt"
         role="button"
@@ -1131,14 +1153,14 @@ const CashierNetChip = memo(function CashierNetChip({
         {label}
         {netFailed > 0 ? ` · ${netFailed}⚠` : ''}
       </span>
-      {(!netOnline || netPending > 0 || netFailed > 0) && (
+      {(!netOnline || netPending > 0 || netFailed > 0 || conn === 'ERROR' || conn === 'RECONNECTING' || conn === 'SYNCING') && (
         <button
           type="button"
           className="net-sync-chip"
           onClick={onOpenQueue}
           title="Открыть очередь синхронизации"
         >
-          {netSyncing ? '…' : (netOnline ? '⟳' : '⚠')}
+          {netSyncing || conn === 'SYNCING' || conn === 'RECONNECTING' ? '…' : (netOnline ? '⟳' : '⚠')}
         </button>
       )}
     </>
@@ -1797,7 +1819,7 @@ export default function CashierModule({
   /** Лёгкий подтягивание сроков — чтобы бейдж на колокольчике был актуален */
   useEffect(() => {
     if (!active || posSurface !== 'register') return
-    void softSyncWarehouse({ expiryDays: 14 })
+    void softSyncWarehouse({ expiryDays: 14, expiryOnly: true })
   }, [active, posSurface])
 
   useEffect(() => {
@@ -5111,10 +5133,75 @@ export default function CashierModule({
     return 'Другая смена'
   }
 
+  /** Id текущего кассира (настройки / открытая смена / сотрудник Trade) */
+  function currentCashierIdSet() {
+    const ids = new Set<string>()
+    const add = (v?: string | null) => {
+      const s = String(v || '').trim()
+      if (s) ids.add(s)
+    }
+    add(settings.cashierId)
+    add(activeShift?.cashierId)
+    add(employeeId)
+    return ids
+  }
+
+  /** Кассир чека: с самого чека или из смены чека */
+  function saleCashierId(sale: (typeof sales)[number]) {
+    const fromSale = String(sale.cashierId || '').trim()
+    if (fromSale) return fromSale
+    const shId = String(sale.shiftId || '').trim()
+    if (shId) {
+      const sh = shifts.find(x => x.id === shId)
+      const fromShift = String(sh?.cashierId || '').trim()
+      if (fromShift) return fromShift
+    }
+    return ''
+  }
+
   function needsAdminReturnConfirm(sale: (typeof sales)[number]) {
     if (!activeShift) return true
-    if (sale.shiftId && sale.shiftId !== activeShift.id) return true
-    return !saleInCurrentShift(sale)
+    // Текущая смена — без кода
+    if (saleInCurrentShift(sale)) return false
+    // Старая/закрытая смена того же кассира — тоже без кода админа
+    const who = saleCashierId(sale)
+    if (who && currentCashierIdSet().has(who)) return false
+    // Чужой кассир или кассир неизвестен — нужен код
+    return true
+  }
+
+  /** Код для возврата из чужой смены: АДМИН/ADMIN, пароль панели /admin, или пароль старшего */
+  async function verifyReturnAdminCode(raw: string): Promise<boolean> {
+    const pin = String(raw || '').trim()
+    if (pin.length < 4) return false
+    const upper = pin.toUpperCase()
+    if (upper === 'АДМИН' || upper === 'ADMIN') return true
+
+    try {
+      const { loadAdminCreds } = await import('@/lib/adminSession')
+      const creds = loadAdminCreds()
+      if (pin === String(creds.password || '').trim()) return true
+    } catch { /* ignore */ }
+
+    try {
+      const { readCachedEmployeesAuth } = await import('@/lib/offline')
+      const { employeePasswordMatches } = await import('@/lib/employeePassword')
+      const rows = (await readCachedEmployeesAuth()) || []
+      for (const r of rows) {
+        if (r.active === false) continue
+        const role = String(r.role || '')
+        const label = String(r.roleLabel || '')
+        const perms = Array.isArray(r.permissions) ? r.permissions.map(String) : []
+        const isSenior =
+          role === 'manager'
+          || /админ|старш|manager|admin/i.test(label)
+          || (perms.includes('finance') && perms.includes('reports') && perms.includes('warehouse'))
+        if (!isSenior) continue
+        if (await employeePasswordMatches(pin, r)) return true
+      }
+    } catch { /* ignore */ }
+
+    return false
   }
 
   /** Быстрый поиск чеков: штрихкод / номер — без тяжёлого hay на каждый символ */
@@ -5608,8 +5695,9 @@ export default function CashierModule({
       return
     }
     if (pending.step === 'admin') {
-      if (String(pending.adminCode || '').trim().toUpperCase() !== 'АДМИН') {
-        showToast('Нужен код админа', 'Возврат из чужой смены отменён')
+      const ok = await verifyReturnAdminCode(pending.adminCode)
+      if (!ok) {
+        showToast('Неверный код', 'Нужен АДМИН / ADMIN или пароль старшего')
         return
       }
     }
@@ -6777,8 +6865,7 @@ export default function CashierModule({
     const key = String(sale.id || sale.orderId || sale.number || 'sale')
     if (printingSaleIdsRef.current.has(key)) return
     printingSaleIdsRef.current.add(key)
-    // Индикатор печати — не синхронно с критическим кадром подтверждения
-    queueMicrotask(() => setPrintingSaleId(key))
+    setPrintingSaleId(key)
     try {
       await doPrintSale(sale)
     } finally {
@@ -6837,64 +6924,35 @@ export default function CashierModule({
     }
   }
 
-  function finishSaleConfirm(shouldPrint: boolean) {
+  async function finishSaleConfirm(shouldPrint: boolean) {
     const p = saleConfirm
-    if (!p || printChoiceLockedRef.current) return
+    if (!p || printChoiceLockedRef.current || busy) return
     printChoiceLockedRef.current = true
     const ticketId = p.ticketId
     const debtRepayAmt = Math.max(0, Number(p.debtRepayAmt) || 0)
-    const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
-    if (!ticketSnap?.cart?.length) {
-      printChoiceLockedRef.current = false
-      setSaleConfirm(null)
-      return
-    }
-
-    // ТОЛЬКО закрыть диалог — без flushSync/сброса корзины (иначе весь CashierModule
-    // пересчитывается синхронно в клике и «Нет/Печатать» тормозит).
     setSaleConfirm(null)
-
-    const runAfterPaint = () => {
-      afterSaleTicketReset(ticketId)
-      showToast('Чек проведён', shouldPrint ? 'Печать…' : '')
-      // Ещё один кадр — потом запись/очередь/печать
-      window.setTimeout(() => {
-        void submitSale(
-          p.paidCash,
-          p.method,
-          p.bonusSpend,
-          p.paidCard,
-          p.debtAmt,
-          p.saleNote,
-          {
-            shouldPrint,
-            ticketId,
-            debtRepayAmt,
-            instantConfirm: true,
-            cartAlreadyReset: true,
-            ticketSnap,
-          },
-        ).then(ok => {
-          if (!ok) {
-            showToast('Ошибка', 'Не удалось провести чек — вернитесь к оплате')
-            if (ticketId && ticketId !== activeTicketIdRef.current) {
-              setActiveTicketId(ticketId)
-            }
-            if (p.returnTo === 'cash') setCashOpen(true)
-            else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
-            else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
-            else setPayPickOpen(true)
-          }
-        }).finally(() => {
-          printChoiceLockedRef.current = false
-        })
-      }, 0)
-    }
-
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => { requestAnimationFrame(runAfterPaint) })
-    } else {
-      window.setTimeout(runAfterPaint, 16)
+    try {
+      const ok = await submitSale(
+        p.paidCash,
+        p.method,
+        p.bonusSpend,
+        p.paidCard,
+        p.debtAmt,
+        p.saleNote,
+        { shouldPrint, ticketId, debtRepayAmt },
+      )
+      if (!ok) {
+        // Чек не прошёл — вернуть к оплате на том же чеке
+        if (ticketId && ticketId !== activeTicketIdRef.current) {
+          setActiveTicketId(ticketId)
+        }
+        if (p.returnTo === 'cash') setCashOpen(true)
+        else if (p.returnTo === 'splitCard') { setCashOpen(true); setSplitCardOpen(true) }
+        else if (p.returnTo === 'creditNote') setCreditNoteOpen(true)
+        else setPayPickOpen(true)
+      }
+    } finally {
+      printChoiceLockedRef.current = false
     }
   }
 
@@ -6923,19 +6981,10 @@ export default function CashierModule({
     paidCardAmt?: number,
     debtAmt?: number,
     saleNote?: string,
-    opts?: {
-      shouldPrint?: boolean
-      ticketId?: string
-      debtRepayAmt?: number
-      instantConfirm?: boolean
-      /** Корзина уже сброшена в finishSaleConfirm — не трогать UI снова */
-      cartAlreadyReset?: boolean
-      /** Готовый снимок чека (после flushSync ticketsRef уже пуст) */
-      ticketSnap?: PosTicket
-    },
+    opts?: { shouldPrint?: boolean; ticketId?: string; debtRepayAmt?: number },
   ): Promise<boolean> {
     const ticketId = opts?.ticketId || activeTicketIdRef.current
-    const ticketSnap = opts?.ticketSnap || ticketsRef.current.find(t => t.id === ticketId)
+    const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
     if (!activeShift || !ticketSnap?.cart.length) return false
     if (sellingTicketIdRef.current === ticketId) return false
 
@@ -7075,8 +7124,7 @@ export default function CashierModule({
     }
 
     sellingTicketIdRef.current = ticketId
-    // instantConfirm: не блокируем UI «Пробиваем…» — диалог уже закрыт, корзина сбросится сразу после локального чека
-    if (!opts?.instantConfirm) setBusy(true)
+    setBusy(true)
     setMsg('')
     try {
       const note = String(saleNote || '').trim()
@@ -7085,19 +7133,19 @@ export default function CashierModule({
       let earnedBonusPreview = 0
       const statusEligiblePaid = Math.round(((Number(cashPaid) || 0) + (Number(cardPaid) || 0)) * 100) / 100
       if (statusEligiblePaid > 0.001 && client?.phone && client.card && apiMethod !== 'credit') {
-        // Быстрый кэшбэк без скана всей истории продаж (иначе лаг на «Печатать»)
-        earnedBonusPreview = calcMarginalBonusEarned(
-          Number(loyalty?.spent) || 0,
+        earnedBonusPreview = previewPosStatusCashBonus(
+          client.phone,
+          orders,
           statusEligiblePaid,
-          !!(client as AdminClient)?.vip,
-          loadLoyaltyStatusConfig(),
+          buildPosLoyaltyMeta(client, cards),
+          sales,
         )
       }
       const bonusBalanceAfter = bonusBalanceBefore != null
         ? Math.max(0, bonusBalanceBefore - spend + earnedBonusPreview)
         : undefined
       const salePosId = activeShift.posId || activePosPoint?.id
-      void ensurePosOpSeqReady()
+      await ensurePosOpSeqReady()
       const deviceId = getTradeDeviceIdSync()
       const salePayload = {
         clientRef: newClientRef(),
@@ -7200,38 +7248,28 @@ export default function CashierModule({
       const soldCart = cart.slice()
       const soldClient = client
       const debtRepay = payDebtForSale
-      if (!opts?.cartAlreadyReset) {
-        const parts: string[] = []
-        if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
-        if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
-        if (walletPaid > 0.001) parts.push(`кошелёк ${fmtMoney(walletPaid)}`)
-        if (debtAdded > 0.001) parts.push(`долг ${fmtMoney(debtAdded)}`)
-        if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
-        if (earnedBonusPreview > 0) parts.push(`+${earnedBonusPreview} ⭐`)
-        if (spend > 0) parts.push(`−${spend} ⭐`)
-        if (debtRepay > 0.001) parts.push(`погашение ${fmtMoney(debtRepay)}`)
-        showToast(
-          created._offline && !apiReachable ? 'Офлайн-чек сохранён' : 'Чек проведён',
-          created._offline && !apiReachable
-            ? 'Отправится автоматически при появлении связи'
-            : (parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')),
-        )
-        setCashOpen(false)
-        setSplitCardOpen(false)
-        setPayPickOpen(false)
-        setCreditNoteOpen(false)
-        setCreditNoteBuf('')
-        setCreditPending(null)
-        setSaleConfirm(null)
-        afterSaleTicketReset(ticketId)
-      } else {
-        setCashOpen(false)
-        setSplitCardOpen(false)
-        setPayPickOpen(false)
-        setCreditNoteOpen(false)
-        setCreditNoteBuf('')
-        setCreditPending(null)
-      }
+      const parts: string[] = []
+      if (cashPaid > 0.001) parts.push(`нал ${fmtMoney(cashPaid)}`)
+      if (cardPaid > 0.001) parts.push(`карта ${fmtMoney(cardPaid)}`)
+      if (walletPaid > 0.001) parts.push(`кошелёк ${fmtMoney(walletPaid)}`)
+      if (debtAdded > 0.001) parts.push(`долг ${fmtMoney(debtAdded)}`)
+      if (apiMethod === 'cash' && change > 0) parts.push(`сдача ${fmtMoney(change)}`)
+      if (earnedBonusPreview > 0) parts.push(`+${earnedBonusPreview} ⭐`)
+      if (spend > 0) parts.push(`−${spend} ⭐`)
+      if (debtRepay > 0.001) parts.push(`погашение ${fmtMoney(debtRepay)}`)
+      showToast(
+        created._offline && !apiReachable ? 'Офлайн-чек сохранён' : 'Чек проведён',
+        created._offline && !apiReachable
+          ? 'Отправится автоматически при появлении связи'
+          : (parts.length ? parts.join(' · ') : (methodPay === 'balance' ? `Бонусы −${spend} ⭐` : 'Карта')),
+      )
+      setCashOpen(false)
+      setSplitCardOpen(false)
+      setPayPickOpen(false)
+      setCreditNoteOpen(false)
+      setCreditNoteBuf('')
+      setCreditPending(null)
+      setSaleConfirm(null)
 
       const saleForPrint: PosSale = {
         ...created,
@@ -7243,17 +7281,15 @@ export default function CashierModule({
         bonusBalanceAfter: created.bonusBalanceAfter ?? bonusBalanceAfter,
         total: created.total ?? total,
       }
+      afterSaleTicketReset(ticketId)
       if (opts?.shouldPrint) {
-        // Печать после кадра — не блокирует подтверждение
-        requestAnimationFrame(() => { void printSaleOnce(saleForPrint) })
+        void printSaleOnce(saleForPrint)
       }
 
       // Фон: история / лояльность / погашение / sync — после сброса чека
       void (async () => {
         try {
-          // Только flush очереди — сервер узнаёт об этом чеке; inbound отдельно в канале
-          useOfflineSync.getState().scheduleSyncDebounced(200)
-
+          if (created._offline) void useOfflineSync.getState().syncNow()
           if (soldClient?.id) {
             const itemsSummary = soldCart.slice(0, 5).map(l => (
               l.weightKg != null
@@ -7320,6 +7356,12 @@ export default function CashierModule({
               )
             }
           }
+          void softSyncPosAfterSale({ force: true })
+          useOfflineSync.getState().scheduleSyncDebounced()
+          if (!created._offline) {
+            void syncClientsFromApi()
+            void syncCardsFromApi()
+          }
 
           if (debtRepay > 0.001 && soldClient && apiMethod !== 'credit') {
             const method = cashPaid > 0.001 ? 'cash' : 'card'
@@ -7328,9 +7370,7 @@ export default function CashierModule({
               if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
             } catch { /* без карты погашение с чеком пропустим */ }
             if (cardClient.card) {
-              const liveClient = useClientStore.getState().clients.find(c => c.id === cardClient.id) || cardClient
-              const liveCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, cardClient.card!))
-              const prevDebt = effectiveDebt(liveCard, liveClient)
+              const prevDebt = Number(loyalty?.debt) || clientDebt
               const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
               try {
                 const repaid = await debtRepaySafe(cardClient.card, {
@@ -8872,12 +8912,7 @@ export default function CashierModule({
   const splitCardAmt = Math.min(cashRemain, Math.max(0, Number(splitCardBuf) || 0))
   const splitDebtRemain = Math.max(0, Math.round((cashRemain - splitCardAmt) * 100) / 100)
   const cashSaleBonus = client?.card && client.phone && total > 0.001
-    ? calcMarginalBonusEarned(
-      Number(loyalty?.spent) || 0,
-      total,
-      !!client.vip,
-      loadLoyaltyStatusConfig(),
-    )
+    ? previewPosStatusCashBonus(client.phone, orders, total, buildPosLoyaltyMeta(client, cards), sales)
     : 0
   const topupCash = Number(topupBuf) || 0
   const topupPrincipal = Math.max(0, Math.round(topupCash * 100) / 100)
@@ -10214,7 +10249,9 @@ export default function CashierModule({
               <>
                 <h3>Код администратора</h3>
                 <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 12 }}>
-                  Чек из другой или закрытой смены. Введите код: <b>АДМИН</b>
+                  Чек из смены другого кассира. Введите один из вариантов:
+                  <br />• код <b>АДМИН</b> или <b>ADMIN</b>
+                  <br />• пароль старшего сотрудника (как при входе в Торговлю)
                 </div>
                 <input
                   className="cash-recv-field"
@@ -10227,7 +10264,7 @@ export default function CashierModule({
                       void executeReturnConfirm()
                     }
                   }}
-                  placeholder="АДМИН"
+                  placeholder="АДМИН / пароль старшего"
                   style={{ marginBottom: 16 }}
                 />
                 <div className="modal-card-actions" style={{ gap: 8 }}>
@@ -10409,6 +10446,7 @@ export default function CashierModule({
               <button
                 type="button"
                 className="btn-cancel"
+                disabled={busy}
                 onClick={() => void finishSaleConfirm(false)}
               >
                 Нет
@@ -10416,9 +10454,10 @@ export default function CashierModule({
               <button
                 type="button"
                 className="btn-confirm"
+                disabled={busy}
                 onClick={() => void finishSaleConfirm(true)}
               >
-                🖨 Печатать
+                {busy ? 'Пробиваем…' : '🖨 Печатать'}
               </button>
             </div>
           </div>
