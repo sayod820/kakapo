@@ -606,6 +606,13 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         await persistSoftPosSnapshot()
       }
       if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
+
+      // Server→Desktop: shift counters can advance while sale rows were skipped by
+      // pos-lite cursor. Repair is projection-only (no stock/finance/outbox).
+      try {
+        const { maybeRepairPosSalesInboundAfterMerge } = await import('./posSalesInboundRepair')
+        await maybeRepairPosSalesInboundAfterMerge({ reason: 'soft_sync_pos' })
+      } catch { /* ignore */ }
     } catch { /* нет связи — локальный чек уже на экране */ }
     finally {
       posSoftSyncLastAt = Date.now()

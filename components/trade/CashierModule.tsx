@@ -1778,7 +1778,12 @@ export default function CashierModule({
 
   // При старте — только лёгкая дельта чеков; каталог/клиенты уже через useApiSync + /sync/changes
   useEffect(() => {
-    void softSyncPosAfterSale()
+    void softSyncPosAfterSale().then(() => {
+      // If lite cursor skipped sale rows while shift counters advanced — backfill projection
+      void import('@/lib/posSalesInboundRepair')
+        .then(m => m.repairPosSalesInboundFromServer({ reason: 'cashier_startup', force: true }))
+        .catch(() => {})
+    })
   }, [])
 
   // Имя сотрудника Trade → кассир (если в настройках ещё «Кассир»)
