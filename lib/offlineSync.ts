@@ -69,7 +69,6 @@ let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 /** Отпечаток очереди после flush без прогресса — не долбить каждые 2с */
 let lastStuckFingerprint = ''
 let lastStuckAt = 0
-let lastProgressAt = 0
 
 /** Слабый интернет: ping дольше; при очереди крутим умеренно, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
@@ -206,9 +205,12 @@ function isTransientFailError(err: string): boolean {
   return /нет связи|сеть недоступ|timeout|timed?\s*out|не отвечает|failed to fetch|networkerror|network request|ECONN|ETIMEDOUT|ENOTFOUND|502|503|504|временно недоступ|abort/i.test(err)
 }
 
-/** Явные ошибки валидации / блокировки — бессмысленно долбить бесконечно в фоне */
+/**
+ * Явные ошибки валидации / блокировки — бессмысленно долбить бесконечно в фоне.
+ * «Смена не найдена» сюда НЕ входит: смена может уехать на сервер следующей операцией.
+ */
 function isHardValidationError(err: string): boolean {
-  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|уже меняли|уже погашали|не приняли|верси.*ожидали|связанная операция|сначала дождитесь|поставщик не найден|товар #|смена не найдена|смена уже закрыта|недостаточно|нечего возвращать|чек не найден/i.test(err)
+  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|связанная операция|сначала дождитесь|поставщик не найден|товар #|смена уже закрыта|недостаточно|нечего возвращать|чек не найден/i.test(err)
 }
 
 function queueFingerprint(list: PendingOp[]): string {
@@ -327,7 +329,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       if (res.sent > 0) {
         lastStuckFingerprint = ''
         lastStuckAt = 0
-        lastProgressAt = Date.now()
         resetBackoff()
       } else if (get().pending > 0 || get().failed > 0) {
         // Тот же набор ops без прогресса — длинная пауза, не крутить каждые 2с

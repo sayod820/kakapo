@@ -1305,7 +1305,7 @@ export async function debtRepaySafe(
   // Браузер: сразу API, без очереди
   if (!isTradeLocalFirst()) {
     const run = (async (): Promise<OfflineResult<DebtRepayResult>> => {
-      const res = await api.debtRepayCard(num, {
+      const call = (ver: number | undefined) => api.debtRepayCard(num, {
         amount,
         method,
         note: input.note,
@@ -1315,8 +1315,20 @@ export async function debtRepaySafe(
         posId: input.posId,
         clientId: input.clientId,
         clientRef,
-        expectedDebtPayVersion,
+        expectedDebtPayVersion: ver,
       } as any)
+      let res: unknown
+      try {
+        res = await call(expectedDebtPayVersion)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Локальная версия карты устарела — обновить с сервера и повторить один раз
+        if (!/уже погашали|уже меняли|верси.*ожидали/i.test(msg)) throw e
+        const { refreshCardDebtPayVersion } = await import('./offline')
+        const fresh = await refreshCardDebtPayVersion(num)
+        if (fresh == null) throw e
+        res = await call(fresh)
+      }
       const nextDebt = round2(Number((res as any)?.card?.debt ?? Math.max(0, input.prevDebt - amount)))
       const bonusEarned = Math.max(0, Math.floor(Number((res as any)?.bonusEarned) || 0))
       useCardStore.getState().updateCardLoyalty(
@@ -1441,14 +1453,23 @@ export function revertLocalDebtRepayOnReject(payload: {
       }
     }
   }
+  // Версию НЕ понижаем: иначе следующая попытка снова уйдёт со старой версией
+  // и погашение не пройдёт никогда. Актуальную берём с сервера.
+  const curVer = Math.max(
+    0,
+    Number(useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.debtPayVersion) || 0,
+  )
   useCardStore.getState().updateCardLoyalty(
     num,
-    { debt: prevDebt, debtPayVersion: ver },
+    { debt: prevDebt, debtPayVersion: Math.max(curVer, ver) },
     { skipApi: true },
   )
   if (payload.clientId) {
     useClientStore.getState().updateClient(String(payload.clientId), { debt: prevDebt }, { skipApi: true })
   }
+  void import('./offline')
+    .then(({ refreshCardDebtPayVersion }) => refreshCardDebtPayVersion(num))
+    .catch(() => {})
 
   const histKey = String(payload.histKey || '').trim()
     || debtAccountKey({

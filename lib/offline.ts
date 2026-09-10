@@ -1068,6 +1068,31 @@ async function refreshSalePayVersions(payload: Record<string, unknown>): Promise
   return true
 }
 
+/**
+ * Конфликт версии погашения: взять текущую debtPayVersion карты с сервера.
+ * Без этого откат ставит старую версию и погашение не проходит НИКОГДА.
+ */
+export async function refreshCardDebtPayVersion(cardNum: string): Promise<number | null> {
+  const num = String(cardNum || '').trim()
+  if (!num) return null
+  const { cardNumsMatch } = await import('./cardCrm')
+  try {
+    const list = await api.getCards()
+    const card = (Array.isArray(list) ? list : []).find(
+      (c: { num?: string }) => cardNumsMatch(String(c.num || ''), num),
+    )
+    if (!card) return null
+    const ver = Math.max(0, Number((card as { debtPayVersion?: number }).debtPayVersion) || 0)
+    try {
+      const { useCardStore } = await import('./cardStore')
+      useCardStore.getState().updateCardLoyalty(num, { debtPayVersion: ver } as any, { skipApi: true })
+    } catch { /* ignore */ }
+    return ver
+  } catch {
+    return null
+  }
+}
+
 /** Отправка одной операции. Возвращает id созданной записи, если он есть. */
 async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
@@ -1215,7 +1240,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'debt_repay': {
       const p = await resolveRefs(row.payload, ['shiftId'])
-      await api.debtRepayCard(String(p.num), {
+      const send = (ver: unknown) => api.debtRepayCard(String(p.num), {
         clientRef: p.clientRef,
         amount: Number(p.amount) || 0,
         method: p.method,
@@ -1227,8 +1252,23 @@ async function sendOp(row: PendingOp): Promise<string> {
         appliedLocal: true,
         skipBalances: true,
         nextDebt: p.nextDebt,
-        expectedDebtPayVersion: p.expectedDebtPayVersion != null ? Number(p.expectedDebtPayVersion) : undefined,
+        expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
       } as any)
+      try {
+        await send(p.expectedDebtPayVersion)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Долг уже погашали на другой кассе — взять актуальную версию и повторить 1 раз
+        if (!/уже погашали|уже меняли|верси.*ожидали/i.test(msg)) throw e
+        const ver = await refreshCardDebtPayVersion(String(p.num))
+        if (ver == null) throw e
+        try {
+          const live = { ...(row.payload as Record<string, unknown>), expectedDebtPayVersion: ver }
+          row.payload = live as PendingOp['payload']
+          await putPending(row)
+        } catch { /* ignore */ }
+        await send(ver)
+      }
       return ''
     }
     case 'finance_move': {
@@ -1922,13 +1962,16 @@ export async function flushQueue(
               if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(err)) {
                 const verTries = Number((p as any)._verRefreshTries) || 0
                 if (verTries < 2) {
+                  let refreshed = false
                   try {
-                    await refreshSalePayVersions(p)
-                    live.payload = { ...p, _verRefreshTries: verTries + 1 }
-                    live.failed = true
-                    live.lastError = err
-                    live.nextRetryAt = Date.now() + pendingRetryDelayMs(Math.max(live.attempts, verTries + 1))
+                    refreshed = await refreshSalePayVersions(p)
                   } catch { /* оставить failed */ }
+                  live.payload = { ...p, _verRefreshTries: verTries + 1 }
+                  // Версии обновлены → чек снова готов к отправке, но с паузой
+                  // (failed=true оставлять нельзя: он в hard-валидации и не оживёт сам)
+                  live.failed = !refreshed
+                  live.lastError = refreshed ? '' : err
+                  live.nextRetryAt = Date.now() + pendingRetryDelayMs(verTries + 1)
                   await putPending(live)
                   liveByRef.set(live.clientRef, live)
                   failed++
