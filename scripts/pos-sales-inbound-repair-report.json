@@ -1,0 +1,77 @@
+{
+  "title": "POS sales inbound repair",
+  "generatedAtIso": "2026-09-10T13:50:35.964Z",
+  "rootCause": "pos-lite cursor can advance via shifts/CRM while sale rows with older stamps were never merged; UI history filters sales[] by shiftId while reports use shift.salesCash",
+  "passed": 17,
+  "failed": 0,
+  "results": [
+    {
+      "name": "A local+remote same clientRef → one receipt",
+      "status": "PASS"
+    },
+    {
+      "name": "B server sales missing locally → restored",
+      "status": "PASS"
+    },
+    {
+      "name": "C 20 server sales → exactly 20",
+      "status": "PASS"
+    },
+    {
+      "name": "D idempotent merge 10× → still 20",
+      "status": "PASS"
+    },
+    {
+      "name": "E offline local + server sales preserved",
+      "status": "PASS"
+    },
+    {
+      "name": "F repair persists pos_snapshot (force)",
+      "status": "PASS"
+    },
+    {
+      "name": "G gap detect when shift.salesCount > local sales",
+      "status": "PASS"
+    },
+    {
+      "name": "H current shift filter shows matching shiftId only",
+      "status": "PASS"
+    },
+    {
+      "name": "I other shift excluded from current",
+      "status": "PASS"
+    },
+    {
+      "name": "J returned sales excluded from local count",
+      "status": "PASS"
+    },
+    {
+      "name": "K/L repair projection-only (no stock/loyalty/outbox)",
+      "status": "PASS"
+    },
+    {
+      "name": "wired softSync + syncPull + cashier startup",
+      "status": "PASS"
+    },
+    {
+      "name": "mergeSalesInbound still preserves off-* on full (source)",
+      "status": "PASS"
+    },
+    {
+      "name": "Reports money can come from shift.salesCash (explains empty history)",
+      "status": "PASS"
+    },
+    {
+      "name": "filterSalesForGapRepair keeps shift 6968 rows",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase6 push/pull gate",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase5 atomic sale",
+      "status": "PASS"
+    }
+  ]
+}
