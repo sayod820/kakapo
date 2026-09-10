@@ -13,6 +13,7 @@ import {
   enqueueSale,
   enqueueOp,
   retryPending,
+  pendingRetryDelayMs,
   type PendingOp,
   type PosSalePayload,
   type QueueKind,
@@ -65,17 +66,25 @@ let reconnectAttempt = 0
 let listenersBound = false
 let syncLock = false
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
+/** Отпечаток очереди после flush без прогресса — не долбить каждые 2с */
+let lastStuckFingerprint = ''
+let lastStuckAt = 0
+let lastProgressAt = 0
 
-/** Слабый интернет: ping дольше; при очереди крутим часто, в покое — тихо */
+/** Слабый интернет: ping дольше; при очереди крутим умеренно, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
 const PING_QUICK_MS = 2800
 /** Простой онлайн без очереди: ping/refresh не чаще этого */
 const POLL_IDLE_MS = 25000
-/** Есть pending/failed или офлайн — догоняем часто (как чинили) */
-const POLL_BUSY_MS = 4000
-const BACKOFF_MS = [1500, 2500, 4000, 6000, 10000, 15000, 25000]
+/** Есть pending/failed или офлайн — догоняем, но не каждые 4с (UI замирает) */
+const POLL_BUSY_MS = 12000
+/** Если flush ничего не сдвинул — пауза перед следующим syncNow */
+const STUCK_COOLDOWN_MS = 45000
+const BACKOFF_MS = [2500, 4000, 7000, 12000, 20000, 30000, 45000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
+/** Фон: сколько раз auto-revive failed (дальше — только forceSync) */
+const AUTO_RETRY_MAX_ATTEMPTS = 5
 
 /** Реальная проверка связи с API — не зависит от navigator.onLine */
 async function pingOnce(url: string, timeoutMs: number): Promise<boolean> {
@@ -166,12 +175,12 @@ function scheduleReconnect(
     void (async () => {
       // Если сейчас идёт flush — не бросаем цепочку, повторим чуть позже
       if (get().syncing || syncLock) {
-        scheduleReconnect(get, set, 1500)
+        scheduleReconnect(get, set, 4000)
         return
       }
       // Оплата/пробитие — ждём; поиск кассы не должен блокировать отправку очереди
       if (isCashierPaymentCritical()) {
-        scheduleReconnect(get, set, 2000)
+        scheduleReconnect(get, set, 2500)
         return
       }
       // При слабом интернете ping может врать — если есть очередь, всё равно syncNow
@@ -183,7 +192,8 @@ function scheduleReconnect(
         return
       }
       if (alive) {
-        resetBackoff()
+        // Не сбрасываем backoff при застрявшей очереди — иначе вечный 2с цикл
+        if (!hasWork) resetBackoff()
         set({ online: true })
       }
       await get().syncNow()
@@ -191,14 +201,32 @@ function scheduleReconnect(
   }, wait)
 }
 
+/** Только реальная сеть / 5xx — не «связанная операция» и не «смена не найдена» */
 function isTransientFailError(err: string): boolean {
-  return /сеть|связ|timeout|не отвечает|fetch|network|ECONN|ETIMEDOUT|502|503|504|смена|связанная операция|не найдена|временно|abort/i.test(err)
+  return /нет связи|сеть недоступ|timeout|timed?\s*out|не отвечает|failed to fetch|networkerror|network request|ECONN|ETIMEDOUT|ENOTFOUND|502|503|504|временно недоступ|abort/i.test(err)
 }
 
-/** Явные ошибки валидации — бессмысленно долбить бесконечно в фоне */
+/** Явные ошибки валидации / блокировки — бессмысленно долбить бесконечно в фоне */
 function isHardValidationError(err: string): boolean {
-  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|уже меняли|уже погашали|не приняли|верси.*ожидали/i.test(err)
-    && !isTransientFailError(err)
+  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|уже меняли|уже погашали|не приняли|верси.*ожидали|связанная операция|сначала дождитесь|поставщик не найден|товар #|смена не найдена|смена уже закрыта|недостаточно|нечего возвращать|чек не найден/i.test(err)
+}
+
+function queueFingerprint(list: PendingOp[]): string {
+  return list
+    .map(r => `${r.clientRef}:${r.failed ? 1 : 0}:${r.attempts}:${String(r.lastError || '').slice(0, 40)}`)
+    .sort()
+    .join('|')
+}
+
+function earliestRetryWaitMs(list: PendingOp[]): number {
+  const now = Date.now()
+  let minWait = STUCK_COOLDOWN_MS
+  for (const row of list) {
+    const at = Number(row.nextRetryAt) || 0
+    if (at > now) minWait = Math.min(minWait, at - now)
+    else if (row.failed) minWait = Math.min(minWait, pendingRetryDelayMs(row.attempts))
+  }
+  return Math.max(5000, Math.min(STUCK_COOLDOWN_MS, minWait))
 }
 
 async function autoRetryFailed(opts?: { forceAll?: boolean }): Promise<number> {
@@ -206,18 +234,26 @@ async function autoRetryFailed(opts?: { forceAll?: boolean }): Promise<number> {
   try {
     const list = await getPending()
     const forceAll = !!opts?.forceAll
+    const now = Date.now()
     for (const row of list) {
       if (!row.failed) continue
       const err = String(row.lastError || '')
       const attempts = Number(row.attempts) || 0
-      // Обычный фон: почти всё возвращаем; жёсткую валидацию — только с force
-      if (
-        forceAll
-        || !err
-        || isTransientFailError(err)
-        || attempts < 12
-        || !isHardValidationError(err)
-      ) {
+      const nextAt = Number(row.nextRetryAt) || 0
+      if (!forceAll && nextAt > now) continue
+
+      if (forceAll) {
+        await retryPending(row.clientRef)
+        n++
+        continue
+      }
+
+      // Жёсткая валидация / broken-ref — только ручной forceSync
+      if (err && isHardValidationError(err) && !isTransientFailError(err)) continue
+      // Фон: не больше N попыток на op
+      if (attempts >= AUTO_RETRY_MAX_ATTEMPTS) continue
+      // Только сеть/пусто/ранние попытки
+      if (!err || isTransientFailError(err) || attempts < 2) {
         await retryPending(row.clientRef)
         n++
       }
@@ -261,7 +297,13 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     // Не блокируем flush по navigator.onLine — сначала пробуем отправить
     set({ syncing: true, lastError: null, progress: { done: 0, total: Math.max(1, get().pending) } })
     try {
-      const res = await flushQueue((done, total) => set({ progress: { done, total } }))
+      let lastProg = 0
+      const res = await flushQueue((done, total) => {
+        const t = Date.now()
+        if (t - lastProg < 280 && done < total) return
+        lastProg = t
+        set({ progress: { done, total } })
+      })
       let online = true
       if (res.stopped) {
         online = await pingServer({ quick: true })
@@ -279,6 +321,27 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           : (res.remaining > 0 && res.failed > 0 ? 'Часть операций отклонена' : null),
       })
       await get().refresh()
+
+      const list = get().items
+      const fp = queueFingerprint(list)
+      if (res.sent > 0) {
+        lastStuckFingerprint = ''
+        lastStuckAt = 0
+        lastProgressAt = Date.now()
+        resetBackoff()
+      } else if (get().pending > 0 || get().failed > 0) {
+        // Тот же набор ops без прогресса — длинная пауза, не крутить каждые 2с
+        if (fp && fp === lastStuckFingerprint) {
+          lastStuckAt = Date.now()
+        } else {
+          lastStuckFingerprint = fp
+          lastStuckAt = Date.now()
+        }
+      } else {
+        lastStuckFingerprint = ''
+        lastStuckAt = 0
+      }
+
       if (res.sent > 0 || (res.remaining === 0 && online)) {
         // Только после пустой/успешной очереди — входящий pull (не overwrite поверх pending)
         if (get().pending === 0 && online) {
@@ -303,7 +366,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         }
       }
       if (get().pending > 0 || get().failed > 0) {
-        scheduleReconnect(get, set, online ? 2000 : undefined)
+        const wait = res.sent > 0
+          ? 3000
+          : Math.max(earliestRetryWaitMs(list), online ? STUCK_COOLDOWN_MS : nextBackoffMs())
+        scheduleReconnect(get, set, wait)
       } else if (!online) {
         scheduleReconnect(get, set)
       } else {
@@ -322,6 +388,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   queueSale: async (payload) => {
     await enqueueSale(payload)
+    lastStuckFingerprint = ''
+    lastStuckAt = 0
     void get().refresh()
     // Сразу пробуем уйти на сервер (не ждём 10с опроса)
     scheduleReconnect(get, set, 600)
@@ -329,6 +397,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   queueOp: async (kind, payload, opts) => {
     const row = await enqueueOp(kind, payload, opts)
+    lastStuckFingerprint = ''
+    lastStuckAt = 0
     // Не ждём полный getPending — иначе «Пробить» тормозит на SQLite
     void get().refresh()
     scheduleReconnect(get, set, 600)
@@ -358,12 +428,26 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   syncNow: async () => {
     if (syncLock || get().syncing) {
-      scheduleReconnect(get, set, 2000)
+      // Не ставим новый таймер на каждый клик — один reconnect уже в полёте
+      if (!reconnectTimer) scheduleReconnect(get, set, 4000)
       return
     }
     // Только оплата/пробитие — полный стоп. Поиск кассы НЕ блокирует отправку очереди.
     if (isCashierPaymentCritical()) {
-      scheduleReconnect(get, set, 2000)
+      scheduleReconnect(get, set, 2500)
+      return
+    }
+
+    // Застрявшая очередь без прогресса — не крутить softSync+flush каждые пару секунд
+    if (
+      lastStuckFingerprint
+      && lastStuckAt > 0
+      && Date.now() - lastStuckAt < STUCK_COOLDOWN_MS
+      && (get().pending > 0 || get().failed > 0)
+    ) {
+      if (!reconnectTimer) {
+        scheduleReconnect(get, set, STUCK_COOLDOWN_MS - (Date.now() - lastStuckAt))
+      }
       return
     }
 
@@ -376,7 +460,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       // Слабый интернет: ping часто «врёт» (timeout). Есть очередь — всё равно шлём.
       const alive = await pingServer({ quick: !hasWork })
       if (alive) {
-        resetBackoff()
+        if (!hasWork) resetBackoff()
         set({ online: true, lastError: null })
       } else if (!hasWork) {
         set({ online: false, lastError: 'Сервер не отвечает — ждём связь, пробуем сами' })
@@ -388,46 +472,37 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       }
 
       if (isCashierPaymentCritical()) {
-        scheduleReconnect(get, set, 2000)
+        scheduleReconnect(get, set, 2500)
         return
       }
 
-      // Вернуть failed в очередь (авто, без кнопки)
+      // Вернуть failed в очередь (авто, с лимитом и nextRetryAt)
       const revived = await autoRetryFailed()
       if (revived > 0) await get().refresh()
 
       if (isCashierPaymentCritical()) {
-        scheduleReconnect(get, set, 2000)
+        scheduleReconnect(get, set, 2500)
         return
       }
 
-      // Входящие чеки с сервера — даже при фокусе в поиске (иначе браузер→ПК не доходит).
-      // Блокируем только реальное пробитие/оплату.
-      if (alive && !isCashierPaymentCritical()) {
-        try {
-          const { softSyncPosAfterSale } = await import('./posStore')
-          await Promise.race([
-            softSyncPosAfterSale({ force: true }),
-            new Promise(resolve => setTimeout(resolve, 8000)),
-          ])
-        } catch { /* ignore */ }
-      }
-
-      if (isCashierPaymentCritical()) {
-        scheduleReconnect(get, set, 2000)
-        return
-      }
-
+      // Исходящая очередь: сначала только flush — softSync до flush тормозит UI и мешает отправке
       if (get().pending > 0) {
+        const beforeFp = queueFingerprint(get().items)
+        const beforePending = get().pending
         await get().flush()
-        // После flush снова подтянуть продажи (чеки с других клиентов)
-        if (alive && !isCashierPaymentCritical()) {
+        // Входящий softSync — только если очередь реально сдвинулась
+        if (
+          alive
+          && !isCashierPaymentCritical()
+          && (get().pending < beforePending || beforeFp !== queueFingerprint(get().items))
+        ) {
           try {
             const { softSyncPosAfterSale } = await import('./posStore')
             void softSyncPosAfterSale({ force: true })
           } catch { /* ignore */ }
         }
       } else if (alive && !searchBusy) {
+        // Нет исходящих — лёгкий pull (не force softSync каждый раз)
         set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
         try {
           const { pullSyncChanges } = await import('./syncPull')
@@ -444,7 +519,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       }
 
       if (get().pending > 0 || get().failed > 0 || !get().online) {
-        scheduleReconnect(get, set, get().online ? 2500 : undefined)
+        const wait = lastStuckFingerprint
+          ? Math.max(earliestRetryWaitMs(get().items), STUCK_COOLDOWN_MS)
+          : (get().online ? 8000 : undefined)
+        scheduleReconnect(get, set, wait)
       }
     }
 
@@ -456,7 +534,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         lastError: e instanceof Error ? e.message : 'Синхронизация прервана — повторим сами',
         progress: { done: 0, total: 0 },
       })
-      scheduleReconnect(get, set, 3000)
+      scheduleReconnect(get, set, 8000)
     } finally {
       syncLock = false
       if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
@@ -482,6 +560,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       return
     }
 
+    lastStuckFingerprint = ''
+    lastStuckAt = 0
     syncLock = true
     set({ lastError: 'Принудительная синхронизация…' })
 
@@ -502,7 +582,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       }
 
       // Несколько кругов: слабый интернет + «смена не найдена»
-      const rounds = 4
+      const rounds = 3
       for (let round = 0; round < rounds; round++) {
         await get().refresh()
         if (get().pending === 0 && get().failed === 0) break
@@ -516,13 +596,6 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         if (alive) {
           resetBackoff()
           set({ online: true })
-          try {
-            const { softSyncPosAfterSale } = await import('./posStore')
-            await Promise.race([
-              softSyncPosAfterSale({ force: true }),
-              new Promise(resolve => setTimeout(resolve, 3500)),
-            ])
-          } catch { /* ignore */ }
         } else {
           set({ lastError: 'Слабая связь — принудительно пробуем отправить…' })
         }
@@ -551,9 +624,9 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
         // Прогресс есть — ещё круг; нет — пауза и ещё попытка
         if (after >= before) {
-          await new Promise(r => setTimeout(r, 1200 + round * 800))
+          await new Promise(r => setTimeout(r, 2000 + round * 1000))
         } else {
-          await new Promise(r => setTimeout(r, 400))
+          await new Promise(r => setTimeout(r, 500))
         }
       }
 
@@ -564,7 +637,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
             ? 'Часть операций ещё не ушла — отправим снова сами'
             : 'Очередь ещё ждёт связь — пробуем сами',
         })
-        scheduleReconnect(get, set, 2000)
+        scheduleReconnect(get, set, STUCK_COOLDOWN_MS)
       } else {
         set({ lastError: null, lastSyncAtIso: new Date().toISOString() })
       }
@@ -578,7 +651,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         lastError: e instanceof Error ? e.message : 'Принудительная синхронизация прервана',
         progress: { done: 0, total: 0 },
       })
-      scheduleReconnect(get, set, 2500)
+      scheduleReconnect(get, set, 8000)
     } finally {
       syncLock = false
       if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
@@ -667,7 +740,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           return
         }
 
-        // Очередь / офлайн — частый догон (критичные пути не трогаем)
+        // Очередь / офлайн — редкий догон (не каждые 4с: иначе UI замирает на 6 ops)
+        if (lastStuckFingerprint && Date.now() - lastStuckAt < STUCK_COOLDOWN_MS) {
+          return
+        }
         await get().refresh()
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')

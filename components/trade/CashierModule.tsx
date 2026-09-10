@@ -1879,7 +1879,7 @@ export default function CashierModule({
     return () => window.clearTimeout(t)
   }, [busy])
 
-  /** Очередь офлайна — без дубля softSync (его уже тянет useApiSync / WS) */
+  /** Очередь офлайна — kick только при появлении работы; частый poll уже в offlineSync.start */
   useEffect(() => {
     if (!USE_API || !active) return
     let cancelled = false
@@ -1892,14 +1892,12 @@ export default function CashierModule({
       }
     }
     kickQueue()
-    const id = window.setInterval(kickQueue, 25000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') kickQueue()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
-      window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [active])

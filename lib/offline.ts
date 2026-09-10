@@ -103,11 +103,19 @@ export interface PendingOp<P = any> {
   lastError?: string
   /** true — сервер отклонил; касса повторит отправку, удалять нельзя */
   failed?: boolean
+  /** Не слать / не revive до этого времени (мс) — антиспам одной и той же op */
+  nextRetryAt?: number
   /**
    * Временный id, под которым операция уже показана в интерфейсе.
    * После отправки сопоставляется с настоящим id с сервера.
    */
   localId?: string
+}
+
+/** Пауза перед повтором одной операции (экспонента по attempts). */
+export function pendingRetryDelayMs(attempts: number): number {
+  const n = Math.max(0, Math.min(Number(attempts) || 0, 8))
+  return Math.min(120_000, Math.round(2_500 * (2 ** n)))
 }
 
 /** Старое название — чек в очереди */
@@ -322,6 +330,7 @@ function normalizeRow(row: any): PendingOp {
     attempts: Number(row?.attempts) || 0,
     lastError: row?.lastError,
     failed: !!row?.failed,
+    nextRetryAt: Number(row?.nextRetryAt) > 0 ? Number(row.nextRetryAt) : undefined,
     localId: row?.localId,
   }
 }
@@ -561,6 +570,7 @@ export async function retryPending(clientRef: string): Promise<void> {
   if (!row) return
   row.failed = false
   row.lastError = ''
+  row.nextRetryAt = undefined
   await putPending(row)
 }
 
@@ -1798,14 +1808,32 @@ export async function flushQueue(
   let stopped = false
   try {
     const all = await getPending()
-    const queue = all.filter(r => !r.failed).sort(byOrder)
+    const now = Date.now()
+    // Не шлём ops на cooldown — иначе одни и те же 6 строк крутятся без паузы
+    const queue = all
+      .filter(r => !r.failed && !(Number(r.nextRetryAt) > now))
+      .sort(byOrder)
     const total = queue.length
     let done = 0
+    let lastProgressAt = 0
+    const reportProgress = (force = false) => {
+      const t = Date.now()
+      if (!force && t - lastProgressAt < 280 && done < total) return
+      lastProgressAt = t
+      onProgress?.(done, total)
+    }
+    // Снимок id → row; не читаем getPending на каждую строку (тормозит UI)
+    const liveByRef = new Map(all.map(r => [r.clientRef, r]))
     for (const row of queue) {
-      const live = (await getPending()).find(r => r.clientRef === row.clientRef)
-      if (!live) {
+      const live = liveByRef.get(row.clientRef)
+      if (!live || live.failed) {
         done++
-        onProgress?.(done, total)
+        reportProgress()
+        continue
+      }
+      if (Number(live.nextRetryAt) > Date.now()) {
+        done++
+        reportProgress()
         continue
       }
       try {
@@ -1815,6 +1843,7 @@ export async function flushQueue(
           await applyLocalIdRemap(live.kind, live.localId, serverId)
         }
         await deletePending(live.clientRef)
+        liveByRef.delete(live.clientRef)
         if (
           live.kind === 'sale'
           || live.kind === 'sale_return'
@@ -1844,6 +1873,7 @@ export async function flushQueue(
         live.attempts += 1
         live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
         live.failed = true
+        live.nextRetryAt = Date.now() + pendingRetryDelayMs(live.attempts)
         // Конфликт версии / нет остатка / нет денег — откатить локально, чтобы UI не врал
         const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
         if (rejectRe.test(live.lastError)) {
@@ -1867,9 +1897,10 @@ export async function flushQueue(
               revertLocalDebtRepayOnReject(p as any)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'card_topup') {
               const p = (live.payload || {}) as Record<string, unknown>
@@ -1878,34 +1909,51 @@ export async function flushQueue(
               revertLocalCardTopupOnReject(p as any)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'sale') {
               const p = (live.payload || {}) as Record<string, unknown>
               const err = String(live.lastError || '')
-              // Конфликт версии долга/бонусов — НЕ стираем чек (иначе «было 16, купил 91 → снова 16»)
+              // Конфликт версии долга/бонусов — обновим версии, но оставим failed + cooldown
+              // (раньше failed=false → бесконечный flush тех же 6 ops)
               if (/долг клиента уже меняли|бонусы уже меняли|верси.*ожидали/i.test(err)) {
-                try {
-                  await refreshSalePayVersions(p)
-                  live.payload = p
-                  live.failed = false
-                  live.lastError = ''
-                } catch { /* оставить failed, но чек и долг локально сохраняем */ }
+                const verTries = Number((p as any)._verRefreshTries) || 0
+                if (verTries < 2) {
+                  try {
+                    await refreshSalePayVersions(p)
+                    live.payload = { ...p, _verRefreshTries: verTries + 1 }
+                    live.failed = true
+                    live.lastError = err
+                    live.nextRetryAt = Date.now() + pendingRetryDelayMs(Math.max(live.attempts, verTries + 1))
+                  } catch { /* оставить failed */ }
+                  await putPending(live)
+                  liveByRef.set(live.clientRef, live)
+                  failed++
+                  done++
+                  reportProgress()
+                  continue
+                }
+                // После 2 обновлений версий — паркуем до ручного forceSync
+                live.failed = true
+                live.nextRetryAt = Date.now() + 120_000
                 await putPending(live)
+                liveByRef.set(live.clientRef, live)
                 failed++
                 done++
-                onProgress?.(done, total)
+                reportProgress()
                 continue
               }
               const { revertLocalSaleOnReject } = await import('./offlinePosOps')
               revertLocalSaleOnReject(p, live.localId)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'sale_return') {
               const p = (live.payload || {}) as Record<string, unknown>
@@ -1913,9 +1961,10 @@ export async function flushQueue(
               revertLocalSaleReturnOnReject(p)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'finance_move') {
               const { revertLocalFinanceMoveOnReject } = await import('./offlinePosOps')
@@ -1923,9 +1972,10 @@ export async function flushQueue(
               if (id) revertLocalFinanceMoveOnReject(id)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'vault_card_to_cash' || live.kind === 'vault_cash_to_card') {
               const p = (live.payload || {}) as Record<string, unknown>
@@ -1933,9 +1983,10 @@ export async function flushQueue(
               revertLocalVaultConvertOnReject(p)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'expense_create') {
               const { revertLocalExpenseOnReject } = await import('./offlinePosOps')
@@ -1943,9 +1994,10 @@ export async function flushQueue(
               if (id) revertLocalExpenseOnReject(id)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'stock_receipt_create') {
               const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
@@ -1953,9 +2005,10 @@ export async function flushQueue(
               if (id) await revertLocalStockReceiptCreateOnReject(id)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'stock_writeoff_create') {
               const { revertLocalStockWriteoffCreateOnReject } = await import('./offlineWarehouseOps')
@@ -1963,9 +2016,10 @@ export async function flushQueue(
               if (id) await revertLocalStockWriteoffCreateOnReject(id)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'stock_revision_create') {
               const { revertLocalStockRevisionCreateOnReject } = await import('./offlineWarehouseOps')
@@ -1973,9 +2027,10 @@ export async function flushQueue(
               if (id) await revertLocalStockRevisionCreateOnReject(id)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'product_upsert') {
               const p = (live.payload || {}) as Record<string, unknown>
@@ -1983,9 +2038,10 @@ export async function flushQueue(
               revertLocalProductUpsertOnReject(p)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'client_upsert') {
               const p = (live.payload || {}) as Record<string, unknown>
@@ -1993,9 +2049,10 @@ export async function flushQueue(
               revertLocalClientUpsertOnReject(p)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             } else if (live.kind === 'shift_open') {
               // Сервер: уже есть открытая смена — убрать локальный дубль и вернуть размен
@@ -2010,20 +2067,23 @@ export async function flushQueue(
                 void persistPosSnapshot()
               }
               await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
               failed++
               done++
-              onProgress?.(done, total)
+              reportProgress()
               continue
             }
             void persistPosSnapshot()
           } catch { /* ignore */ }
         }
         await putPending(live)
+        liveByRef.set(live.clientRef, live)
         failed++
       }
       done++
-      onProgress?.(done, total)
+      reportProgress()
     }
+    reportProgress(true)
   } finally {
     flushing = false
   }
