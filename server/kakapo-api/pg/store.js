@@ -3,11 +3,52 @@
 /**
  * Persist in-memory DB snapshot to PostgreSQL (docs + kv_meta).
  * UPSERT — не DELETE всей базы на каждый persist (очередь кассы 3+ дня).
+ *
+ * FIX C: append/event collections are never pruned by snapshot absence.
+ * Explicit deletes go through deleteDoc / pendingDeletes.
  */
 
 import { withTransaction } from './client.js'
+import {
+  classifyUniqueViolation,
+  fetchDocByIdempotencyKey,
+  isKnownIdempotencyUniqueViolation,
+} from './uniqueIdempotency.js'
 
 const INSERT_BATCH = 200
+
+const UPSERT_SQL = `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
+ VALUES ($1, $2, $3::jsonb, $4, NOW())
+ ON CONFLICT (collection, id) DO UPDATE SET
+   data = EXCLUDED.data,
+   updated_at = NOW()`
+
+async function upsertOneDocRow(client, r) {
+  await client.query(UPSERT_SQL, [
+    r.key,
+    r.id,
+    JSON.stringify(r.data ?? null),
+    r.sortIdx,
+  ])
+}
+
+/**
+ * Append / event collections: UPSERT only.
+ * Missing from local snapshot MUST NOT delete PG rows (multi-writer safety).
+ */
+export const APPEND_NO_PRUNE_COLLECTIONS = Object.freeze([
+  'posSales',
+  'moneyLedger',
+  'financeMoves',
+  'opRefs',
+  'orders',
+])
+
+const NO_PRUNE = new Set(APPEND_NO_PRUNE_COLLECTIONS)
+
+export function isAppendNoPruneCollection(name) {
+  return NO_PRUNE.has(String(name || ''))
+}
 
 export function rowIdForItem(item, index) {
   if (item == null || typeof item !== 'object') return `__i${index}`
@@ -75,9 +116,20 @@ async function upsertMeta(client, metaEntries) {
   await client.query('DELETE FROM kv_meta WHERE NOT (key = ANY($1::text[]))', [keys])
 }
 
-async function upsertDocs(client, docRows, collections) {
-  for (let offset = 0; offset < docRows.length; offset += INSERT_BATCH) {
-    const chunk = docRows.slice(offset, INSERT_BATCH + offset)
+/**
+ * Upsert doc rows. For no-prune collections, ON CONFLICT (collection,id)
+ * preserves sort_idx (update does not touch sort_idx).
+ *
+ * FIX D: on SQLSTATE 23505 for known idempotency indexes, skip loser row,
+ * fetch existing by business key, and return conflicts for memory reconcile.
+ *
+ * @returns {Promise<Array<object>>} idempotency conflicts (may be empty)
+ */
+async function upsertDocRows(client, docRows) {
+  /** @type {Array<object>} */
+  const conflicts = []
+
+  async function upsertChunk(chunk) {
     const values = []
     const params = []
     let p = 1
@@ -90,18 +142,102 @@ async function upsertDocs(client, docRows, collections) {
        VALUES ${values.join(',')}
        ON CONFLICT (collection, id) DO UPDATE SET
          data = EXCLUDED.data,
-         sort_idx = EXCLUDED.sort_idx,
          updated_at = NOW()`,
       params,
     )
   }
 
+  async function resolveRowConflict(r, err) {
+    const classified = classifyUniqueViolation(err)
+    if (!classified?.known) throw err
+    const existing = await fetchDocByIdempotencyKey(client, classified.constraint, r.data)
+    if (!existing) throw err
+    conflicts.push({
+      constraint: classified.constraint,
+      collection: classified.collection,
+      attemptedId: r.id,
+      attemptedData: r.data,
+      existingId: existing.id,
+      existingData: existing.data,
+      _idempotentReplay: true,
+    })
+  }
+
+  async function upsertRowsOneByOne(rows) {
+    for (const r of rows) {
+      await client.query('SAVEPOINT fixd_upsert_row')
+      try {
+        await upsertOneDocRow(client, r)
+        await client.query('RELEASE SAVEPOINT fixd_upsert_row')
+      } catch (e) {
+        await client.query('ROLLBACK TO SAVEPOINT fixd_upsert_row')
+        if (!isKnownIdempotencyUniqueViolation(e)) throw e
+        await resolveRowConflict(r, e)
+      }
+    }
+  }
+
+  for (let offset = 0; offset < docRows.length; offset += INSERT_BATCH) {
+    const chunk = docRows.slice(offset, INSERT_BATCH + offset)
+    await client.query('SAVEPOINT fixd_upsert_batch')
+    try {
+      await upsertChunk(chunk)
+      await client.query('RELEASE SAVEPOINT fixd_upsert_batch')
+    } catch (e) {
+      await client.query('ROLLBACK TO SAVEPOINT fixd_upsert_batch')
+      if (!isKnownIdempotencyUniqueViolation(e)) throw e
+      // Batch hit expression UNIQUE — fall back to per-row with savepoints
+      await upsertRowsOneByOne(chunk)
+    }
+  }
+
+  return conflicts
+}
+
+async function applyExplicitDeletes(client, deletes) {
+  if (!Array.isArray(deletes) || !deletes.length) return
+  for (const d of deletes) {
+    const collection = String(d.collection || '').trim()
+    const id = String(d.id ?? '').trim()
+    if (!collection || !id) continue
+    await client.query(
+      'DELETE FROM docs WHERE collection = $1 AND id = $2',
+      [collection, id],
+    )
+  }
+}
+
+/**
+ * @param {import('pg').PoolClient} client
+ * @param {Array<{key:string,id:string,data:any,sortIdx:number}>} docRows
+ * @param {string[]} collections
+ * @param {{ noPruneCollections?: Iterable<string> }} [opts]
+ */
+async function upsertDocs(client, docRows, collections, opts = {}) {
+  const noPrune = new Set([
+    ...NO_PRUNE,
+    ...(opts.noPruneCollections ? [...opts.noPruneCollections] : []),
+  ])
+
+  const conflicts = await upsertDocRows(client, docRows)
+
+  // Do not prune using loser attempted ids that lost an idempotency race
+  const skipIds = new Set(
+    conflicts.map(c => `${c.collection}\0${c.attemptedId}`),
+  )
+
   const byCol = new Map()
   for (const r of docRows) {
+    if (skipIds.has(`${r.key}\0${r.id}`)) continue
     if (!byCol.has(r.key)) byCol.set(r.key, [])
     byCol.get(r.key).push(r.id)
   }
+
   for (const col of collections) {
+    if (noPrune.has(col)) {
+      // FIX C: empty or partial local array must NOT wipe / prune this collection
+      continue
+    }
     const ids = byCol.get(col) || []
     if (!ids.length) {
       await client.query('DELETE FROM docs WHERE collection = $1', [col])
@@ -112,21 +248,41 @@ async function upsertDocs(client, docRows, collections) {
       [col, ids],
     )
   }
+
+  // Drop unknown collections, but never drop protected append collections
+  // even if this snapshot omitted the key entirely.
+  const protectedList = [...noPrune]
   if (collections.length) {
     await client.query(
-      'DELETE FROM docs WHERE NOT (collection = ANY($1::text[]))',
-      [collections],
+      `DELETE FROM docs
+       WHERE NOT (collection = ANY($1::text[]))
+         AND NOT (collection = ANY($2::text[]))`,
+      [collections, protectedList],
     )
-  } else {
+  } else if (!protectedList.length) {
     await client.query('DELETE FROM docs')
+  } else {
+    await client.query(
+      'DELETE FROM docs WHERE NOT (collection = ANY($1::text[]))',
+      [protectedList],
+    )
   }
+
+  return conflicts
 }
 
 /**
  * @param {import('pg').PoolClient} client
  * @param {Record<string, any>} snapshot
+ * @param {{
+ *   noPruneCollections?: Iterable<string>,
+ *   deletes?: Array<{ collection: string, id: string }>,
+ * }} [opts]
  */
-export async function saveSnapshotToPg(client, snapshot) {
+/**
+ * @returns {Promise<{ conflicts: Array<object> }>}
+ */
+export async function saveSnapshotToPg(client, snapshot, opts = {}) {
   const metaEntries = []
   const docRows = []
   const collections = []
@@ -147,12 +303,41 @@ export async function saveSnapshotToPg(client, snapshot) {
   }
 
   await upsertMeta(client, metaEntries)
-  await upsertDocs(client, docRows, collections)
+  const conflicts = await upsertDocs(client, docRows, collections, opts)
+  await applyExplicitDeletes(client, opts.deletes || [])
+  return { conflicts: conflicts || [] }
 }
 
-/** Convenience: full save in a transaction */
-export async function persistSnapshot(snapshot) {
+/** Explicit single-row delete (append collections must use this, not snapshot absence). */
+export async function deleteDoc(collection, id) {
+  const col = String(collection || '').trim()
+  const docId = String(id ?? '').trim()
+  if (!col || !docId) return { ok: false, reason: 'missing_args' }
   await withTransaction(async client => {
-    await saveSnapshotToPg(client, snapshot)
+    await client.query(
+      'DELETE FROM docs WHERE collection = $1 AND id = $2',
+      [col, docId],
+    )
+  })
+  return { ok: true, collection: col, id: docId }
+}
+
+/**
+ * Convenience: full save in a transaction.
+ * @param {Record<string, any>} snapshot
+ * @param {{ deletes?: Array<{collection:string,id:string}>, noPruneCollections?: Iterable<string> }} [opts]
+ */
+/**
+ * @returns {Promise<{ conflicts: Array<object> }>}
+ */
+export async function persistSnapshot(snapshot, opts = {}) {
+  return withTransaction(async client => {
+    return saveSnapshotToPg(client, snapshot, opts)
   })
 }
+
+export {
+  classifyUniqueViolation,
+  isKnownIdempotencyUniqueViolation,
+  fetchDocByIdempotencyKey,
+} from './uniqueIdempotency.js'

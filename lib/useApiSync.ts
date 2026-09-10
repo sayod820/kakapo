@@ -12,6 +12,7 @@ import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
 import { getTradeDeviceIdSync } from './tradeDevice'
+import { createWsPullCoalescer } from './wsPullCoalesce'
 
 export type SyncMode = 'all' | 'assembler' | 'courier' | 'restaurant' | 'catalog' | 'pos'
 
@@ -20,8 +21,6 @@ const INTERVAL_MS = 12000
 const POS_INTERVAL_MS = 90000
 /** Чеки с сервера (браузер → ПК): дельта pos-lite, не полный список */
 const POS_SALES_INBOUND_MS = 35000
-/** Схлопываем пачки WS-событий, чтобы касса не дёргалась */
-const PULL_DEBOUNCE_MS = 600
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -32,61 +31,38 @@ function wsRoleForMode(mode: SyncMode) {
   return 'admin' as const
 }
 
-type PullKind = 'crm' | 'pos' | 'posSoft' | 'posWarehouse' | 'posFinance' | 'products'
-
-function createDebouncedPullers() {
-  const timers: Partial<Record<PullKind, ReturnType<typeof setTimeout>>> = {}
-  const pending = new Set<PullKind>()
-
-  function schedule(kind: PullKind, run: () => void) {
-    pending.add(kind)
-    if (timers[kind]) clearTimeout(timers[kind])
-    timers[kind] = setTimeout(() => {
-      pending.delete(kind)
-      delete timers[kind]
-      try { run() } catch (e) { console.error('[kakapo] pull failed', kind, e) }
-    }, PULL_DEBOUNCE_MS)
-  }
-
-  return {
-    crm: () => schedule('crm', () => {
-      // Дельта pos-lite (клиенты/карты), не полный getClients/getCards
+/** Phase 7: dirty-scope coalescer — crm + posSoft share one softSyncPosAfterSale runner. */
+function createPosPullers() {
+  return createWsPullCoalescer({
+    crmSoft: () => {
+      // Поиск кассы НЕ блокирует; оплата/пробитие — стоп
+      if (isCashierPaymentCritical()) return
       void softSyncPosAfterSale({ force: true })
-    }),
-    pos: () => schedule('pos', () => {
+    },
+    pos: () => {
       if (isCashierCritical()) return
       void import('./syncPull').then(({ pullSyncChanges }) => {
         void pullSyncChanges().catch(() => {})
       })
-    }),
-    products: () => schedule('products', () => {
+    },
+    products: () => {
       if (isCashierCritical()) return
       void useProducts.getState().fetchProducts()
-    }),
-    posSoft: () => schedule('posSoft', () => {
-      // Поиск кассы НЕ блокирует: иначе чек с браузера не доходит, пока курсор в поиске
-      if (isCashierPaymentCritical()) return
-      void softSyncPosAfterSale({ force: true })
-    }),
-    posWarehouse: () => schedule('posWarehouse', () => {
+    },
+    posWarehouse: () => {
       if (isCashierPaymentCritical()) return
       void softSyncWarehouse()
-    }),
-    posFinance: () => schedule('posFinance', () => {
+    },
+    posFinance: () => {
       if (isCashierPaymentCritical()) return
       void softSyncFinance()
-    }),
-    flushAll: () => {
-      for (const t of Object.values(timers)) if (t) clearTimeout(t)
-      for (const k of Object.keys(timers) as PullKind[]) delete timers[k]
-      pending.clear()
     },
-  }
+  })
 }
 
 export function useApiSync(mode: SyncMode = 'all') {
-  const pullersRef = useRef<ReturnType<typeof createDebouncedPullers> | null>(null)
-  if (!pullersRef.current) pullersRef.current = createDebouncedPullers()
+  const pullersRef = useRef<ReturnType<typeof createPosPullers> | null>(null)
+  if (!pullersRef.current) pullersRef.current = createPosPullers()
   const pull = pullersRef.current
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
@@ -201,13 +177,14 @@ export function useApiSync(mode: SyncMode = 'all') {
         }
         return
       }
-      // CRM / лояльность — сразу клиенты и карты
-      if (kind === 'crm' || kind === 'client-cash-topup' || kind === 'debt-repay' || kind === 'sale') {
-        pull.crm()
-      }
-      // Продажа / смена — только лёгкий sync (как касса)
+      // Phase 7: sale/shift → one crmSoft (pos-lite includes CRM). No duplicate crm+posSoft.
       if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
         pull.posSoft()
+        return
+      }
+      // CRM / лояльность без продажи
+      if (kind === 'crm' || kind === 'debt-repay') {
+        pull.crm()
         return
       }
       // Склад / поставщики
@@ -257,8 +234,8 @@ export function useApiSync(mode: SyncMode = 'all') {
     else if (mode === 'courier') orders.fetchCourierOrders()
     else if (mode === 'restaurant') orders.fetchRestaurantOrders()
     else if (mode === 'pos') {
+      // One coalesced soft pass (was posSoft + crm duplicate)
       pull.posSoft()
-      pull.crm()
     }
     else if (mode === 'all') orders.fetchOrders()
   })

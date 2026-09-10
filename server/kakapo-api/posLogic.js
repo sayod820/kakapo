@@ -8,9 +8,21 @@ import {
   canTakeNewDebt,
 } from './debtLedger.js'
 import { recordSyncDelete } from './syncDeletes.js'
+import { queueDocDelete, rowIdForItem } from './db.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+/** Remove moneyLedger rows matching pred; queue PG deletes for append no-prune. */
+function filterMoneyLedger(db, predKeep) {
+  const before = Array.isArray(db.moneyLedger) ? db.moneyLedger : []
+  const keep = []
+  for (const e of before) {
+    if (predKeep(e)) keep.push(e)
+    else queueDocDelete('moneyLedger', String(e.id || rowIdForItem(e, 0)))
+  }
+  db.moneyLedger = keep
 }
 
 function effectiveDebt(a, b) {
@@ -1909,9 +1921,7 @@ export function deleteExpense(db, id) {
       touchShift(shift)
     }
   }
-  db.moneyLedger = (db.moneyLedger || []).filter(
-    e => !(e.refType === 'expense' && String(e.refId) === String(id)),
-  )
+  filterMoneyLedger(db, e => !(e.refType === 'expense' && String(e.refId) === String(id)))
   recordSyncDelete(db, 'expense', id)
   return { id }
 }
@@ -1927,7 +1937,8 @@ export function createFinanceMove(db, data = {}) {
   const clientRef = String(data.clientRef || '').trim()
   if (clientRef) {
     const known = (db.financeMoves || []).find(m => m.clientRef === clientRef)
-    if (known) return { ...known, payment: null }
+    // Phase 9: caller must skip balance side effects on replay
+    if (known) return { ...known, payment: null, _replay: true }
   }
   const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
   const amount = round2(data.amount)
@@ -2189,6 +2200,7 @@ export function deleteFinanceMove(db, id) {
   const payFrom = row.payFrom === 'vault' ? 'vault' : 'shift'
   const method = row.method === 'card' ? 'card' : 'cash'
   db.financeMoves.splice(idx, 1)
+  queueDocDelete('financeMoves', String(id))
 
   if (payFrom === 'vault') {
     if (type === 'withdraw') {
@@ -2234,9 +2246,7 @@ export function deleteFinanceMove(db, id) {
     p => String(p.financeMoveId || '') !== String(id),
   )
 
-  db.moneyLedger = (db.moneyLedger || []).filter(
-    e => !(e.refType === 'finance_move' && String(e.refId) === String(id)),
-  )
+  filterMoneyLedger(db, e => !(e.refType === 'finance_move' && String(e.refId) === String(id)))
 
   recordSyncDelete(db, 'finance_move', id)
   return { id }
@@ -2283,10 +2293,10 @@ function trimSupplierOverpayAfterSupplyChange(db, supplierId) {
     }
     const finId = String(payment.financeMoveId || '')
     if (finId) {
+      const removedMoves = (db.financeMoves || []).filter(m => String(m.id) === finId)
       db.financeMoves = (db.financeMoves || []).filter(m => String(m.id) !== finId)
-      db.moneyLedger = (db.moneyLedger || []).filter(
-        e => !(e.refType === 'finance_move' && String(e.refId) === finId),
-      )
+      for (const m of removedMoves) queueDocDelete('financeMoves', String(m.id))
+      filterMoneyLedger(db, e => !(e.refType === 'finance_move' && String(e.refId) === finId))
     }
   }
 
@@ -2432,7 +2442,8 @@ function reverseStockReceipt(db, receipt) {
         }
       }
     }
-    db.moneyLedger = (db.moneyLedger || []).filter(
+    filterMoneyLedger(
+      db,
       e => !(e.type === 'purchase_pay' && e.refType === 'receipt' && String(e.refId) === String(receipt.id)),
     )
   }
@@ -2856,7 +2867,10 @@ export function createPosSale(db, data = {}) {
   const clientRef = data.clientRef ? String(data.clientRef).trim() : ''
   if (clientRef) {
     const existing = (db.posSales || []).find(s => s.clientRef === clientRef)
-    if (existing) return existing
+    if (existing) {
+      existing._idempotentReplay = true
+      return existing
+    }
   }
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
@@ -3154,6 +3168,7 @@ export function createPosSale(db, data = {}) {
     cashierName: cashierName || cashier?.name || '',
     refType: 'sale',
     refId: sale.id,
+    clientRef: clientRef || undefined,
     createdAtIso: sale.createdAtIso,
   }
   if (paidCash > 0) {
@@ -3208,6 +3223,18 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
   const phone = String(sale.clientPhone || extras.clientPhone || '').trim()
   if (!phone) return null
 
+  // Phase 9: sale clientRef dedupe ≠ order side-effect — не пушим второй заказ
+  const saleId = String(sale.id || '').trim()
+  const saleRef = String(sale.clientRef || extras.clientRef || '').trim()
+  const existingOrder = (db.orders || []).find(o =>
+    (saleId && String(o.posSaleId || '') === saleId)
+    || (saleRef && String(o.posSaleClientRef || '') === saleRef),
+  )
+  if (existingOrder) {
+    if (saleId && !sale.orderId) sale.orderId = existingOrder.id
+    return existingOrder
+  }
+
   const client =
     getClientById(db, sale.clientId || extras.clientId) ||
     findClientByPhone(db, phone)
@@ -3260,6 +3287,7 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
     status: 'delivered',
     channel: 'pos',
     posSaleId: sale.id,
+    posSaleClientRef: saleRef || undefined,
     posSaleNumber: sale.number,
     createdAt,
     createdAtIso,
@@ -3301,6 +3329,12 @@ export function returnPosSale(db, saleId, meta = {}) {
   ensurePosCollections(db)
   const sale = (db.posSales || []).find(s => String(s.id) === String(saleId))
   if (!sale) throw new Error('Чек не найден')
+
+  const retClientRef = String(meta.clientRef || '').trim()
+  if (retClientRef) {
+    const knownRet = (sale.returns || []).find(r => String(r.clientRef || '') === retClientRef)
+    if (knownRet) return sale
+  }
   if (sale.status === 'returned') throw new Error('Чек уже полностью возвращён')
 
   const items = Array.isArray(sale.items) ? sale.items : []
@@ -3345,8 +3379,21 @@ export function returnPosSale(db, saleId, meta = {}) {
   }
   plan = [...byIndex.values()]
 
+  // Phase 9: резерв clientRef после валидации плана, до stock/money мутаций
+  if (retClientRef) {
+    const knownRet = (sale.returns || []).find(r => String(r.clientRef || '') === retClientRef)
+    if (knownRet) return sale
+    if (!Array.isArray(sale.returns)) sale.returns = []
+    sale.returns.push({
+      clientRef: retClientRef,
+      _pending: true,
+      atIso: nowIso(),
+    })
+  }
+
   const returnLines = []
   let returnTotal = 0
+  try {
   for (const p of plan) {
     const item = items[p.index]
     const left = round2((Number(item.qty) || 0) - (Number(item.returnedQty) || 0))
@@ -3525,7 +3572,7 @@ export function returnPosSale(db, saleId, meta = {}) {
   }
 
   if (!Array.isArray(sale.returns)) sale.returns = []
-  sale.returns.push({
+  const returnRow = {
     atIso: nowIso(),
     total: returnTotal,
     cutCash,
@@ -3536,7 +3583,13 @@ export function returnPosSale(db, saleId, meta = {}) {
     note: String(meta.note || '').trim(),
     cashierId: String(meta.cashierId || '').trim(),
     items: returnLines,
-  })
+    clientRef: retClientRef || undefined,
+  }
+  const pendingIdx = retClientRef
+    ? sale.returns.findIndex(r => String(r.clientRef || '') === retClientRef && r._pending)
+    : -1
+  if (pendingIdx >= 0) sale.returns[pendingIdx] = returnRow
+  else sale.returns.push(returnRow)
 
   sale.returnedAtIso = nowIso()
   sale.returnNote = String(meta.note || '').trim()
@@ -3556,6 +3609,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashierName: sale.cashierName || '',
     refType: 'sale_return',
     refId: sale.id,
+    clientRef: retClientRef || undefined,
   }
   if (cutCash > 0) {
     appendMoneyLedger(db, {
@@ -3591,6 +3645,14 @@ export function returnPosSale(db, saleId, meta = {}) {
     })
   }
   return sale
+  } catch (e) {
+    if (retClientRef && Array.isArray(sale.returns)) {
+      sale.returns = sale.returns.filter(
+        r => !(String(r.clientRef || '') === retClientRef && r._pending),
+      )
+    }
+    throw e
+  }
 }
 
 export function getPosFinanceSummary(db) {

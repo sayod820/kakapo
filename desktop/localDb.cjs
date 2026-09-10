@@ -193,6 +193,86 @@ function sqlQueueDelete(clientRef) {
   db.prepare('DELETE FROM queue WHERE client_ref = ?').run(String(clientRef || ''))
 }
 
+/**
+ * Phase 5 — atomic local sale commit (better-sqlite3 transaction).
+ * Writes: outbox queue + stock layers KV + sale mirror + optional shift mirror + optional queue_seq.
+ * failAt (dev): before | after_queue | after_layers | after_sale | after_shift | before_commit
+ */
+let saleTxFailAt = ''
+
+function sqlSaleCommit(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const failAt = String(p.failAt || saleTxFailAt || '').trim()
+  if (failAt === 'before') {
+    const err = new Error('TEST_FAIL_BEFORE')
+    err.code = 'TEST_FAIL_BEFORE'
+    throw err
+  }
+
+  const queueRow = p.queueRow
+  if (!queueRow || !queueRow.clientRef) {
+    return { ok: false, error: 'missing_queue_row' }
+  }
+
+  const run = db.transaction(() => {
+    if (!sqlQueuePut(queueRow)) {
+      const err = new Error('queue_put_failed')
+      err.code = 'QUEUE_PUT_FAILED'
+      throw err
+    }
+    if (failAt === 'after_queue') {
+      const err = new Error('TEST_FAIL_AFTER_QUEUE')
+      err.code = 'TEST_FAIL_AFTER_QUEUE'
+      throw err
+    }
+
+    if (Object.prototype.hasOwnProperty.call(p, 'stockLayers')) {
+      sqlKvSet('catalog_stock_layers', p.stockLayers)
+    }
+    if (failAt === 'after_layers') {
+      const err = new Error('TEST_FAIL_AFTER_LAYERS')
+      err.code = 'TEST_FAIL_AFTER_LAYERS'
+      throw err
+    }
+
+    if (p.sale && (p.sale.id || p.sale.clientRef)) {
+      const sid = String(p.sale.id || p.sale.clientRef)
+      sqlMirrorPut('sale', sid, p.sale)
+    }
+    if (failAt === 'after_sale') {
+      const err = new Error('TEST_FAIL_AFTER_SALE')
+      err.code = 'TEST_FAIL_AFTER_SALE'
+      throw err
+    }
+
+    if (p.shift && p.shift.id) {
+      sqlMirrorPut('shift', String(p.shift.id), p.shift)
+    }
+    if (failAt === 'after_shift') {
+      const err = new Error('TEST_FAIL_AFTER_SHIFT')
+      err.code = 'TEST_FAIL_AFTER_SHIFT'
+      throw err
+    }
+
+    if (p.queueSeq != null && Number.isFinite(Number(p.queueSeq))) {
+      sqlKvSet('queue_seq', Number(p.queueSeq))
+    }
+
+    if (failAt === 'before_commit') {
+      const err = new Error('TEST_FAIL_BEFORE_COMMIT')
+      err.code = 'TEST_FAIL_BEFORE_COMMIT'
+      throw err
+    }
+  })
+
+  run()
+  return {
+    ok: true,
+    clientRef: String(queueRow.clientRef),
+    saleId: p.sale ? String(p.sale.id || p.sale.clientRef || '') : '',
+  }
+}
+
 function sqlQueueLen() {
   const row = db.prepare('SELECT COUNT(*) AS n FROM queue').get()
   return Number(row && row.n) || 0
@@ -595,6 +675,29 @@ function installLocalDbIpc() {
       console.error('[localDb] queueDelete', e)
       return { ok: false }
     }
+  })
+
+  /** Phase 5: atomic sale = queue + layers + sale/shift mirrors in one SQLite tx */
+  ipcMain.handle('desktop:localDbSaleCommit', (_e, payload) => {
+    try {
+      return sqlSaleCommit(payload)
+    } catch (e) {
+      const code = e && e.code ? String(e.code) : ''
+      if (!String(code).startsWith('TEST_FAIL')) {
+        console.error('[localDb] saleCommit', e)
+      }
+      return {
+        ok: false,
+        error: String((e && e.message) || e),
+        code,
+        rolledBack: true,
+      }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbSaleCommitSetFailAt', (_e, stage) => {
+    saleTxFailAt = String(stage || '').trim()
+    return { ok: true, failAt: saleTxFailAt }
   })
 
   ipcMain.handle('desktop:localDbMetaGet', () => ({

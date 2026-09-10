@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import { getApiUrl } from './config'
 import { noteApiFail, noteApiOk } from './apiReachability'
 import { isCashierCritical, isCashierPaymentCritical, isCashierSearchBusy } from './cashierUiGate'
+import { isPerfEnabled, perfNote } from './devTelemetry'
 import {
   flushQueue,
   getPending,
@@ -62,6 +63,8 @@ interface OfflineSyncState {
 let intervalId: ReturnType<typeof setInterval> | null = null
 let lastIdlePingAt = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+/** Absolute ms when reconnectTimer should fire (for earlier-wins). 0 = none. */
+let reconnectDueAt = 0
 let reconnectAttempt = 0
 let listenersBound = false
 let syncLock = false
@@ -71,6 +74,9 @@ let lastStuckFingerprint = ''
 let lastStuckAt = 0
 /** Входящий pull в syncNow — не чаще этого (очередь шлёт только изменённое) */
 let lastInboundPullAt = 0
+
+/** Slack when comparing deadlines (ms) — avoid churn on equal ~due */
+const RECONNECT_DUE_SLACK_MS = 25
 
 /** Слабый интернет: ping дольше; при очереди крутим умеренно, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
@@ -157,19 +163,86 @@ function nextBackoffMs() {
   return BACKOFF_MS[idx]
 }
 
-function resetBackoff() {
-  reconnectAttempt = 0
+/** Peek current backoff tier without consuming (for deadline compare before schedule). */
+function peekBackoffMs() {
+  return BACKOFF_MS[Math.min(reconnectAttempt, BACKOFF_MS.length - 1)]
 }
 
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  reconnectDueAt = 0
+}
+
+function resetBackoff() {
+  reconnectAttempt = 0
+  clearReconnectTimer()
+}
+
+/**
+ * Schedule a single reconnect/sync attempt.
+ * Earlier-wins: if a timer exists and new dueAt is sooner, replace it.
+ * Does NOT reset reconnectAttempt on new local work (explicit delayMs).
+ * Backoff step (nextBackoffMs) is consumed only when actually scheduling a non-explicit wait.
+ */
 function scheduleReconnect(
   get: () => OfflineSyncState,
   set: (p: Partial<OfflineSyncState>) => void,
   delayMs?: number,
 ) {
-  if (reconnectTimer) return
-  const wait = delayMs ?? nextBackoffMs()
+  const explicit = delayMs != null && Number.isFinite(Number(delayMs))
+  const requestedWait = explicit ? Math.max(0, Number(delayMs)) : peekBackoffMs()
+  const now = Date.now()
+  const newDueAt = now + requestedWait
+
+  if (reconnectTimer && reconnectDueAt > 0) {
+    const existingDueIn = Math.max(0, reconnectDueAt - now)
+    // New request is later or equal → keep existing (compare deadlines, not raw delays)
+    if (newDueAt >= reconnectDueAt - RECONNECT_DUE_SLACK_MS) {
+      if (isPerfEnabled()) {
+        perfNote('reconnect_scheduled_delay_ms', requestedWait, 'kept_existing', {
+          existingDueInMs: existingDueIn,
+          pending: get().pending,
+          failed: get().failed,
+          online: get().online,
+          explicit,
+          reconnectAttempt,
+        })
+      }
+      return
+    }
+    // Earlier wins — cancel old, do not touch reconnectAttempt
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+    if (isPerfEnabled()) {
+      perfNote('reconnect_scheduled_delay_ms', requestedWait, 'rescheduled_earlier', {
+        fromDueInMs: existingDueIn,
+        toDelayMs: requestedWait,
+        pending: get().pending,
+        failed: get().failed,
+        online: get().online,
+        explicit,
+        reconnectAttempt,
+      })
+    }
+  } else if (isPerfEnabled()) {
+    perfNote('reconnect_scheduled_delay_ms', requestedWait, 'scheduleReconnect', {
+      pending: get().pending,
+      failed: get().failed,
+      online: get().online,
+      explicit,
+      reconnectAttempt,
+    })
+  }
+
+  // Consume backoff only when scheduling a failure/backoff wait (no explicit delay)
+  const wait = explicit ? requestedWait : nextBackoffMs()
+  reconnectDueAt = now + wait
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
+    reconnectDueAt = 0
     void (async () => {
       // Если сейчас идёт flush — не бросаем цепочку, повторим чуть позже
       if (get().syncing || syncLock) {
@@ -197,6 +270,17 @@ function scheduleReconnect(
       await get().syncNow()
     })()
   }, wait)
+}
+
+/** @internal Phase 4 tests / diagnostics — reconnect scheduler snapshot */
+export function __reconnectDebugState() {
+  return {
+    hasTimer: !!reconnectTimer,
+    dueAt: reconnectDueAt,
+    dueInMs: reconnectDueAt > 0 ? Math.max(0, reconnectDueAt - Date.now()) : null,
+    attempt: reconnectAttempt,
+    syncLock,
+  }
 }
 
 /** Только реальная сеть / 5xx — не «связанная операция» и не «смена не найдена» */
@@ -342,9 +426,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         lastStuckAt = 0
       }
 
-      if (res.sent > 0 || (res.remaining === 0 && online)) {
-        // Только после пустой очереди — входящая дельта (не полный POS)
-        if (get().pending === 0 && online && res.sent > 0) {
+      if (online && (res.sent > 0 || res.remaining === 0 || get().pending > 0)) {
+        // Phase 6: inbound when no READY pending (cooldown/failed OK) — don't starve on nextRetryAt
+        let readyBlocked = get().pending > 0
+        try {
+          const { hasReadyToPushPending } = await import('./pendingPullGate')
+          readyBlocked = hasReadyToPushPending(get().items)
+        } catch { /* keep pending>0 heuristic */ }
+        if (!readyBlocked && (res.sent > 0 || Date.now() - lastInboundPullAt >= INBOUND_PULL_MIN_MS)) {
           lastInboundPullAt = Date.now()
           try {
             const { pullSyncChanges } = await import('./syncPull')
@@ -355,10 +444,12 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } catch {
             try { await refetchEverything() } catch { /* следующий цикл */ }
           }
-          try {
-            const { pullStockLayersFromServer } = await import('./stockLayersLocal')
-            await pullStockLayersFromServer({ bumpProducts: true })
-          } catch { /* ignore */ }
+          if (get().pending === 0) {
+            try {
+              const { pullStockLayersFromServer } = await import('./stockLayersLocal')
+              await pullStockLayersFromServer({ bumpProducts: true })
+            } catch { /* ignore */ }
+          }
           try { await markLocalSyncAt() } catch { /* ignore */ }
           try {
             const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
@@ -429,8 +520,8 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   syncNow: async () => {
     if (syncLock || get().syncing) {
-      // Не ставим новый таймер на каждый клик — один reconnect уже в полёте
-      if (!reconnectTimer) scheduleReconnect(get, set, 4000)
+      // Earlier-wins: may pull forward an existing long backoff
+      scheduleReconnect(get, set, 4000)
       return
     }
     // Только оплата/пробитие — полный стоп. Поиск кассы НЕ блокирует отправку очереди.
@@ -446,9 +537,7 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       && Date.now() - lastStuckAt < STUCK_COOLDOWN_MS
       && (get().pending > 0 || get().failed > 0)
     ) {
-      if (!reconnectTimer) {
-        scheduleReconnect(get, set, STUCK_COOLDOWN_MS - (Date.now() - lastStuckAt))
-      }
+      scheduleReconnect(get, set, STUCK_COOLDOWN_MS - (Date.now() - lastStuckAt))
       return
     }
 
@@ -486,13 +575,17 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Исходящее: только очередь (изменилось → отправили). Входящий softSync здесь НЕ делаем —
-      // его тянут WS / useApiSync дельтами; иначе UI тормозит на каждый flush.
+      // Исходящее: очередь. Phase 6: inbound тоже, если нет READY pending (cooldown не голодает).
       if (get().pending > 0) {
         await get().flush()
-      } else if (alive && !searchBusy) {
-        // Нет исходящих — лёгкая дельта, с паузой (focus/wake не должен долбить)
-        if (Date.now() - lastInboundPullAt >= INBOUND_PULL_MIN_MS) {
+      }
+      if (alive && !searchBusy) {
+        let readyBlocked = get().pending > 0
+        try {
+          const { hasReadyToPushPending } = await import('./pendingPullGate')
+          readyBlocked = hasReadyToPushPending(get().items)
+        } catch { /* keep */ }
+        if (!readyBlocked && Date.now() - lastInboundPullAt >= INBOUND_PULL_MIN_MS) {
           lastInboundPullAt = Date.now()
           set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
           try {
@@ -504,10 +597,12 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } catch { /* ignore */ }
           try { await markLocalSyncAt() } catch { /* ignore */ }
         }
-        try {
-          const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
-          void sendDeviceHeartbeat()
-        } catch { /* ignore */ }
+        if (get().pending === 0) {
+          try {
+            const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
+            void sendDeviceHeartbeat()
+          } catch { /* ignore */ }
+        }
       }
 
       if (get().pending > 0 || get().failed > 0 || !get().online) {

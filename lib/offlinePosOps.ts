@@ -3,13 +3,14 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { dropPending, findDuplicateDebtRepay, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId } from './offline'
+import { dropPending, findDuplicateDebtRepay, findDuplicateSale, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId, allocQueueSeq, mirrorPendingAfterNativeCommit, type PendingOp } from './offline'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLoyaltySaved } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
+import { canAtomicLocalSaleCommit, commitLocalSaleAtomic, restoreCommittedSaleUi } from './localSaleAtomic'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore, noteInboundDeletedIds } from './posStore'
 import { supplierPayVersion } from './offlineSupplierOps'
@@ -17,6 +18,7 @@ import { useClientStore } from './clientStore'
 import { useCardStore } from './cardStore'
 import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
 import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
+import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 
 export type SaleCartLine = {
@@ -1847,17 +1849,17 @@ function applyLocalReturn(
     void import('./stockLayersLocal')
       .then(m => m.restoreLocalLayersFifoBatch(restoreLines))
       .catch(() => {
-  void (async () => {
+        void (async () => {
           try {
-    const { useProducts } = await import('./store')
-    const ps = useProducts.getState()
-    for (const [productId, qty] of backByProduct) {
-      const p = ps.products.find(x => x.id === productId)
-      if (!p) continue
-      ps.updateProduct(productId, { stock: round2((Number(p.stock) || 0) + qty) })
-    }
+            const { useProducts } = await import('./store')
+            const addById = new Map<number, number>()
+            for (const [productId, qty] of backByProduct) {
+              if (!(qty > 0)) continue
+              addById.set(productId, (addById.get(productId) || 0) + qty)
+            }
+            if (addById.size) useProducts.getState().patchProductStocks(addById, 'delta')
           } catch { /* ignore */ }
-  })()
+        })()
       })
   }
 
@@ -2004,12 +2006,11 @@ export function revertLocalSaleReturnOnReject(payload: Record<string, unknown>) 
           .filter(l => l.productId && l.qty > 0)
         if (!lines.length) return
         const { useProducts } = await import('./store')
-        const ps = useProducts.getState()
+        const decById = new Map<number, number>()
         for (const l of lines) {
-          const p = ps.products.find(x => x.id === l.productId)
-          if (!p) continue
-          ps.updateProduct(l.productId, { stock: Math.max(0, round2((Number(p.stock) || 0) - l.qty)) })
+          decById.set(l.productId, (decById.get(l.productId) || 0) - l.qty)
         }
+        if (decById.size) useProducts.getState().patchProductStocks(decById, 'delta')
         const { consumeLocalLayersFifoBatch } = await import('./stockLayersLocal')
         await consumeLocalLayersFifoBatch(lines)
       } catch { /* ignore */ }
@@ -2063,6 +2064,17 @@ export function revertLocalSaleReturnOnReject(payload: Record<string, unknown>) 
  * Offline V2=on: локально правит бонусы и кошелёк в сторе.
  */
 export async function createSaleSafe(
+  input: CreateSaleSafeInput,
+): Promise<OfflineResult<PosSale & { orderId?: string; _offline?: boolean }>> {
+  const saleT0 = isPerfEnabled() ? performance.now() : 0
+  try {
+    return await createSaleSafeInner(input)
+  } finally {
+    if (saleT0) perfNote('sale_local_ms', performance.now() - saleT0, 'createSaleSafe')
+  }
+}
+
+async function createSaleSafeInner(
   input: CreateSaleSafeInput,
 ): Promise<OfflineResult<PosSale & { orderId?: string; _offline?: boolean }>> {
   const cashPaid = round2(input.cashPaid)
@@ -2145,6 +2157,196 @@ export async function createSaleSafe(
       }
     }
     const saleClientRef = String(salePayload.clientRef || '').trim()
+
+    // ── Phase 5 Desktop: durable SQLite transaction BEFORE memory/UI ──
+    if (canAtomicLocalSaleCommit()) {
+      const dup = await findDuplicateSale(salePayload as Record<string, unknown>)
+      if (dup) {
+        const existing = usePosStore.getState().sales.find(s =>
+          String((s as any).clientRef || '') === String(dup.clientRef)
+          || s.id === dup.localId,
+        )
+        if (existing) {
+          return { ...existing, _offline: true } as PosSale & { orderId?: string; _offline?: boolean }
+        }
+        // Crash after COMMIT / before UI: durable row exists — restore without second stock/outbox
+        const restored = await restoreCommittedSaleUi({
+          pending: dup,
+          clientRef: String(dup.clientRef || ''),
+          localId: dup.localId,
+        })
+        if (restored) {
+          useOfflineSync.getState().scheduleSyncDebounced(600)
+          return restored
+        }
+      }
+
+      const display = await allocateLocalSaleDisplay()
+      const stableRef = saleClientRef || newClientRef()
+      salePayload.clientRef = stableRef
+      const { _revert: _omitRevert, ...saleFields } = salePayload as Record<string, unknown>
+      const offlineSale: PosSale & { orderId?: string; _offline?: boolean } = {
+        ...(saleFields as unknown as PosSale),
+        id: offlineSaleId,
+        number: display.number,
+        orderId: display.orderId,
+        total: input.total,
+        clientRef: stableRef,
+        _offline: true,
+      } as PosSale & { orderId?: string; _offline?: boolean }
+
+      const layerLines = input.cart.map(l => ({
+        productId: l.productId,
+        qty: l.weightKg != null ? l.weightKg : l.qty,
+      }))
+      const { previewConsumeLocalLayersFifoBatch, adoptStockLayersAfterAtomicCommit } = await import('./stockLayersLocal')
+      const nextLayers = await previewConsumeLocalLayersFifoBatch(layerLines)
+
+      const openShift = usePosStore.getState().shifts.find(s => s.id === input.shiftId)
+      const nextShift: PosShift | null = openShift
+        ? {
+            ...openShift,
+            salesCash: round2((openShift.salesCash || 0) + cashPaid),
+            salesCard: round2((openShift.salesCard || 0) + cardPaid),
+            salesCredit: round2((openShift.salesCredit || 0) + debtAdded),
+            salesCount: (openShift.salesCount || 0) + 1,
+            ...(walletPaid > 0.001
+              ? { salesWallet: round2((Number((openShift as any).salesWallet) || 0) + walletPaid) }
+              : {}),
+          }
+        : null
+
+      const seq = await allocQueueSeq({ persist: false })
+      const queueRow: PendingOp = {
+        clientRef: stableRef,
+        kind: 'sale',
+        payload: {
+          ...salePayload,
+          clientRef: stableRef,
+          createdAtIso: String(salePayload.createdAtIso || new Date().toISOString()),
+          appliedLocal: true,
+          skipBalances: true,
+          ...(queuedOffline ? { queuedOffline: true, skipStockAfterRevision: true } : {}),
+        },
+        createdAtIso: String(salePayload.createdAtIso || new Date().toISOString()),
+        seq,
+        attempts: 0,
+        localId: offlineSaleId,
+      }
+
+      const committed = await commitLocalSaleAtomic({
+        queueRow,
+        stockLayers: nextLayers,
+        sale: offlineSale,
+        shift: nextShift,
+        queueSeq: seq,
+      })
+      if (!committed.ok) {
+        throw new Error(committed.error || 'Не удалось сохранить чек локально')
+      }
+
+      // COMMIT ok → memory/UI side effects (not in SQLite tx)
+      await mirrorPendingAfterNativeCommit(queueRow)
+      {
+        const sync = useOfflineSync.getState()
+        // Same UX as queueOp, without a second SQLite queue write
+        void sync.refresh()
+        sync.scheduleSyncDebounced(600)
+      }
+
+      const decById = new Map<number, number>()
+      for (const l of input.cart) {
+        const dec = l.weightKg != null ? l.weightKg : l.qty
+        if (!(dec > 0)) continue
+        decById.set(l.productId, (decById.get(l.productId) || 0) - dec)
+      }
+      if (decById.size) {
+        const { useProducts } = await import('./store')
+        useProducts.getState().patchProductStocks(decById, 'delta')
+      }
+      adoptStockLayersAfterAtomicCommit(nextLayers)
+
+      if (client) {
+        if (debtAdded > 0.001) {
+          useClientStore.getState().updateClient(
+            client.id,
+            { debt: nextDebt, debtEnabled: true },
+            { skipApi: true },
+          )
+          markClientLoyaltySaved(client.id)
+          if (client.card) {
+            useCardStore.getState().updateCardLoyalty(
+              client.card,
+              {
+                debt: nextDebt,
+                debtEnabled: true,
+                debtPayVersion: expectedDebtPayVersion + 1,
+              },
+              { skipApi: true },
+            )
+            markCardLoyaltySaved(client.card)
+          }
+        }
+        if (walletPaid > 0.001) {
+          const nextWallet = round2(Math.max(0, (Number(client.wallet) || 0) - walletPaid))
+          useClientStore.getState().updateClient(client.id, { wallet: nextWallet }, { skipApi: true })
+          if (client.card) {
+            const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+            useCardStore.getState().updateCardLoyalty(
+              client.card,
+              { wallet: round2(Math.max(0, (Number(currentCard?.wallet) || Number(client.wallet) || 0) - walletPaid)) },
+              { skipApi: true },
+            )
+          }
+        }
+        if (client.card && (spend > 0 || earn > 0)) {
+          const currentCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+          const base = Math.max(0, Math.floor(Number(currentCard?.bonus) || 0))
+          const prevPos = Math.max(0, Math.floor(Number(currentCard?.posCashBonus) || 0))
+          const nextBonus = Math.max(0, base - spend + earn)
+          const nextPos = Math.max(0, prevPos - spend)
+          useCardStore.getState().updateCardLoyalty(
+            client.card,
+            {
+              bonus: nextBonus,
+              posCashBonus: nextPos,
+              ...(spend > 0
+                ? { allowBonusDecrease: true, bonusPayVersion: expectedBonusPayVersion + 1 }
+                : {}),
+            } as any,
+            { skipApi: true },
+          )
+          useClientStore.getState().updateClient(client.id, { bonus: nextBonus }, { skipApi: true })
+        }
+        if (debtAdded > 0.001 || walletPaid > 0.001 || spend > 0 || earn > 0) {
+          markMoneyPending({ clientId: client.id, cardNum: client.card })
+        }
+        if (debtAdded > 0.001) {
+          const histKey = debtAccountKey({ id: client.id, phone: client.phone })
+          if (histKey) {
+            const note = String(input.creditNote || '').trim()
+            const baseDesc = debtAdded >= round2(input.total) - 0.01 ? 'Чек в долг' : 'Часть чека в долг'
+            recordStoreDebtCharge(histKey, debtAdded, note ? `${baseDesc} · ${note}` : baseDesc, {
+              orderId: display.orderId || offlineSaleId,
+              itemsSummary: input.itemsSummary,
+              source: 'pos',
+            })
+          }
+        }
+      }
+
+      usePosStore.setState(st => ({
+        sales: [offlineSale, ...st.sales],
+        shifts: nextShift
+          ? st.shifts.map(sh => (sh.id === input.shiftId ? nextShift : sh))
+          : st.shifts,
+      }))
+      // Secondary cache — after durable commit (Phase 8 may delta this)
+      void persistPosSnapshot()
+      return offlineSale
+    }
+
+    // ── Fallback: Android / no saleCommit IPC — previous non-atomic path ──
     const queued = await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
     const alreadyQueued = String(queued.clientRef || '') !== saleClientRef
       || (queued.localId != null && queued.localId !== offlineSaleId)
@@ -2160,21 +2362,15 @@ export async function createSaleSafe(
 
     try {
       const { useProducts } = await import('./store')
-      const ps = useProducts.getState()
       const decById = new Map<number, number>()
       for (const l of input.cart) {
         const dec = l.weightKg != null ? l.weightKg : l.qty
         if (!(dec > 0)) continue
-        decById.set(l.productId, (decById.get(l.productId) || 0) + dec)
+        // negative delta = decrement stock
+        decById.set(l.productId, (decById.get(l.productId) || 0) - dec)
       }
       if (decById.size) {
-        useProducts.setState(s => ({
-          products: s.products.map(p => {
-            const dec = decById.get(p.id)
-            if (!dec) return p
-            return { ...p, stock: Math.max(0, (Number(p.stock) || 0) - dec) }
-          }),
-        }))
+        useProducts.getState().patchProductStocks(decById, 'delta')
       }
       const layerLines = input.cart.map(l => ({
         productId: l.productId,
@@ -2307,13 +2503,13 @@ export async function createSaleSafe(
     void (async () => {
       try {
         const { useProducts } = await import('./store')
-        const ps = useProducts.getState()
+        const decById = new Map<number, number>()
         for (const l of input.cart) {
-          const p = ps.products.find(x => x.id === l.productId)
-          if (!p) continue
           const dec = l.weightKg != null ? l.weightKg : l.qty
-          ps.updateProduct(l.productId, { stock: Math.max(0, (Number(p.stock) || 0) - dec) })
+          if (!(dec > 0)) continue
+          decById.set(l.productId, (decById.get(l.productId) || 0) - dec)
         }
+        if (decById.size) useProducts.getState().patchProductStocks(decById, 'delta')
       } catch { /* ignore */ }
     })()
     shadowMirrorSale(created)
@@ -2397,15 +2593,14 @@ export function revertLocalSaleOnReject(payload: Record<string, unknown>, localI
     void (async () => {
       try {
         const { useProducts } = await import('./store')
-        const ps = useProducts.getState()
+        const addById = new Map<number, number>()
         for (const l of cart) {
           if (!l.productId) continue
-          const p = ps.products.find(x => x.id === l.productId)
-          if (!p) continue
           const add = l.weightKg != null ? Number(l.weightKg) : Number(l.qty) || 0
           if (!(add > 0)) continue
-          ps.updateProduct(l.productId, { stock: round2((Number(p.stock) || 0) + add) })
+          addById.set(l.productId, (addById.get(l.productId) || 0) + add)
         }
+        if (addById.size) useProducts.getState().patchProductStocks(addById, 'delta')
         const { restoreLocalLayersFifoBatch } = await import('./stockLayersLocal')
         await restoreLocalLayersFifoBatch(cart.map(l => ({
           productId: l.productId,

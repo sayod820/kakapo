@@ -25,8 +25,9 @@ export function hydrateOfflineCaches(): Promise<void> {
       hydrateClients(),
       hydrateCards(),
       hydrateCategories(),
-      hydrateStockLayers(),
     ])
+    // After products in memory — apply durable layers → stock (no catalog rewrite)
+    await hydrateStockLayers()
   })()
   return hydrating
 }
@@ -51,10 +52,17 @@ async function hydrateProducts() {
 
 async function hydratePos() {
   const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
-  if (!cached) return
-  const { usePosStore } = await import('./posStore')
-  if (usePosStore.getState().apiReady) return
-  usePosStore.setState({ ...cached, apiReady: true, apiSyncing: false })
+  if (cached) {
+    const { usePosStore } = await import('./posStore')
+    if (!usePosStore.getState().apiReady) {
+      usePosStore.setState({ ...cached, apiReady: true, apiSyncing: false })
+    }
+  }
+  // Phase 5: authoritative sale/shift mirrors + pending outbox beat a lagging snapshot
+  try {
+    const { reconcileLocalSalesFromDurables } = await import('./localSaleAtomic')
+    await reconcileLocalSalesFromDurables()
+  } catch { /* ignore */ }
 }
 
 async function hydrateClients() {
@@ -85,7 +93,9 @@ async function hydrateCategories() {
 
 async function hydrateStockLayers() {
   try {
-    const { readCachedStockLayers } = await import('./stockLayersLocal')
+    const { readCachedStockLayers, applyCachedLayersToProductStock } = await import('./stockLayersLocal')
     await readCachedStockLayers()
+    // Effective stock from durable layers (catalog cache may lag after Phase 8)
+    await applyCachedLayersToProductStock()
   } catch { /* ignore */ }
 }

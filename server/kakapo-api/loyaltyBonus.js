@@ -630,10 +630,17 @@ function earnBonusForOrder(db, phone, order, client, card, loyalty) {
 
 /**
  * Списание бонусов при оформлении заказа.
+ * Durable marker: order.bonusSpendApplied — повторный вызов не списывает снова.
  */
 export function applyBonusSpendOnOrder(db, order, amount, hooks) {
   const use = Math.max(0, Math.floor(Number(amount) || 0))
-  if (use <= 0) return { ok: true, bonusSpent: 0 }
+  if (order?.bonusSpendApplied) {
+    return { ok: true, bonusSpent: Math.max(0, Math.floor(Number(order.bonusSpent) || 0)), replay: true }
+  }
+  if (use <= 0) {
+    if (order) order.bonusSpendApplied = true
+    return { ok: true, bonusSpent: 0 }
+  }
 
   const client = findClientForOrder(db, order, hooks)
   if (!client) return { ok: false, error: 'Клиент не найден' }
@@ -645,12 +652,16 @@ export function applyBonusSpendOnOrder(db, order, amount, hooks) {
   const balance = Number(card.bonus) || 0
   const goodsCap = Math.floor(bonusEligibleTotal(order))
   const deduct = Math.min(balance, use, goodsCap)
-  if (deduct <= 0) return { ok: true, bonusSpent: 0 }
+  if (deduct <= 0) {
+    order.bonusSpendApplied = true
+    return { ok: true, bonusSpent: 0 }
+  }
 
   card.bonus = Math.max(0, balance - deduct)
   client.bonus = card.bonus
   hooks.syncClientFromCardRow(card)
   order.bonusSpent = deduct
+  order.bonusSpendApplied = true
   return { ok: true, bonusSpent: deduct }
 }
 
@@ -706,6 +717,262 @@ export function applyClientLoyaltyAfterDelivery(db, order, hooks) {
 
   const result = reconcileClientBonuses(db, phone, hooks)
   return { earned, ...result }
+}
+
+/**
+ * FIX A / FIX E.2: дозавершить online loyalty для POS-sale ровно один раз.
+ *
+ * When opts.effectBackend is set OR PostgreSQL is enabled:
+ * order / spend / earn complete inside one PG (or memory) transaction each —
+ * claim+mutate+done are atomic (no durable pending before mutate).
+ *
+ * @param {object} opts.createOrder — (db, sale, body) => order | null
+ * @param {object} [opts.effectBackend] — createMemoryEffectBackend() for tests
+ * @param {string} [opts.failAt] — injected fail point (tests)
+ */
+export async function completePosSaleOnlineLoyalty(db, sale, body = {}, hooks, opts = {}) {
+  const skipBalances = !!(body.appliedLocal || body.skipBalances || opts.skipBalances)
+  if (skipBalances) return { ok: true, skipped: true, order: null }
+  if (!sale) return { ok: true, skipped: true, order: null }
+
+  const phone = String(sale.clientPhone || body.clientPhone || '').trim()
+  if (!phone) return { ok: true, skipped: true, order: null }
+
+  const saleId = String(sale.id || '').trim()
+  const saleRef = String(sale.clientRef || body.clientRef || '').trim()
+
+  const {
+    isPostgresEnabled,
+  } = await import('./pg/client.js')
+  const useTxn = !!(opts.effectBackend || isPostgresEnabled())
+
+  if (!useTxn) {
+    return completePosSaleOnlineLoyaltyLegacy(db, sale, body, hooks, opts)
+  }
+
+  const {
+    completePosSaleOrderEffect,
+    completeBonusSpendEffect,
+    completeBonusEarnEffect,
+    reconcileEffectCache,
+  } = await import('./pg/effectTxn.js')
+
+  const findOrder = () => (db.orders || []).find(o =>
+    (saleId && String(o.posSaleId || '') === saleId)
+    || (saleRef && String(o.posSaleClientRef || '') === saleRef),
+  ) || null
+
+  /** FIX E.2.1: after reconcileEffectCache, never keep pre-txn object refs. */
+  const resolveCanonicalLoyaltyRows = (ord, hint = {}) => {
+    const clientRow = findClientForOrder(db, ord, hooks)
+      || (hint.clientId
+        ? (db.clients || []).find(c => String(c.id) === String(hint.clientId))
+        : null)
+      || (hint.phone
+        ? findClientByPhone(db, hint.phone)
+        : null)
+      || null
+    const cardNum = String(
+      clientRow?.card || hint.cardNum || ord?.client?.card || '',
+    ).trim()
+    const cardRow = cardNum
+      ? (hooks.findCardByNum(cardNum)
+        || (db.cards || []).find(c => String(c.num) === cardNum)
+        || null)
+      : null
+    return { client: clientRow, card: cardRow }
+  }
+
+  /** cards.bonus is SoT — mirror onto the live db.clients row. */
+  const mirrorClientBonusFromCard = (cardRow, clientRow) => {
+    if (!cardRow || !clientRow) return
+    clientRow.bonus = Number(cardRow.bonus) || 0
+  }
+
+  let order = findOrder()
+  let createdOrder = false
+  const txnOpts = { backend: opts.effectBackend, failAt: opts.failAt }
+
+  if (!order && typeof opts.createOrder === 'function') {
+    // Draft in memory (may be discarded if another txn wins)
+    const draft = opts.createOrder(db, sale, body)
+    if (!draft) return { ok: true, skipped: true, order: null }
+    if (saleRef) {
+      const ordRes = await completePosSaleOrderEffect({
+        saleRef,
+        orderDraft: draft,
+        ...txnOpts,
+      })
+      reconcileEffectCache(db, { order: ordRes.order, claim: ordRes.claim })
+      order = findOrder() || ordRes.order
+      createdOrder = !ordRes.replay
+      if (sale && order?.id) sale.orderId = order.id
+    } else {
+      order = draft
+      createdOrder = true
+    }
+  }
+
+  if (!order) return { ok: true, skipped: true, order: null }
+
+  let { client, card } = resolveCanonicalLoyaltyRows(order, {
+    phone,
+    cardNum: body.cardNum || sale.cardNum,
+  })
+  if (!card && client) card = hooks.ensureCardRowForClient(client)
+  if (!card) {
+    return { ok: false, error: 'Карта клиента не найдена', order }
+  }
+
+  const bonusSpendReq = Math.max(
+    0,
+    Math.floor(Number(body.bonusSpent != null ? body.bonusSpent : sale.bonusSpent) || 0),
+  )
+
+  let spendAppliedNow = false
+  if (saleRef && !order.bonusSpendApplied) {
+    const spendRes = await completeBonusSpendEffect({
+      saleRef,
+      amount: bonusSpendReq,
+      goodsCap: Math.floor(bonusEligibleTotal(order)),
+      card,
+      client,
+      order,
+      ...txnOpts,
+    })
+    reconcileEffectCache(db, {
+      order: spendRes.order,
+      card: spendRes.card,
+      client: spendRes.client,
+      claim: spendRes.claim,
+    })
+    order = findOrder() || spendRes.order
+    ;({ client, card } = resolveCanonicalLoyaltyRows(order, {
+      phone,
+      clientId: spendRes.client?.id || client?.id,
+      cardNum: spendRes.card?.num || card?.num,
+    }))
+    mirrorClientBonusFromCard(card, client)
+    spendAppliedNow = !spendRes.replay
+  } else if (!saleRef && !order.bonusSpendApplied) {
+    const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, hooks)
+    if (!spendResult.ok) {
+      return { ok: false, error: spendResult.error || 'Не удалось списать бонусы', order }
+    }
+    spendAppliedNow = !spendResult.replay
+  }
+
+  let earnAppliedNow = false
+  if (saleRef && order && !order.bonusCredited) {
+    const loyalty = ensureLoyaltySettings(db)
+    ;({ client, card } = resolveCanonicalLoyaltyRows(order, {
+      phone,
+      clientId: client?.id,
+      cardNum: card?.num,
+    }))
+    const earned = earnBonusForOrder(
+      db,
+      phone,
+      order,
+      structuredClone(client || {}),
+      structuredClone(card || {}),
+      loyalty,
+    )
+    const earnRes = await completeBonusEarnEffect({
+      saleRef,
+      earned,
+      card,
+      client,
+      order,
+      ...txnOpts,
+    })
+    reconcileEffectCache(db, {
+      order: earnRes.order,
+      card: earnRes.card,
+      client: earnRes.client,
+      claim: earnRes.claim,
+    })
+    order = findOrder() || earnRes.order
+    // FIX E.2.1: re-resolve AFTER reconcile — never use pre-txn card/client refs
+    ;({ client, card } = resolveCanonicalLoyaltyRows(order, {
+      phone,
+      clientId: earnRes.client?.id || client?.id,
+      cardNum: earnRes.card?.num || card?.num,
+    }))
+    mirrorClientBonusFromCard(card, client)
+    // Best-effort level/stats after durable earn (non-critical for crash safety of bonus amount)
+    if (!earnRes.replay && client && card) {
+      try {
+        applyLevelUpgrade(db, phone, client, card, loyalty, Date.now(), order.id)
+        syncClientRollingStats(db, client, phone, card)
+        hooks.syncClientFromCardRow(card)
+      } catch { /* ignore */ }
+      // Re-assert authority after best-effort hooks (cards.bonus wins)
+      ;({ client, card } = resolveCanonicalLoyaltyRows(order, {
+        phone,
+        clientId: client?.id,
+        cardNum: card?.num,
+      }))
+      mirrorClientBonusFromCard(card, client)
+    }
+    earnAppliedNow = !earnRes.replay
+  } else if (!saleRef && order && !order.bonusCredited) {
+    applyClientLoyaltyAfterDelivery(db, order, hooks)
+    earnAppliedNow = !!order.bonusCredited
+  }
+
+  return {
+    ok: true,
+    order: findOrder() || order,
+    spendAppliedNow,
+    earnAppliedNow,
+    completedNow: spendAppliedNow || earnAppliedNow || createdOrder,
+    broadcastOrder: createdOrder,
+    broadcastLoyalty: spendAppliedNow || earnAppliedNow,
+  }
+}
+
+/** Single-process fallback (json engine, no effect backend). */
+async function completePosSaleOnlineLoyaltyLegacy(db, sale, body, hooks, opts) {
+  const saleId = String(sale.id || '').trim()
+  const saleRef = String(sale.clientRef || body.clientRef || '').trim()
+  let order = (db.orders || []).find(o =>
+    (saleId && String(o.posSaleId || '') === saleId)
+    || (saleRef && String(o.posSaleClientRef || '') === saleRef),
+  ) || null
+  let createdOrder = false
+  if (!order && typeof opts.createOrder === 'function') {
+    order = opts.createOrder(db, sale, body)
+    createdOrder = !!order
+  }
+  if (!order) return { ok: true, skipped: true, order: null }
+
+  const bonusSpendReq = Math.max(
+    0,
+    Math.floor(Number(body.bonusSpent != null ? body.bonusSpent : sale.bonusSpent) || 0),
+  )
+  let spendAppliedNow = false
+  if (!order.bonusSpendApplied) {
+    const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, hooks)
+    if (!spendResult.ok) {
+      return { ok: false, error: spendResult.error || 'Не удалось списать бонусы', order }
+    }
+    spendAppliedNow = !spendResult.replay
+  }
+  let earnAppliedNow = false
+  if (!order.bonusCredited) {
+    applyClientLoyaltyAfterDelivery(db, order, hooks)
+    earnAppliedNow = !!order.bonusCredited
+  }
+  return {
+    ok: true,
+    order,
+    spendAppliedNow,
+    earnAppliedNow,
+    completedNow: spendAppliedNow || earnAppliedNow || createdOrder,
+    broadcastOrder: createdOrder,
+    broadcastLoyalty: spendAppliedNow || earnAppliedNow,
+  }
 }
 
 /**

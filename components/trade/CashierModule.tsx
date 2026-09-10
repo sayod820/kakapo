@@ -87,7 +87,7 @@ import TradeProductThumb, { type TradeProductThumbLike } from '@/components/trad
 import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
-import { softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { softSyncExpiry, softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import {
   buildCashierAlertGroups,
   cashierAlertsTotal,
@@ -106,6 +106,7 @@ import {
 import { isAssemblerStoreHandoffPending } from '@/lib/orderUiMap'
 import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStorage'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
+import { isPerfEnabled, perfCount, perfScenario, perfTime } from '@/lib/devTelemetry'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -1175,8 +1176,15 @@ export default function CashierModule({
   theme?: ThemeName
   onThemeChange?: (theme: ThemeName) => void
 }) {
+  if (isPerfEnabled()) perfCount('cashier_render', 1, active ? 'active' : 'idle')
+  if (isPerfEnabled() && typeof window !== 'undefined') {
+    try {
+      ;(window as any).__kakapoCashierActive = !!active
+    } catch { /* ignore */ }
+  }
   const hideHardware = hideTradeHardwareUi()
   const products = useProducts(s => s.products)
+  const catalogEpoch = useProducts(s => s.catalogEpoch)
   const fetchProducts = useProducts(s => s.fetchProducts)
   const orders = useOrders(s => s.orders)
   const fetchOrders = useOrders(s => s.fetchOrders)
@@ -1519,10 +1527,23 @@ export default function CashierModule({
   const [deletePosId, setDeletePosId] = useState<string | null>(null)
   /** Как в Odoo: сначала Dashboard, в кассу — после «Новая сессия» / «Продолжить» */
   const [posSurface, setPosSurfaceState] = useState<'dashboard' | 'register'>('dashboard')
+  const registerEntryEndRef = useRef<(() => number) | null>(null)
   const setPosSurface = useCallback((surface: 'dashboard' | 'register') => {
+    if (surface === 'register' && isPerfEnabled()) {
+      perfScenario('register_entry')
+      registerEntryEndRef.current = perfTime('register_entry_ms', 'dashboard→register')
+    }
     setPosSurfaceState(surface)
     onSurfaceChange?.(surface)
   }, [onSurfaceChange])
+  useLayoutEffect(() => {
+    if (posSurface !== 'register') return
+    const end = registerEntryEndRef.current
+    if (!end) return
+    registerEntryEndRef.current = null
+    // После paint локального register UI (сеть не участвует)
+    requestAnimationFrame(() => { end() })
+  }, [posSurface])
   const openCreatePosDashboard = useCallback(() => {
     setMsg('')
     setNewPosName('')
@@ -1795,18 +1816,27 @@ export default function CashierModule({
 
   useEffect(() => {
     if (!alertsOpen) return
-    void softSyncWarehouse({ expiryDays: 14 })
+    // Только сроки для бейджа — не full warehouse (pullSync + layers + bumpProducts)
+    void softSyncExpiry({ expiryDays: 14 })
   }, [alertsOpen])
 
   useEffect(() => {
+    if (!active) return
+    setHeaderNow(new Date())
     const t = window.setInterval(() => setHeaderNow(new Date()), 60_000)
     return () => window.clearInterval(t)
-  }, [])
+  }, [active])
 
-  /** Лёгкий подтягивание сроков — чтобы бейдж на колокольчике был актуален */
+  /**
+   * Register entry: только локальный state (Zustand + SQLite cache).
+   * softSyncWarehouse здесь ЗАПРЕЩЁН — дженил critical path
+   * (pullSyncChanges + expiry + pullStockLayersFromServer bumpProducts).
+   * Свежесть склада: WS posWarehouse / модуль Склад / обычный sync.
+   * Слои уже грузятся cache-first в отдельном effect (без await сети на open).
+   */
   useEffect(() => {
     if (!active || posSurface !== 'register') return
-    void softSyncWarehouse({ expiryDays: 14 })
+    if (isPerfEnabled()) perfScenario('register_open_local')
   }, [active, posSurface])
 
   useEffect(() => {
@@ -2347,6 +2377,7 @@ export default function CashierModule({
    */
   useEffect(() => {
     if (!isKakapoDesktop()) return
+    if (!active) return
     const desk = getKakapoDesktop()
     if (!desk) return
 
@@ -2554,7 +2585,7 @@ export default function CashierModule({
       off?.()
       window.clearInterval(pollId)
     }
-  }, [])
+  }, [active])
 
   useEffect(() => () => {
     const desk = getKakapoDesktop()
@@ -2576,8 +2607,10 @@ export default function CashierModule({
   /**
    * Desktop: поиск товара всегда в фокусе (сканер).
    * Мобильный: без автофокуса — иначе сразу открывается клавиатура.
+   * Phase 7: при active=false (keep-alive) — без listeners/poll.
    */
   useEffect(() => {
+    if (!active) return
     if (overlayBlocksSearch) return
     if (isTradeMobileUi()) return
 
@@ -2615,9 +2648,9 @@ export default function CashierModule({
     const onKeyDown = (e: KeyboardEvent) => {
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
-      const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
+      const activeEl = document.activeElement as HTMLElement | null
+      if (activeEl?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
 
       const now = performance.now()
@@ -2738,9 +2771,9 @@ export default function CashierModule({
     const tick = window.setInterval(() => {
       if (overlayBlocksSearchRef.current) return
       if (document.activeElement === searchInputRef.current) return
-      const active = document.activeElement as HTMLElement | null
-      if (active?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return
+      const focusEl = document.activeElement as HTMLElement | null
+      if (focusEl?.closest?.('.modal-card, .overlay, .pad-shell, .cash-checkout-shell, .pos-settings-fs, .k-modal-bg, .k-modal')) return
+      if (focusEl && (focusEl.tagName === 'INPUT' || focusEl.tagName === 'TEXTAREA' || focusEl.tagName === 'SELECT')) return
       focusProductSearch()
     }, 450)
 
@@ -2754,6 +2787,7 @@ export default function CashierModule({
       window.clearInterval(tick)
     }
   }, [
+    active,
     overlayBlocksSearch,
     activeShift?.id,
     activeTicketId,
@@ -2984,7 +3018,8 @@ export default function CashierModule({
       cancelled = true
       window.removeEventListener('kakapo:stock-layers', onLayersEvent)
     }
-  }, [products, warehouseRev])
+    // catalogEpoch: structural catalog only — stock sale must NOT re-pull layers
+  }, [catalogEpoch, warehouseRev])
 
   /**
    * Сетка фильтрует и по названию, и по хвосту штрихкода (последние цифры).
@@ -3000,29 +3035,39 @@ export default function CashierModule({
       .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     [products, liveStockForProduct],
   )
-  /** Быстрый индекс штрихкод/артикул/PLU → товар (сканер без полного перебора) */
+  /** Быстрый индекс штрихкод/артикул/PLU → productId (не Product — stock-патч не stale) */
   const productCodeIndex = useMemo(() => {
-    const map = new Map<string, Product>()
-    const put = (key: string, p: Product) => {
+    const map = new Map<string, number>()
+    const put = (key: string, id: number) => {
       const k = key.trim()
       if (!k || map.has(k)) return
-      map.set(k, p)
+      map.set(k, id)
     }
-    for (const p of products) {
+    // Read from store at catalogEpoch — avoid depending on products[] identity after stock patch
+    const list = useProducts.getState().products
+    for (const p of list) {
+      const id = Number(p.id)
+      if (!Number.isFinite(id)) continue
       for (const c of productBarcodes(p)) {
-        put(c, p)
-        for (const d of barcodeDigitKeys(c)) put(d, p)
+        put(c, id)
+        for (const d of barcodeDigitKeys(c)) put(d, id)
       }
       const art = String(p.art || '').trim()
       if (art) {
-        put(art, p)
+        put(art, id)
         const ad = art.replace(/\D/g, '')
-        if (ad) put(ad, p)
+        if (ad) put(ad, id)
       }
       const plu = String(p.plu || '').replace(/\D/g, '')
-      if (plu) put(`plu:${plu}`, p)
+      if (plu) put(`plu:${plu}`, id)
     }
     return map
+  }, [catalogEpoch])
+
+  const productById = useMemo(() => {
+    const m = new Map<number, Product>()
+    for (const p of products) m.set(p.id, p)
+    return m
   }, [products])
   const selectedCatSet = useMemo(() => new Set(selectedCatSlugs), [selectedCatSlugs])
   const quickCatSlugs = useMemo(() => (
@@ -4013,14 +4058,14 @@ export default function CashierModule({
       || null
 
     if (!productHit) {
-      const byCode =
+      const byCodeId =
         productCodeIndex.get(raw)
-        || (digits ? productCodeIndex.get(digits) : undefined)
-        || barcodeDigitKeys(raw).map(k => productCodeIndex.get(k)).find(Boolean)
-        || (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
+        ?? (digits ? productCodeIndex.get(digits) : undefined)
+        ?? barcodeDigitKeys(raw).map(k => productCodeIndex.get(k)).find((id): id is number => id != null)
+        ?? (digits.length >= 1 && digits.length <= 4 && /^\d+$/.test(raw)
           ? productCodeIndex.get(`plu:${digits}`)
           : undefined)
-        || null
+      const byCode = byCodeId != null ? productById.get(byCodeId) : undefined
       if (byCode && digits) {
         // Конфликт: у одного art=80, у другого plu=80 (Шакар / Milkiway)
         const codeNum = Number(digits)
@@ -4941,7 +4986,8 @@ export default function CashierModule({
     const exact = new Map<string, number>()
     const digits = new Map<string, number>()
     const codesById = new Map<number, { art: string; barcode: string; plu: string }>()
-    for (const p of products) {
+    const list = useProducts.getState().products
+    for (const p of list) {
       const id = Number(p.id)
       if (!Number.isFinite(id)) continue
       const codes = productBarcodes(p)
@@ -4965,7 +5011,7 @@ export default function CashierModule({
       if (pluDigits) digits.set(pluDigits, id)
     }
     return { exact, digits, codesById }
-  }, [products])
+  }, [catalogEpoch])
 
   function resolveReceiptProductIds(qRaw: string): Set<number> {
     const ids = new Set<number>()

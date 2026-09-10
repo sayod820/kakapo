@@ -7,6 +7,7 @@ import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
 import { androidPersist } from './androidPersist'
+import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -174,6 +175,7 @@ function androidFiles() {
 
 // ── KV: кэш каталога ──
 async function kvSet(key: string, value: unknown): Promise<void> {
+  const t0 = isPerfEnabled() ? performance.now() : 0
   const files = androidFiles()
   if (files) {
     try { await files.kvSet(key, value) } catch { /* дальше копии */ }
@@ -182,13 +184,34 @@ async function kvSet(key: string, value: unknown): Promise<void> {
   if (desk?.localDbKvSet) {
     try {
       await desk.localDbKvSet(key, value)
+      if (t0) {
+        const ms = performance.now() - t0
+        perfNote('sqlite_write_ms', ms, key)
+        if (key === KEY_PRODUCTS) perfNote('catalog_persist_ms', ms, key)
+        if (key === 'data_pos_snapshot') perfNote('pos_snapshot_persist_ms', ms, key)
+      }
       return
     } catch { /* fallback */ }
   }
   if (hasIndexedDB()) {
-    try { await idbRun(STORE_KV, 'readwrite', s => s.put(value as unknown as Record<string, unknown>, key)); return } catch { /* fallback */ }
+    try {
+      await idbRun(STORE_KV, 'readwrite', s => s.put(value as unknown as Record<string, unknown>, key))
+      if (t0) {
+        const ms = performance.now() - t0
+        perfNote('sqlite_write_ms', ms, `idb:${key}`)
+        if (key === KEY_PRODUCTS) perfNote('catalog_persist_ms', ms, key)
+        if (key === 'data_pos_snapshot') perfNote('pos_snapshot_persist_ms', ms, key)
+      }
+      return
+    } catch { /* fallback */ }
   }
   try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(value)) } catch { /* quota */ }
+  if (t0) {
+    const ms = performance.now() - t0
+    perfNote('sqlite_write_ms', ms, `ls:${key}`)
+    if (key === KEY_PRODUCTS) perfNote('catalog_persist_ms', ms, key)
+    if (key === 'data_pos_snapshot') perfNote('pos_snapshot_persist_ms', ms, key)
+  }
 }
 
 async function kvGet<T>(key: string): Promise<T | null> {
@@ -223,11 +246,22 @@ async function kvGet<T>(key: string): Promise<T | null> {
   } catch { return null }
 }
 
-export function cacheProducts(products: Product[]): Promise<void> {
+export async function cacheProducts(products: Product[]): Promise<void> {
   // Только метаданные + URL. Prefetch байтов фото — отдельно (иначе каждый
   // cacheProducts после дельты/WS гоняет весь каталог по сети).
   const clean = (products || []).map(sanitizeProductForLocalCache)
-  return kvSet(KEY_PRODUCTS, clean)
+  const t0 = isPerfEnabled() ? performance.now() : 0
+  let bytes = 0
+  try {
+    bytes = JSON.stringify(clean).length
+  } catch { /* ignore */ }
+  await kvSet(KEY_PRODUCTS, clean)
+  if (t0) {
+    const ms = performance.now() - t0
+    perfNote('catalog_persist_ms', ms, 'cacheProducts', { n: clean.length, bytes })
+    perfCount('catalog_write_count', 1, 'cacheProducts', { n: clean.length })
+    if (bytes > 0) perfNote('catalog_payload_bytes', bytes, 'cacheProducts', { n: clean.length })
+  }
 }
 export function readCachedProducts(): Promise<Product[] | null> {
   return kvGet<Product[]>(KEY_PRODUCTS)
@@ -292,28 +326,113 @@ export function readCachedCategories<T = unknown>(): Promise<T[] | null> {
   return readCachedData<T[]>('categories')
 }
 
-/** Обновить pos_snapshot из текущего Zustand (после локальных правок поставщиков/финансов) */
-export async function persistPosSnapshot(): Promise<void> {
+/** Phase 8: coalesce full pos_snapshot KV writes (secondary checkpoint). */
+const SNAPSHOT_DEBOUNCE_MS = 800
+let snapshotDirty = false
+let snapshotInFlight = false
+let snapshotTimer: ReturnType<typeof setTimeout> | null = null
+let snapshotWriteCount = 0
+let snapshotCoalesced = 0
+
+async function writePosSnapshotFromStore(): Promise<void> {
+  const { usePosStore } = await import('./posStore')
+  const cur = usePosStore.getState()
+  const payload = {
+    cashiers: cur.cashiers,
+    posPoints: cur.posPoints,
+    shifts: cur.shifts,
+    sales: cur.sales,
+    receipts: cur.receipts,
+    writeoffs: cur.writeoffs,
+    revisions: cur.revisions,
+    suppliers: cur.suppliers,
+    expenses: cur.expenses,
+    financeMoves: cur.financeMoves,
+    cashVault: cur.cashVault,
+    expiry: cur.expiry,
+    financeSummary: cur.financeSummary,
+    report: cur.report,
+  }
+  const t0 = isPerfEnabled() ? performance.now() : 0
+  let bytes = 0
   try {
-    const { usePosStore } = await import('./posStore')
-    const cur = usePosStore.getState()
-    await cacheData('pos_snapshot', {
-      cashiers: cur.cashiers,
-      posPoints: cur.posPoints,
-      shifts: cur.shifts,
-      sales: cur.sales,
-      receipts: cur.receipts,
-      writeoffs: cur.writeoffs,
-      revisions: cur.revisions,
-      suppliers: cur.suppliers,
-      expenses: cur.expenses,
-      financeMoves: cur.financeMoves,
-      cashVault: cur.cashVault,
-      expiry: cur.expiry,
-      financeSummary: cur.financeSummary,
-      report: cur.report,
-    })
+    bytes = JSON.stringify(payload).length
   } catch { /* ignore */ }
+  await cacheData('pos_snapshot', payload)
+  snapshotWriteCount += 1
+  if (t0) {
+    const ms = performance.now() - t0
+    perfNote('pos_snapshot_persist_ms', ms, 'persistPosSnapshot', {
+      sales: cur.sales?.length || 0,
+      shifts: cur.shifts?.length || 0,
+      bytes,
+    })
+    perfCount('snapshot_write_count', 1, 'persistPosSnapshot')
+    if (bytes > 0) perfNote('snapshot_payload_bytes', bytes, 'persistPosSnapshot')
+  }
+}
+
+async function drainPosSnapshotWrites(): Promise<void> {
+  snapshotTimer = null
+  if (snapshotInFlight) {
+    snapshotDirty = true
+    return
+  }
+  while (snapshotDirty) {
+    snapshotDirty = false
+    snapshotInFlight = true
+    try {
+      await writePosSnapshotFromStore()
+    } catch { /* ignore */ }
+    finally {
+      snapshotInFlight = false
+    }
+    // New marks during write → loop again (trailing checkpoint)
+  }
+}
+
+/**
+ * Обновить pos_snapshot из текущего Zustand.
+ * Phase 8: по умолчанию debounce+dirty (sale hot path не ждёт полный JSON IPC).
+ * force:true — сразу записать (bootstrap / inbound pull / tests).
+ */
+export async function persistPosSnapshot(opts?: { force?: boolean }): Promise<void> {
+  try {
+    if (opts?.force) {
+      if (snapshotTimer) {
+        clearTimeout(snapshotTimer)
+        snapshotTimer = null
+      }
+      snapshotDirty = true
+      await drainPosSnapshotWrites()
+      return
+    }
+    if (snapshotDirty || snapshotInFlight || snapshotTimer) snapshotCoalesced += 1
+    snapshotDirty = true
+    if (snapshotInFlight) return
+    if (snapshotTimer) return
+    snapshotTimer = setTimeout(() => { void drainPosSnapshotWrites() }, SNAPSHOT_DEBOUNCE_MS)
+  } catch { /* ignore */ }
+}
+
+/** @internal Phase 8 tests / diagnostics */
+export function __posSnapshotPersistDebug() {
+  return {
+    dirty: snapshotDirty,
+    inFlight: snapshotInFlight,
+    hasTimer: !!snapshotTimer,
+    writeCount: snapshotWriteCount,
+    coalesced: snapshotCoalesced,
+  }
+}
+
+export function __resetPosSnapshotPersistDebug() {
+  snapshotDirty = false
+  snapshotInFlight = false
+  if (snapshotTimer) clearTimeout(snapshotTimer)
+  snapshotTimer = null
+  snapshotWriteCount = 0
+  snapshotCoalesced = 0
 }
 
 // ── Очередь операций ──
@@ -408,6 +527,15 @@ function lsQueueRead(): PendingOp[] {
 }
 function lsQueueWrite(list: PendingOp[]) {
   try { localStorage.setItem(LS_PREFIX + STORE_QUEUE, JSON.stringify(list)) } catch { /* quota */ }
+}
+
+/** Убрать одну op из LS-зеркала по clientRef. Идемпотентно; не трогает чужие refs. */
+function lsQueueDeleteClientRef(clientRef: string): void {
+  const ref = String(clientRef || '')
+  if (!ref) return
+  try {
+    lsQueueWrite(lsQueueRead().filter(r => r.clientRef !== ref))
+  } catch { /* quota / private mode */ }
 }
 
 export async function getPending(): Promise<PendingOp[]> {
@@ -529,25 +657,46 @@ async function putPending(row: PendingOp): Promise<void> {
   }
 }
 
+/**
+ * Удалить ACK/dropped op из всех зеркал очереди.
+ * Identity = clientRef (keyPath IDB / SQLite queue / Android queueDelete / LS filter).
+ *
+ * Важно (ghost outbox / AUDIT P1):
+ * раньше Desktop после SQLite(+IDB) делал early return и НЕ чистил localStorage.
+ * putPending всегда пишет LS → getPending мержит LS → ACK’d op воскресала.
+ *
+ * Failure semantics: каждый backend best-effort независимо.
+ * - native OK, LS fail → риск ghost (редко); следующий clear/repair может добить LS
+ * - LS OK, native fail → getPending всё ещё видит op из native (pending НЕ теряется)
+ * ACK’d business effect на сервере уже применён — повторный flush должен быть идемпотентен по clientRef.
+ */
 async function deletePending(clientRef: string): Promise<void> {
+  const ref = String(clientRef || '')
+  if (!ref) return
+
   const files = androidFiles()
   if (files) {
-    try { await files.queueDelete(clientRef) } catch { /* ignore */ }
+    try { await files.queueDelete(ref) } catch { /* ignore */ }
   }
+
   const desk = deskDb()
   if (desk?.localDbQueueDelete) {
-    try {
-      await desk.localDbQueueDelete(clientRef)
-      if (hasIndexedDB()) {
-        try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(clientRef)) } catch { /* ignore */ }
-      }
-      return
-    } catch { /* fallback */ }
+    try { await desk.localDbQueueDelete(ref) } catch { /* ignore — всё равно чистим зеркала */ }
   }
+
   if (hasIndexedDB()) {
-    try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(clientRef)); return } catch { /* fallback */ }
+    try { await idbRun(STORE_QUEUE, 'readwrite', s => s.delete(ref)) } catch { /* ignore */ }
   }
-  lsQueueWrite(lsQueueRead().filter(r => r.clientRef !== clientRef))
+
+  // Всегда (Desktop / Android / Browser): убрать LS-зеркало этой op — без early return
+  lsQueueDeleteClientRef(ref)
+
+  if (isPerfEnabled()) {
+    try {
+      const left = lsQueueRead().length
+      perfCount('queue_size', left, 'deletePending', { clientRef: ref })
+    } catch { /* ignore */ }
+  }
 }
 
 /** Внутреннее: не вызывать из UI кассы — очередь нельзя стирать вручную */
@@ -561,6 +710,7 @@ export async function clearAllPending(): Promise<void> {
   for (const row of list) {
     try { await deletePending(row.clientRef) } catch { /* ignore */ }
   }
+  // Belt-and-suspenders: deletePending уже чистит LS по ref; полный wipe на случай битого LS
   try { lsQueueWrite([]) } catch { /* ignore */ }
 }
 
@@ -591,7 +741,8 @@ export function isLocalId(value: unknown): boolean {
 }
 
 let seqCounter = 0
-async function nextSeq(): Promise<number> {
+/** Allocate next outbox seq. persist=false when SQLite saleCommit writes queue_seq atomically. */
+export async function allocQueueSeq(opts?: { persist?: boolean }): Promise<number> {
   if (!seqCounter) {
     const stored = await kvGet<number>(KEY_SEQ)
     seqCounter = Number(stored) || 0
@@ -602,9 +753,27 @@ async function nextSeq(): Promise<number> {
     }
   }
   seqCounter += 1
-  // Не ждём KV на пробитии — пишем в фоне
-  void kvSet(KEY_SEQ, seqCounter)
+  if (opts?.persist !== false) {
+    // Не ждём KV на пробитии — пишем в фоне
+    void kvSet(KEY_SEQ, seqCounter)
+  }
   return seqCounter
+}
+
+async function nextSeq(): Promise<number> {
+  return allocQueueSeq()
+}
+
+/** After Desktop atomic saleCommit — mirror pending into LS/IDB without re-writing SQLite queue. */
+export async function mirrorPendingAfterNativeCommit(row: PendingOp): Promise<void> {
+  try {
+    const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
+    list.push(row)
+    lsQueueWrite(list)
+  } catch { /* quota */ }
+  if (hasIndexedDB()) {
+    void idbRun(STORE_QUEUE, 'readwrite', s => s.put(row)).catch(() => {})
+  }
 }
 
 function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
@@ -1886,9 +2055,23 @@ export async function flushQueue(
   let sent = 0
   let failed = 0
   let stopped = false
+  const pushEnd = (() => {
+    try {
+      // sync require-style via thenable later; start clock now
+      return performance.now()
+    } catch { return 0 }
+  })()
   try {
-    const all = await getPending()
-    const now = Date.now()
+  const all = await getPending()
+  if (isPerfEnabled()) {
+    const oldest = all.reduce((min, r) => {
+      const t = Date.parse(String(r.createdAtIso || '')) || Date.now()
+      return Math.min(min, t)
+    }, Date.now())
+    perfCount('queue_size', all.length, 'flush_start')
+    if (all.length) perfNote('oldest_pending_age_ms', Date.now() - oldest, 'flush_start')
+  }
+  const now = Date.now()
     // Не шлём ops на cooldown — иначе одни и те же 6 строк крутятся без паузы
     const queue = all
       .filter(r => !r.failed && !(Number(r.nextRetryAt) > now))
@@ -2171,5 +2354,9 @@ export async function flushQueue(
     flushing = false
   }
   const remaining = (await getPending()).length
+  if (pushEnd && isPerfEnabled()) {
+    perfNote('sync_push_ms', performance.now() - pushEnd, 'flushQueue', { sent, failed, stopped })
+    perfCount('queue_size', remaining, 'flush_end')
+  }
   return { sent, failed, stopped, remaining }
 }

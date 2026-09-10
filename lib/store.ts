@@ -26,6 +26,7 @@ import { usePricingStore } from './courierStore'
 import { findCourierByPhone } from './courierTeam'
 import { canCourierAffordOrder, getCourierBalance, isNewCourierAssignment } from './courierWallet'
 import { DEFAULT_PRICING } from './courierData'
+import { isPerfEnabled, perfCount } from './devTelemetry'
 
 function applyBonusLoyaltySync(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -779,9 +780,26 @@ export const useOrders = create<OrdersStore>((set, get) => ({
 interface ProductsStore {
   products: Product[]
   loaded: boolean
+  /**
+   * Structural catalog epoch (fetch/add/remove/non-stock fields).
+   * Stock-only patches do NOT bump this — Cashier barcode indexes skip rebuild.
+   */
+  catalogEpoch: number
+  /** Bumped on stock patches (lists that filter by stock). */
+  stockEpoch: number
   fetchProducts: () => Promise<void>
   saveProduct: (data: Partial<Product> & { art?: string; id?: number }) => Promise<Product | null>
   updateProduct: (id: number, updates: Partial<Product>) => void
+  /**
+   * One catalog pass: patch stock for affected ids only.
+   * Unchanged product objects keep reference identity.
+   * Does not bump catalogEpoch / does not cacheProducts.
+   * mode 'delta': stock = max(0, stock + delta); 'set': stock = max(0, value).
+   */
+  patchProductStocks: (
+    patches: Map<number, number> | Iterable<[number, number]>,
+    mode?: 'delta' | 'set',
+  ) => { touched: number; catalogSize: number }
   addProduct: (p: Product) => void
   removeProduct: (id: number) => Promise<void>
   removeProducts: (ids: number[]) => Promise<{ removed: number }>
@@ -789,6 +807,8 @@ interface ProductsStore {
 export const useProducts = create<ProductsStore>((set, get) => ({
   products: USE_API ? [] : PRODUCTS,
   loaded: !USE_API,
+  catalogEpoch: 0,
+  stockEpoch: 0,
 
   fetchProducts: async () => {
     if (!USE_API) {
@@ -802,7 +822,7 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           const { readCachedProducts } = await import('./offline')
           const cached = await readCachedProducts()
           if (cached && cached.length) {
-            set({ products: cached, loaded: true })
+            set(s => ({ products: cached, loaded: true, catalogEpoch: s.catalogEpoch + 1 }))
             void import('./photoOfflineCache').then(({ warmOfflinePhotoCache, schedulePhotoPrefetchFromProducts }) => {
               void warmOfflinePhotoCache(cached).then(() => {
                 // С диска уже тёплое — сеть только для недостающих миниатюр
@@ -880,7 +900,13 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         set({ loaded: true })
         return
       }
-      set({ products, loaded: true })
+      set(s => ({ products, loaded: true, catalogEpoch: s.catalogEpoch + 1 }))
+      try {
+        const { isPerfEnabled, perfCount } = await import('./devTelemetry')
+        if (isPerfEnabled()) {
+          perfCount('products_array_replace', 1, 'fetchProducts', { catalogSize: products.length })
+        }
+      } catch { /* ignore */ }
       try {
         void cacheProducts(products)
         // Prefetch фото только после полного GET /products (bootstrap/repair), не после каждой дельты
@@ -895,7 +921,7 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         const { readCachedProducts } = await import('./offline')
         const cached = await readCachedProducts()
         if (cached && cached.length) {
-          set({ products: cached, loaded: true })
+          set(s => ({ products: cached, loaded: true, catalogEpoch: s.catalogEpoch + 1 }))
           void import('./photoOfflineCache').then(({ warmOfflinePhotoCache }) => {
             void warmOfflinePhotoCache(cached)
           }).catch(() => {})
@@ -915,7 +941,10 @@ export const useProducts = create<ProductsStore>((set, get) => ({
             old: null,
             discount: 0,
           })
-          set(s => ({ products: s.products.map(x => x.id === p.id ? { ...p, old: null, discount: 0 } : x) }))
+          set(s => ({
+            products: s.products.map(x => x.id === p.id ? { ...p, old: null, discount: 0 } : x),
+            catalogEpoch: s.catalogEpoch + 1,
+          }))
           return { ...p, old: null, discount: 0 }
         }
         const p = await api.createProduct({
@@ -923,7 +952,10 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           old: null,
           discount: 0,
         })
-        set(s => ({ products: [...s.products, { ...p, old: null, discount: 0 }] }))
+        set(s => ({
+          products: [...s.products, { ...p, old: null, discount: 0 }],
+          catalogEpoch: s.catalogEpoch + 1,
+        }))
         return { ...p, old: null, discount: 0 }
       } catch (e) {
         console.error(e)
@@ -947,17 +979,68 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     return p
   },
 
-  updateProduct: (id, updates) => set(s => ({
-    products: s.products.map(p => p.id === id ? { ...p, ...updates } : p)
-  })),
+  updateProduct: (id, updates) => set(s => {
+    const keys = Object.keys(updates || {})
+    const stockOnly = keys.length > 0 && keys.every(k => k === 'stock')
+    let touched = false
+    const products = s.products.map(p => {
+      if (p.id !== id) return p
+      touched = true
+      return { ...p, ...updates }
+    })
+    if (!touched) return s
+    return {
+      products,
+      ...(stockOnly
+        ? { stockEpoch: s.stockEpoch + 1 }
+        : { catalogEpoch: s.catalogEpoch + 1, stockEpoch: s.stockEpoch + 1 }),
+    }
+  }),
 
-  addProduct: (p) => set(s => ({ products: [...s.products, p] })),
+  patchProductStocks: (patches, mode = 'delta') => {
+    const map = patches instanceof Map ? patches : new Map(patches)
+    const catalogSize = get().products.length
+    if (!map.size) return { touched: 0, catalogSize }
+    let touched = 0
+    set(s => {
+      let localTouched = 0
+      const products = s.products.map(p => {
+        if (!map.has(p.id)) return p
+        const raw = Number(map.get(p.id)) || 0
+        const nextStock = mode === 'set'
+          ? Math.max(0, raw)
+          : Math.max(0, (Number(p.stock) || 0) + raw)
+        if (Math.abs(nextStock - (Number(p.stock) || 0)) < 0.0001) return p
+        localTouched += 1
+        return { ...p, stock: nextStock }
+      })
+      touched = localTouched
+      if (!localTouched) return s
+      return { products, stockEpoch: s.stockEpoch + 1 }
+    })
+    if (isPerfEnabled()) {
+      perfCount('products_array_replace', 1, 'patchProductStocks', {
+        catalogSize,
+        touched,
+        mode,
+      })
+    }
+    return { touched, catalogSize }
+  },
+
+  addProduct: (p) => set(s => ({
+    products: [...s.products, p],
+    catalogEpoch: s.catalogEpoch + 1,
+  })),
 
   removeProduct: async (id) => {
     if (USE_API) {
       try { await api.deleteProduct(id) } catch (e) { console.error(e) }
     }
-    set(s => ({ products: s.products.filter(p => p.id !== id) }))
+    set(s => ({
+      products: s.products.filter(p => p.id !== id),
+      catalogEpoch: s.catalogEpoch + 1,
+    }))
   },
 
   removeProducts: async (ids) => {
@@ -969,7 +1052,10 @@ export const useProducts = create<ProductsStore>((set, get) => ({
       removed = Number(res?.removed) || unique.length
     }
     const idSet = new Set(unique)
-    set(s => ({ products: s.products.filter(p => !idSet.has(p.id)) }))
+    set(s => ({
+      products: s.products.filter(p => !idSet.has(p.id)),
+      catalogEpoch: s.catalogEpoch + 1,
+    }))
     try {
       const { cacheProducts } = await import('./offline')
       void cacheProducts(get().products)

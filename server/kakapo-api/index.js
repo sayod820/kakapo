@@ -11,6 +11,8 @@ import {
   initDb,
   getDbStats,
   DATA_DIR,
+  queueDocDelete,
+  rowIdForItem,
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
 import { buildSyncChanges } from './syncChanges.js'
@@ -53,6 +55,7 @@ import {
   applyBonusSpendOnOrder,
   creditClientBonusOnDelivery,
   applyClientLoyaltyAfterDelivery,
+  completePosSaleOnlineLoyalty,
   applyLevelUpgrade,
   clearExpiredManualLoyaltyLock,
   ensureLoyaltySettings,
@@ -284,7 +287,13 @@ function pruneOpRefs() {
   const rows = ensureOpRefs()
   const edge = Date.now() - OP_REF_TTL_MS
   const alive = rows.filter(r => Date.parse(r.createdAtIso || '') > edge)
-  db.opRefs = alive.length > OP_REF_LIMIT ? alive.slice(-OP_REF_LIMIT) : alive
+  const next = alive.length > OP_REF_LIMIT ? alive.slice(-OP_REF_LIMIT) : alive
+  const keep = new Set(next)
+  for (const r of rows) {
+    if (keep.has(r)) continue
+    queueDocDelete('opRefs', rowIdForItem(r, 0))
+  }
+  db.opRefs = next
 }
 
 /** Результат ранее проведённой операции с тем же ключом (или null) */
@@ -299,7 +308,11 @@ function rememberOpRef(kind, clientRef, result) {
   const ref = String(clientRef || '').trim()
   if (!ref) return
   const rows = ensureOpRefs()
-  rows.push({ clientRef: ref, kind, result, createdAtIso: new Date().toISOString() })
+  const idx = rows.findIndex(r => r.clientRef === ref && r.kind === kind)
+  const row = { clientRef: ref, kind, result, createdAtIso: new Date().toISOString() }
+  // FIX D: one opRef per (kind, clientRef) — replace, do not append duplicates
+  if (idx >= 0) rows[idx] = row
+  else rows.push(row)
   pruneOpRefs()
 }
 
@@ -1923,6 +1936,7 @@ function removeOrderRecord(orderId) {
   const phone = removed.client?.phone || ''
   const released = releaseOrderStock(db, removed, 'Удаление заказа', { skipDelivered: true })
   db.orders.splice(idx, 1)
+  queueDocDelete('orders', id)
   if (Array.isArray(db.reviews)) {
     db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
   }
@@ -1963,6 +1977,7 @@ app.post('/orders/bulk-delete', (req, res) => {
     const released = releaseOrderStock(db, order, 'Удаление заказа', { skipDelivered: true })
     for (const line of released) stockTouchedIds.add(Number(line.productId))
     db.orders.splice(idx, 1)
+    queueDocDelete('orders', id)
     if (Array.isArray(db.reviews)) {
       db.reviews = db.reviews.filter(r => String(r.orderId) !== id)
     }
@@ -2637,17 +2652,51 @@ app.get('/pos/sales', (_req, res) => {
   if (ensurePosSaleNumbers(db)) persist()
   res.json(listPosSales(db))
 })
-app.post('/pos/sales', (req, res) => {
+app.post('/pos/sales', async (req, res) => {
   try {
     const body = req.body || {}
     // Идемпотентность офлайн-синхронизации: если чек с таким clientRef уже проведён — возвращаем его
     const clientRef = body.clientRef ? String(body.clientRef).trim() : ''
-    if (clientRef) {
-      const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
-      if (dup) return res.json(dup)
-    }
     const skipBalances = !!(body.appliedLocal || body.skipBalances)
     const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
+    const loyaltyCreateOrder = (d, sale, b) => createClientOrderFromPosSale(d, sale, b)
+
+    const finishLoyalty = async (sale, { broadcastNewOrder = false } = {}) => {
+      const lr = await completePosSaleOnlineLoyalty(db, sale, body, loyaltyHooks(), {
+        createOrder: loyaltyCreateOrder,
+      })
+      if (!lr.ok) return lr
+      if (lr.broadcastLoyalty && lr.order?.client?.phone) {
+        const client = findClientByPhone(db, lr.order.client.phone)
+        if (client) {
+          broadcastLoyalty({
+            phone: client.phone,
+            bonus: client.bonus,
+            card: client.card || '',
+          })
+        }
+      }
+      if (broadcastNewOrder && lr.broadcastOrder && lr.order) {
+        broadcast('new_order', lr.order)
+      }
+      return lr
+    }
+
+    if (clientRef) {
+      const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
+      if (dup) {
+        // FIX A: existing sale replay — дозавершить missing loyalty (earn/spend) ровно один раз
+        if (dup.clientPhone) {
+          const lr = await finishLoyalty(dup, { broadcastNewOrder: true })
+          if (!lr.ok) {
+            return res.status(400).json({ detail: lr.error || 'Не удалось дозавершить бонусы' })
+          }
+          if (lr.completedNow || lr.order) persist()
+        }
+        return res.json(dup)
+      }
+      if (replyIfKnownOp(res, 'pos_sale', clientRef)) return
+    }
     if (bonusSpendReq > 0 && !skipBalances) {
       const phone = String(body.clientPhone || '').trim()
       if (!phone) return res.status(400).json({ detail: 'Для списания бонусов нужен клиент' })
@@ -2661,58 +2710,52 @@ app.post('/pos/sales', (req, res) => {
     }
 
     const row = createPosSale(db, body)
-    deliverDebtNotifications(row._debtNotifications || [])
-    let order = null
+    const saleReplay = !!row._idempotentReplay
+    if (saleReplay) delete row._idempotentReplay
+    deliverDebtNotifications(saleReplay ? [] : (row._debtNotifications || []))
+
     if (row.clientPhone) {
-      order = createClientOrderFromPosSale(db, row, body)
-      if (order) {
-        if (bonusSpendReq > 0 && !skipBalances) {
-          const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, loyaltyHooks())
-          if (!spendResult.ok) {
-            db.orders = (db.orders || []).filter(o => o.id !== order.id)
-            row.orderId = undefined
-            return res.status(400).json({ detail: spendResult.error || 'Не удалось списать бонусы' })
-          }
+      // First create + concurrent replay: единый путь completion (markers prevent dup)
+      const lr = await finishLoyalty(row, { broadcastNewOrder: !saleReplay })
+      if (!lr.ok) {
+        if (!saleReplay && lr.order) {
+          db.orders = (db.orders || []).filter(o => o.id !== lr.order.id)
+          queueDocDelete('orders', String(lr.order.id))
+          row.orderId = undefined
         }
-        if (!skipBalances) {
-          applyClientLoyaltyAfterDelivery(db, order, loyaltyHooks())
-        }
-        const phone = order.client?.phone || ''
-        if (phone) {
-          const client = findClientByPhone(db, phone)
-          if (client) {
-            broadcastLoyalty({
-              phone: client.phone,
-              bonus: client.bonus,
-              card: client.card || '',
-            })
-          }
-        }
-        broadcast('new_order', order)
+        return res.status(400).json({ detail: lr.error || 'Не удалось списать бонусы' })
       }
     }
-    persist()
-    broadcastPosUpdate({ kind: 'sale', id: row.id })
-    broadcastProduct({ reason: 'sale' })
+    if (clientRef && !saleReplay) rememberOpRef('pos_sale', clientRef, { id: row.id, orderId: row.orderId })
+    // FIX D: await flush so 23505 reconcile can replace loser before response
+    await flushDbAsync()
+    const canonical = clientRef
+      ? (db.posSales || []).find(s => String(s.clientRef || '').trim() === clientRef) || row
+      : row
+    const wasReplay = saleReplay || (canonical && canonical.id !== row.id)
+    if (!wasReplay) {
+      broadcastPosUpdate({ kind: 'sale', id: canonical.id })
+      broadcastProduct({ reason: 'sale' })
+    }
     // Обычные продажи в историю не пишем — только «махинации» (скидка и т.п.)
-    const discAmt = Math.round((Number(row.discountAmount) || 0) * 100) / 100
-    if (discAmt > 0.001) {
+    const discAmt = Math.round((Number(canonical.discountAmount) || 0) * 100) / 100
+    if (!wasReplay && discAmt > 0.001) {
       auditFromReq(db, req, {
         app: 'trade',
         action: 'discount',
         entity: 'sale',
-        entityId: row.id,
-        entityName: row.saleNumber || row.id,
-        summary: `Скидка на чеке ${row.saleNumber || row.id} · −${discAmt} ЅМ · итог ${row.total} ЅМ`,
+        entityId: canonical.id,
+        entityName: canonical.saleNumber || canonical.id,
+        summary: `Скидка на чеке ${canonical.saleNumber || canonical.id} · −${discAmt} ЅМ · итог ${canonical.total} ЅМ`,
         after: {
           discountAmount: discAmt,
-          total: row.total,
-          paymentMethod: row.paymentMethod,
-          cashierName: row.cashierName,
+          total: canonical.total,
+          paymentMethod: canonical.paymentMethod,
+          cashierName: canonical.cashierName,
         },
       })
     }
-    res.json(row)
+    res.json(canonical)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
   }
@@ -2723,11 +2766,13 @@ app.post('/pos/sales/:id/return', (req, res) => {
     if (clientRef) {
       const known = (db.posSales || []).find(s => (s.returns || []).some(r => r.clientRef === clientRef))
       if (known) return res.json(known)
+      if (replyIfKnownOp(res, 'sale_return', clientRef)) return
     }
     const row = returnPosSale(db, req.params.id, req.body || {})
     if (clientRef) {
       const last = Array.isArray(row.returns) ? row.returns[row.returns.length - 1] : null
-      if (last) last.clientRef = clientRef
+      if (last && !last.clientRef) last.clientRef = clientRef
+      rememberOpRef('sale_return', clientRef, { id: row.id, status: row.status })
     }
     const bonusRefund = Number(row._bonusRefunded) || 0
     const bonusPhone = String(row._bonusRefundPhone || row.clientPhone || '').trim()
@@ -3127,7 +3172,7 @@ app.delete('/expenses/:id', (req, res) => {
 app.get('/finance/moves', (_req, res) => {
   res.json(listFinanceMoves(db))
 })
-app.post('/finance/moves', (req, res) => {
+app.post('/finance/moves', async (req, res) => {
   try {
     const clientRef = String(req.body?.clientRef || '').trim()
     if (clientRef) {
@@ -3135,6 +3180,9 @@ app.post('/finance/moves', (req, res) => {
       if (known) return res.json(known)
     }
     const row = createFinanceMove(db, req.body || {})
+    if (row && row._replay) {
+      return res.json(row)
+    }
     if (clientRef) {
       row.clientRef = clientRef
       const stored = (db.financeMoves || []).find(m => m.id === row.id)
@@ -3152,9 +3200,12 @@ app.post('/finance/moves', (req, res) => {
         + (row.supplierName ? ` · ${row.supplierName}` : ''),
       after: { type: row.type, amount: row.amount, note: row.note, shiftId: row.shiftId },
     })
-    persist()
-    broadcastPosUpdate({ kind: 'finance-move', id: row.id })
-    res.json(row)
+    await flushDbAsync()
+    const canonical = clientRef
+      ? (db.financeMoves || []).find(m => String(m.clientRef || '').trim() === clientRef) || row
+      : row
+    broadcastPosUpdate({ kind: 'finance-move', id: canonical.id })
+    res.json(canonical)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось сохранить движение' })
   }
@@ -4817,6 +4868,11 @@ app.post('/cards/:num/cash-topup', (req, res) => {
       clientRef,
       createdAtIso: req.body?.createdAtIso,
     })
+    // Phase 9: financeMove dedupe ≠ bonus side-effect — на replay не плюсуем бонусы снова
+    if (move && move._replay) {
+      rememberOpRef('card_topup', clientRef, { financeMove: move, bonusEarned: 0, addToBonus: 0, replay: true })
+      return res.json({ card, financeMove: move, bonusEarned: 0, addToBonus: 0, replay: true })
+    }
 
     // Риск 3.2: сервер всегда плюсует сам, не берёт bonusAfter с кассы
     card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100

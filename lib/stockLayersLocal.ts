@@ -237,7 +237,10 @@ export function mergeRemoteLayersKeepingLocal(
   return [...map.values()]
 }
 
-async function bumpProductCatalogFromLayers(layers: ProductStockLayer[]): Promise<void> {
+async function bumpProductCatalogFromLayers(
+  layers: ProductStockLayer[],
+  opts?: { persistCatalog?: boolean },
+): Promise<void> {
   try {
     const { useProducts } = await import('./store')
     const byPid = new Map<number, number>()
@@ -285,12 +288,26 @@ async function bumpProductCatalogFromLayers(layers: ProductStockLayer[]): Promis
       }
     })
     if (!changed) return
-    useProducts.setState({ products: next })
-    try {
-      const { cacheProducts } = await import('./offline')
-      void cacheProducts(next)
-    } catch { /* ignore */ }
+    useProducts.setState(s => ({
+      products: next,
+      stockEpoch: s.stockEpoch + 1,
+    }))
+    // Phase 8: stock/price from layers is durable in catalog_stock_layers KV.
+    // Do NOT rewrite full catalog_products on every layer bump (5k–10k JSON IPC).
+    // Structural catalog persist remains via cacheProducts on fetch/upsert/delete.
+    if (opts?.persistCatalog) {
+      try {
+        const { cacheProducts } = await import('./offline')
+        void cacheProducts(next)
+      } catch { /* ignore */ }
+    }
   } catch { /* ignore */ }
+}
+
+/** Apply cached layers → in-memory product.stock after offline hydrate (no catalog write). */
+export async function applyCachedLayersToProductStock(): Promise<void> {
+  const layers = await readCachedStockLayers()
+  await bumpProductCatalogFromLayers(layers, { persistCatalog: false })
 }
 
 export async function upsertLocalStockLayer(layer: ProductStockLayer): Promise<ProductStockLayer[]> {
@@ -400,6 +417,32 @@ export async function consumeLocalLayersFifoBatch(
   }
   await cacheStockLayers(list)
   return list
+}
+
+/**
+ * Phase 5: compute FIFO layers after sale WITHOUT writing.
+ * Caller persists inside SQLite transaction (Desktop saleCommit).
+ */
+export async function previewConsumeLocalLayersFifoBatch(
+  lines: Array<{ productId: number; qty: number }>,
+): Promise<ProductStockLayer[]> {
+  let list = await readCachedStockLayers()
+  for (const line of lines) {
+    const qty = Number(line.qty) || 0
+    if (!(qty > 0)) continue
+    list = applyFifoOnList(list, line.productId, qty)
+  }
+  return list
+}
+
+/** Apply already-computed layers into memory after SQLite saleCommit (KV already durable). */
+export function adoptStockLayersAfterAtomicCommit(layers: ProductStockLayer[]): void {
+  const list = Array.isArray(layers) ? layers : []
+  setMemoryCache(list)
+  // Do not schedulePersist — catalog_stock_layers already written inside saleCommit tx.
+  // Entity sync is secondary (not part of atomic set).
+  scheduleEntitySync(list)
+  notifyStockLayersChanged(list.length)
 }
 
 function round3(n: number) {

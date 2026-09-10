@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbQueueAll: () => ipcRenderer.invoke('desktop:localDbQueueAll'),
   localDbQueuePut: (row) => ipcRenderer.invoke('desktop:localDbQueuePut', row),
   localDbQueueDelete: (clientRef) => ipcRenderer.invoke('desktop:localDbQueueDelete', clientRef),
+  localDbSaleCommit: (payload) => ipcRenderer.invoke('desktop:localDbSaleCommit', payload),
+  localDbSaleCommitSetFailAt: (stage) => ipcRenderer.invoke('desktop:localDbSaleCommitSetFailAt', stage),
   localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
   localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
   localDbMarkInstalled: () => ipcRenderer.invoke('desktop:localDbMarkInstalled'),

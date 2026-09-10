@@ -278,8 +278,8 @@ export const usePosStore = create<PosStore>((set) => ({
         notePosOpSeqFromSales(sales)
       } catch { /* ignore */ }
       try {
-        const { cacheData } = await import('./offline')
-        void cacheData('pos_snapshot', snapshot)
+        const { persistPosSnapshot } = await import('./offline')
+        void persistPosSnapshot({ force: true })
       } catch { /* кэш недоступен */ }
     } catch (e) {
       // нет связи — при первом запуске поднимаем данные из офлайн-кэша
@@ -395,6 +395,11 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
     return posSoftSyncInFlight
   }
   if (!wantForce && Date.now() - posSoftSyncLastAt < POS_SOFT_MIN_GAP_MS) return
+
+  try {
+    const { perfSoftSync } = await import('./devTelemetry')
+    perfSoftSync('pos', { force: wantForce })
+  } catch { /* ignore */ }
 
   posSoftSyncInFlight = (async () => {
     try {
@@ -619,35 +624,27 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
 
 async function persistSoftPosSnapshot() {
   try {
-    const { cacheData } = await import('./offline')
-    const snap = usePosStore.getState()
-    void cacheData('pos_snapshot', {
-      cashiers: snap.cashiers,
-      posPoints: snap.posPoints,
-      shifts: snap.shifts,
-      sales: snap.sales,
-      receipts: snap.receipts,
-      writeoffs: snap.writeoffs,
-      revisions: snap.revisions,
-      suppliers: snap.suppliers,
-      expenses: snap.expenses,
-      financeMoves: snap.financeMoves,
-      cashVault: snap.cashVault,
-      expiry: snap.expiry,
-      financeSummary: snap.financeSummary,
-      report: snap.report,
-    })
+    const { persistPosSnapshot } = await import('./offline')
+    // Phase 8: coalesce with other snapshot writers (not a second full IPC path)
+    void persistPosSnapshot()
   } catch { /* ignore */ }
 }
 
 /**
  * Лёгкое обновление склада (приходы / списания / ревизии / поставщики / сроки).
  * Локальные off-* не затираются и склеиваются с сервером по clientRef.
+ *
+ * НЕ вызывать из critical register entry — тянет pullSyncChanges + layers + bumpProducts.
+ * Для кассы: WS posWarehouse / модуль Склад / отложенный фон (если нужен).
  */
 let warehouseSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
+  try {
+    const { perfSoftSync } = await import('./devTelemetry')
+    perfSoftSync('warehouse', { expiryDays: opts?.expiryDays })
+  } catch { /* ignore */ }
   warehouseSoftSyncInFlight = (async () => {
     try {
       // Только дельта /sync/changes — не полные getStockReceipts/…
@@ -674,11 +671,45 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   return warehouseSoftSyncInFlight
 }
 
+/** Только сроки годности (бейдж колокольчика). Без pullSync / layers / catalog bump. */
+let expirySoftSyncInFlight: Promise<void> | null = null
+let expirySoftSyncLastAt = 0
+const EXPIRY_SOFT_MIN_GAP_MS = 30_000
+
+export async function softSyncExpiry(opts?: { expiryDays?: number; force?: boolean }) {
+  const force = !!opts?.force
+  if (expirySoftSyncInFlight) return expirySoftSyncInFlight
+  if (!force && Date.now() - expirySoftSyncLastAt < EXPIRY_SOFT_MIN_GAP_MS) return
+  try {
+    const { perfSoftSync } = await import('./devTelemetry')
+    perfSoftSync('other', { kind: 'expiry', expiryDays: opts?.expiryDays })
+  } catch { /* ignore */ }
+  expirySoftSyncInFlight = (async () => {
+    try {
+      const days = opts?.expiryDays ?? 14
+      const expiry = await api.getStockExpiry(days)
+      usePosStore.setState({ expiry, apiReady: true, apiError: '' })
+      expirySoftSyncLastAt = Date.now()
+      try {
+        await persistSoftPosSnapshot()
+      } catch { /* ignore */ }
+    } catch { /* offline — оставляем кэш expiry */ }
+    finally {
+      expirySoftSyncInFlight = null
+    }
+  })()
+  return expirySoftSyncInFlight
+}
+
 /** Вклады / расходы / ящик с другого аппарата — без полного POS-снимка. */
 let financeSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncFinance() {
   if (financeSoftSyncInFlight) return financeSoftSyncInFlight
+  try {
+    const { perfSoftSync } = await import('./devTelemetry')
+    perfSoftSync('finance')
+  } catch { /* ignore */ }
   financeSoftSyncInFlight = (async () => {
     try {
       const { pullSyncChanges } = await import('./syncPull')

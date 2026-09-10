@@ -1,6 +1,9 @@
 /**
  * Входящий синк: GET /sync/changes после flush outbox.
- * Не вызывать, пока в очереди есть незакрытые операции.
+ *
+ * Phase 6: READY pending still blocks full pull (push first).
+ * Cooldown / failed pending do NOT starve inbound — apply with overlays.
+ * revisionCoordinator / barrier model untouched.
  */
 import { api } from './api'
 import { isOnline } from './offline'
@@ -9,6 +12,14 @@ import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
 import { cacheStockLayersAndSyncCatalog } from './stockLayersLocal'
 import { appendConflictLog, mergeAppendById, mergeByIdLww, mergeSalesInbound, shouldTakeRemoteLww } from './syncConflict'
 import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
+import {
+  shouldSkipFullPullForPending,
+  pendingSaleStockDeltas,
+  pendingStockTouchedProductIds,
+  applyPendingStockOverlayToProducts,
+  mergeLayersProtectingLocal,
+} from './pendingPullGate'
+import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
@@ -44,25 +55,31 @@ async function doPullSyncChanges(opts?: {
 }): Promise<SyncPullResult> {
   if (!isOnline()) return { ok: false, skipped: 'offline' }
 
+  let pendingSnapshot: Awaited<ReturnType<typeof getPending>> = []
   if (!opts?.ignorePending) {
     try {
-      const pending = await getPending()
-      if (pending.some(r => !r.failed)) {
+      pendingSnapshot = await getPending()
+      // Phase 6: only READY-to-push blocks; cooldown/failed allow inbound + overlay
+      if (shouldSkipFullPullForPending(pendingSnapshot)) {
         return { ok: false, skipped: 'pending' }
       }
     } catch { /* ignore */ }
+  } else {
+    try { pendingSnapshot = await getPending() } catch { /* ignore */ }
   }
 
+  const t0 = isPerfEnabled() ? performance.now() : 0
   try {
     const since = opts?.forceFull ? '' : await getSyncCursor()
     const delta = await api.getSyncChanges(since || undefined)
 
     const del = Array.isArray(delta.deletes) ? delta.deletes : []
     let pendingProtect = new Set<string>()
+    const stockDeltas = pendingSaleStockDeltas(pendingSnapshot)
+    const stockTouched = pendingStockTouchedProductIds(pendingSnapshot)
     try {
-      const pending = await getPending()
-      for (const r of pending) {
-        if (r.failed) continue
+      for (const r of pendingSnapshot) {
+        if (r.failed && r.kind !== 'sale' && r.kind !== 'sale_return') continue
         if (r.kind === 'product_upsert') {
           const id = String((r.payload as any)?.localId || (r.payload as any)?.product?.id || '')
           if (id) pendingProtect.add(`product:${id}`)
@@ -107,7 +124,7 @@ async function doPullSyncChanges(opts?: {
       return (list || []).filter(row => !s.has(String(row?.id ?? '')))
     }
 
-    // Products
+    // Products — server base + local unacked sale/return stock overlay
     {
       const { useProducts } = await import('./store')
       let merged = useProducts.getState().products || []
@@ -125,8 +142,19 @@ async function doPullSyncChanges(opts?: {
           })
       }
       merged = dropById(merged, delOf('product'))
+      // Overlay only when remote product rows arrived (else local stock already includes pending)
+      const productsInbound = !!(delta.products && delta.products.length) || !!opts?.forceFull || !!delta.full
+      if (stockDeltas.size && productsInbound) {
+        merged = applyPendingStockOverlayToProducts(merged, stockDeltas)
+      }
       if ((delta.products && delta.products.length) || delOf('product').length) {
-        useProducts.setState({ products: merged })
+        useProducts.setState(s => ({
+          products: merged,
+          catalogEpoch: s.catalogEpoch + 1,
+        }))
+        if (isPerfEnabled()) {
+          perfCount('products_array_replace', 1, 'syncPull.products', { catalogSize: merged.length })
+        }
         await cacheProducts(merged)
         await entityUpsertMany(
           'product',
@@ -204,18 +232,28 @@ async function doPullSyncChanges(opts?: {
       } catch { /* ignore */ }
     }
 
-    // Stock layers — полный список открытых партий (исчерпанные не приходят)
+    // Stock layers — protect products with unacked stock effects; cursor still advances
     if (Array.isArray(delta.stockLayers) && (delta.stockLayersReplace || delta.full || opts?.forceFull || delta.stockLayers.length)) {
       const next = (delta.full || opts?.forceFull || delta.stockLayersReplace)
         ? (delta.stockLayers as ProductStockLayer[])
         : null
       if (next) {
-        await cacheStockLayersAndSyncCatalog(next)
+        if (stockTouched.size) {
+          const { readCachedStockLayers } = await import('./stockLayersLocal')
+          const local = await readCachedStockLayers()
+          const mergedLayers = mergeLayersProtectingLocal(local, next, stockTouched)
+          await cacheStockLayersAndSyncCatalog(mergedLayers)
+          // Local protected layers already reflect pending sale — do NOT re-apply sale deltas
+        } else {
+          await cacheStockLayersAndSyncCatalog(next)
+        }
       } else {
         const { readCachedStockLayers } = await import('./stockLayersLocal')
         const local = await readCachedStockLayers()
         const map = new Map(local.map(l => [`${l.receiptId}:${l.productId}`, l]))
         for (const remote of delta.stockLayers as ProductStockLayer[]) {
+          const pid = Number(remote.productId) || 0
+          if (stockTouched.has(pid)) continue
           const key = `${remote.receiptId}:${remote.productId}`
           const cur = map.get(key)
           if (!cur || shouldTakeRemoteLww(cur, remote)) map.set(key, remote)
@@ -253,7 +291,6 @@ async function doPullSyncChanges(opts?: {
           nextShifts = cur.shifts
         } else {
           const merged = mergeAppendById(cur.shifts, incoming)
-          // Открытые смены: счётчики нал/карта/долг с сервера не должны залипать
           nextShifts = merged.map((sh: any) => {
             if (String(sh?.status || '') !== 'open') return sh
             const remote = (incoming || []).find((r: any) => String(r?.id) === String(sh?.id))
@@ -341,10 +378,11 @@ async function doPullSyncChanges(opts?: {
 
       if (Object.keys(patch).length) {
         usePosStore.setState(patch as any)
-        try { await persistPosSnapshot() } catch { /* ignore */ }
+        try { await persistPosSnapshot({ force: true }) } catch { /* ignore */ }
       }
     }
 
+    // Cursor: overlays applied on remote base — safe to advance (no silent skip)
     if (delta.cursor) await setSyncCursor(delta.cursor)
     // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
     // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
@@ -352,8 +390,17 @@ async function doPullSyncChanges(opts?: {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()
     } catch { /* ignore */ }
+    if (t0) {
+      perfNote('sync_pull_ms', performance.now() - t0, opts?.forceFull ? 'full' : 'delta', {
+        cursor: !!delta.cursor,
+        pendingOverlay: stockDeltas.size,
+      })
+    }
     return { ok: true, cursor: delta.cursor }
   } catch (e) {
+    if (t0) {
+      perfNote('sync_pull_ms', performance.now() - t0, 'error')
+    }
     return {
       ok: false,
       skipped: 'error',

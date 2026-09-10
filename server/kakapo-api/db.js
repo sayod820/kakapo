@@ -12,7 +12,12 @@ import {
   isPgEmpty,
   loadSnapshotFromPg,
   persistSnapshot,
+  rowIdForItem,
+  APPEND_NO_PRUNE_COLLECTIONS,
+  isAppendNoPruneCollection,
+  deleteDoc,
 } from './pg/store.js'
+import { applyIdempotencyConflictsToSnapshot } from './pg/uniqueIdempotency.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const DATA_DIR = process.env.DATA_DIR || join(__dirname, 'data')
@@ -25,6 +30,50 @@ let saveDirty = false
 let ready = false
 let engine = 'json' // 'json' | 'postgres'
 let flushChain = Promise.resolve()
+/** @type {Array<{ collection: string, id: string }>} */
+let pendingDocDeletes = []
+
+/**
+ * FIX C: queue explicit doc delete for append/no-prune collections.
+ * JSON engine: no-op (full file rewrite already drops memory-removed rows).
+ */
+export function queueDocDelete(collection, id) {
+  const col = String(collection || '').trim()
+  const docId = String(id ?? '').trim()
+  if (!col || !docId) return
+  if (!isAppendNoPruneCollection(col)) return
+  if (engine === 'json') return
+  if (pendingDocDeletes.some(d => d.collection === col && d.id === docId)) return
+  pendingDocDeletes.push({ collection: col, id: docId })
+  saveDirty = true
+}
+
+export function peekPendingDocDeletes() {
+  return pendingDocDeletes.slice()
+}
+
+export {
+  APPEND_NO_PRUNE_COLLECTIONS,
+  isAppendNoPruneCollection,
+  rowIdForItem,
+  deleteDoc,
+}
+
+export {
+  claimPosEffect,
+  updatePosEffect,
+  readPosEffect,
+  POS_EFFECT_KINDS,
+  setMemoryClaimStore,
+  createMemoryClaimStore,
+} from './pg/idempotentClaim.js'
+
+/** Last FIX D idempotency conflicts from postgres flush (for tests / callers). */
+let lastPersistConflicts = []
+
+export function getLastPersistConflicts() {
+  return lastPersistConflicts.slice()
+}
 
 function ensureDataDir() {
   mkdirSync(dirname(DB_FILE), { recursive: true })
@@ -225,12 +274,30 @@ export function loadDb() {
 async function persistNow() {
   if (!cache || !saveDirty) return
   const snapshot = cache
+  const deletes = pendingDocDeletes.slice()
+  lastPersistConflicts = []
   if (engine === 'postgres') {
-    await persistSnapshot(snapshot)
+    const result = await persistSnapshot(snapshot, { deletes })
+    const conflicts = result?.conflicts || []
+    lastPersistConflicts = conflicts
+    if (conflicts.length) {
+      // FIX D: adopt winner rows from PG; drop loser local duplicates
+      applyIdempotencyConflictsToSnapshot(cache, conflicts)
+      console.warn(
+        '[db] idempotency unique conflict reconciled:',
+        conflicts.map(c => `${c.constraint}:${c.attemptedId}->${c.existingId}`).join(', '),
+      )
+    }
+    // Drop only deletes that were included in this flush
+    if (deletes.length) {
+      const done = new Set(deletes.map(d => `${d.collection}\0${d.id}`))
+      pendingDocDeletes = pendingDocDeletes.filter(d => !done.has(`${d.collection}\0${d.id}`))
+    }
   } else {
     writeJsonFile()
+    pendingDocDeletes = []
   }
-  saveDirty = false
+  saveDirty = pendingDocDeletes.length > 0
 }
 
 function enqueueFlush() {

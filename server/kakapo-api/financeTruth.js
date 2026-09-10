@@ -52,6 +52,15 @@ function inRange(iso, fromIso, toIso) {
 /** Запись в неизменяемый журнал денег */
 export function appendMoneyLedger(db, data = {}) {
   ensureLedger(db)
+  const type = String(data.type || 'other')
+  const clientRef = String(data.clientRef || '').trim()
+  // Phase 9: side-effect idempotency — повтор с тем же clientRef+type не пишет второй ledger
+  if (clientRef) {
+    const known = (db.moneyLedger || []).find(r =>
+      String(r.clientRef || '') === clientRef && String(r.type || '') === type,
+    )
+    if (known) return { ...known, _replay: true }
+  }
   const amount = round2(Math.abs(Number(data.amount) || 0))
   const direction = data.direction === 'out' || data.direction === 'info' ? data.direction : 'in'
   const cashAffect = data.cashAffect === true || (data.cashAffect !== false && direction !== 'info' && data.type !== 'sale_credit' && data.type !== 'shift_close')
@@ -61,7 +70,7 @@ export function appendMoneyLedger(db, data = {}) {
   const row = {
     id: nextId('LED'),
     createdAtIso: data.createdAtIso || nowIso(),
-    type: String(data.type || 'other'),
+    type,
     amount: amount || Math.abs(signedAmount),
     direction,
     signedAmount,
@@ -72,7 +81,7 @@ export function appendMoneyLedger(db, data = {}) {
     cashierName: data.cashierName || '',
     refType: data.refType || '',
     refId: data.refId || '',
-    clientRef: String(data.clientRef || '').trim(),
+    clientRef,
     note: String(data.note || '').trim(),
     reason: String(data.reason || '').trim(),
     meta: data.meta && typeof data.meta === 'object' ? data.meta : {},

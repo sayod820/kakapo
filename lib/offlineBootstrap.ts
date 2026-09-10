@@ -284,7 +284,7 @@ export async function runLocalBootstrap(
     await withRetries('pos', async () => {
       await syncPosFromApi()
       // Снимок POS → SQLite (смены, чеки, склад, финансы, поставщики)
-      await persistPosSnapshot()
+      await persistPosSnapshot({ force: true })
     })
     report(3, 'pos', STEPS[2].label)
 

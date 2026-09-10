@@ -173,6 +173,16 @@ export type KakapoDesktopApi = {
   localDbQueueAll?: () => Promise<unknown[]>
   localDbQueuePut?: (row: unknown) => Promise<{ ok: boolean }>
   localDbQueueDelete?: (clientRef: string) => Promise<{ ok: boolean }>
+  /** Phase 5: atomic SQLite sale commit (queue+layers+mirrors) */
+  localDbSaleCommit?: (payload: {
+    queueRow: unknown
+    stockLayers?: unknown
+    sale?: unknown
+    shift?: unknown
+    queueSeq?: number
+    failAt?: string
+  }) => Promise<{ ok: boolean; error?: string; code?: string; rolledBack?: boolean; clientRef?: string; saleId?: string }>
+  localDbSaleCommitSetFailAt?: (stage: string) => Promise<{ ok: boolean; failAt: string }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
   /** Пометить установку завершённой — больше не просить скачивание */
