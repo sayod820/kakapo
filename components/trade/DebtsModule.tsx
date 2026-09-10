@@ -500,6 +500,8 @@ export default function DebtsModule({
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
   const [saleRepay, setSaleRepay] = useState<SaleRepayState | null>(null)
   const desktopAutoPicked = useRef(false)
+  /** Синхронный guard: setState(saving) не успевает до второго клика */
+  const moneyBusyRef = useRef(false)
 
   const refreshAll = useCallback(() => {
     void Promise.all([
@@ -685,6 +687,7 @@ export default function DebtsModule({
 
   async function submitSaleRepay() {
     if (!detailClient || !saleDetailId || !saleRepay || !detailData) return
+    if (moneyBusyRef.current || saleRepay.saving) return
     const histKey = debtAccountKey(detailClient)
     if (!histKey) return
     const s = detailData.posSales.find(x => x.id === saleDetailId)
@@ -716,6 +719,7 @@ export default function DebtsModule({
       ensureDebtHistoryOrderId(histKey, linked.id, linkOrderId)
     }
 
+    moneyBusyRef.current = true
     setSaleRepay(prev => prev ? { ...prev, saving: true } : prev)
     setHistMsg('')
     try {
@@ -747,6 +751,8 @@ export default function DebtsModule({
     } catch (e) {
       setSaleRepay(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 
@@ -772,11 +778,13 @@ export default function DebtsModule({
 
   async function submitCashRepay() {
     if (!detailClient || !repayQuick) return
+    if (moneyBusyRef.current || repayQuick.saving) return
     const amount = Math.round(Math.min(Number(repayQuick.amount) || 0, repayQuick.maxAmount) * 100) / 100
     if (!(amount > 0.001)) {
       setHistMsg('Укажите сумму погашения')
       return
     }
+    moneyBusyRef.current = true
     setRepayQuick(prev => prev ? { ...prev, saving: true } : prev)
     setHistMsg('')
     try {
@@ -847,6 +855,8 @@ export default function DebtsModule({
     } catch (e) {
       setRepayQuick(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 
@@ -865,11 +875,13 @@ export default function DebtsModule({
 
   async function submitHistoryAdd() {
     if (!detailClient) return
+    if (moneyBusyRef.current || histAdd.saving) return
     const amount = Number(histAdd.amount) || 0
     if (!(amount > 0)) {
       setHistMsg('Укажите сумму')
       return
     }
+    moneyBusyRef.current = true
     setHistAdd(prev => ({ ...prev, saving: true }))
     setHistMsg('')
     try {
@@ -936,6 +948,8 @@ export default function DebtsModule({
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
       setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 
@@ -965,11 +979,13 @@ export default function DebtsModule({
 
   async function clearResidualCashFromCard() {
     if (!detailClient || !detailData || detailData.residualCash < 0.005) return
+    if (moneyBusyRef.current) return
     const amt = detailData.residualCash
     const next = Math.max(0, Math.round((Number(detailClient.debt) - amt) * 100) / 100)
     if (!window.confirm(
       `Убрать с карты ${fmtMoney(amt)}?\n\nОстанется долг ${fmtMoney(next)} (чеки + записанные наличные).`,
     )) return
+    moneyBusyRef.current = true
     try {
       await adjustClientDebtSafe(detailClient, {
         action: 'repay',
@@ -981,20 +997,25 @@ export default function DebtsModule({
       void refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 
   async function deleteManualHistory(row: DebtHistoryEntry) {
     const histKey = debtAccountKey(detailClient)
     if (!histKey || !isManualDebtHistoryEntry(row)) return
+    if (moneyBusyRef.current) return
     if (row.type === 'pay') {
       setHistMsg('Погашение нельзя удалить')
       return
     }
     const abs = Math.abs(Number(row.amount) || 0)
     if (!window.confirm(`Удалить начисление ${fmtMoney(abs)}? Чеки не затрагиваются.`)) return
+    moneyBusyRef.current = true
     const removed = removeDebtHistoryEntry(histKey, row.id)
     if (!removed) {
+      moneyBusyRef.current = false
       setHistMsg('Эту запись нельзя удалить')
       return
     }
@@ -1005,12 +1026,15 @@ export default function DebtsModule({
       void refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось обновить баланс')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 
   async function saveManualHistoryEdit() {
     const histKey = debtAccountKey(detailClient)
     if (!histKey || !histEdit) return
+    if (moneyBusyRef.current || histEdit.saving) return
     const before = loadDebtHistory(histKey).find(r => r.id === histEdit.id)
     if (!before || !isManualDebtHistoryEntry(before)) {
       setHistEdit(null)
@@ -1026,6 +1050,7 @@ export default function DebtsModule({
       setHistMsg('Укажите сумму больше 0')
       return
     }
+    moneyBusyRef.current = true
     setHistEdit(prev => prev ? { ...prev, saving: true } : prev)
     try {
       const after = updateDebtHistoryEntry(histKey, histEdit.id, {
@@ -1040,6 +1065,8 @@ export default function DebtsModule({
     } catch (e) {
       setHistEdit(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
+    } finally {
+      moneyBusyRef.current = false
     }
   }
 

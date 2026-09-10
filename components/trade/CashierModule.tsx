@@ -1427,6 +1427,11 @@ export default function CashierModule({
 
   const [busy, setBusy] = useState(false)
   const repayBusyRef = useRef(false)
+  const topupBusyRef = useRef(false)
+  const chargeBusyRef = useRef(false)
+  const shiftBusyRef = useRef(false)
+  const tillBusyRef = useRef(false)
+  const returnBusyRef = useRef(false)
   const [msg, setMsg] = useState('')
   const [toast, setToast] = useState<{ title: string; sub: string } | null>(null)
   /** Блокировка кассы после скана неизвестного штрихкода — пока не нажали Отмена / ✕ */
@@ -4326,6 +4331,8 @@ export default function CashierModule({
   }
 
   async function openShift() {
+    if (shiftBusyRef.current || busy) return
+    shiftBusyRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -4364,6 +4371,7 @@ export default function CashierModule({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось открыть смену')
     } finally {
+      shiftBusyRef.current = false
       setBusy(false)
     }
   }
@@ -4638,10 +4646,12 @@ export default function CashierModule({
 
   async function closeShift() {
     if (!activeShift) return
+    if (shiftBusyRef.current || busy) return
     if (!shiftReconciled) {
       setMsg('Сначала сделайте сверку нал и карта')
       return
     }
+    shiftBusyRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -4680,6 +4690,7 @@ export default function CashierModule({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')
     } finally {
+      shiftBusyRef.current = false
       setBusy(false)
     }
   }
@@ -4700,6 +4711,7 @@ export default function CashierModule({
 
   async function switchCashier() {
     if (!activeShift) return
+    if (shiftBusyRef.current || busy) return
     const next = cashierOptions.find(c => c.id === switchCashierId)
     if (!next) {
       setMsg('Выберите кассира')
@@ -4709,6 +4721,7 @@ export default function CashierModule({
       setMsg('Сначала сделайте сверку нал и карта')
       return
     }
+    shiftBusyRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -4756,6 +4769,7 @@ export default function CashierModule({
       setMsg(e instanceof Error ? e.message : 'Не удалось сменить кассира')
       void refresh()
     } finally {
+      shiftBusyRef.current = false
       setBusy(false)
     }
   }
@@ -4800,6 +4814,8 @@ export default function CashierModule({
 
   async function submitTillMove() {
     if (!activeShift || !tillMoveKind) return
+    if (tillBusyRef.current || busy) return
+    tillBusyRef.current = true
     setBusy(true)
     setMsg('')
     try {
@@ -4844,6 +4860,7 @@ export default function CashierModule({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
+      tillBusyRef.current = false
       setBusy(false)
     }
   }
@@ -5666,7 +5683,7 @@ export default function CashierModule({
 
   async function executeReturnConfirm() {
     const pending = returnConfirm
-    if (!pending || busy) return
+    if (!pending || busy || returnBusyRef.current) return
     if (pending.step === 'confirm' && pending.needAdmin) {
       setReturnConfirm({ ...pending, step: 'admin', adminCode: '' })
       return
@@ -5683,6 +5700,7 @@ export default function CashierModule({
       setReturnConfirm(null)
       return
     }
+    returnBusyRef.current = true
     setReturnConfirm(null)
     setBusy(true)
     setMsg('')
@@ -5735,6 +5753,7 @@ export default function CashierModule({
       setMsg(e instanceof Error ? e.message : 'Не удалось оформить возврат')
       showToast('Ошибка возврата', e instanceof Error ? e.message : 'Не удалось')
     } finally {
+      returnBusyRef.current = false
       setBusy(false)
     }
   }
@@ -7568,6 +7587,7 @@ export default function CashierModule({
 
   async function submitTopup() {
     if (!client) return
+    if (topupBusyRef.current || busy) return
     if (!activeShift) {
       showToast('Смена закрыта', 'Сначала откройте смену')
       return
@@ -7579,6 +7599,7 @@ export default function CashierModule({
     const percentBonus = calcCashDepositBonus(cash)
     const credit = Math.round((principal + percentBonus) * 100) / 100
     if (principal <= 0) return
+    topupBusyRef.current = true
     setBusy(true)
     try {
       const withCard = await ensureClientHasCard(client)
@@ -7606,6 +7627,7 @@ export default function CashierModule({
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось пополнить')
     } finally {
+      topupBusyRef.current = false
       setBusy(false)
     }
   }
@@ -7748,7 +7770,7 @@ export default function CashierModule({
   }
 
   async function submitCashCharge() {
-    if (!client || busy) return
+    if (!client || busy || chargeBusyRef.current) return
     const amount = Math.round((Number(chargeBuf) || 0) * 100) / 100
     if (amount <= 0) return
     if (!activeShift) {
@@ -7759,6 +7781,7 @@ export default function CashierModule({
       showToast('Мало наличных', `В кассе ${fmtMoney(tillExpected)}`)
       return
     }
+    chargeBusyRef.current = true
     setBusy(true)
     try {
       const charged = await chargeCashDebtFromOpenShift(client, amount, {
@@ -7779,6 +7802,7 @@ export default function CashierModule({
     } catch (e) {
       showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать наличные')
     } finally {
+      chargeBusyRef.current = false
       setBusy(false)
     }
   }

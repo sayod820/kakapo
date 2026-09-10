@@ -1,7 +1,7 @@
 'use client'
 
 import { backdropCloseProps } from '@/components/shared/backdropClose'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -260,6 +260,8 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
   const [histTick, setHistTick] = useState(0)
 
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0)
+  const cashBusyRef = useRef(false)
+  const [flashMsg, setFlashMsg] = useState('')
 
   const welcomeBonus = useMemo(() => getRegistrationWelcomeBonus(), [])
   const unlinkedCards = useMemo(() => cards.filter(c => c.status === 'unlinked'), [cards])
@@ -497,6 +499,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
   }
 
   async function submitCash() {
+    if (cashBusyRef.current || cashForm.saving) return
     const client = clients.find(c => c.id === cashForm.clientId)
     if (!client) return
     const cash = Number(cashForm.cashAmount) || 0
@@ -514,6 +517,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
       return
     }
 
+    cashBusyRef.current = true
     setCashForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
       let card = cardForClient(client, cards)
@@ -538,9 +542,13 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
       })
       if (!topup.offline) void refreshAll()
       else void useOfflineSync.getState().syncNow()
+      const extra = percent > 0 ? ` (деньги ${principal.toFixed(2)} + бонус ${percent.toFixed(2)})` : ''
+      setFlashMsg(`Бонусы пополнены: ${client.name} · +${credit.toFixed(2)} ⭐${extra}${topup.offline ? ' · отправится при связи' : ''}`)
       closeCashForm()
     } catch (e) {
       setCashForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка пополнения' }))
+    } finally {
+      cashBusyRef.current = false
     }
   }
 
@@ -604,6 +612,27 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
     <div className="k-clients-mod">
       <style>{CLIENTS_MODULE_CSS}</style>
       {apiSyncing && <div className="k-cli-sync-bar">Обновление…</div>}
+      {flashMsg && (
+        <div
+          style={{
+            margin: '8px 12px 0',
+            padding: '10px 12px',
+            borderRadius: 10,
+            background: 'rgba(31,215,96,.12)',
+            border: '1px solid rgba(31,215,96,.35)',
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 10,
+            alignItems: 'center',
+          }}
+        >
+          <span>{flashMsg}</span>
+          <button type="button" onClick={() => setFlashMsg('')} style={{ background: 'none', border: 0, cursor: 'pointer', fontSize: 16, color: 'var(--muted)' }}>✕</button>
+        </div>
+      )}
 
       <div className="k-kpis k-cli-kpis k-hide-mob">
         <div className="k-kpi k-statcard">

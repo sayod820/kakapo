@@ -1,7 +1,7 @@
 'use client'
 
 import { backdropCloseProps } from '@/components/shared/backdropClose'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
@@ -74,6 +74,7 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null)
   const [form, setForm] = useState<SupplierFormState>(emptySupplierForm)
   const [payForm, setPayForm] = useState<PaymentFormState>(emptyPaymentForm)
+  const payBusyRef = useRef(false)
 
   const refreshAll = useCallback(() => {
     void softSyncWarehouse()
@@ -274,12 +275,14 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
 
   async function submitPayment() {
     if (!USE_API && !isTradeLocalFirst()) return
+    if (payBusyRef.current || payForm.saving) return
     if (!isTradeLocalFirst() && !guardMutation(msg => setPayForm(prev => ({ ...prev, msg })))) return
     const amount = Number(payForm.amount)
     if (!(amount > 0)) {
       setPayForm(prev => ({ ...prev, msg: 'Укажите сумму оплаты' }))
       return
     }
+    payBusyRef.current = true
     setPayForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
       if (payForm.mode === 'book') {
@@ -320,6 +323,8 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
       closePayForm()
     } catch (e) {
       setPayForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка оплаты' }))
+    } finally {
+      payBusyRef.current = false
     }
   }
 

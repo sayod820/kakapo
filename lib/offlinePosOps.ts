@@ -975,6 +975,8 @@ export async function financeMoveSafe(input: {
 }
 
 /** Выдать нал из открытой смены и записать долг на карту. Без смены / без наличных в ящике — ошибка. */
+const chargeCashDebtInflight = new Map<string, Promise<OfflineResult<{ debt: number }>>>()
+
 export async function chargeCashDebtFromOpenShift(
   client: AdminClient,
   amount: number,
@@ -990,36 +992,51 @@ export async function chargeCashDebtFromOpenShift(
   if (amt > expected + 0.009) {
     throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
   }
-  const note = opts?.note || `Выдача наличных · ${client.name}`
-  await financeMoveSafe({
-    type: 'withdraw',
-    amount: amt,
-    note,
-    shiftId: shift.id,
-    posId: shift.posId,
-    cashierId: shift.cashierId,
-    cashierName: shift.cashierName,
-    createdBy: shift.cashierName,
-  })
-  try {
-    const { adjustClientDebtSafe } = await import('./offlineLoyaltyOps')
-    return await adjustClientDebtSafe(client, { action: 'charge', amount: amt })
-  } catch (e) {
+  const inflightKey = ['charge', client.id, amt, shift.id].join('|')
+  const existing = chargeCashDebtInflight.get(inflightKey)
+  if (existing) return existing
+
+  const run = (async (): Promise<OfflineResult<{ debt: number }>> => {
+    const note = opts?.note || `Выдача наличных · ${client.name}`
     await financeMoveSafe({
-      type: 'deposit',
+      type: 'withdraw',
       amount: amt,
-      note: `Отмена выдачи наличных · ${client.name}`,
+      note,
       shiftId: shift.id,
       posId: shift.posId,
       cashierId: shift.cashierId,
       cashierName: shift.cashierName,
       createdBy: shift.cashierName,
-    }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
-    throw e
+    })
+    try {
+      const { adjustClientDebtSafe } = await import('./offlineLoyaltyOps')
+      return await adjustClientDebtSafe(client, { action: 'charge', amount: amt })
+    } catch (e) {
+      await financeMoveSafe({
+        type: 'deposit',
+        amount: amt,
+        note: `Отмена выдачи наличных · ${client.name}`,
+        shiftId: shift.id,
+        posId: shift.posId,
+        cashierId: shift.cashierId,
+        cashierName: shift.cashierName,
+        createdBy: shift.cashierName,
+      }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
+      throw e
+    }
+  })()
+
+  chargeCashDebtInflight.set(inflightKey, run)
+  try {
+    return await run
+  } finally {
+    chargeCashDebtInflight.delete(inflightKey)
   }
 }
 
 // ── Пополнение карты наличными ──
+
+const cardTopupInflight = new Map<string, Promise<OfflineResult<{ clientRef: string }>>>()
 
 export async function cardTopupSafe(
   num: string,
@@ -1033,6 +1050,19 @@ export async function cardTopupSafe(
     posId?: string
   },
 ): Promise<OfflineResult<{ clientRef: string }>> {
+  const cash = round2(input.cash)
+  const credit = round2(input.credit)
+  const inflightKey = [
+    String(num).trim().toUpperCase(),
+    cash,
+    credit,
+    String(input.shiftId || ''),
+    String(input.note || '').trim(),
+  ].join('|')
+  const pending = cardTopupInflight.get(inflightKey)
+  if (pending) return pending
+
+  const run = (async (): Promise<OfflineResult<{ clientRef: string }>> => {
   const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
   const cardNow = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
@@ -1043,8 +1073,8 @@ export async function cardTopupSafe(
     ...input,
     clientRef,
     createdAtIso,
-    cash: round2(input.cash),
-    credit: round2(input.credit),
+    cash,
+    credit,
     num,
     expectedBonusPayVersion,
     prevBonus,
@@ -1112,6 +1142,14 @@ export async function cardTopupSafe(
     },
     applyLocal,
   )
+  })()
+
+  cardTopupInflight.set(inflightKey, run)
+  try {
+    return await run
+  } finally {
+    cardTopupInflight.delete(inflightKey)
+  }
 }
 
 /** Откат локального пополнения бонусов при отказе сервера (риск 3.5). */

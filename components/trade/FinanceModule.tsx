@@ -264,11 +264,11 @@ export default function FinanceModule() {
         payFrom,
         method: expMethod,
       })
-      await afterFinanceMutation(!!res.offline)
       setExpOpen(false)
       setExpAmount('')
       setExpNote('')
-      if (res.offline) setMsg('Расход сохранён · отправится при связи')
+      setMsg(res.offline ? 'Расход сохранён · отправится при связи' : 'Расход сохранён')
+      void afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -331,14 +331,14 @@ export default function FinanceModule() {
         payFrom,
         method,
       })
-      await afterFinanceMutation(!!res.offline)
       setDepOpen(false)
       setDepAmount('')
       setDepNote('')
       setDepShiftId('')
       setDepPayFrom('shift')
       setDepMethod('cash')
-      if (res.offline) setMsg('Движение сохранено · отправится при связи')
+      setMsg(res.offline ? 'Движение сохранено · отправится при связи' : 'Движение сохранено')
+      void afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -364,11 +364,11 @@ export default function FinanceModule() {
       const res = toCash
         ? await vaultCardToCashSafe({ amount, note: convNote.trim() || undefined })
         : await vaultCashToCardSafe({ amount, note: convNote.trim() || undefined })
-      await afterFinanceMutation(!!res.offline)
       setConvOpen(false)
       setConvAmount('')
       setConvNote('')
-      if (res.offline) setMsg('Перевод сохранён · отправится при связи')
+      setMsg(res.offline ? 'Перевод сохранён · отправится при связи' : 'Перевод сохранён')
+      void afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -398,33 +398,39 @@ export default function FinanceModule() {
 
   async function confirmRemoveMove() {
     const id = delMoveId
-    if (!id || savingRef.current) return
+    if (!id || savingRef.current || busy) return
     savingRef.current = true
+    setBusy(true)
     setDelMoveId(null)
     setMsg('')
     try {
       const res = await financeMoveDeleteSafe(id)
-      await afterFinanceMutation(!!res.offline)
+      setMsg(res.offline ? 'Удалено · отправится при связи' : 'Удалено')
+      void afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
       savingRef.current = false
+      setBusy(false)
     }
   }
 
   async function confirmRemoveExpense() {
     const id = delExpId
-    if (!id || savingRef.current) return
+    if (!id || savingRef.current || busy) return
     savingRef.current = true
+    setBusy(true)
     setDelExpId(null)
     setMsg('')
     try {
       const res = await expenseDeleteSafe(id)
-      await afterFinanceMutation(!!res.offline)
+      setMsg(res.offline ? 'Расход удалён · отправится при связи' : 'Расход удалён')
+      void afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить расход')
     } finally {
       savingRef.current = false
+      setBusy(false)
     }
   }
 
@@ -1343,8 +1349,8 @@ export default function FinanceModule() {
             <div className="k-modal-b" style={{ padding: 16 }}>
               <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Запись уйдёт из кассы. Если уже на сервере — удалится и там.</p>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="k-btn" style={{ flex: 1 }} onClick={() => setDelMoveId(null)}>Отмена</button>
-                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={() => void confirmRemoveMove()}>Удалить</button>
+                <button type="button" className="k-btn" style={{ flex: 1 }} disabled={busy} onClick={() => setDelMoveId(null)}>Отмена</button>
+                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={busy} onClick={() => void confirmRemoveMove()}>{busy ? 'Удаляем…' : 'Удалить'}</button>
               </div>
             </div>
           </div>
@@ -1361,8 +1367,8 @@ export default function FinanceModule() {
             <div className="k-modal-b" style={{ padding: 16 }}>
               <p style={{ margin: '0 0 14px', color: 'var(--muted)' }}>Расход исчезнет из списка, деньги вернутся туда, откуда списали.</p>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="k-btn" style={{ flex: 1 }} onClick={() => setDelExpId(null)}>Отмена</button>
-                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} onClick={() => void confirmRemoveExpense()}>Удалить</button>
+                <button type="button" className="k-btn" style={{ flex: 1 }} disabled={busy} onClick={() => setDelExpId(null)}>Отмена</button>
+                <button type="button" className="k-btn k-btn-g" style={{ flex: 1 }} disabled={busy} onClick={() => void confirmRemoveExpense()}>{busy ? 'Удаляем…' : 'Удалить'}</button>
               </div>
             </div>
           </div>
