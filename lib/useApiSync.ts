@@ -7,7 +7,7 @@ import { syncClientsFromApi } from './clientStore'
 import { syncCardsFromApi } from './cardStore'
 import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
-import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse, syncPosFromApi } from './posStore'
+import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
@@ -88,7 +88,6 @@ export function useApiSync(mode: SyncMode = 'all') {
   const pullersRef = useRef<ReturnType<typeof createDebouncedPullers> | null>(null)
   if (!pullersRef.current) pullersRef.current = createDebouncedPullers()
   const pull = pullersRef.current
-  const posTickRef = useRef(0)
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
@@ -285,22 +284,17 @@ export function useApiSync(mode: SyncMode = 'all') {
             return
           }
           // Один /sync/changes (дельта since=cursor) вместо полных sales/clients/warehouse/finance
-          posTickRef.current += 1
-          const tick = posTickRef.current
           const { pullSyncChanges } = await import('./syncPull')
-          const delta = await pullSyncChanges().catch(() => ({ ok: false as const }))
+          await pullSyncChanges({ forceFull: false }).catch(() => ({ ok: false as const }))
           const tasks: Promise<unknown>[] = [
             syncLoyaltyStatusConfigFromApi(),
           ]
           const localEmpty = !useProducts.getState().products.length
-          // Полный каталог только: пустая локалка, или дельта сломалась (редко)
-          if (localEmpty || (!(delta as { ok?: boolean }).ok && tick % 20 === 0)) {
+          // Полный каталог только если локалка пустая (первый запуск / повреждение)
+          if (localEmpty) {
             tasks.push(useProducts.getState().fetchProducts())
           }
-          // Полный POS — очень редко (рассинхрон после долгого офлайна)
-          if (tick > 1 && tick % 40 === 0) {
-            tasks.push(syncPosFromApi())
-          }
+          // Полный POS больше не гоняем по таймеру — только дельты (шаг B)
           await Promise.allSettled(tasks)
           return
         }
@@ -335,10 +329,11 @@ export function useApiSync(mode: SyncMode = 'all') {
     // иначе локаль не видит чек в долг, который уже есть в браузере/на сервере.
     let salesId: ReturnType<typeof setInterval> | null = null
     if (mode === 'pos') {
+      // Дельта чеков (pos-lite), без force — уважаем min gap, не долбим UI
       salesId = setInterval(() => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
-        void softSyncPosAfterSale({ force: true })
+        void softSyncPosAfterSale()
       }, POS_SALES_INBOUND_MS)
     }
     return () => {

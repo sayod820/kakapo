@@ -2097,6 +2097,25 @@ export function applyDebtRepayToShift(db, data = {}) {
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму погашения')
   const method = data.method === 'card' ? 'card' : 'cash'
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'debt_repay'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (known) {
+      let shift = null
+      if (data.shiftId) shift = db.posShifts.find(s => s.id === data.shiftId)
+      return {
+        shiftId: known.shiftId || shift?.id || null,
+        posId: known.posId || String(shift?.posId || data.posId || '').trim(),
+        method: known.meta?.method === 'card' ? 'card' : method,
+        amount: round2(known.amount),
+        salesCash: shift ? Number(shift.salesCash) || 0 : null,
+        replay: true,
+      }
+    }
+  }
 
   let shift = null
   if (data.shiftId) {
@@ -2127,6 +2146,7 @@ export function applyDebtRepayToShift(db, data = {}) {
     cashierName,
     refType: 'debt_repay',
     refId: String(data.cardNum || ''),
+    clientRef,
     reason: method === 'cash'
       ? `Погашение долга нал · ${clientLabel}`
       : `Погашение долга карта · ${clientLabel}`,
@@ -2135,6 +2155,7 @@ export function applyDebtRepayToShift(db, data = {}) {
       cardNum: data.cardNum || '',
       clientName: data.clientName || '',
       method,
+      clientRef: clientRef || undefined,
     },
   })
 

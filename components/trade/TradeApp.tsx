@@ -3746,13 +3746,9 @@ function TradeAppGate() {
           void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
         }
       }).catch(() => {
-        // IPC/диск тормозит — не держим чёрный экран, пускаем в логин
-        setLocalDbReady(true)
+        // Не открываем кассу «вслепую» — показываем экран первой загрузки
+        setLocalDbReady(false)
       })
-      // страховка: через 2.5с всё равно показываем UI
-      window.setTimeout(() => {
-        setLocalDbReady(prev => (prev === null ? true : prev))
-      }, 2500)
     } else {
       setLocalDbReady(true)
     }
@@ -3779,7 +3775,7 @@ function TradeAppGate() {
     )
   }
 
-  // Сначала привязка устройства — иначе чужой телефон не качает пароли
+  // Сначала привязка устройства (доступ) — потом полный скачок в SQLite
   if (!deviceReady) {
     return (
       <TradeDeviceGate
@@ -3787,6 +3783,12 @@ function TradeAppGate() {
         onReady={() => {
           boundAtRef.current = Date.now()
           setDeviceReady(true)
+          // После доступа заново проверить: нужна ли полная загрузка
+          if (isKakapoDesktop() || isTradeAndroidNative()) {
+            void isLocalBootstrapComplete().then(done => {
+              setLocalDbReady(done)
+            }).catch(() => setLocalDbReady(false))
+          }
         }}
       />
     )

@@ -1309,6 +1309,8 @@ export default function CashierModule({
   const activeTicketIdRef = useRef(activeTicketId)
   /** Чек, который сейчас пробивается — не трогаем активную вкладку, если кассир уже переключился */
   const sellingTicketIdRef = useRef<string | null>(null)
+  /** Один clientRef на попытку чека — повторный клик/ретрай не создаёт второй id */
+  const ticketSaleClientRefMap = useRef<Map<string, string>>(new Map())
   ticketsRef.current = tickets
   activeTicketIdRef.current = activeTicketId
 
@@ -6960,7 +6962,12 @@ export default function CashierModule({
     const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
     if (!activeShift || !ticketSnap?.cart.length) return false
     if (sellingTicketIdRef.current === ticketId) return false
+    // Блокируем дабл-клик до любой валидации/await
+    sellingTicketIdRef.current = ticketId
+    setBusy(true)
+    setMsg('')
 
+    try {
     // Снимок чека — даже если кассир уже перешёл на другую вкладку
     const cart = ticketSnap.cart
     if (blockIfCartOverLiveStock(cart)) return false
@@ -7096,10 +7103,6 @@ export default function CashierModule({
       }
     }
 
-    sellingTicketIdRef.current = ticketId
-    setBusy(true)
-    setMsg('')
-    try {
       const note = String(saleNote || '').trim()
       const discountTotal = Math.round((itemDiscAmount + discAmount) * 100) / 100
       const bonusBalanceBefore = loyalty ? Math.max(0, Math.floor(Number(loyalty.bonus) || 0)) : undefined
@@ -7120,8 +7123,13 @@ export default function CashierModule({
       const salePosId = activeShift.posId || activePosPoint?.id
       void ensurePosOpSeqReady()
       const deviceId = getTradeDeviceIdSync()
+      let stickyClientRef = ticketSaleClientRefMap.current.get(ticketId)
+      if (!stickyClientRef) {
+        stickyClientRef = newClientRef()
+        ticketSaleClientRefMap.current.set(ticketId, stickyClientRef)
+      }
       const salePayload = {
-        clientRef: newClientRef(),
+        clientRef: stickyClientRef,
         createdAtIso: new Date().toISOString(),
         deviceId: deviceId || undefined,
         deviceName: getBoundDeviceNameSync() || undefined,
@@ -7214,10 +7222,6 @@ export default function CashierModule({
         _offline: saleRes.offline || !!(saleRes.data as { _offline?: boolean })._offline,
       } as PosSale & { orderId?: string; _offline?: boolean }
 
-      // Сразу освобождаем UI — фон (долг/sync) не должен держать кассу
-      sellingTicketIdRef.current = null
-      setBusy(false)
-
       const soldCart = cart.slice()
       const soldClient = client
       const debtRepay = payDebtForSale
@@ -7254,6 +7258,7 @@ export default function CashierModule({
         total: created.total ?? total,
       }
       afterSaleTicketReset(ticketId)
+      ticketSaleClientRefMap.current.delete(ticketId)
       if (opts?.shouldPrint) {
         void printSaleOnce(saleForPrint)
       }

@@ -130,11 +130,12 @@ export default function TradeDeviceGate({
     <div className="tdg-wrap" data-theme={theme}>
       <style>{CSS}</style>
       <div className="tdg-card">
-        <div className="tdg-badge">Нет доступа</div>
-        <h1 className="tdg-title">Устройство не привязано</h1>
+        <div className="tdg-badge">Запрос доступа</div>
+        <h1 className="tdg-title">Подтвердите доступ устройства</h1>
         <p className="tdg-sub">
           В админке откройте точку кассы и нажмите «Код для устройства».
-          Имя устройства должно быть своё: «ПК вход», «Телефон склада» — тогда на одной точке они не путаются.
+          После подтверждения касса один раз скачает все данные в локальную базу (SQLite).
+          Имя устройства должно быть своё: «ПК вход», «Телефон склада».
         </p>
         {err ? <div className="tdg-err">{err}</div> : null}
         <div className="tdg-label">Имя этого устройства</div>
@@ -155,7 +156,7 @@ export default function TradeDeviceGate({
           disabled={busy}
         />
         <button type="button" className="tdg-btn" disabled={busy || code.length !== 4} onClick={() => void submit()}>
-          {busy ? 'Проверка…' : 'Привязать и войти'}
+          {busy ? 'Проверка…' : 'Подтвердить доступ'}
         </button>
       </div>
     </div>

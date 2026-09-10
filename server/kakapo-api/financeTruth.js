@@ -72,6 +72,7 @@ export function appendMoneyLedger(db, data = {}) {
     cashierName: data.cashierName || '',
     refType: data.refType || '',
     refId: data.refId || '',
+    clientRef: String(data.clientRef || '').trim(),
     note: String(data.note || '').trim(),
     reason: String(data.reason || '').trim(),
     meta: data.meta && typeof data.meta === 'object' ? data.meta : {},

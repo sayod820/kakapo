@@ -2106,7 +2106,19 @@ export async function createSaleSafe(
         cart: input.cart,
       }
     }
-    await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
+    const saleClientRef = String(salePayload.clientRef || '').trim()
+    const queued = await useOfflineSync.getState().queueOp('sale', salePayload, { localId: offlineSaleId })
+    const alreadyQueued = String(queued.clientRef || '') !== saleClientRef
+      || (queued.localId != null && queued.localId !== offlineSaleId)
+    if (alreadyQueued) {
+      const existing = usePosStore.getState().sales.find(s =>
+        String((s as any).clientRef || '') === String(queued.clientRef || saleClientRef)
+        || s.id === queued.localId,
+      )
+      if (existing) {
+        return { ...existing, _offline: true } as PosSale & { orderId?: string; _offline?: boolean }
+      }
+    }
 
     try {
       const { useProducts } = await import('./store')

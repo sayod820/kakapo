@@ -4771,6 +4771,14 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     const clientRef = String(req.body?.clientRef || '').trim()
     const dup = findOpRef('card_topup', clientRef)
     if (dup) return res.json({ ...dup, card })
+    // Если opRef уже вычистили, а finance move с тем же clientRef есть — не плюсуем бонусы снова
+    if (clientRef) {
+      const existingMove = (db.financeMoves || []).find(m => String(m.clientRef || '') === clientRef)
+      if (existingMove) {
+        rememberOpRef('card_topup', clientRef, { financeMove: existingMove, bonusEarned: 0, addToBonus: 0 })
+        return res.json({ card, financeMove: existingMove, bonusEarned: 0, addToBonus: 0, replay: true })
+      }
+    }
     // cash — внесённые деньги. credit — устаревшее поле (игнор для баланса).
     const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
     const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
@@ -4850,6 +4858,37 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     const clientRef = String(req.body?.clientRef || '').trim()
     const dup = findOpRef('debt_repay', clientRef)
     if (dup) return res.json({ ...dup, card })
+    // Entity-idempotency: ledger уже есть по clientRef (opRef протух) — не крутим долг/кассу
+    if (clientRef) {
+      const knownLedger = (db.moneyLedger || []).find(r =>
+        String(r.refType || '') === 'debt_repay'
+        && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+      )
+      if (knownLedger) {
+        const result = {
+          client: (db.clients || []).find(c =>
+            c.card === num
+            || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+          ) || null,
+          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+          method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
+          prevDebt: Math.max(0, Number(card.debt) || 0),
+          nextDebt: Math.max(0, Number(card.debt) || 0),
+          bonusEarned: 0,
+          till: {
+            shiftId: knownLedger.shiftId || null,
+            posId: knownLedger.posId || '',
+            method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
+            amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+            salesCash: null,
+            replay: true,
+          },
+          replay: true,
+        }
+        rememberOpRef('debt_repay', clientRef, result)
+        return res.json({ card, ...result })
+      }
+    }
 
     const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
     const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
@@ -4957,6 +4996,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       cardNum: num,
       clientName: card.client || linkedClient?.name || '',
       note: String(req.body?.note || '').trim(),
+      clientRef,
     })
 
     auditFromReq(db, req, {

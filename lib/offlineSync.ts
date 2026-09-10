@@ -69,6 +69,8 @@ let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 /** Отпечаток очереди после flush без прогресса — не долбить каждые 2с */
 let lastStuckFingerprint = ''
 let lastStuckAt = 0
+/** Входящий pull в syncNow — не чаще этого (очередь шлёт только изменённое) */
+let lastInboundPullAt = 0
 
 /** Слабый интернет: ping дольше; при очереди крутим умеренно, в покое — тихо */
 const PING_TIMEOUT_MS = 4500
@@ -79,6 +81,8 @@ const POLL_IDLE_MS = 25000
 const POLL_BUSY_MS = 12000
 /** Если flush ничего не сдвинул — пауза перед следующим syncNow */
 const STUCK_COOLDOWN_MS = 45000
+/** Входящие дельты из syncNow (без очереди) — не чаще */
+const INBOUND_PULL_MIN_MS = 30000
 const BACKOFF_MS = [2500, 4000, 7000, 12000, 20000, 30000, 45000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
@@ -130,7 +134,7 @@ async function pingServer(opts?: { quick?: boolean }): Promise<boolean> {
   return false
 }
 
-/** Полное обновление данных после возврата связи — через pull дельт */
+/** Входящее обновление — только дельта. Полный GET только если локалка пустая. */
 async function refetchEverything() {
   try {
     const { pullSyncChanges } = await import('./syncPull')
@@ -138,18 +142,13 @@ async function refetchEverything() {
     if (res.ok) return
     if (res.skipped === 'pending') return
   } catch { /* fallback ниже */ }
-  const [{ useProducts }, { syncPosFromApi }, { syncClientsFromApi }, { syncCardsFromApi }] = await Promise.all([
-    import('./store'),
-    import('./posStore'),
-    import('./clientStore'),
-    import('./cardStore'),
-  ])
-  await Promise.allSettled([
-    useProducts.getState().fetchProducts(),
-    syncPosFromApi(),
-    syncClientsFromApi(),
-    syncCardsFromApi(),
-  ])
+  // Не тянем весь POS/каталог без нужды — только если каталог пуст
+  try {
+    const { useProducts } = await import('./store')
+    if (!useProducts.getState().products.length) {
+      await useProducts.getState().fetchProducts()
+    }
+  } catch { /* ignore */ }
 }
 
 function nextBackoffMs() {
@@ -344,12 +343,13 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       }
 
       if (res.sent > 0 || (res.remaining === 0 && online)) {
-        // Только после пустой/успешной очереди — входящий pull (не overwrite поверх pending)
-        if (get().pending === 0 && online) {
+        // Только после пустой очереди — входящая дельта (не полный POS)
+        if (get().pending === 0 && online && res.sent > 0) {
+          lastInboundPullAt = Date.now()
           try {
             const { pullSyncChanges } = await import('./syncPull')
             await Promise.race([
-              pullSyncChanges(),
+              pullSyncChanges({ forceFull: false }),
               new Promise(resolve => setTimeout(resolve, 12000)),
             ])
           } catch {
@@ -486,33 +486,24 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         return
       }
 
-      // Исходящая очередь: сначала только flush — softSync до flush тормозит UI и мешает отправке
+      // Исходящее: только очередь (изменилось → отправили). Входящий softSync здесь НЕ делаем —
+      // его тянут WS / useApiSync дельтами; иначе UI тормозит на каждый flush.
       if (get().pending > 0) {
-        const beforeFp = queueFingerprint(get().items)
-        const beforePending = get().pending
         await get().flush()
-        // Входящий softSync — только если очередь реально сдвинулась
-        if (
-          alive
-          && !isCashierPaymentCritical()
-          && (get().pending < beforePending || beforeFp !== queueFingerprint(get().items))
-        ) {
-          try {
-            const { softSyncPosAfterSale } = await import('./posStore')
-            void softSyncPosAfterSale({ force: true })
-          } catch { /* ignore */ }
-        }
       } else if (alive && !searchBusy) {
-        // Нет исходящих — лёгкий pull (не force softSync каждый раз)
-        set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
-        try {
-          const { pullSyncChanges } = await import('./syncPull')
-          await Promise.race([
-            pullSyncChanges(),
-            new Promise(resolve => setTimeout(resolve, 10000)),
-          ])
-        } catch { /* ignore */ }
-        try { await markLocalSyncAt() } catch { /* ignore */ }
+        // Нет исходящих — лёгкая дельта, с паузой (focus/wake не должен долбить)
+        if (Date.now() - lastInboundPullAt >= INBOUND_PULL_MIN_MS) {
+          lastInboundPullAt = Date.now()
+          set({ online: true, lastSyncAtIso: new Date().toISOString(), lastError: null })
+          try {
+            const { pullSyncChanges } = await import('./syncPull')
+            await Promise.race([
+              pullSyncChanges({ forceFull: false }),
+              new Promise(resolve => setTimeout(resolve, 10000)),
+            ])
+          } catch { /* ignore */ }
+          try { await markLocalSyncAt() } catch { /* ignore */ }
+        }
         try {
           const { sendDeviceHeartbeat } = await import('./deviceHeartbeat')
           void sendDeviceHeartbeat()

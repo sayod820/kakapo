@@ -695,6 +695,41 @@ async function findDuplicateCashierOp(kind: QueueKind, payload: Record<string, u
   }) || null
 }
 
+const SALE_DEDUP_MS = 8000
+
+function saleItemsKey(items: unknown): string {
+  if (!Array.isArray(items)) return ''
+  return items
+    .map((it: any) => `${it?.productId}:${Number(it?.qty) || 0}:${Math.round((Number(it?.lineTotal) || 0) * 100)}`)
+    .join('|')
+}
+
+function sameSaleFingerprint(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (String(a.shiftId || '') !== String(b.shiftId || '')) return false
+  if (String(a.paymentMethod || '') !== String(b.paymentMethod || '')) return false
+  if (String(a.clientId || '') !== String(b.clientId || '')) return false
+  if (Math.abs((Number(a.paidCash) || 0) - (Number(b.paidCash) || 0)) > 0.009) return false
+  if (Math.abs((Number(a.paidCard) || 0) - (Number(b.paidCard) || 0)) > 0.009) return false
+  if (Math.abs((Number(a.paidWallet) || 0) - (Number(b.paidWallet) || 0)) > 0.009) return false
+  if (Math.abs((Number(a.debtAdded) || 0) - (Number(b.debtAdded) || 0)) > 0.009) return false
+  if (Math.abs((Number(a.bonusSpent) || 0) - (Number(b.bonusSpent) || 0)) > 0.009) return false
+  return saleItemsKey(a.items) === saleItemsKey(b.items)
+}
+
+/** Дубль продажи: тот же clientRef или тот же чек в очереди (дабл-тап / ретрай). */
+export async function findDuplicateSale(payload: Record<string, unknown>): Promise<PendingOp | null> {
+  const clientRef = String(payload.clientRef || '').trim()
+  const now = Date.now()
+  const pending = (await getPending()).filter(r => r.kind === 'sale')
+  return pending.find(r => {
+    const p = (r.payload || {}) as Record<string, unknown>
+    if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
+    if (!sameSaleFingerprint(p, payload)) return false
+    const ts = Date.parse(r.createdAtIso) || 0
+    return ts > 0 && Math.abs(now - ts) < SALE_DEDUP_MS
+  }) || null
+}
+
 /** Кладёт операцию в локальную очередь на отправку */
 export async function enqueueOp<P>(
   kind: QueueKind,
@@ -709,6 +744,10 @@ export async function enqueueOp<P>(
 
   if (kind === 'debt_repay') {
     const dup = await findDuplicateDebtRepay(payload as any)
+    if (dup) return dup as PendingOp<P>
+  }
+  if (kind === 'sale') {
+    const dup = await findDuplicateSale(payload as any)
     if (dup) return dup as PendingOp<P>
   }
   if (
