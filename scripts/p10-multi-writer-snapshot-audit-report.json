@@ -1,0 +1,246 @@
+{
+  "title": "P10 Multi-Writer Snapshot Safety Audit",
+  "generatedAtIso": "2026-09-10T09:22:23.452Z",
+  "productionChanged": false,
+  "migrationApplied": false,
+  "multiReplicaEnabled": false,
+  "confirmedLostUpdate": true,
+  "results": [
+    {
+      "name": "S1 upsertDocs has destructive DELETE missing ids",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 persistSnapshot wrapped in withTransaction",
+      "status": "PASS"
+    },
+    {
+      "name": "S3 db.js single in-memory cache + debounce flush",
+      "status": "PASS"
+    },
+    {
+      "name": "REPRO A: stale snapshot persist deletes B row (CONFIRMED DATA LOSS)",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX A: two writers append different sales — CURRENT LOSES one",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX C: A updates sale1 while B inserted sale2 — sale2 LOST",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX D: explicit empty collection deletes ALL rows in collection",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX E: stale persist no foreign rows — CURRENT FAILS (same as REPRO)",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX F: single-process sequential appends OK",
+      "status": "PASS"
+    },
+    {
+      "name": "MATRIX B: same clientRef different ids — BOTH may exist before UNIQUE",
+      "status": "PASS"
+    },
+    {
+      "name": "SAFE MODEL: stale A persist does NOT delete B row",
+      "status": "PASS"
+    },
+    {
+      "name": "SAFE MODEL: two writers append different sales — both survive",
+      "status": "PASS"
+    }
+  ],
+  "A_exactCurrentSaveFlow": {
+    "load": "initDb → loadSnapshotFromPg: SELECT all docs + kv_meta → in-memory cache arrays",
+    "mutate": "HTTP handlers mutate shared cache object (loadDb())",
+    "schedule": "persist()/scheduleSaveDb → debounce SAVE_DEBOUNCE_MS → enqueueFlush → persistNow",
+    "persist": "persistSnapshot(cache) → withTransaction → saveSnapshotToPg",
+    "upsert": "INSERT docs ON CONFLICT (collection,id) DO UPDATE data/sort_idx",
+    "deleteDestructive": [
+      "DELETE FROM docs WHERE collection=$1 AND NOT (id = ANY($2))  -- ids missing from THIS snapshot",
+      "DELETE FROM docs WHERE collection=$1  -- if array empty in snapshot",
+      "DELETE FROM docs WHERE NOT (collection = ANY($1))  -- collections absent from snapshot keys",
+      "kv_meta: DELETE keys not in snapshot meta set"
+    ],
+    "transactionBoundary": "One BEGIN/COMMIT around entire snapshot save (all collections)",
+    "processModel": "Single Node process holds one cache; multi-process = multiple caches + same PG"
+  },
+  "B_confirmedLostUpdateRepro": {
+    "status": "CONFIRMED MULTI-WRITER DATA LOSS",
+    "scenario": "A loads [1,2]; B loads [1,2]; B adds 3 persists; A updates 1 persists [1,2] → 3 deleted",
+    "test": "REPRO A / MATRIX C"
+  },
+  "C_affectedCollections": {
+    "appendImmutableIsh": [
+      {
+        "collection": "posSales",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "moneyLedger",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "financeMoves",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "opRefs",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "orders",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "expenses",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "stockReceipts",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "writeOffs",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "auditLog",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      },
+      {
+        "collection": "syncDeletes",
+        "safeModel": "UPSERT row by (collection,id) ONLY; never DELETE missing ids; explicit tombstone/delete API only"
+      }
+    ],
+    "mutableEntity": [
+      {
+        "collection": "clients",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "cards",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "products",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "cashiers",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "posShifts",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "posPoints",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "suppliers",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "categories",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "promos",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "couriers",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "assemblers",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "users",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      },
+      {
+        "collection": "reviews",
+        "safeModel": "UPSERT exact row; DELETE only on explicit delete/tombstone; optional OCC (updatedAtIso / *PayVersion)"
+      }
+    ],
+    "nestedHistory": [
+      {
+        "name": "posSales.returns[]",
+        "note": "Nested in sale doc; row-level sale upsert carries returns; prefer extract later"
+      },
+      {
+        "name": "cashVault.*",
+        "note": "Often kv_meta or nested object — not docs array"
+      }
+    ],
+    "highestRiskIfWiped": [
+      "posSales",
+      "moneyLedger",
+      "financeMoves",
+      "opRefs",
+      "orders"
+    ]
+  },
+  "D_rootCause": [
+    "saveSnapshotToPg treats process memory array as authoritative full set for each collection",
+    "Missing id in local snapshot interpreted as delete",
+    "Not a PostgreSQL MVCC bug — application-level snapshot replace semantics"
+  ],
+  "E_minimalSafePersistenceModel": {
+    "keepSchema": "docs(collection,id,data JSONB) PRIMARY KEY — no normalization required for v1",
+    "appendCollections": "upsertDocsRows(rows) without DELETE-missing; optional insert-only for moneyLedger",
+    "mutableCollections": "upsert single row; deleteDoc(collection,id) explicit",
+    "kvMeta": "prefer upsert keys; avoid DELETE-all-missing unless single-writer confirmed",
+    "explicitDelete": "tombstone collection or DELETE WHERE collection=$1 AND id=$2 only",
+    "notInScope": "Enabling multi-replica / UNIQUE indexes (separate preflight)"
+  },
+  "F_filesThatWouldChange": [
+    "server/kakapo-api/pg/store.js — split upsertDocs into upsertRows + deleteMissing (gated)",
+    "server/kakapo-api/db.js — optional persist modes / dirty collection tracking",
+    "server/kakapo-api/index.js — only if callers need explicit delete helpers",
+    "NOT applied in this audit"
+  ],
+  "G_requiredApiChanges": {
+    "proposed": [
+      "upsertDoc(collection, id, data, sortIdx?)",
+      "upsertDocsBatch(collection, items[]) — no prune",
+      "deleteDoc(collection, id) — explicit only",
+      "persistSnapshot(snapshot, { pruneMissing: false }) for append-safe path",
+      "Eventually: dirty set of touched ids instead of full-array rewrite"
+    ],
+    "compatibility": "Single-process today: pruneMissing=true preserves current behavior until cutover"
+  },
+  "H_interactionWithUniqueIndexes": [
+    "Row-level INSERT/UPDATE + UNIQUE(clientRef) expression index → unique_violation → SELECT existing → replay",
+    "Without prune, concurrent different clientRefs both survive (MATRIX A safe model)",
+    "Same clientRef two SALE ids: still possible until UNIQUE; row-level does not invent uniqueness",
+    "UNIQUE does not fix wipe; wipe fix does not replace UNIQUE"
+  ],
+  "I_regressionRisks": [
+    "Disabling prune without explicit delete breaks intentional full-collection clears / admin wipes",
+    "Empty array currently means wipe collection — callers may rely on this",
+    "sort_idx global order may drift if only partial upserts",
+    "Single-process regression if prune left on for append collections while two workers mistakenly run",
+    "Balance OCC still required for cards/clients — row-level != walletPayVersion"
+  ],
+  "J_recommendedDeploymentSequence": [
+    "1. Keep single API writer (do NOT enable multi-replica)",
+    "2. Land row-level upsert API with pruneMissing default true (compat)",
+    "3. Switch append collections (posSales, moneyLedger, financeMoves, opRefs) to pruneMissing=false",
+    "4. Add explicit delete helpers for real deletes",
+    "5. Chaos test MATRIX A/C/E",
+    "6. Then UNIQUE clientRef indexes (separate approval)",
+    "7. Multi-replica only after prune-off + UNIQUE + OCC review"
+  ],
+  "proposedPatchFile": "scripts/p10-proposed-row-level-persist.patch.md",
+  "note": "Proposed patch documented only — NOT applied to production store.js"
+}

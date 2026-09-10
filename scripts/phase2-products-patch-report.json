@@ -1,0 +1,63 @@
+{
+  "phase": 2,
+  "generatedAt": "2026-09-10T11:15:38.924Z",
+  "summary": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "source — patchProductStocks exists",
+      "status": "PASS"
+    },
+    {
+      "name": "source — Cashier indexes use catalogEpoch",
+      "status": "PASS",
+      "ms": 0.41
+    },
+    {
+      "name": "A — one product sale stock patch (5k)",
+      "status": "PASS"
+    },
+    {
+      "name": "B — multi item 20 products = one map pass (not 20)",
+      "status": "PASS",
+      "ms": 9.47
+    },
+    {
+      "name": "C — 100 sequential sales no catalogEpoch drift",
+      "status": "PASS"
+    },
+    {
+      "name": "D — return restores stock (delta +)",
+      "status": "PASS"
+    },
+    {
+      "name": "E — barcode keys stable across stock patch",
+      "status": "PASS"
+    },
+    {
+      "name": "F — warehouse visibility via updated stock field",
+      "status": "PASS"
+    },
+    {
+      "name": "G — source outbox/sale still queues (no createSaleSafe rewrite of queue)",
+      "status": "PASS",
+      "detail": {
+        "catalogSize": 10000,
+        "items": 20,
+        "patchMs": 0.41,
+        "oldLoopMs": 2.55,
+        "complexity": {
+          "old": "O(N × items)",
+          "neu": "O(N + items)"
+        }
+      }
+    },
+    {
+      "name": "H — 10k catalog timing: patch vs 20×updateProduct",
+      "status": "PASS"
+    }
+  ]
+}

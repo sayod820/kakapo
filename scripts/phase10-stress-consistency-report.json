@@ -1,0 +1,576 @@
+{
+  "phase": 10,
+  "title": "Stress / Failure / Consistency — final validation",
+  "generatedAtIso": "2026-09-10T11:15:39.380Z",
+  "matrix": [
+    {
+      "scenario": "L1–L3 sequential sales 1/10/100",
+      "invariant": "n sales, stock −n, n ledger cash",
+      "testability": "in-process createPosSale",
+      "result": "executed"
+    },
+    {
+      "scenario": "L4 rapid cart/barcode",
+      "invariant": "no production UI; search index wiring",
+      "testability": "source + synthetic index",
+      "result": "executed"
+    },
+    {
+      "scenario": "L5 multi-item 20+",
+      "invariant": "one sale, stock all lines",
+      "testability": "in-process",
+      "result": "executed"
+    },
+    {
+      "scenario": "Large catalog 5k/10k",
+      "invariant": "serialize scales; no crash",
+      "testability": "JSON serialize timing",
+      "result": "executed"
+    },
+    {
+      "scenario": "O1–O5 offline queue",
+      "invariant": "pending survives; drain once",
+      "testability": "queue simulator",
+      "result": "executed"
+    },
+    {
+      "scenario": "Reconnect drain",
+      "invariant": "pending→0; no dup clientRef",
+      "testability": "queue + createPosSale",
+      "result": "executed"
+    },
+    {
+      "scenario": "Network A–F",
+      "invariant": "UI not blocked (wiring)",
+      "testability": "source guards",
+      "result": "executed"
+    },
+    {
+      "scenario": "ACK lost sale/repay/topup/return",
+      "invariant": "one business effect",
+      "testability": "retry same clientRef",
+      "result": "executed"
+    },
+    {
+      "scenario": "Concurrent same clientRef",
+      "invariant": "one effect (single process)",
+      "testability": "Promise.all",
+      "result": "executed"
+    },
+    {
+      "scenario": "Multi-process TOCTOU",
+      "invariant": "UNIQUE missing → risk",
+      "testability": "race model + schema audit",
+      "result": "executed"
+    },
+    {
+      "scenario": "Crash failAt (Phase 5)",
+      "invariant": "no half-sale",
+      "testability": "tx simulator",
+      "result": "executed"
+    },
+    {
+      "scenario": "Crash before snapshot",
+      "invariant": "durable without snapshot",
+      "testability": "wiring + Phase 8",
+      "result": "executed"
+    },
+    {
+      "scenario": "Push/pull cooldown",
+      "invariant": "inbound allowed",
+      "testability": "pendingPullGate",
+      "result": "executed"
+    },
+    {
+      "scenario": "WS burst coalesce",
+      "invariant": "<<N requests",
+      "testability": "Phase 7 coalescer",
+      "result": "executed"
+    },
+    {
+      "scenario": "Keep-alive 20 flips",
+      "invariant": "no listener leak wiring",
+      "testability": "source",
+      "result": "executed"
+    },
+    {
+      "scenario": "Finance components vs ledger",
+      "invariant": "1:1 types",
+      "testability": "in-process",
+      "result": "executed"
+    },
+    {
+      "scenario": "Debt/bonus OCC",
+      "invariant": "version conflict safe",
+      "testability": "in-process",
+      "result": "executed"
+    },
+    {
+      "scenario": "Wallet concurrency",
+      "invariant": "no lost update / document gap",
+      "testability": "interleaved check model",
+      "result": "executed"
+    },
+    {
+      "scenario": "Online loyalty under-apply",
+      "invariant": "earn exactly once after retry",
+      "testability": "skip loyalty then retry",
+      "result": "executed"
+    },
+    {
+      "scenario": "Outbox ACK surfaces",
+      "invariant": "deletePending clears LS",
+      "testability": "Phase 1 + source",
+      "result": "executed"
+    },
+    {
+      "scenario": "Stock after 100+sync",
+      "invariant": "layers match sales",
+      "testability": "in-process",
+      "result": "executed"
+    },
+    {
+      "scenario": "Android atomic gap",
+      "invariant": "explicit non-parity",
+      "testability": "source analysis",
+      "result": "executed"
+    },
+    {
+      "scenario": "Regression Phase 1–9",
+      "invariant": "all prior PASS",
+      "testability": "spawn scripts",
+      "result": "executed"
+    }
+  ],
+  "summary": {
+    "phase10Tests": 33,
+    "passed": 33,
+    "failed": 0,
+    "confirmedIssues": 3
+  },
+  "performance": {
+    "sale_local_ms": {
+      "n": 101,
+      "median": 0.069,
+      "p95": 0.157,
+      "max": 2.274
+    },
+    "sale_batch_10_ms": {
+      "n": 1,
+      "median": 1.941,
+      "p95": 1.941,
+      "max": 1.941
+    },
+    "barcode_lookup_1000_ms": {
+      "n": 1,
+      "median": 0.874,
+      "p95": 0.874,
+      "max": 0.874
+    },
+    "catalog_serialize_5000_ms": {
+      "n": 1,
+      "median": 1.765,
+      "p95": 1.765,
+      "max": 1.765
+    },
+    "catalog_persist_ms": {
+      "n": 2,
+      "median": 1.765,
+      "p95": 3.451,
+      "max": 3.451
+    },
+    "catalog_serialize_10000_ms": {
+      "n": 1,
+      "median": 3.451,
+      "p95": 3.451,
+      "max": 3.451
+    },
+    "ws_sync_run_count": {
+      "n": 1,
+      "median": 2,
+      "p95": 2,
+      "max": 2
+    }
+  },
+  "results": [
+    {
+      "name": "L1 one local-style sale",
+      "status": "PASS",
+      "ms": 3.25
+    },
+    {
+      "name": "L2 10 sequential sales",
+      "status": "PASS",
+      "ms": 2.02
+    },
+    {
+      "name": "L3 100 sequential sales",
+      "status": "PASS",
+      "ms": 8.68
+    },
+    {
+      "name": "L4 rapid barcode/search index (synthetic)",
+      "status": "PASS",
+      "ms": 2.79
+    },
+    {
+      "name": "L5 multi-item receipt 25 lines",
+      "status": "PASS",
+      "ms": 0.79
+    },
+    {
+      "name": "LARGE 5k/10k catalog serialize",
+      "status": "PASS",
+      "ms": 11.09
+    },
+    {
+      "name": "O1 10 offline sales then drain",
+      "status": "PASS",
+      "ms": 0.78
+    },
+    {
+      "name": "O2 100 offline sales then drain once each",
+      "status": "PASS",
+      "ms": 8.66
+    },
+    {
+      "name": "O3 restart with pending queue",
+      "status": "PASS",
+      "ms": 0.49
+    },
+    {
+      "name": "O5 100 sales while server unavailable → reconnect drain",
+      "status": "PASS",
+      "ms": 6.55
+    },
+    {
+      "name": "ACK-LOST sale → one sale/stock/ledger/debt/bonus/wallet/order",
+      "status": "PASS",
+      "ms": 24.78
+    },
+    {
+      "name": "ACK-LOST debt_repay ledger once",
+      "status": "PASS",
+      "ms": 0.34
+    },
+    {
+      "name": "ACK-LOST card_topup financeMove once (replay flag)",
+      "status": "PASS",
+      "ms": 0.44
+    },
+    {
+      "name": "ACK-LOST sale_return once",
+      "status": "PASS",
+      "ms": 1.4
+    },
+    {
+      "name": "MULTI-PROCESS TOCTOU model (no UNIQUE on clientRef)",
+      "status": "PASS",
+      "ms": 0.72
+    },
+    {
+      "name": "CRASH failAt stages → no half-sale",
+      "status": "PASS",
+      "ms": 0.31
+    },
+    {
+      "name": "CRASH before snapshot: durable without 800ms checkpoint",
+      "status": "PASS",
+      "ms": 0.8
+    },
+    {
+      "name": "KEEP-ALIVE wiring: Cashier active gate; TradeApp 30s",
+      "status": "PASS",
+      "ms": 3.22
+    },
+    {
+      "name": "FINANCE components match ledger for cash/card/mixed/credit/wallet",
+      "status": "PASS",
+      "ms": 0.91
+    },
+    {
+      "name": "DEBT OCC: second device stale version rejected",
+      "status": "PASS",
+      "ms": 0.05
+    },
+    {
+      "name": "BONUS OCC: version mismatch detectable",
+      "status": "PASS",
+      "ms": 0.04
+    },
+    {
+      "name": "WALLET concurrency gap (no walletPayVersion)",
+      "status": "PASS",
+      "ms": 1.1
+    },
+    {
+      "name": "OUTBOX ACK clears LS (Phase 1 invariant wiring)",
+      "status": "PASS",
+      "ms": 0.59
+    },
+    {
+      "name": "STOCK after 100 sales + return converges",
+      "status": "PASS",
+      "ms": 5.56
+    },
+    {
+      "name": "ANDROID gap: non-atomic fallback path",
+      "status": "PASS",
+      "ms": 0.96
+    },
+    {
+      "name": "Platform guarantees matrix documented",
+      "status": "PASS",
+      "ms": 0.73
+    },
+    {
+      "name": "NETWORK: createSaleSafe local-first before HTTP",
+      "status": "PASS",
+      "ms": 0.8
+    },
+    {
+      "name": "CONCURRENT Promise.all same sale clientRef → 1 sale",
+      "status": "PASS",
+      "ms": 19.49
+    },
+    {
+      "name": "WS burst coalescer 100→≪100 runs",
+      "status": "PASS",
+      "ms": 16.89
+    },
+    {
+      "name": "CONCURRENT repay/topup/return same ref → 1 effect",
+      "status": "PASS",
+      "ms": 22.05
+    },
+    {
+      "name": "ONLINE loyalty under-apply repaired on retry (FIX A)",
+      "status": "PASS",
+      "ms": 13.85
+    },
+    {
+      "name": "PUSH/PULL cooldown pending allows inbound (Phase 6)",
+      "status": "PASS",
+      "ms": 22.06
+    },
+    {
+      "name": "REGRESSION all Phase 1–9 scripts exit 0",
+      "status": "PASS",
+      "ms": 0.07
+    }
+  ],
+  "regression": [
+    {
+      "script": "phase1-ghost-outbox-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "  \"failed\": 0 | } | Wrote C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\phase1-ghost-outbox-report.json"
+    },
+    {
+      "script": "phase2-products-patch-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "  \"failed\": 0 | } | Wrote C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\phase2-products-patch-report.json"
+    },
+    {
+      "script": "phase3-register-entry-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "  \"failed\": 0 | } | Wrote C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\phase3-register-entry-report.json"
+    },
+    {
+      "script": "phase4-reconnect-timer-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "  \"failed\": 0 | } | Wrote C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\phase4-reconnect-timer-report.json"
+    },
+    {
+      "script": "phase5-atomic-sale-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "PASS  F4 forbidden Phase 5 areas untouched in saleCommit |  | 22 PASS / 0 FAIL → phase5-atomic-sale-report.json"
+    },
+    {
+      "script": "phase6-push-pull-starvation-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "PASS  CLASS mirror matches source exports |  | 14 PASS / 0 FAIL → phase6-push-pull-starvation-report.json"
+    },
+    {
+      "script": "phase7-ws-coalesce-keepalive-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "PASS  TEST J sale path still local-first (atomic untouched) |  | 15 PASS / 0 FAIL → phase7-ws-coalesce-keepalive-report.json"
+    },
+    {
+      "script": "phase8-snapshot-ipc-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "PASS  TEST I catalog serialize size scales ~linear |  | 15 PASS / 0 FAIL → phase8-snapshot-ipc-report.json"
+    },
+    {
+      "script": "phase9-finance-idempotency-test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "tail": "PASS  S4 no dangerous PG unique migration added |  | Phase 9: 13/13 passed"
+    }
+  ],
+  "definitionOfDone": [
+    {
+      "id": 1,
+      "text": "Desktop works offline",
+      "status": "PASS",
+      "note": "local-first + outbox + atomic Desktop"
+    },
+    {
+      "id": 2,
+      "text": "Android works offline",
+      "status": "PARTIAL",
+      "note": "offline yes; atomic durability no"
+    },
+    {
+      "id": 3,
+      "text": "UI does not wait HTTP/WS",
+      "status": "PASS",
+      "note": "createSaleSafe local-first; WS coalesce"
+    },
+    {
+      "id": 4,
+      "text": "Sale durable before success",
+      "status": "PASS",
+      "note": "Desktop atomic; Android PARTIAL"
+    },
+    {
+      "id": 5,
+      "text": "Outbox survives restart",
+      "status": "PASS",
+      "note": "SQLite/IDB/LS + O3 sim"
+    },
+    {
+      "id": 6,
+      "text": "ACK does not resurrect",
+      "status": "PASS",
+      "note": "Phase 1 deletePending clears LS"
+    },
+    {
+      "id": 7,
+      "text": "Retry safe",
+      "status": "PASS",
+      "note": "ACK-lost suite Phase 9/10"
+    },
+    {
+      "id": 8,
+      "text": "Duplicate request no dup effect",
+      "status": "PARTIAL",
+      "note": "single-process OK; multi-process RISK"
+    },
+    {
+      "id": 9,
+      "text": "Stock change ≠ heavy catalog",
+      "status": "PASS",
+      "note": "Phase 2/8 patch + skip cacheProducts"
+    },
+    {
+      "id": 10,
+      "text": "Register entry not network-blocked",
+      "status": "PASS",
+      "note": "Phase 3"
+    },
+    {
+      "id": 11,
+      "text": "Sync no noticeable UI jank",
+      "status": "PARTIAL",
+      "note": "coalesce/debounce; no live UI measure here"
+    },
+    {
+      "id": 12,
+      "text": "Push/pull no starvation",
+      "status": "PASS",
+      "note": "Phase 6"
+    },
+    {
+      "id": 13,
+      "text": "Revision barrier unchanged",
+      "status": "PASS",
+      "note": "untouched across phases"
+    },
+    {
+      "id": 14,
+      "text": "Finance/debt/loyalty SoT clear",
+      "status": "PASS",
+      "note": "Phase 9 models"
+    },
+    {
+      "id": 15,
+      "text": "Restart/reconnect converges",
+      "status": "PASS",
+      "note": "O3/O5 + Phase 4/5"
+    },
+    {
+      "id": 16,
+      "text": "Crash no half-sale",
+      "status": "PASS",
+      "note": "Desktop failAt; Android gap separate"
+    },
+    {
+      "id": 17,
+      "text": "Concurrent monetary effects safe",
+      "status": "PARTIAL",
+      "note": "debt/bonus OCC OK; wallet gap; multi-process RISK"
+    }
+  ],
+  "confirmedIssues": [
+    {
+      "id": "P10-MP-RACE",
+      "severity": "high",
+      "title": "CONFIRMED DB CONCURRENCY RISK (multi-process)",
+      "detail": "App-level posSales.find(clientRef) + docs PK(collection,id) without UNIQUE(client_ref). Two API workers can both observe absence and insert two sales with different ids / same clientRef. Single-process Node event loop is safe; multi-replica is not. Proposed (NOT applied): UNIQUE expression/index on (collection, data->>'clientRef') for pos_sales or op_refs table with UNIQUE(kind, client_ref). Requires preflight duplicate audit + rollback plan."
+    },
+    {
+      "id": "P10-WALLET-OCC",
+      "severity": "medium",
+      "title": "CONFIRMED ISSUE: wallet lacks PayVersion OCC",
+      "detail": "Concurrent wallet payments from two devices can both pass balance checks and double-spend. Debt/bonus have debtPayVersion/bonusPayVersion; wallet does not. Minimal fix (NOT applied): walletPayVersion assert/bump parallel to bonus, or serialize wallet cuts under sale clientRef only (insufficient for two different sales)."
+    },
+    {
+      "id": "P10-ANDROID-ATOMIC",
+      "severity": "medium",
+      "title": "Android lacks SQLite atomic sale transaction",
+      "detail": "Desktop: commitLocalSaleAtomic (queue+layers+sale+shift in one tx) before UI success. Android/file store: queueOp then stock patch — crash between steps can leave half-sale. Do not claim Desktop durability parity on Android."
+    }
+  ],
+  "platformGuarantees": {
+    "Desktop": [
+      "Offline local-first sales",
+      "SQLite atomic sale (queue+layers+sale+shift) before UI success",
+      "Outbox survives restart; ACK clears LS/SQLite/IDB",
+      "clientRef idempotency for sale/debt/topup/return (single API process)"
+    ],
+    "Android": [
+      "Offline queue + local stock mutation",
+      "NOT atomic multi-record transaction",
+      "Crash between queue and stock can diverge until repair/sync"
+    ],
+    "Browser": [
+      "Online-only; no durable local outbox parity with Desktop",
+      "Waits on network for sale path"
+    ]
+  },
+  "recommendedNextActions": [
+    {
+      "severity": "high",
+      "id": "P10-MP-RACE",
+      "action": "If multi-replica API: design UNIQUE(client_ref) / op_refs UNIQUE — preflight audit, then approve migration separately."
+    },
+    {
+      "severity": "medium",
+      "id": "P10-WALLET-OCC",
+      "action": "Add walletPayVersion or equivalent optimistic concurrency for wallet cuts."
+    },
+    {
+      "severity": "medium",
+      "id": "P10-ANDROID-ATOMIC",
+      "action": "Android journal/atomic sale parity (separate project) — do not claim Desktop guarantees."
+    }
+  ]
+}

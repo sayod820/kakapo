@@ -1,0 +1,60 @@
+{
+  "fix": "A",
+  "issue": "P10-LOYALTY-UNDER",
+  "generatedAtIso": "2026-09-10T11:15:38.516Z",
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "source wiring: route uses completePosSaleOnlineLoyalty",
+      "status": "PASS"
+    },
+    {
+      "name": "F skipBalances local-first → no online loyalty on replay",
+      "status": "PASS"
+    },
+    {
+      "name": "spend-only repair without re-spend",
+      "status": "PASS"
+    },
+    {
+      "name": "E concurrent retry same clientRef → one loyalty",
+      "status": "PASS"
+    },
+    {
+      "name": "B sale ok + loyalty missing → retry repairs once",
+      "status": "PASS"
+    },
+    {
+      "name": "A sale+loyalty success → retry loyalty once",
+      "status": "PASS"
+    },
+    {
+      "name": "D ACK lost after loyalty success → no duplicate",
+      "status": "PASS"
+    },
+    {
+      "name": "zero-loyalty sale still sets durable markers",
+      "status": "PASS"
+    },
+    {
+      "name": "C failure → retry twice → still one effect",
+      "status": "PASS"
+    },
+    {
+      "name": "G regression phase9-finance-idempotency-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "G regression phase10-stress-consistency-test.mjs",
+      "status": "PASS"
+    }
+  ],
+  "markers": [
+    "order.bonusSpendApplied",
+    "order.bonusCredited"
+  ]
+}

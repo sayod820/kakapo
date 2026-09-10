@@ -1,0 +1,33 @@
+{
+  "title": "FIX E.2.1 — post-reconcile stale reference",
+  "generatedAtIso": "2026-09-10T11:15:39.499Z",
+  "passed": 6,
+  "failed": 0,
+  "results": [
+    {
+      "name": "post-earn hooks: bonus 100→110 survives reconcile + flush + broadcast",
+      "status": "PASS"
+    },
+    {
+      "name": "stale pre-txn card ref cannot overwrite canonical after path",
+      "status": "PASS"
+    },
+    {
+      "name": "level upgrade mutates canonical db.cards and survives flush",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixa",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixe",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixe2",
+      "status": "PASS"
+    }
+  ],
+  "cardsBonusAuthoritative": true
+}

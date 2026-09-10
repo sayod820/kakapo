@@ -1,0 +1,98 @@
+{
+  "title": "FIX D cross-process same clientRef side-effect audit",
+  "generatedAtIso": "2026-09-10T10:34:21.072Z",
+  "productionMigrationApplied": false,
+  "sequence": [
+    "POST /pos/sales",
+    "in-memory find by clientRef (miss on both processes)",
+    "createPosSale → new SALE-id + moneyLedger + stock/shift (+ debt/wallet if any)",
+    "completePosSaleOnlineLoyalty → createClientOrderFromPosSale + applyBonusSpendOnOrder + applyClientLoyaltyAfterDelivery",
+    "rememberOpRef(pos_sale)",
+    "await flushDbAsync → UNIQUE reconcile sale/ledger/opRef only (orders NOT covered)",
+    "res.json(canonical sale from memory after reconcile)"
+  ],
+  "measured": {
+    "posSales": 1,
+    "durableSaleIds": [
+      "SALE-mtve483g-wt7v8"
+    ],
+    "moneyLedgerTotal": 1,
+    "moneyLedgerByType": {
+      "sale_cash": 1
+    },
+    "ordersTotal": 2,
+    "ordersForSameSaleRef": 2,
+    "orderIds": [
+      "K-1001",
+      "K-5001"
+    ],
+    "posSaleIdsOnOrders": [
+      "SALE-mtve483g-wt7v8",
+      "SALE-mtve483z-72zx9"
+    ],
+    "orphanOrderRefsToMissingSale": [
+      {
+        "orderId": "K-5001",
+        "posSaleId": "SALE-mtve483z-72zx9"
+      }
+    ],
+    "opRefsPosSale": 1,
+    "processASaleId": "SALE-mtve483g-wt7v8",
+    "processBSaleId": "SALE-mtve483z-72zx9",
+    "memorySalesAfterFlushA": [
+      "SALE-mtve483g-wt7v8"
+    ],
+    "memorySalesAfterFlushB": [
+      "SALE-mtve483z-72zx9"
+    ],
+    "conflictsB": [
+      "uq_docs_possales_client_ref",
+      "uq_docs_moneyledger_client_ref_type"
+    ],
+    "bonusStart": 100,
+    "bonusEndDurableOrMemory": 0,
+    "bonusDeltaFromStart": 100,
+    "loyaltySpendEvents": [
+      {
+        "process": "A",
+        "ordersWithSpend": 1,
+        "ordersWithEarn": 1,
+        "cardBonusInMemory": 0
+      },
+      {
+        "process": "B",
+        "ordersWithSpend": 1,
+        "ordersWithEarn": 1,
+        "cardBonusInMemory": 0
+      }
+    ],
+    "bothOrdersMarkedSpend": true,
+    "bothOrdersMarkedEarn": true
+  },
+  "verdict": {
+    "saleProtectedByUnique": true,
+    "ledgerProtectedByUnique": true,
+    "opRefProtectedByUnique": true,
+    "orderDuplicateGap": true,
+    "loyaltyMarkerCrossProcessInsufficient": true,
+    "idealOneSaleOneLedgerOneOrderOneLoyalty": false
+  },
+  "highGaps": [
+    {
+      "severity": "HIGH",
+      "name": "MULTI-PROCESS DUPLICATE ORDER GAP",
+      "detail": "orders has no DB UNIQUE on posSaleClientRef/posSaleId; FIX C no-prune keeps both; createClientOrderFromPosSale dedupe is in-memory only per process.",
+      "fields": [
+        "orders.id",
+        "orders.posSaleId",
+        "orders.posSaleClientRef"
+      ],
+      "writePath": "completePosSaleOnlineLoyalty → createClientOrderFromPosSale → db.orders.push"
+    },
+    {
+      "severity": "HIGH",
+      "name": "LOYALTY MARKERS NOT CROSS-PROCESS",
+      "detail": "bonusSpendApplied / bonusCredited live on order docs; each process creates its own order and applies spend/earn before flush. Markers are single-process only. Balance+marker are not atomic with posSales UNIQUE in one DB transaction."
+    }
+  ]
+}

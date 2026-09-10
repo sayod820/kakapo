@@ -1,0 +1,65 @@
+{
+  "phase": 6,
+  "title": "Push/pull starvation",
+  "at": "2026-09-10T11:15:39.146Z",
+  "passed": 14,
+  "failed": 0,
+  "results": [
+    {
+      "name": "S1 gate uses shouldSkipFullPullForPending (not any !failed)",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 overlay + layer protect wired",
+      "status": "PASS"
+    },
+    {
+      "name": "S3 syncNow/flush allow inbound on cooldown",
+      "status": "PASS"
+    },
+    {
+      "name": "S4 revisionCoordinator untouched",
+      "status": "PASS"
+    },
+    {
+      "name": "S5 Phase 5 atomic sale untouched",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST A cooldown pending does not skip pull; ready does",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST B client protect set built for sale pending; unrelated client free",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST C same product keeps pending delta after remote base change",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST D multiple pending: only ready blocks",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST E failed op does not skip full pull",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST F cursor advances with overlay (no silent skip)",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST G layer protect keeps local for touched product",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST H revision barrier kinds still protected; READY revision still gates",
+      "status": "PASS"
+    },
+    {
+      "name": "CLASS mirror matches source exports",
+      "status": "PASS"
+    }
+  ]
+}

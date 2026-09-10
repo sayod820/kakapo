@@ -1,0 +1,82 @@
+{
+  "phase": 8,
+  "title": "Snapshot / SQLite IPC",
+  "at": "2026-09-10T11:15:39.274Z",
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    {
+      "name": "S1 persistPosSnapshot has dirty/debounce/force",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 bootstrap + syncPull force snapshot",
+      "status": "PASS"
+    },
+    {
+      "name": "S3 sale path still schedules snapshot (void persistPosSnapshot)",
+      "status": "PASS"
+    },
+    {
+      "name": "S4 stock layer bump does not cacheProducts by default",
+      "status": "PASS"
+    },
+    {
+      "name": "S5 hydrate applies layers after products",
+      "status": "PASS"
+    },
+    {
+      "name": "S6 telemetry metrics present",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST A one schedule → one write after flush",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST B 10 rapid sales coalesce",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST C 100 rapid → single checkpoint",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST D stock-only path skips catalog persist",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST E structural catalog still uses cacheProducts",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST F restart: products → pos/mirrors → layers→stock",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST G atomic sale durable without snapshot",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST H dirty during inFlight → trailing write",
+      "status": "PASS"
+    },
+    {
+      "name": "TEST I catalog serialize size scales ~linear",
+      "status": "PASS"
+    }
+  ],
+  "notes": {
+    "snapshotDebounceMs": 800,
+    "authoritative": [
+      "queue",
+      "catalog_stock_layers",
+      "mirror sale/shift",
+      "Phase5 atomic"
+    ],
+    "secondary": [
+      "pos_snapshot",
+      "catalog_products stock field"
+    ]
+  }
+}

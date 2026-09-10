@@ -1,0 +1,66 @@
+{
+  "title": "FIX D — 23505 handling (indexes NOT applied to prod)",
+  "generatedAtIso": "2026-09-10T11:15:39.389Z",
+  "productionIndexesApplied": false,
+  "multiReplicaEnabled": false,
+  "passed": 14,
+  "failed": 0,
+  "results": [
+    {
+      "name": "wiring: known index names present",
+      "status": "PASS"
+    },
+    {
+      "name": "E unexpected 23505 not swallowed",
+      "status": "PASS"
+    },
+    {
+      "name": "A same sale clientRef → one row, loser replay",
+      "status": "PASS"
+    },
+    {
+      "name": "B same moneyLedger (clientRef,type) → one line",
+      "status": "PASS"
+    },
+    {
+      "name": "C same financeMoves clientRef → one move",
+      "status": "PASS"
+    },
+    {
+      "name": "D same opRefs(kind,clientRef) → one opRef",
+      "status": "PASS"
+    },
+    {
+      "name": "F different clientRefs both persist",
+      "status": "PASS"
+    },
+    {
+      "name": "business keys: app-level dedupe matches UNIQUE",
+      "status": "PASS"
+    },
+    {
+      "name": "FIX C no-prune still listed",
+      "status": "PASS"
+    },
+    {
+      "name": "migration script exists (dry-run default)",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixc-row-level-persist-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixa-loyalty-underapply-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase9-finance-idempotency-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase10-stress-consistency-test.mjs",
+      "status": "PASS"
+    }
+  ]
+}

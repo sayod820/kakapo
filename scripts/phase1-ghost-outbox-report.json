@@ -1,0 +1,71 @@
+{
+  "phase": 1,
+  "generatedAt": "2026-09-10T11:15:38.843Z",
+  "summary": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "A — one op put/delete/get (desktop)",
+      "status": "PASS"
+    },
+    {
+      "name": "A′ — old buggy delete WOULD resurrect (desktop) [documents P1]",
+      "status": "PASS"
+    },
+    {
+      "name": "B — restart after ACK (desktop)",
+      "status": "PASS"
+    },
+    {
+      "name": "B — restart after ACK (android)",
+      "status": "PASS"
+    },
+    {
+      "name": "B — restart after ACK (browser idb+ls)",
+      "status": "PASS"
+    },
+    {
+      "name": "C — delete B keeps A,C",
+      "status": "PASS"
+    },
+    {
+      "name": "D — 100 ops all deleted → 0",
+      "status": "PASS"
+    },
+    {
+      "name": "E — ACK first 60 of 100 → 40 remain",
+      "status": "PASS"
+    },
+    {
+      "name": "F — duplicate deletePending idempotent",
+      "status": "PASS"
+    },
+    {
+      "name": "G — mixed kinds: ACK one sale only",
+      "status": "PASS"
+    },
+    {
+      "name": "platform smoke — desktop",
+      "status": "PASS"
+    },
+    {
+      "name": "platform smoke — desktop+idb",
+      "status": "PASS"
+    },
+    {
+      "name": "platform smoke — android",
+      "status": "PASS"
+    },
+    {
+      "name": "platform smoke — browser",
+      "status": "PASS"
+    },
+    {
+      "name": "source — deletePending clears LS without desk early-return",
+      "status": "PASS"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "phase": 9,
+  "title": "Finance / Debt / Loyalty consistency",
+  "generatedAtIso": "2026-09-10T11:15:39.484Z",
+  "summary": {
+    "total": 13,
+    "passed": 13,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "A1 appendMoneyLedger dedupes by clientRef+type",
+      "status": "PASS"
+    },
+    {
+      "name": "B1 duplicate sale clientRef → one sale, one finance, one debt",
+      "status": "PASS"
+    },
+    {
+      "name": "B2 mixed payment components sum + ledger once on retry",
+      "status": "PASS"
+    },
+    {
+      "name": "B3 loyalty spend+earn on skipBalances sale once",
+      "status": "PASS"
+    },
+    {
+      "name": "C1 createClientOrderFromPosSale dedupes by posSaleId",
+      "status": "PASS"
+    },
+    {
+      "name": "D1 debt repay shift ledger retry once",
+      "status": "PASS"
+    },
+    {
+      "name": "E1 return retry same clientRef → one reversal",
+      "status": "PASS"
+    },
+    {
+      "name": "F1 createFinanceMove sets _replay on duplicate clientRef",
+      "status": "PASS"
+    },
+    {
+      "name": "G1 wallet payment retry deducts once",
+      "status": "PASS"
+    },
+    {
+      "name": "S1 ledger dedupe + sale/return clientRef wiring",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 route: sale/order repair + topup replay skip bonus",
+      "status": "PASS"
+    },
+    {
+      "name": "S3 local sticky clientRef for money ops",
+      "status": "PASS"
+    },
+    {
+      "name": "S4 no dangerous PG unique migration added",
+      "status": "PASS"
+    }
+  ],
+  "notes": [
+    "Server JSON docs remain SoT; no PG UNIQUE migration.",
+    "Sale idempotency ≠ side-effect idempotency: order/ledger/topup bonus hardened separately.",
+    "Local appliedLocal + server delta remain dual-apply to separate copies; retry protected by clientRef."
+  ]
+}

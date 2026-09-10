@@ -1,0 +1,18 @@
+{
+  "title": "FIX D — Live Unique Audit (read-only)",
+  "generatedAtIso": "2026-09-10T09:39:02.640Z",
+  "migrationApplied": false,
+  "databaseUrlPresent": true,
+  "stopReason": "audit error: getaddrinfo ENOTFOUND postgres",
+  "counts": null,
+  "duplicates": null,
+  "indexes": null,
+  "proposedIndexNames": [
+    "uq_docs_possales_client_ref",
+    "uq_docs_moneyledger_client_ref_type",
+    "uq_docs_financemoves_client_ref",
+    "uq_docs_oprefs_kind_client_ref"
+  ],
+  "nameConflicts": null,
+  "migrationAllowed": false
+}

@@ -1,0 +1,47 @@
+{
+  "title": "FIX E — Order + Loyalty (superseded crash-safety by FIX E.2 txn)",
+  "generatedAtIso": "2026-09-10T11:15:32.754Z",
+  "multiReplicaEnabled": false,
+  "migrationRequired": false,
+  "mechanism": {
+    "order": "completePosSaleOrderEffect txn",
+    "spend": "completeBonusSpendEffect txn",
+    "earn": "completeBonusEarnEffect txn"
+  },
+  "passed": 8,
+  "failed": 0,
+  "results": [
+    {
+      "name": "wiring: effect txn + route",
+      "status": "PASS"
+    },
+    {
+      "name": "skipBalances → no online loyalty",
+      "status": "PASS"
+    },
+    {
+      "name": "zero spend still completes spend+earn once",
+      "status": "PASS"
+    },
+    {
+      "name": "ACK lost retry → no second order/loyalty",
+      "status": "PASS"
+    },
+    {
+      "name": "dual-process same clientRef → one order + one spend + one earn",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixa",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixc",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase9",
+      "status": "PASS"
+    }
+  ]
+}

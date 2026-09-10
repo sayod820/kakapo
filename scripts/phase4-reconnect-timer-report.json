@@ -1,0 +1,51 @@
+{
+  "phase": 4,
+  "generatedAt": "2026-09-10T11:15:39.035Z",
+  "summary": {
+    "total": 9,
+    "passed": 9,
+    "failed": 0
+  },
+  "telemetryExample": {
+    "before": "existing 45s + new 600ms → tag skipped_existing_timer",
+    "after": "existing 45s + new 600ms → tag rescheduled_earlier { fromDueInMs: 45000, toDelayMs: 600 }"
+  },
+  "results": [
+    {
+      "name": "source — earlier-wins + reconnectDueAt present",
+      "status": "PASS"
+    },
+    {
+      "name": "A — no existing timer → schedule 600",
+      "status": "PASS"
+    },
+    {
+      "name": "B — existing 45s + new 600ms → reschedule earlier",
+      "status": "PASS"
+    },
+    {
+      "name": "C — existing 600ms + new 45s → keep existing",
+      "status": "PASS"
+    },
+    {
+      "name": "D — partially elapsed: compare deadline not raw delay",
+      "status": "PASS"
+    },
+    {
+      "name": "E — failure backoff grows; new work does not reset attempt",
+      "status": "PASS"
+    },
+    {
+      "name": "F — 100 sales while waiting → one timer, not 100",
+      "status": "PASS"
+    },
+    {
+      "name": "G — flush lock: timer fire while locked reschedules once, no parallel",
+      "status": "PASS"
+    },
+    {
+      "name": "H — success reset clears timer + attempt",
+      "status": "PASS"
+    }
+  ]
+}

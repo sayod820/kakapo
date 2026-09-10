@@ -1,0 +1,97 @@
+{
+  "phase": 5,
+  "title": "Atomic local sale",
+  "at": "2026-09-10T11:15:39.092Z",
+  "passed": 22,
+  "failed": 0,
+  "results": [
+    {
+      "name": "S1 sqlSaleCommit uses db.transaction",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 failAt stages T1–T5 present",
+      "status": "PASS"
+    },
+    {
+      "name": "S3 preload + bridge expose saleCommit",
+      "status": "PASS"
+    },
+    {
+      "name": "S4 createSaleSafe Desktop path commits before Zustand",
+      "status": "PASS"
+    },
+    {
+      "name": "S5 network/print not inside commitLocalSaleAtomic",
+      "status": "PASS"
+    },
+    {
+      "name": "S6 hydrate reconciles mirrors after snapshot",
+      "status": "PASS"
+    },
+    {
+      "name": "S7 preview layers + adopt without double KV persist",
+      "status": "PASS"
+    },
+    {
+      "name": "S8 atomic set: queue + layers + sale + shift",
+      "status": "PASS"
+    },
+    {
+      "name": "T1 fail before tx → empty",
+      "status": "PASS"
+    },
+    {
+      "name": "T2 fail after_queue → full rollback",
+      "status": "PASS"
+    },
+    {
+      "name": "T3 fail after_layers → full rollback",
+      "status": "PASS"
+    },
+    {
+      "name": "T4 fail after_sale → full rollback",
+      "status": "PASS"
+    },
+    {
+      "name": "T5 fail before_commit → full rollback",
+      "status": "PASS"
+    },
+    {
+      "name": "T6 commit ok → sale+stock+outbox+shift consistent",
+      "status": "PASS"
+    },
+    {
+      "name": "T7 restart after committed pending → same clientRef, no second outbox",
+      "status": "PASS"
+    },
+    {
+      "name": "T8 multi-item stock all-or-nothing in one tx",
+      "status": "PASS"
+    },
+    {
+      "name": "T9 100 sequential commits stay consistent",
+      "status": "PASS"
+    },
+    {
+      "name": "T0 localDb.cjs transaction API matches simulator stages",
+      "status": "PASS"
+    },
+    {
+      "name": "F1 cash/card/credit/mixed shift fields in atomic path",
+      "status": "PASS"
+    },
+    {
+      "name": "F2 duplicate restore avoids second stock",
+      "status": "PASS"
+    },
+    {
+      "name": "F3 Android not faking SQLite tx (fallback path kept)",
+      "status": "PASS"
+    },
+    {
+      "name": "F4 forbidden Phase 5 areas untouched in saleCommit",
+      "status": "PASS"
+    }
+  ]
+}

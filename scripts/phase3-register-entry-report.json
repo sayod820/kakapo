@@ -1,0 +1,55 @@
+{
+  "phase": 3,
+  "generatedAt": "2026-09-10T11:15:38.983Z",
+  "oldEntryFlow": {
+    "trigger": "useEffect([active, posSurface]) when register",
+    "call": "void softSyncWarehouse({ expiryDays: 14 })",
+    "internals": [
+      "pullSyncChanges",
+      "api.getStockExpiry",
+      "pullStockLayersFromServer({ bumpProducts: true })"
+    ],
+    "note": "void = non-awaited but still starts heavy work + state updates on open"
+  },
+  "newEntryFlow": {
+    "trigger": "same deps",
+    "call": "none (local-only + register_open_local marker)",
+    "alerts": "softSyncExpiry only (throttled GET expiry)",
+    "freshness": "WS posWarehouse / WarehouseModule / existing sync"
+  },
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "A — register effect does not call softSyncWarehouse",
+      "status": "PASS"
+    },
+    {
+      "name": "B — softSyncWarehouse still exists for Warehouse/WS",
+      "status": "PASS"
+    },
+    {
+      "name": "C — softSyncExpiry for alerts (not full warehouse)",
+      "status": "PASS"
+    },
+    {
+      "name": "D — rapid nav: warehouse inFlight still singleton",
+      "status": "PASS"
+    },
+    {
+      "name": "E — Cashier no longer imports softSyncWarehouse",
+      "status": "PASS"
+    },
+    {
+      "name": "F — register_open_local telemetry marker",
+      "status": "PASS"
+    },
+    {
+      "name": "G — softSyncWarehouse parts documented as heavy",
+      "status": "PASS"
+    }
+  ]
+}

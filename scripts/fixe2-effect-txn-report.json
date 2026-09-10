@@ -1,0 +1,73 @@
+{
+  "title": "FIX E.2 — transactional effect completion",
+  "generatedAtIso": "2026-09-10T11:15:39.492Z",
+  "crashSafe": true,
+  "multiReplicaEnabled": false,
+  "fixDIndexesApplied": false,
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    {
+      "name": "A crash before txn → no effect",
+      "status": "PASS"
+    },
+    {
+      "name": "B crash after_claim → rollback no durable claim/effect",
+      "status": "PASS"
+    },
+    {
+      "name": "order crash after_order_insert rolls back",
+      "status": "PASS"
+    },
+    {
+      "name": "C crash after_balance_update → rollback no balance change",
+      "status": "PASS"
+    },
+    {
+      "name": "H two processes same order → one order",
+      "status": "PASS"
+    },
+    {
+      "name": "D crash after_done_marker / before_commit → rollback all",
+      "status": "PASS"
+    },
+    {
+      "name": "G two processes same earn → one delta",
+      "status": "PASS"
+    },
+    {
+      "name": "F two processes same spend → one delta",
+      "status": "PASS"
+    },
+    {
+      "name": "E COMMIT then ACK lost → retry one effect",
+      "status": "PASS"
+    },
+    {
+      "name": "I restart after committed → replay no mutation",
+      "status": "PASS"
+    },
+    {
+      "name": "full path dual-process via completePosSaleOnlineLoyalty",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixa",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixc",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixd",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase9",
+      "status": "PASS"
+    }
+  ],
+  "sourceOfTruth": "cards.bonus (clients.bonus mirrored in same txn)",
+  "claimStateMachine": "missing → (uncommitted open) → done | rollback → missing"
+}

@@ -1,0 +1,71 @@
+{
+  "phase": 0,
+  "generatedAt": "2026-09-10T11:04:48.230Z",
+  "findings": [
+    {
+      "id": "P1_ghost_outbox",
+      "severity": "critical",
+      "confirmed": false,
+      "detail": {
+        "deletePendingClearsLsOnlyOnFallback": false,
+        "earlyReturnAfterDesk": false,
+        "earlyReturnAfterIdb": false,
+        "getPendingMergesLocalStorage": true,
+        "note": "putPending always writes LS; deletePending on Desktop returns after SQLite(+IDB) without LS clear → ACK ops can resurrect via getPending LS merge"
+      }
+    },
+    {
+      "id": "P2_reconnect_timer",
+      "severity": "high",
+      "confirmed": false,
+      "detail": {
+        "scheduleReconnectBailsIfTimerExists": false,
+        "note": "new queueOp(600ms) cannot pull forward an existing 45s stuck timer"
+      }
+    },
+    {
+      "id": "P4_full_products_rewrite",
+      "severity": "high",
+      "confirmed": false,
+      "detail": {
+        "createSaleSafeMapsEntireCatalog": false,
+        "cashierSubscribesToFullProducts": true
+      }
+    },
+    {
+      "id": "P5_warehouse_on_register",
+      "severity": "high",
+      "confirmed": false,
+      "detail": {
+        "softSyncWarehouseOnRegisterEffect": true,
+        "softSyncWarehouseOnAlertsOpen": false
+      }
+    },
+    {
+      "id": "P0_telemetry",
+      "severity": "info",
+      "confirmed": true,
+      "detail": {
+        "module": "lib/devTelemetry.ts",
+        "enable": "localStorage.setItem('kakapo_perf','1'); location.reload()",
+        "api": "window.__kakapoPerf.snapshot()"
+      }
+    }
+  ],
+  "runtimeBaseline": {
+    "status": "pending_manual",
+    "scenarios": [
+      "register_entry",
+      "scan_product",
+      "add_product",
+      "one_sale",
+      "10_sales",
+      "reconnect_after_offline"
+    ],
+    "how": [
+      "1. Desktop Trade: localStorage.setItem('kakapo_perf','1'); reload",
+      "2. Run scenario; optionally __kakapoPerf.scenario('one_sale')",
+      "3. Copy __kakapoPerf.snapshot() JSON here / to chat"
+    ]
+  }
+}

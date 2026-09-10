@@ -1,0 +1,77 @@
+{
+  "fix": "C",
+  "title": "Row-level persistence for append/event collections",
+  "generatedAtIso": "2026-09-10T11:15:37.571Z",
+  "multiReplicaReady": false,
+  "uniqueIndexesApplied": false,
+  "targetCollections": [
+    "posSales",
+    "moneyLedger",
+    "financeMoves",
+    "opRefs",
+    "orders"
+  ],
+  "summary": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "S1 target collections + no-prune wiring",
+      "status": "PASS"
+    },
+    {
+      "name": "S2 explicit delete call sites wired",
+      "status": "PASS"
+    },
+    {
+      "name": "A stale writer preserves foreign row",
+      "status": "PASS"
+    },
+    {
+      "name": "B two different appends both survive",
+      "status": "PASS"
+    },
+    {
+      "name": "C empty stale snapshot does not wipe append collection",
+      "status": "PASS"
+    },
+    {
+      "name": "D existing row update works",
+      "status": "PASS"
+    },
+    {
+      "name": "E explicit delete only target",
+      "status": "PASS"
+    },
+    {
+      "name": "F same clientRef duplicate still possible before UNIQUE",
+      "status": "PASS"
+    },
+    {
+      "name": "G loadSnapshot after writes returns all rows",
+      "status": "PASS"
+    },
+    {
+      "name": "H mutable collection still prunes (compat)",
+      "status": "PASS"
+    },
+    {
+      "name": "I sort_idx preserved on update (stale renumber safe)",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase9-finance-idempotency-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION phase10-stress-consistency-test.mjs",
+      "status": "PASS"
+    },
+    {
+      "name": "REGRESSION fixa-loyalty-underapply-test.mjs",
+      "status": "PASS"
+    }
+  ]
+}
