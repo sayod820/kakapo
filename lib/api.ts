@@ -829,6 +829,8 @@ export const api = {
     appliedLocal?: boolean
     skipBalances?: boolean
     nextDebt?: number
+    /** Погашение по конкретному чеку — сервер спишет с этой записи ленты */
+    orderId?: string
     /** Снимок debtPayVersion; отказ, если погашения уже меняли */
     expectedDebtPayVersion?: number
   }) => request<{

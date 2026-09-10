@@ -1259,6 +1259,8 @@ export async function debtRepaySafe(
     posId?: string
     clientId?: string
     prevDebt: number
+    /** Гасим конкретный чек — и локально, и на сервере списываем с него */
+    orderId?: string
   },
 ): Promise<OfflineResult<DebtRepayResult>> {
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
@@ -1299,6 +1301,7 @@ export async function debtRepaySafe(
     clientId: input.clientId,
     prevDebt: round2(input.prevDebt),
     expectedDebtPayVersion,
+    orderId: String(input.orderId || '').trim() || undefined,
     histKey: histKey || undefined,
   }
 
@@ -1315,6 +1318,7 @@ export async function debtRepaySafe(
         posId: input.posId,
         clientId: input.clientId,
         clientRef,
+        orderId: payload.orderId,
         expectedDebtPayVersion: ver,
       } as any)
       let res: unknown
@@ -1347,14 +1351,8 @@ export async function debtRepaySafe(
         const shift = shiftById(input.shiftId)
         if (shift) patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
       }
-      if (histKey) {
-        recordStoreDebtRepayment(histKey, amount, {
-          desc: input.note || (method === 'cash' ? 'Погашение нал' : 'Погашение карта'),
-          method,
-          source: 'pos',
-          clientRef,
-        })
-      }
+      // Ленту погашений пишет вызывающий UI (по чеку / FIFO) — как в local-first.
+      // Запись здесь давала вторую строку на ту же оплату и остаток по чеку падал вдвое.
       void persistPosSnapshot()
       return { offline: false, data: { nextDebt, bonusEarned, clientRef } }
     })()

@@ -7662,6 +7662,7 @@ export default function CashierModule({
         posId: activeShift.posId || activePosPoint?.id,
         clientId: client.id,
         prevDebt,
+        orderId: target?.orderId,
       })
       const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - payAmt)
       if (repaid.data.duplicate) {

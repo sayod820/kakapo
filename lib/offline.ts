@@ -1252,6 +1252,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         appliedLocal: true,
         skipBalances: true,
         nextDebt: p.nextDebt,
+        orderId: p.orderId,
         expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
       } as any)
       try {

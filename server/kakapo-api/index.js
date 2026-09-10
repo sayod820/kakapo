@@ -4904,12 +4904,15 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       return res.json({ card, ...result })
     }
 
+    // Погашение по конкретному чеку: списываем с этой записи ленты, не общим FIFO
+    const repayOrderId = String(req.body?.orderId || '').trim() || undefined
     if (linkedClient) {
       if (!appliedLocal) {
         try {
           handleClientDebtDelta(db, linkedClient, card, prevDebt, nextDebt, {
             enforceLimit: false,
             source: 'pos',
+            orderId: repayOrderId,
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch (e) {
@@ -4918,6 +4921,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       } else if (repaidTowardDebt > 0.001) {
         try {
           applyDebtRepayment(linkedClient, card, repaidTowardDebt, {
+            orderId: repayOrderId,
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch { /* журнал чеков; баланс уже на кассе */ }

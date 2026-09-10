@@ -407,6 +407,12 @@ export function handleClientDebtDelta(db, client, card, prevDebt, nextDebt, meta
     return { notifications }
   }
 
-  applyDebtRepayment(client, card, Math.abs(delta), { desc: meta.desc || 'Погашение долга' })
+  // orderId/saleId — чтобы погашение по конкретному чеку списалось именно с него,
+  // а не ушло в общий FIFO (иначе касса и сервер расходятся по остаткам чеков)
+  applyDebtRepayment(client, card, Math.abs(delta), {
+    desc: meta.desc || 'Погашение долга',
+    orderId: meta.orderId,
+    saleId: meta.saleId,
+  })
   return { notifications: [] }
 }
