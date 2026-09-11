@@ -10,6 +10,25 @@ import { api } from './api'
 import { ACCOUNT_NS, accountStorageKey, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import { phoneDigits, type StoreUser } from './clientSession'
 import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
+import {
+  allocateSaleRemainsToDebtBudget,
+  resolveAuthoritativeCustomerDebt as resolveAuthoritativeCustomerDebtCore,
+  sumOpenDebtLedgerRemaining,
+} from './debtUiProjectionCore.mjs'
+
+export {
+  sumOpenDebtLedgerRemaining,
+}
+
+/** Current displayed debt: debtLedger.remaining sum when present, else CRM client.debt. */
+export function resolveAuthoritativeCustomerDebt(input: {
+  clientDebt?: number | null
+  cardDebt?: number | null
+  debtLedger?: { remaining?: number }[] | null
+  cardDebtLedger?: { remaining?: number }[] | null
+}): number {
+  return resolveAuthoritativeCustomerDebtCore(input)
+}
 
 const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
@@ -319,92 +338,60 @@ function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
 }
 
 /**
- * Остатки по чекам: история + долг на карте (чтобы «Товары» сходились с «Итого»).
+ * Остатки по чекам в пределах authoritative current debt (CRM / debtLedger).
  * Одна логика для раздела «Долги» и окна клиента в кассе.
  *
- * Важно: если долг на карте обнулился синкаом, а чеки с debtAdded остались —
- * не помечаем их «оплаченными». Доверяем истории/сумме чека.
+ * sale.debtAdded = original credit only. Never resurrect historical debtAdded
+ * into current totals after authoritative debt has been cleared (≈0).
  */
 export function buildSaleDebtStatuses(
   sales: { id: string; orderId?: string; debtAdded: number; dateIso: string }[],
   history: DebtHistoryEntry[],
   cardDebt: number,
 ): { saleStatus: Record<string, SaleDebtStatus>; posOriginal: number; posRemain: number; cashOnCard: number } {
-  const posOriginal = Math.round(sales.reduce((s, x) => s + (Number(x.debtAdded) || 0), 0) * 100) / 100
   const debt = Math.max(0, Math.round(cardDebt * 100) / 100)
 
-  const base: Record<string, SaleDebtStatus> = {}
-  for (const s of sales) base[s.id] = debtStatusForSale(history, s)
+  const historyRemainBySaleId: Record<string, SaleDebtStatus> = {}
+  for (const s of sales) historyRemainBySaleId[s.id] = debtStatusForSale(history, s)
 
-  const openFromSales = Math.round(
-    Object.values(base).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
-  ) / 100
+  const allocated = allocateSaleRemainsToDebtBudget(
+    sales,
+    historyRemainBySaleId,
+    debt,
+    {
+      isLinked: (s) => {
+        const keys = saleOrderKeys(s)
+        return history.some(h =>
+          (h.type === 'debt' || h.type === 'pay')
+          && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
+        )
+      },
+    },
+  )
 
-  // Карта/клиент обнулились (sync), а чеки в долг на месте — не прячем долг
-  if (debt < 0.001 && openFromSales > 0.001) {
-    const saleStatus = { ...base }
-    const hasLedger = history.some(h => h.type === 'debt')
-    const cashOnCard = hasLedger ? computeDebtFromLedger(history).cash : 0
-    return { saleStatus, posOriginal, posRemain: openFromSales, cashOnCard }
-  }
-
-  const locked: typeof sales = []
-  const flexible: typeof sales = []
-  for (const s of sales) {
-    const keys = saleOrderKeys(s)
-    const linked = history.some(h =>
-      (h.type === 'debt' || h.type === 'pay')
-      && keys.some(k => debtOrderIdsMatch(h.orderId, k)),
+  // When CRM/ledger debt is open, cash slice may come from local history ledger
+  // but must never push displayed goods+cash above authoritative debt.
+  if (debt >= 0.001 && history.some(h => h.type === 'debt')) {
+    const ledgerCash = computeDebtFromLedger(history).cash
+    const posRemain = allocated.posRemain
+    const cashOnCard = Math.min(
+      Math.max(0, ledgerCash),
+      Math.max(0, Math.round((debt - posRemain) * 100) / 100),
     )
-    if (linked) locked.push(s)
-    else flexible.push(s)
-  }
-
-  const saleStatus: Record<string, SaleDebtStatus> = {}
-  let lockedRemain = 0
-  for (const s of locked) {
-    saleStatus[s.id] = base[s.id]
-    lockedRemain += saleStatus[s.id].remain
-  }
-  lockedRemain = Math.round(lockedRemain * 100) / 100
-
-  if (lockedRemain > debt + 0.005) {
-    // Карта отстаёт от истории — не масштабируем locked в 0, flexible оставляем по чеку
-    for (const s of flexible) {
-      saleStatus[s.id] = base[s.id]
-    }
-  } else {
-    let budget = Math.round((debt - lockedRemain) * 100) / 100
-    const ordered = [...flexible].sort(
-      (a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0),
-    )
-    for (const s of ordered) {
-      const orig = Math.round(Math.abs(Number(s.debtAdded) || 0) * 100) / 100
-      const remain = Math.min(orig, Math.max(0, budget))
-      budget = Math.round((budget - remain) * 100) / 100
-      const paid = Math.round((orig - remain) * 100) / 100
-      saleStatus[s.id] = {
-        remain,
-        paid,
-        status: remain <= 0.001 ? 'paid' : paid > 0.001 ? 'partial' : 'open',
-      }
+    return {
+      saleStatus: allocated.saleStatus as Record<string, SaleDebtStatus>,
+      posOriginal: allocated.posOriginal,
+      posRemain,
+      cashOnCard,
     }
   }
 
-  const posRemain = Math.round(
-    Object.values(saleStatus).reduce((s, x) => s + (Number(x.remain) || 0), 0) * 100,
-  ) / 100
-
-  // Ledger-first: cashOnCard из истории, а не из разницы debt - posRemain
-  const hasLedger = history.some(h => h.type === 'debt')
-  let cashOnCard: number
-  if (hasLedger) {
-    const ledger = computeDebtFromLedger(history)
-    cashOnCard = ledger.cash
-  } else {
-    cashOnCard = Math.max(0, Math.round((debt - posRemain) * 100) / 100)
+  return {
+    saleStatus: allocated.saleStatus as Record<string, SaleDebtStatus>,
+    posOriginal: allocated.posOriginal,
+    posRemain: allocated.posRemain,
+    cashOnCard: allocated.cashOnCard,
   }
-  return { saleStatus, posOriginal, posRemain, cashOnCard }
 }
 
 /**

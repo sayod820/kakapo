@@ -7,7 +7,6 @@ import {
   CARD_STATUS_LABELS,
   cardHasDebtSection,
   cardNumsMatch,
-  effectiveDebt,
   type AdminCard,
 } from '@/lib/cardCrm'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
@@ -42,6 +41,7 @@ import {
   recordStoreDebtRepayment,
   recordStoreDebtRepaymentFifo,
   removeDebtHistoryEntry,
+  resolveAuthoritativeCustomerDebt,
   saleOpenCreditAmount,
   saleWasOnCredit,
   subscribeDebtHistory,
@@ -281,14 +281,19 @@ function saleOrderKeys(s: { id: string; orderId?: string }): string[] {
 
 function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: PosSale[]): DebtClientRow {
   const card = cardForClient(client, cards)
-  const debtOnCard = effectiveDebt(client, card)
+  // Authoritative current debt — never SUM(sale.debtAdded) after CRM/ledger cleared.
+  const debt = resolveAuthoritativeCustomerDebt({
+    clientDebt: client.debt,
+    cardDebt: card?.debt,
+    debtLedger: client.debtLedger,
+    cardDebtLedger: (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
+  })
   const debtLimit = resolveEffectiveDebtLimit(client)
   const history = loadDebtHistoryForClient(client)
   const manual = history.filter(isManualDebtHistoryEntry)
   const totals = debtHistoryTotals(manual)
   const posSales = posDebtSalesFor(client, sales)
-  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debtOnCard)
-  const debt = Math.round((posRemain + cashOnCard) * 100) / 100
+  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debt)
   return {
     ...client,
     debt,
@@ -592,13 +597,18 @@ export default function DebtsModule({
     const checkPays = history.filter(r => r.type === 'pay' && !isManualDebtHistoryEntry(r))
     const posSales = posSalesForCash
     const manualTotals = debtHistoryTotals(manual)
-    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    const cardDebt = resolveAuthoritativeCustomerDebt({
+      clientDebt: detailClient.debt,
+      cardDebt: cardForClient(detailClient, cards)?.debt,
+      debtLedger: detailClient.debtLedger,
+      cardDebtLedger: (cardForClient(detailClient, cards) as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
+    })
     const { saleStatus, posOriginal, posRemain, cashOnCard } = buildSaleDebtStatuses(
       posSales,
       history,
       cardDebt,
     )
-    const totalDebt = Math.round((posRemain + cashOnCard) * 100) / 100
+    const totalDebt = cardDebt
     const cashChargeSum = Math.round(
       cash.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
     ) / 100
@@ -638,14 +648,20 @@ export default function DebtsModule({
   const debtPanel = useMemo(() => {
     if (!detailClient) return null
     void histTick
-    const cardDebt = Math.max(0, Number(detailClient.debt) || 0)
+    const card = cardForClient(detailClient, cards)
+    const cardDebt = resolveAuthoritativeCustomerDebt({
+      clientDebt: detailClient.debt,
+      cardDebt: card?.debt,
+      debtLedger: detailClient.debtLedger,
+      cardDebtLedger: (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
+    })
     return buildClientDebtPanel({
       client: detailClient,
       cardDebt,
       sales,
       products,
     })
-  }, [detailClient, histTick, sales, products])
+  }, [detailClient, histTick, sales, products, cards])
 
   useEffect(() => {
     if (!saleDetailId && !detailId && !payGroupDetail && !repayQuick) return

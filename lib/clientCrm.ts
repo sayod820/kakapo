@@ -39,6 +39,11 @@ export interface AdminClient {
   debtEnabled?: boolean
   debtOverdueStrikes?: number
   debtCreditBlocked?: boolean
+  /**
+   * Server debtLedger (open remaining per receipt). Optional — used for UI
+   * current-debt projection only; not mutated by Desktop UI fix.
+   */
+  debtLedger?: { id?: string; amount?: number; remaining?: number; source?: string; orderId?: string; saleId?: string }[]
   note?: string
   createdAt?: string
   lastOrderAt?: string
@@ -258,6 +263,9 @@ export function normalizeClient(raw: Partial<AdminClient> & { id: string }): Adm
         || (raw.debtEnabled === undefined && !debtFromNote(raw.note) && (Number(raw.debtLimit) || 0) > 0))),
     debtOverdueStrikes: Math.max(0, Number(raw.debtOverdueStrikes) || 0),
     debtCreditBlocked: !!raw.debtCreditBlocked,
+    debtLedger: Array.isArray((raw as { debtLedger?: AdminClient['debtLedger'] }).debtLedger)
+      ? (raw as { debtLedger: AdminClient['debtLedger'] }).debtLedger
+      : undefined,
     note: raw.note || '',
     createdAt: raw.createdAt,
     lastOrderAt: raw.lastOrderAt,
