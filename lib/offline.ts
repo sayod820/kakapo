@@ -628,7 +628,7 @@ export async function pendingBlocksStockLayerPull(): Promise<boolean> {
   }
 }
 
-async function putPending(row: PendingOp): Promise<void> {
+export async function putPending(row: PendingOp): Promise<void> {
   // Сразу localStorage — пробитие не ждёт SQLite/IDB
   try {
     const list = lsQueueRead().filter(r => r.clientRef !== row.clientRef)
@@ -670,7 +670,7 @@ async function putPending(row: PendingOp): Promise<void> {
  * - LS OK, native fail → getPending всё ещё видит op из native (pending НЕ теряется)
  * ACK’d business effect на сервере уже применён — повторный flush должен быть идемпотентен по clientRef.
  */
-async function deletePending(clientRef: string): Promise<void> {
+export async function deletePending(clientRef: string): Promise<void> {
   const ref = String(clientRef || '')
   if (!ref) return
 
@@ -965,7 +965,7 @@ async function getIdMap(): Promise<Record<string, string>> {
   return idMap
 }
 
-async function rememberId(localId: string, serverId: string): Promise<void> {
+export async function rememberId(localId: string, serverId: string): Promise<void> {
   const map = await getIdMap()
   map[localId] = serverId
   idMap = map
@@ -1347,9 +1347,14 @@ async function sendOp(row: PendingOp): Promise<string> {
         if (/смена не найдена/i.test(msg)) {
           const openId = await findOpenServerShift(payload)
           if (!openId) throw e
-          if (isLocalId((row.payload as any)?.shiftId)) {
-            await rememberId(String((row.payload as any).shiftId), openId)
+          const localShiftId = String((row.payload as any)?.shiftId || payload?.shiftId || '')
+          if (isLocalId(localShiftId)) {
+            await rememberId(localShiftId, openId)
           }
+          try {
+            const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+            await reconcileOrphanOpenOffShifts({ reason: 'sale_shift_not_found' })
+          } catch { /* ignore */ }
           payload = { ...payload, shiftId: openId }
           const sale = await api.createPosSale(payload, { mode: 'sync' }) as Record<string, unknown>
           return await applySaleRow(sale)
@@ -2203,6 +2208,49 @@ export async function flushQueue(
                   continue
                 }
                 // После 2 обновлений версий — паркуем до ручного forceSync
+                live.failed = true
+                live.nextRetryAt = Date.now() + 120_000
+                await putPending(live)
+                liveByRef.set(live.clientRef, live)
+                failed++
+                done++
+                reportProgress()
+                continue
+              }
+              // «Смена не найдена»: one safe reconcile/remap before destroying local sale.
+              if (/смена не найдена/i.test(err)) {
+                const tries = Number((p as any)._shiftReconcileTries) || 0
+                if (tries < 1) {
+                  try {
+                    const openId = await findOpenServerShift(p)
+                    if (openId) {
+                      const localShiftId = String(p.shiftId || '')
+                      if (isLocalId(localShiftId)) await rememberId(localShiftId, openId)
+                      const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+                      await reconcileOrphanOpenOffShifts({ reason: 'flush_shift_not_found' })
+                      live.payload = { ...p, shiftId: openId, _shiftReconcileTries: tries + 1 }
+                      live.failed = false
+                      live.lastError = ''
+                      live.nextRetryAt = Date.now() + pendingRetryDelayMs(1)
+                      await putPending(live)
+                      liveByRef.set(live.clientRef, live)
+                      failed++
+                      done++
+                      reportProgress()
+                      continue
+                    }
+                  } catch { /* fall through to park */ }
+                  live.payload = { ...p, _shiftReconcileTries: tries + 1 }
+                  live.failed = true
+                  live.nextRetryAt = Date.now() + pendingRetryDelayMs(tries + 1)
+                  await putPending(live)
+                  liveByRef.set(live.clientRef, live)
+                  failed++
+                  done++
+                  reportProgress()
+                  continue
+                }
+                // After one reconcile attempt still failing — park; do NOT revert local sale.
                 live.failed = true
                 live.nextRetryAt = Date.now() + 120_000
                 await putPending(live)

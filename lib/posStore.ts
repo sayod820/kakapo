@@ -607,6 +607,12 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       }
       if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
 
+      // Server open shift already in store + stale open off-* → adopt (projection only).
+      try {
+        const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+        await reconcileOrphanOpenOffShifts({ reason: 'soft_sync_pos' })
+      } catch { /* ignore */ }
+
       // Server→Desktop: shift counters can advance while sale rows were skipped by
       // pos-lite cursor. Repair is projection-only (no stock/finance/outbox).
       try {

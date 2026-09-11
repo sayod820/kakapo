@@ -387,6 +387,10 @@ async function doPullSyncChanges(opts?: {
     // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
     // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {
+      const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+      await reconcileOrphanOpenOffShifts({ reason: 'sync_pull' })
+    } catch { /* ignore */ }
+    try {
       const { maybeRepairPosSalesInboundAfterMerge } = await import('./posSalesInboundRepair')
       await maybeRepairPosSalesInboundAfterMerge({ reason: 'sync_pull' })
     } catch { /* ignore */ }

@@ -20,6 +20,7 @@ import { allocPosOpSeq, ensurePosOpSeqReady } from './posOpSeq'
 import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
+import { pickActiveOpenShift } from './shiftReconcile'
 
 export type SaleCartLine = {
   productId: number
@@ -121,16 +122,12 @@ export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'sa
   )
 }
 
-/** Открытая смена: по точке, иначе любая. */
-export function resolveOpenShift(posId?: string): PosShift | undefined {
-  const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
-  if (!opens.length) return undefined
-  const want = String(posId || '').trim()
-  if (want) {
-    const match = opens.find(s => String(s.posId || '') === want)
-    if (match) return match
-  }
-  return opens[0]
+/** Открытая смена: серверная побеждает offline off-* при том же POS/кассире. */
+export function resolveOpenShift(posId?: string, cashierId?: string): PosShift | undefined {
+  return pickActiveOpenShift(usePosStore.getState().shifts, {
+    posId: String(posId || '').trim() || undefined,
+    cashierId: String(cashierId || '').trim() || undefined,
+  }) || undefined
 }
 
 /**
