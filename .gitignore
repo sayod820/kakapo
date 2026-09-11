@@ -28,3 +28,15 @@ deploy/hetzner/nginx/default.conf
 app-debug.apk
 *.apk
 android-app/www/
+
+# Generated test / phase reports (local runs)
+*-report.json
+scripts/*-report.json
+phase*-report.json
+
+# Cashier diagnostic pack + captured outputs (never commit binaries/dumps)
+kakapo-diag-ro/
+kakapo-diag-ro.zip
+scripts/_diag_out/
+scripts/_shiftReconcile.runtime.mjs
+scripts/_shiftReconcile.bundle.mjs
