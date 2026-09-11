@@ -132,7 +132,13 @@ test('T8 softSync/syncPull/offline reject safety wired', () => {
   expect(posSrc.includes('reconcileOrphanOpenOffShifts'), 'posStore')
   expect(pull.includes('reconcileOrphanOpenOffShifts'), 'syncPull')
   expect(off.includes('_shiftReconcileTries'), 'park not revert')
-  expect(off.includes('sale_shift_not_found') || off.includes('flush_shift_not_found'), 'reconcile hook')
+  expect(
+    off.includes('sale_shift_lifecycle')
+    || off.includes('flush_shift_lifecycle')
+    || off.includes('sale_shift_not_found')
+    || off.includes('flush_shift_not_found'),
+    'reconcile hook',
+  )
 })
 
 test('T9 duplicate reconcile idempotent', () => {
@@ -155,9 +161,9 @@ test('T10 resolveOpenShift uses pickActiveOpenShift', () => {
   expect(src.includes('pickActiveOpenShift'), 'resolveOpenShift')
 })
 
-test('T11 sale reject must not immediately revert on смена не найдена', () => {
+test('T11 sale reject must not immediately revert on shift lifecycle errors', () => {
   const off = fs.readFileSync(path.join(root, 'lib', 'offline.ts'), 'utf8')
-  const idx = off.indexOf("if (/смена не найдена/i.test(err))")
+  const idx = off.indexOf('flush_shift_lifecycle')
   expect(idx > 0, 'handler missing')
   const slice = off.slice(idx, idx + 1200)
   expect(slice.includes('_shiftReconcileTries'), 'tries')

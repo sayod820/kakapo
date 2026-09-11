@@ -175,7 +175,9 @@ function parseErrorText(text: string, status: number): string {
   if (!text) return formatApiError(null, status)
   try {
     const json = JSON.parse(text)
-    return formatApiError(json.error ?? json.detail ?? json.message ?? json, status) || text.slice(0, 160)
+    const msg = formatApiError(json.error ?? json.detail ?? json.message ?? json, status) || text.slice(0, 160)
+    const code = typeof json.code === 'string' ? json.code.trim() : ''
+    return code && msg && !msg.includes(code) ? `${msg} [${code}]` : msg
   } catch {
     const plain = stripHtmlError(text)
     return formatApiError(plain, status) || plain

@@ -190,6 +190,14 @@ export async function openShiftSafe(input: {
 }): Promise<OfflineResult<PosShift>> {
   const posId = String(input.posId || '').trim()
   const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
+  // Prefer server open if already present — do not spawn another off-shift ghost.
+  const serverOpen = opens.find(s => !String(s.id || '').startsWith('off-')
+    && (!posId || String(s.posId || '') === posId)
+    && String(s.cashierId || '') === String(input.cashierId))
+    || opens.find(s => !String(s.id || '').startsWith('off-') && (!posId || String(s.posId || '') === posId))
+  if (serverOpen) {
+    throw new Error('На этой точке продаж уже открыта сессия')
+  }
   if (posId && opens.some(s => String(s.posId || '') === posId)) {
     throw new Error('На этой точке продаж уже открыта сессия')
   }
@@ -329,6 +337,48 @@ export async function closeShiftSafe(
     }
   }
   return res
+}
+
+/**
+ * If local projection closed a server SHIFT-* but close op is missing from outbox
+ * while we still believe server may be open — re-queue close (must-ack).
+ * Projection-only regarding sales; does not invent closing amounts beyond local row.
+ */
+export async function ensureDurableShiftCloses(opts?: { reason?: string }): Promise<number> {
+  const { getPending, enqueueOp, isLocalId, isShiftCloseAcked } = await import('./offline')
+  const pending = await getPending()
+  const pendingCloseIds = new Set(
+    pending
+      .filter(r => r.kind === 'shift_close')
+      .map(r => String((r.payload as any)?.shiftId || '')),
+  )
+  const shifts = usePosStore.getState().shifts
+  let queued = 0
+  const maxAgeMs = 72 * 3600_000
+  for (const sh of shifts) {
+    if (String(sh.status) !== 'closed') continue
+    const id = String(sh.id || '')
+    if (!id || isLocalId(id)) continue
+    if (pendingCloseIds.has(id)) continue
+    if (await isShiftCloseAcked(id)) continue
+    if (sh.closingCash == null && sh.actualCash == null) continue
+    const closedMs = Date.parse(String(sh.closedAtIso || ''))
+    if (!Number.isFinite(closedMs) || Date.now() - closedMs > maxAgeMs) continue
+    const clientRef = newClientRef()
+    await enqueueOp('shift_close', {
+      clientRef,
+      shiftId: id,
+      closingCash: Number(sh.actualCash ?? sh.closingCash) || 0,
+      closingCard: sh.actualCard != null ? Number(sh.actualCard)
+        : (sh.closingCard != null ? Number(sh.closingCard) : Number(sh.salesCard) || 0),
+      note: sh.note || sh.reconcileNote || '',
+      closedAtIso: sh.closedAtIso || new Date().toISOString(),
+      _requeued: true,
+      _reason: opts?.reason || 'ensure_durable_close',
+    }, { clientRef })
+    queued += 1
+  }
+  return queued
 }
 
 /** Локально сдать закрытую смену в основной ящик (идемпотентно). */

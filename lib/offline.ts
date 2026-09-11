@@ -438,6 +438,7 @@ export function __resetPosSnapshotPersistDebug() {
 // ── Очередь операций ──
 const KEY_SEQ = 'queue_seq'
 const KEY_IDMAP = 'queue_idmap'
+const KEY_SHIFT_CLOSE_ACK = 'shift_close_acked'
 
 function normalizeRow(row: any): PendingOp {
   return {
@@ -480,6 +481,8 @@ function queueKindPriority(kind: QueueKind): number {
     || kind === 'supplier_delete'
   ) return -50
   if (kind === 'shift_open' || kind === 'pos_point_upsert' || kind === 'cashier_upsert') return -40
+  // Close before open: lifecycle barrier (lower runs first)
+  if (kind === 'shift_close') return -45
   if (
     kind === 'stock_receipt_create'
     || kind === 'stock_receipt_update'
@@ -507,7 +510,7 @@ function queueKindPriority(kind: QueueKind): number {
     || kind === 'vault_card_to_cash'
     || kind === 'vault_cash_to_card'
   ) return 10
-  if (kind === 'shift_close' || kind === 'pos_point_delete') return 20
+  if (kind === 'pos_point_delete') return 20
   if (REVISION_QUEUE_KINDS.has(kind)) return 100
   return 0
 }
@@ -972,6 +975,21 @@ export async function rememberId(localId: string, serverId: string): Promise<voi
   await kvSet(KEY_IDMAP, map)
 }
 
+export async function markShiftCloseAcked(shiftId: string): Promise<void> {
+  const id = String(shiftId || '').trim()
+  if (!id) return
+  const map = (await kvGet<Record<string, string>>(KEY_SHIFT_CLOSE_ACK)) || {}
+  map[id] = new Date().toISOString()
+  await kvSet(KEY_SHIFT_CLOSE_ACK, map)
+}
+
+export async function isShiftCloseAcked(shiftId: string): Promise<boolean> {
+  const id = String(shiftId || '').trim()
+  if (!id) return false
+  const map = (await kvGet<Record<string, string>>(KEY_SHIFT_CLOSE_ACK)) || {}
+  return !!map[id]
+}
+
 function collapseRemappedIds<T extends { id?: string }>(list: T[], serverId: string): T[] {
   const map = new Map<string, T>()
   for (const row of list) {
@@ -1225,7 +1243,22 @@ async function resolveSalePayload(payload: any): Promise<any> {
     const row = usePosStore.getState().shifts.find(s => s.id === next.shiftId)
     if (!row || row.status !== 'open') {
       const openId = await findOpenServerShift(next)
-      if (openId) next.shiftId = openId
+      if (openId) {
+        next.shiftId = openId
+      } else {
+        // Never keep a closed/missing shiftId — park until reconcile finds open shift
+        throw new BrokenRefError('Смена закрыта или не синхронизирована — дождитесь сверки смены')
+      }
+    }
+  }
+  // Final local sanity: mapped id must still be open when present in store
+  if (next.shiftId && !isLocalId(next.shiftId)) {
+    const { usePosStore } = await import('./posStore')
+    const row = usePosStore.getState().shifts.find(s => s.id === next.shiftId)
+    if (row && String(row.status) !== 'open') {
+      const openId = await findOpenServerShift(next)
+      if (!openId) throw new BrokenRefError('Смена уже закрыта — дождитесь сверки смены')
+      next.shiftId = openId
     }
   }
   return next
@@ -1344,7 +1377,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         return await applySaleRow(sale)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        if (/смена не найдена/i.test(msg)) {
+        if (/смена не найдена|смена уже закрыта|SHIFT_CLOSED|SHIFT_NOT_FOUND/i.test(msg)) {
           const openId = await findOpenServerShift(payload)
           if (!openId) throw e
           const localShiftId = String((row.payload as any)?.shiftId || payload?.shiftId || '')
@@ -1353,7 +1386,7 @@ async function sendOp(row: PendingOp): Promise<string> {
           }
           try {
             const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
-            await reconcileOrphanOpenOffShifts({ reason: 'sale_shift_not_found' })
+            await reconcileOrphanOpenOffShifts({ reason: 'sale_shift_lifecycle' })
           } catch { /* ignore */ }
           payload = { ...payload, shiftId: openId }
           const sale = await api.createPosSale(payload, { mode: 'sync' }) as Record<string, unknown>
@@ -1380,6 +1413,14 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'shift_open': {
       const p = await resolveRefs(row.payload || {}, ['cashierId', 'posId'])
+      // Barrier: wait for any pending shift_close (close before open)
+      {
+        const pending = await getPending()
+        const blocking = pending.find(r => r.kind === 'shift_close' && r.clientRef !== row.clientRef)
+        if (blocking) {
+          throw new BrokenRefError('Сначала закройте предыдущую смену')
+        }
+      }
       let openedAtIso = String(p.openedAtIso || '').trim()
       if (!openedAtIso && row.localId) {
         try {
@@ -1387,16 +1428,51 @@ async function sendOp(row: PendingOp): Promise<string> {
           openedAtIso = usePosStore.getState().shifts.find(s => s.id === row.localId)?.openedAtIso || ''
         } catch { /* ignore */ }
       }
-      const shift = await api.openPosShift({
-        clientRef: p.clientRef,
-        cashierId: p.cashierId,
-        cashierName: p.cashierName,
-        openingCash: Number(p.openingCash) || 0,
-        note: p.note,
-        posId: p.posId,
-        openedAtIso: openedAtIso || undefined,
-      } as any)
-      return String((shift as any)?.id || '')
+      try {
+        const shift = await api.openPosShift({
+          clientRef: p.clientRef,
+          cashierId: p.cashierId,
+          cashierName: p.cashierName,
+          openingCash: Number(p.openingCash) || 0,
+          note: p.note,
+          posId: p.posId,
+          openedAtIso: openedAtIso || undefined,
+        } as any)
+        return String((shift as any)?.id || '')
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/уже открыта сессия|уже открыта смена/i.test(msg)) throw e
+        // Adopt authoritative server open instead of deleting local off-shift.
+        let openId = await findOpenServerShift(p)
+        if (!openId) {
+          try {
+            const list = await api.getPosShifts()
+            const { usePosStore } = await import('./posStore')
+            const local = usePosStore.getState().shifts
+            const merged = Array.isArray(list) ? list : []
+            usePosStore.setState(s => ({
+              shifts: [
+                ...merged.map((sh: any) => {
+                  const prev = local.find(x => String(x.id) === String(sh.id))
+                  return prev ? { ...prev, ...sh } : sh
+                }),
+                ...local.filter(x => isLocalId(x.id) || !merged.some((r: any) => String(r.id) === String(x.id))),
+              ] as typeof local,
+            }))
+            openId = await findOpenServerShift(p)
+          } catch { /* ignore */ }
+        }
+        if (!openId) throw e
+        if (row.localId) {
+          await rememberId(String(row.localId), openId)
+          await applyLocalIdRemap('shift_open', String(row.localId), openId)
+        }
+        try {
+          const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+          await reconcileOrphanOpenOffShifts({ reason: 'shift_open_already_open' })
+        } catch { /* ignore */ }
+        return openId
+      }
     }
     case 'shift_close': {
       const p = await resolveRefs(row.payload, ['shiftId'])
@@ -1407,14 +1483,27 @@ async function sendOp(row: PendingOp): Promise<string> {
           closedAtIso = usePosStore.getState().shifts.find(s => s.id === p.shiftId)?.closedAtIso || ''
         } catch { /* ignore */ }
       }
-      const shift = await api.closePosShift(String(p.shiftId), {
-        clientRef: p.clientRef,
-        closingCash: Number(p.closingCash) || 0,
-        closingCard: p.closingCard != null ? Number(p.closingCard) : undefined,
-        note: p.note,
-        closedAtIso: closedAtIso || undefined,
-      } as any)
-      return String((shift as any)?.id || '')
+      try {
+        const shift = await api.closePosShift(String(p.shiftId), {
+          clientRef: p.clientRef,
+          closingCash: Number(p.closingCash) || 0,
+          closingCard: p.closingCard != null ? Number(p.closingCard) : undefined,
+          note: p.note,
+          closedAtIso: closedAtIso || undefined,
+        } as any)
+        const id = String((shift as any)?.id || p.shiftId || '')
+        if (id) await markShiftCloseAcked(id)
+        return id
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Idempotent: already closed on server = success
+        if (/смена уже закрыта/i.test(msg)) {
+          const id = String(p.shiftId || '')
+          if (id) await markShiftCloseAcked(id)
+          return id
+        }
+        throw e
+      }
     }
     case 'sale_return': {
       const p = await resolveRefs(row.payload, ['saleId'])
@@ -2134,6 +2223,19 @@ export async function flushQueue(
         }
         sent++
       } catch (e) {
+        if (e instanceof BrokenRefError) {
+          // Dependency not ready (close before open / shift remap) — park & retry, never destroy.
+          live.attempts += 1
+          live.lastError = e.message
+          live.failed = false
+          live.nextRetryAt = Date.now() + pendingRetryDelayMs(Math.min(live.attempts, 4))
+          await putPending(live)
+          liveByRef.set(live.clientRef, live)
+          failed++
+          done++
+          reportProgress()
+          continue
+        }
         if (isNetworkError(e)) {
           stopped = true
           break
@@ -2217,17 +2319,17 @@ export async function flushQueue(
                 reportProgress()
                 continue
               }
-              // «Смена не найдена»: one safe reconcile/remap before destroying local sale.
-              if (/смена не найдена/i.test(err)) {
+              // «Смена не найдена» / «Смена уже закрыта»: reconcile/remap; never destroy local sale.
+              if (/смена не найдена|смена уже закрыта|SHIFT_CLOSED|SHIFT_NOT_FOUND|SHIFT_POS_MISMATCH|SHIFT_CASHIER_MISMATCH/i.test(err)) {
                 const tries = Number((p as any)._shiftReconcileTries) || 0
-                if (tries < 1) {
+                if (tries < 2) {
                   try {
                     const openId = await findOpenServerShift(p)
                     if (openId) {
                       const localShiftId = String(p.shiftId || '')
                       if (isLocalId(localShiftId)) await rememberId(localShiftId, openId)
                       const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
-                      await reconcileOrphanOpenOffShifts({ reason: 'flush_shift_not_found' })
+                      await reconcileOrphanOpenOffShifts({ reason: 'flush_shift_lifecycle' })
                       live.payload = { ...p, shiftId: openId, _shiftReconcileTries: tries + 1 }
                       live.failed = false
                       live.lastError = ''
@@ -2250,7 +2352,6 @@ export async function flushQueue(
                   reportProgress()
                   continue
                 }
-                // After one reconcile attempt still failing — park; do NOT revert local sale.
                 live.failed = true
                 live.nextRetryAt = Date.now() + 120_000
                 await putPending(live)
@@ -2369,19 +2470,57 @@ export async function flushQueue(
               reportProgress()
               continue
             } else if (live.kind === 'shift_open') {
-              // Сервер: уже есть открытая смена — убрать локальный дубль и вернуть размен
-              const localId = String(live.localId || '')
-              if (localId) {
-                const { usePosStore } = await import('./posStore')
-                const { revertLocalOpeningFloat } = await import('./offlinePosOps')
-                revertLocalOpeningFloat(localId)
-                usePosStore.setState(s => ({
-                  shifts: s.shifts.filter(sh => sh.id !== localId),
-                }))
-                void persistPosSnapshot()
+              const err = String(live.lastError || '')
+              if (/уже открыта сессия|уже открыта смена/i.test(err)) {
+                // Prefer adopt (sendOp should have done this); never blind-delete without remap.
+                try {
+                  const p = (live.payload || {}) as Record<string, unknown>
+                  let openId = await findOpenServerShift(p)
+                  if (!openId) {
+                    const list = await api.getPosShifts()
+                    const prefer = (Array.isArray(list) ? list : []).find((s: any) =>
+                      String(s.status) === 'open'
+                      && (!p.posId || String(s.posId || '') === String(p.posId))
+                      && (!p.cashierId || String(s.cashierId || '') === String(p.cashierId)),
+                    ) || (Array.isArray(list) ? list : []).find((s: any) => String(s.status) === 'open')
+                    openId = prefer ? String(prefer.id) : ''
+                    if (Array.isArray(list) && list.length) {
+                      const { usePosStore } = await import('./posStore')
+                      usePosStore.setState(s => {
+                        const byId = new Map(s.shifts.map(x => [String(x.id), x]))
+                        for (const sh of list as any[]) byId.set(String(sh.id), { ...(byId.get(String(sh.id)) || {}), ...sh })
+                        return { shifts: [...byId.values()] as typeof s.shifts }
+                      })
+                    }
+                  }
+                  if (openId && live.localId) {
+                    await rememberId(String(live.localId), openId)
+                    await applyLocalIdRemap('shift_open', String(live.localId), openId)
+                    const { reconcileOrphanOpenOffShifts } = await import('./shiftReconcile')
+                    await reconcileOrphanOpenOffShifts({ reason: 'flush_shift_open_already_open' })
+                    await deletePending(live.clientRef)
+                    liveByRef.delete(live.clientRef)
+                    sent++
+                    done++
+                    reportProgress()
+                    continue
+                  }
+                } catch { /* fall through: park, do not delete sale history */ }
+                live.failed = true
+                live.nextRetryAt = Date.now() + pendingRetryDelayMs(live.attempts)
+                await putPending(live)
+                liveByRef.set(live.clientRef, live)
+                failed++
+                done++
+                reportProgress()
+                continue
               }
-              await deletePending(live.clientRef)
-              liveByRef.delete(live.clientRef)
+            } else if (live.kind === 'shift_close') {
+              // Never drop close ops on hard reject — keep retrying (must-ack).
+              live.failed = true
+              live.nextRetryAt = Date.now() + pendingRetryDelayMs(live.attempts)
+              await putPending(live)
+              liveByRef.set(live.clientRef, live)
               failed++
               done++
               reportProgress()

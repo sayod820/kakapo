@@ -613,6 +613,16 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         await reconcileOrphanOpenOffShifts({ reason: 'soft_sync_pos' })
       } catch { /* ignore */ }
 
+      // Re-queue missing shift_close for locally-closed server SHIFT-* (must-ack).
+      try {
+        const { ensureDurableShiftCloses } = await import('./offlinePosOps')
+        const n = await ensureDurableShiftCloses({ reason: 'soft_sync_pos' })
+        if (n > 0) {
+          const { useOfflineSync } = await import('./offlineSync')
+          useOfflineSync.getState().scheduleSyncDebounced()
+        }
+      } catch { /* ignore */ }
+
       // Server→Desktop: shift counters can advance while sale rows were skipped by
       // pos-lite cursor. Repair is projection-only (no stock/finance/outbox).
       try {

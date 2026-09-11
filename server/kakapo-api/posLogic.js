@@ -2876,7 +2876,30 @@ export function createPosSale(db, data = {}) {
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
   const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
-  if (data.shiftId && !shift) throw new Error('Смена не найдена')
+  if (data.shiftId && !shift) {
+    const err = new Error('Смена не найдена')
+    err.code = 'SHIFT_NOT_FOUND'
+    throw err
+  }
+  if (shift) {
+    if (String(shift.status || '') !== 'open') {
+      const err = new Error('Смена уже закрыта')
+      err.code = 'SHIFT_CLOSED'
+      throw err
+    }
+    const wantPos = String(data.posId || '').trim()
+    if (wantPos && shift.posId && wantPos !== String(shift.posId || '').trim()) {
+      const err = new Error('Смена относится к другой точке продаж')
+      err.code = 'SHIFT_POS_MISMATCH'
+      throw err
+    }
+    const wantCashier = String(data.cashierId || '').trim()
+    if (wantCashier && shift.cashierId && wantCashier !== String(shift.cashierId || '').trim()) {
+      const err = new Error('Смена относится к другому кассиру')
+      err.code = 'SHIFT_CASHIER_MISMATCH'
+      throw err
+    }
+  }
   const posId = String(data.posId || shift?.posId || (db.posPoints[0]?.id || DEFAULT_POS_ID)).trim()
   const deviceId = String(data.deviceId || '').trim()
   const deviceName = String(data.deviceName || '').trim()

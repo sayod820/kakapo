@@ -2757,7 +2757,10 @@ app.post('/pos/sales', async (req, res) => {
     }
     res.json(canonical)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести продажу' })
+    res.status(400).json({
+      detail: e?.message || 'Не удалось провести продажу',
+      code: e?.code || undefined,
+    })
   }
 })
 app.post('/pos/sales/:id/return', (req, res) => {
