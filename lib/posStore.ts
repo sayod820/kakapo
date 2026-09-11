@@ -501,32 +501,20 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           next = { ...next, closedAtIso: local.closedAtIso }
         }
         if (local.clientRef && !next.clientRef) next = { ...next, clientRef: local.clientRef }
-        // Открытая смена: счётчики с сервера не должны «залипать» на старом локальном налу
+        // Open shift: never keep inflated local denormalized sale counters
+        // (orphan leak). UI totals come from unique posSales; expense/cashIn
+        // still take max so pending till ops are not erased by stale server.
         if (String(next.status || sh.status) === 'open' || String(local.status) === 'open') {
-          const srvCount = Number(sh.salesCount) || 0
-          const locCount = Number(local.salesCount) || 0
-          if (srvCount >= locCount) {
-            next = {
-              ...next,
-              salesCount: srvCount,
-              salesCash: Number(sh.salesCash) || 0,
-              salesCard: Number(sh.salesCard) || 0,
-              salesCredit: Number(sh.salesCredit) || 0,
-              expenseTotal: Number(sh.expenseTotal) || 0,
-              cashInTotal: Number(sh.cashInTotal) || 0,
-              openingCash: Number(sh.openingCash) || 0,
-            } as typeof next
-          } else {
-            next = {
-              ...next,
-              salesCount: locCount,
-              salesCash: Math.max(Number(sh.salesCash) || 0, Number(local.salesCash) || 0),
-              salesCard: Math.max(Number(sh.salesCard) || 0, Number(local.salesCard) || 0),
-              salesCredit: Math.max(Number(sh.salesCredit) || 0, Number(local.salesCredit) || 0),
-              expenseTotal: Math.max(Number(sh.expenseTotal) || 0, Number(local.expenseTotal) || 0),
-              cashInTotal: Math.max(Number(sh.cashInTotal) || 0, Number(local.cashInTotal) || 0),
-            }
-          }
+          next = {
+            ...next,
+            salesCount: Number(sh.salesCount) || 0,
+            salesCash: Number(sh.salesCash) || 0,
+            salesCard: Number(sh.salesCard) || 0,
+            salesCredit: Number(sh.salesCredit) || 0,
+            expenseTotal: Math.max(Number(sh.expenseTotal) || 0, Number(local.expenseTotal) || 0),
+            cashInTotal: Math.max(Number(sh.cashInTotal) || 0, Number(local.cashInTotal) || 0),
+            openingCash: Number(sh.openingCash) || Number(local.openingCash) || 0,
+          } as typeof next
         }
         return next
       })

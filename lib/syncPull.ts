@@ -295,25 +295,18 @@ async function doPullSyncChanges(opts?: {
             if (String(sh?.status || '') !== 'open') return sh
             const remote = (incoming || []).find((r: any) => String(r?.id) === String(sh?.id))
             if (!remote) return sh
-            const srvCount = Number(remote.salesCount) || 0
-            const locCount = Number(sh.salesCount) || 0
-            if (srvCount >= locCount) {
-              return {
-                ...sh,
-                salesCount: srvCount,
-                salesCash: Number(remote.salesCash) || 0,
-                salesCard: Number(remote.salesCard) || 0,
-                salesCredit: Number(remote.salesCredit) || 0,
-                expenseTotal: Number(remote.expenseTotal) || 0,
-                cashInTotal: Number(remote.cashInTotal) || 0,
-                updatedAtIso: remote.updatedAtIso || sh.updatedAtIso,
-              }
-            }
+            // Never keep inflated local sale counters over server; UI aggregates
+            // unique posSales (incl. pending local) so pending receipts stay visible.
             return {
               ...sh,
-              salesCash: Math.max(Number(remote.salesCash) || 0, Number(sh.salesCash) || 0),
-              salesCard: Math.max(Number(remote.salesCard) || 0, Number(sh.salesCard) || 0),
-              salesCredit: Math.max(Number(remote.salesCredit) || 0, Number(sh.salesCredit) || 0),
+              salesCount: Number(remote.salesCount) || 0,
+              salesCash: Number(remote.salesCash) || 0,
+              salesCard: Number(remote.salesCard) || 0,
+              salesCredit: Number(remote.salesCredit) || 0,
+              expenseTotal: Math.max(Number(remote.expenseTotal) || 0, Number(sh.expenseTotal) || 0),
+              cashInTotal: Math.max(Number(remote.cashInTotal) || 0, Number(sh.cashInTotal) || 0),
+              openingCash: Number(remote.openingCash) || Number(sh.openingCash) || 0,
+              updatedAtIso: remote.updatedAtIso || sh.updatedAtIso,
             }
           }) as typeof cur.shifts
         }
