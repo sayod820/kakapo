@@ -13,6 +13,7 @@ const suites = [
   'scripts/debt-ledger-cap-test.mjs',
   'scripts/debt-ui-projection-test.mjs',
   'scripts/debt-predeploy-regression-test.mjs',
+  'scripts/debt-reliability-fix-test.mjs',
   'scripts/phase5-atomic-sale-test.mjs',
   'scripts/phase6-push-pull-starvation-test.mjs',
   'scripts/phase9-finance-idempotency-test.mjs',

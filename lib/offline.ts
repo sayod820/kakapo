@@ -786,6 +786,7 @@ function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
   clientId: string
   method: string
   note: string
+  orderId: string
 }): boolean {
   return String(a?.num || '').trim() === b.num
     && Math.round((Number(a?.amount) || 0) * 100) / 100 === b.amount
@@ -793,10 +794,13 @@ function sameDebtRepayFingerprint(a: Record<string, unknown>, b: {
     && String(a?.clientId || '') === b.clientId
     && String(a?.method || 'cash') === b.method
     && String(a?.note || '').trim() === b.note
+    && String(a?.orderId || a?.saleId || '').trim() === b.orderId
 }
 
 /** Дубль погашения: тот же отпечаток + тот же prevDebt/версия, пока op ещё в очереди (в т.ч. failed).
- * Без лимита 2.5с — иначе повторные клики после синка плодят очередь. */
+ * Без лимита 2.5с — иначе повторные клики после синка плодят очередь.
+ * orderId/receipt identity MUST participate — same amount on different receipts are distinct.
+ */
 export async function findDuplicateDebtRepay(payload: {
   num?: string
   amount?: number
@@ -805,6 +809,8 @@ export async function findDuplicateDebtRepay(payload: {
   clientId?: string
   method?: string
   note?: string
+  orderId?: string
+  saleId?: string
   prevDebt?: number
   expectedDebtPayVersion?: number
 }): Promise<PendingOp | null> {
@@ -815,6 +821,7 @@ export async function findDuplicateDebtRepay(payload: {
   const clientId = String(payload.clientId || '')
   const method = payload.method === 'card' ? 'card' : 'cash'
   const note = String(payload.note || '').trim()
+  const orderId = String(payload.orderId || payload.saleId || '').trim()
   const prevDebt = payload.prevDebt != null
     ? Math.round((Number(payload.prevDebt) || 0) * 100) / 100
     : null
@@ -826,7 +833,7 @@ export async function findDuplicateDebtRepay(payload: {
     const p = (r.payload || {}) as Record<string, unknown>
     if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
     if (!num || !(amount > 0)) return false
-    if (!sameDebtRepayFingerprint(p, { num, amount, shiftId, clientId, method, note })) return false
+    if (!sameDebtRepayFingerprint(p, { num, amount, shiftId, clientId, method, note, orderId })) return false
     // Разный остаток долга до погашения = другое легитимное погашение той же суммы
     if (prevDebt != null && Number.isFinite(prevDebt)) {
       const pPrev = Math.round((Number(p.prevDebt) || 0) * 100) / 100

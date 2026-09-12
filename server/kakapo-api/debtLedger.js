@@ -228,32 +228,84 @@ export function addDebtCharge(client, card, {
   return { entry, notifications }
 }
 
+function debtReceiptMatchKeys(entry) {
+  const saleId = String(entry?.saleId || '').trim()
+  const orderId = String(entry?.orderId || '').trim()
+  return [
+    saleId,
+    orderId,
+    saleId ? `sale-${saleId}` : '',
+    orderId ? `sale-${orderId}` : '',
+  ].filter(Boolean)
+}
+
+function debtReceiptMatchesTarget(entry, prefer) {
+  const p = String(prefer || '').trim()
+  if (!p) return false
+  const upper = p.toUpperCase()
+  return debtReceiptMatchKeys(entry).some(k => k === p || k.toUpperCase() === upper)
+}
+
+function debtRepayError(code, message, status = 400) {
+  const err = new Error(message)
+  err.code = code
+  err.status = status
+  return err
+}
+
+/**
+ * Apply repayment to debtLedger.
+ * With orderId/saleId: STRICT one-receipt (no FIFO spill).
+ * Without target: whole-customer FIFO (oldest open first).
+ */
 export function applyDebtRepayment(client, card, amount, meta = {}) {
   ensureDebtLedger(client)
   let left = round2(amount)
   if (!(left > 0)) return { applied: 0, repayments: [], notifications: [] }
 
-  const open = client.debtLedger
-    .filter(e => round2(e.remaining) > 0)
-    .sort((a, b) => {
-      const prefer = String(meta.saleId || meta.orderId || '')
-      if (prefer) {
-        const am = String(a.saleId || a.orderId || '') === prefer ? 0 : 1
-        const bm = String(b.saleId || b.orderId || '') === prefer ? 0 : 1
-        if (am !== bm) return am - bm
-      }
-      return (parseIso(a.createdAtIso) || 0) - (parseIso(b.createdAtIso) || 0)
-    })
-
+  const prefer = String(meta.saleId || meta.orderId || '').trim()
   const repayments = []
-  for (const entry of open) {
-    if (left <= 0.001) break
-    const need = round2(entry.remaining)
-    if (need <= 0.001) continue
+
+  if (prefer) {
+    const all = client.debtLedger || []
+    const target = all.find(e => debtReceiptMatchesTarget(e, prefer))
+    if (!target) {
+      throw debtRepayError(
+        'DEBT_RECEIPT_NOT_FOUND',
+        `Чек долга не найден (${prefer})`,
+      )
+    }
+    const need = round2(target.remaining)
+    if (!(need > 0.001)) {
+      throw debtRepayError(
+        'DEBT_RECEIPT_ALREADY_PAID',
+        `Чек долга уже погашен (${prefer})`,
+      )
+    }
+    if (left > need + 0.001) {
+      throw debtRepayError(
+        'DEBT_RECEIPT_OVERPAY',
+        `Сумма ${left.toFixed(2)} больше остатка чека ${need.toFixed(2)}`,
+      )
+    }
     const pay = Math.min(need, left)
-    entry.remaining = round2(need - pay)
+    target.remaining = round2(need - pay)
     left = round2(left - pay)
-    repayments.push({ id: entry.id, paid: pay, remaining: entry.remaining })
+    repayments.push({ id: target.id, paid: pay, remaining: target.remaining, orderId: target.orderId, saleId: target.saleId })
+  } else {
+    const open = client.debtLedger
+      .filter(e => round2(e.remaining) > 0)
+      .sort((a, b) => (parseIso(a.createdAtIso) || 0) - (parseIso(b.createdAtIso) || 0))
+
+    for (const entry of open) {
+      if (left <= 0.001) break
+      const need = round2(entry.remaining)
+      if (need <= 0.001) continue
+      const pay = Math.min(need, left)
+      entry.remaining = round2(need - pay)
+      left = round2(left - pay)
+      repayments.push({ id: entry.id, paid: pay, remaining: entry.remaining })
+    }
   }
 
   syncDebtLedgerToCard(client, card)
@@ -264,6 +316,7 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
     repayments,
     desc: meta.desc || 'Погашение долга',
     notifications: [],
+    strict: !!prefer,
   }
 }
 

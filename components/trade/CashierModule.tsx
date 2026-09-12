@@ -89,7 +89,8 @@ import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncExpiry, softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { pickActiveOpenShift } from '@/lib/shiftReconcile'
-import { overlayShiftSaleTotals } from '@/lib/shiftSaleTotals'
+import { overlayShiftSaleTotals, expectedTillCashFromShift } from '@/lib/shiftSaleTotals'
+import { resolveAuthoritativeCustomerDebt } from '@/lib/debtUiProjectionCore.mjs'
 import {
   buildCashierAlertGroups,
   cashierAlertsTotal,
@@ -533,19 +534,15 @@ function fmtBonus(value: number | string | null | undefined) {
   return (Math.round((Number(value) || 0) * 100) / 100).toFixed(2)
 }
 
-/** Ожидаемые наличные в кассе: старт + продажи нал + внесено − снято/расходы */
+/** Ожидаемые наличные в кассе: старт + продажи нал + погашения долга нал + внесено − снято/расходы */
 function expectedTillCash(shift: {
   openingCash?: number
   salesCash?: number
+  debtRepayCash?: number
   cashInTotal?: number
   expenseTotal?: number
 }) {
-  return Math.round((
-    (Number(shift.openingCash) || 0)
-    + (Number(shift.salesCash) || 0)
-    + (Number(shift.cashInTotal) || 0)
-    - (Number(shift.expenseTotal) || 0)
-  ) * 100) / 100
+  return expectedTillCashFromShift(shift)
 }
 
 function roundMoney2(n: number) {
@@ -3241,8 +3238,18 @@ export default function CashierModule({
 
   const loyalty = useMemo(() => (client ? loyaltySummaryForClient(client, cards) : null), [client, cards])
   const debtLimit = loyalty ? resolveEffectiveDebtLimit(loyalty) : 0
-  const availableDebt = loyalty ? Math.max(0, debtLimit - (Number(loyalty.debt) || 0)) : 0
-  const clientDebt = Number(loyalty?.debt) || 0
+  const clientDebt = useMemo(() => {
+    if (!client) return 0
+    const card = (client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined)
+      || cards.find(c => c.clientId === client.id && c.status !== 'unlinked')
+    return resolveAuthoritativeCustomerDebt({
+      clientDebt: client.debt,
+      cardDebt: card?.debt,
+      debtLedger: client.debtLedger,
+      cardDebtLedger: card?.debtLedger,
+    })
+  }, [client, cards])
+  const availableDebt = loyalty ? Math.max(0, debtLimit - clientDebt) : 0
   const clientDebtBlocked = !!(client?.debtCreditBlocked || loyalty?.debtCreditBlocked)
 
   function showDebtBlockedToast() {
@@ -7046,7 +7053,18 @@ export default function CashierModule({
     const pay = ticketSnap.pay
     const discountPct = ticketSnap.discountPct
     const loyalty = client ? loyaltySummaryForClient(client, cards) : null
-    const clientDebt = Number(loyalty?.debt) || 0
+    const cardForDebt = client
+      ? ((client.card ? cards.find(c => cardNumsMatch(c.num, client.card)) : undefined)
+        || cards.find(c => c.clientId === client.id && c.status !== 'unlinked'))
+      : undefined
+    const clientDebt = client
+      ? resolveAuthoritativeCustomerDebt({
+          clientDebt: client.debt,
+          cardDebt: cardForDebt?.debt,
+          debtLedger: client.debtLedger,
+          cardDebtLedger: cardForDebt?.debtLedger,
+        })
+      : 0
     const clientDebtBlocked = !!(client?.debtCreditBlocked || loyalty?.debtCreditBlocked)
     const subtotalGross = cart.reduce((s, l) => s + lineGross(l), 0)
     const itemDiscAmount = cart.reduce((s, l) => s + (lineGross(l) - lineNet(l)), 0)
@@ -7418,9 +7436,43 @@ export default function CashierModule({
               if (!cardClient.card) cardClient = await ensureClientHasCard(cardClient)
             } catch { /* без карты погашение с чеком пропустим */ }
             if (cardClient.card) {
-              const prevDebt = Number(loyalty?.debt) || clientDebt
+              const prevDebt = clientDebt
               const payAmt = Math.min(prevDebt, Math.round(debtRepay * 100) / 100)
               try {
+                const histKeyPre = debtAccountKey(soldClient)
+                const historyPre = loadDebtHistoryForClient(soldClient)
+                const creditSalesPre = sales
+                  .filter(s => {
+                    const matchId = soldClient.id && s.clientId === soldClient.id
+                    const matchPhone = soldClient.phone && s.clientPhone && phonesMatch(soldClient.phone, s.clientPhone)
+                    if (!matchId && !matchPhone) return false
+                    return saleOpenCreditAmount(s) > 0.001
+                  })
+                  .map(s => ({
+                    id: s.id,
+                    orderId: s.orderId || s.id,
+                    dateIso: s.createdAtIso,
+                    debtAdded: saleOpenCreditAmount(s),
+                    number: s.number,
+                  }))
+                  .filter(s => s.debtAdded > 0.001)
+                const { saleStatus: preStatus } = buildSaleDebtStatuses(creditSalesPre, historyPre, prevDebt)
+                const openTargets = creditSalesPre
+                  .filter(s => (preStatus[s.id]?.remain || 0) > 0.001)
+                  .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
+                  .map(s => ({
+                    orderId: s.orderId || s.id,
+                    remain: preStatus[s.id]?.remain || 0,
+                  }))
+                // Strict target when UI selected a receipt, or pay fits one receipt (no FIFO mismatch).
+                let repayOrderId: string | undefined
+                if (repayTarget?.orderId) {
+                  repayOrderId = String(repayTarget.orderId).trim() || undefined
+                } else if (openTargets.length === 1 && payAmt <= openTargets[0].remain + 0.001) {
+                  repayOrderId = openTargets[0].orderId
+                } else if (openTargets[0] && payAmt <= openTargets[0].remain + 0.001) {
+                  repayOrderId = openTargets[0].orderId
+                }
                 const repaid = await debtRepaySafe(cardClient.card, {
                   amount: payAmt,
                   method,
@@ -7429,25 +7481,12 @@ export default function CashierModule({
                   posId: activeShift.posId || activePosPoint?.id,
                   clientId: cardClient.id,
                   prevDebt,
+                  orderId: repayOrderId,
                 })
                 if (!repaid.data.duplicate) {
-                  const histKey = debtAccountKey(soldClient)
-                  const history = loadDebtHistoryForClient(soldClient)
-                  const creditSales = sales
-                    .filter(s => {
-                      const matchId = soldClient.id && s.clientId === soldClient.id
-                      const matchPhone = soldClient.phone && s.clientPhone && phonesMatch(soldClient.phone, s.clientPhone)
-                      if (!matchId && !matchPhone) return false
-                      return saleOpenCreditAmount(s) > 0.001
-                    })
-                    .map(s => ({
-                      id: s.id,
-                      orderId: s.orderId || s.id,
-                      dateIso: s.createdAtIso,
-                      debtAdded: saleOpenCreditAmount(s),
-                      number: s.number,
-                    }))
-                    .filter(s => s.debtAdded > 0.001)
+                  const histKey = histKeyPre
+                  const history = historyPre
+                  const creditSales = creditSalesPre
                   const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
                   const targets = creditSales
                     .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)

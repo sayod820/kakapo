@@ -273,6 +273,95 @@ function sqlSaleCommit(payload) {
   }
 }
 
+/**
+ * Debt repay atomic commit (better-sqlite3 transaction).
+ * Writes: outbox queue + card/client entities + shift mirror + optional debtHistory KV + queue_seq.
+ * failAt: before | after_queue | after_card | after_client | after_shift | after_history | before_commit
+ */
+let debtRepayTxFailAt = ''
+
+function sqlDebtRepayCommit(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const failAt = String(p.failAt || debtRepayTxFailAt || '').trim()
+  if (failAt === 'before') {
+    const err = new Error('TEST_FAIL_BEFORE')
+    err.code = 'TEST_FAIL_BEFORE'
+    throw err
+  }
+
+  const queueRow = p.queueRow
+  if (!queueRow || !queueRow.clientRef) {
+    return { ok: false, error: 'missing_queue_row' }
+  }
+
+  const run = db.transaction(() => {
+    if (!sqlQueuePut(queueRow)) {
+      const err = new Error('queue_put_failed')
+      err.code = 'QUEUE_PUT_FAILED'
+      throw err
+    }
+    if (failAt === 'after_queue') {
+      const err = new Error('TEST_FAIL_AFTER_QUEUE')
+      err.code = 'TEST_FAIL_AFTER_QUEUE'
+      throw err
+    }
+
+    if (p.card && (p.card.num || p.card.id)) {
+      const cid = String(p.card.num || p.card.id)
+      sqlEntityPut('card', cid, p.card, p.card.updatedAtIso || new Date().toISOString(), false)
+    }
+    if (failAt === 'after_card') {
+      const err = new Error('TEST_FAIL_AFTER_CARD')
+      err.code = 'TEST_FAIL_AFTER_CARD'
+      throw err
+    }
+
+    if (p.client && p.client.id) {
+      sqlEntityPut('client', String(p.client.id), p.client, p.client.updatedAtIso || new Date().toISOString(), false)
+    }
+    if (failAt === 'after_client') {
+      const err = new Error('TEST_FAIL_AFTER_CLIENT')
+      err.code = 'TEST_FAIL_AFTER_CLIENT'
+      throw err
+    }
+
+    if (p.shift && p.shift.id) {
+      sqlMirrorPut('shift', String(p.shift.id), p.shift)
+    }
+    if (failAt === 'after_shift') {
+      const err = new Error('TEST_FAIL_AFTER_SHIFT')
+      err.code = 'TEST_FAIL_AFTER_SHIFT'
+      throw err
+    }
+
+    if (Object.prototype.hasOwnProperty.call(p, 'debtHistory') && p.debtHistoryKey) {
+      const key = `debt_history:${String(p.debtHistoryKey)}`
+      sqlKvSet(key, p.debtHistory)
+    }
+    if (failAt === 'after_history') {
+      const err = new Error('TEST_FAIL_AFTER_HISTORY')
+      err.code = 'TEST_FAIL_AFTER_HISTORY'
+      throw err
+    }
+
+    if (p.queueSeq != null && Number.isFinite(Number(p.queueSeq))) {
+      sqlKvSet('queue_seq', Number(p.queueSeq))
+    }
+
+    if (failAt === 'before_commit') {
+      const err = new Error('TEST_FAIL_BEFORE_COMMIT')
+      err.code = 'TEST_FAIL_BEFORE_COMMIT'
+      throw err
+    }
+  })
+
+  run()
+  return {
+    ok: true,
+    clientRef: String(queueRow.clientRef),
+  }
+}
+
 function sqlQueueLen() {
   const row = db.prepare('SELECT COUNT(*) AS n FROM queue').get()
   return Number(row && row.n) || 0
@@ -698,6 +787,29 @@ function installLocalDbIpc() {
   ipcMain.handle('desktop:localDbSaleCommitSetFailAt', (_e, stage) => {
     saleTxFailAt = String(stage || '').trim()
     return { ok: true, failAt: saleTxFailAt }
+  })
+
+  /** Atomic debt repay = queue + card/client entities + shift mirror (+ optional history) */
+  ipcMain.handle('desktop:localDbDebtRepayCommit', (_e, payload) => {
+    try {
+      return sqlDebtRepayCommit(payload)
+    } catch (e) {
+      const code = e && e.code ? String(e.code) : ''
+      if (!String(code).startsWith('TEST_FAIL')) {
+        console.error('[localDb] debtRepayCommit', e)
+      }
+      return {
+        ok: false,
+        error: String((e && e.message) || e),
+        code,
+        rolledBack: true,
+      }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbDebtRepayCommitSetFailAt', (_e, stage) => {
+    debtRepayTxFailAt = String(stage || '').trim()
+    return { ok: true, failAt: debtRepayTxFailAt }
   })
 
   ipcMain.handle('desktop:localDbMetaGet', () => ({

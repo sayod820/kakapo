@@ -300,6 +300,11 @@ export interface PosShift {
   salesCard: number
   salesCredit: number
   salesCount: number
+  /**
+   * Локальный счётчик погашений долга наличными по смене (не выручка продаж).
+   * Expected till = opening + salesCash(sale rows) + debtRepayCash + cashIn − expense.
+   */
+  debtRepayCash?: number
   expenseTotal: number
   /** Внесения наличных в смену (не продажи) */
   cashInTotal?: number

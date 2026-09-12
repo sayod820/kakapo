@@ -4,6 +4,7 @@
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
 import { dropPending, findDuplicateDebtRepay, findDuplicateSale, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId, allocQueueSeq, mirrorPendingAfterNativeCommit, type PendingOp } from './offline'
+import { canAtomicLocalDebtRepayCommit, commitLocalDebtRepayAtomic } from './localDebtRepayAtomic'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale } from './clientVipCredit'
@@ -113,10 +114,11 @@ function shiftById(shiftId: string): PosShift | undefined {
   return usePosStore.getState().shifts.find(s => s.id === shiftId)
 }
 
-export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal'>): number {
+export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash'>): number {
   return round2(
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
+    + (Number(shift.debtRepayCash) || 0)
     + (Number(shift.cashInTotal) || 0)
     - (Number(shift.expenseTotal) || 0),
   )
@@ -1280,6 +1282,7 @@ function debtRepayDupKey(input: {
   clientId?: string
   method?: string
   note?: string
+  orderId?: string
 }) {
   return [
     String(input.num).trim(),
@@ -1288,6 +1291,7 @@ function debtRepayDupKey(input: {
     String(input.clientId || ''),
     input.method === 'card' ? 'card' : 'cash',
     String(input.note || '').trim(),
+    String(input.orderId || '').trim(),
   ].join('|')
 }
 
@@ -1352,6 +1356,7 @@ export async function debtRepaySafe(
 ): Promise<OfflineResult<DebtRepayResult>> {
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
   const amount = round2(input.amount)
+  const orderId = String(input.orderId || '').trim() || undefined
   const key = debtRepayDupKey({
     num,
     amount,
@@ -1359,6 +1364,7 @@ export async function debtRepaySafe(
     clientId: input.clientId,
     method,
     note: input.note,
+    orderId,
   })
   const pending = debtRepayInflight.get(key)
   if (pending) {
@@ -1388,7 +1394,7 @@ export async function debtRepaySafe(
     clientId: input.clientId,
     prevDebt: round2(input.prevDebt),
     expectedDebtPayVersion,
-    orderId: String(input.orderId || '').trim() || undefined,
+    orderId,
     histKey: histKey || undefined,
   }
 
@@ -1405,7 +1411,7 @@ export async function debtRepaySafe(
         posId: input.posId,
         clientId: input.clientId,
         clientRef,
-        orderId: payload.orderId,
+        orderId,
         expectedDebtPayVersion: ver,
       } as any)
       let res: unknown
@@ -1436,10 +1442,12 @@ export async function debtRepaySafe(
       }
       if (input.shiftId && method === 'cash') {
         const shift = shiftById(input.shiftId)
-        if (shift) patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
+        if (shift) {
+          patchShift(shift.id, {
+            debtRepayCash: round2((Number(shift.debtRepayCash) || 0) + amount),
+          })
+        }
       }
-      // Ленту погашений пишет вызывающий UI (по чеку / FIFO) — как в local-first.
-      // Запись здесь давала вторую строку на ту же оплату и остаток по чеку падал вдвое.
       void persistPosSnapshot()
       return { offline: false, data: { nextDebt, bonusEarned, clientRef } }
     })()
@@ -1460,6 +1468,7 @@ export async function debtRepaySafe(
       clientId: input.clientId,
       method,
       note: input.note,
+      orderId,
       prevDebt: input.prevDebt,
       expectedDebtPayVersion,
     })
@@ -1471,21 +1480,91 @@ export async function debtRepaySafe(
         clientRef: String((dup.payload as any)?.clientRef || clientRef),
       }
     }
-    // До записи долга — иначе soft sync может вернуть старый долг и UI провоцирует повтор
-    markMoneyPending({ clientId: input.clientId, cardNum: num })
+
     const nextDebt = round2(Math.max(0, input.prevDebt - amount))
-    await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
-    if (input.shiftId) {
-      const shift = shiftById(input.shiftId)
-      if (shift) {
-        if (method === 'card') {
-          patchShift(shift.id, { salesCard: round2((shift.salesCard || 0) + amount) })
-        } else {
-          patchShift(shift.id, { salesCash: round2((shift.salesCash || 0) + amount) })
-        }
-      }
-    }
     const nextVer = expectedDebtPayVersion + 1
+    const openShift = input.shiftId ? shiftById(input.shiftId) : undefined
+    const nextShift = openShift
+      ? {
+          ...openShift,
+          ...(method === 'cash'
+            ? { debtRepayCash: round2((Number(openShift.debtRepayCash) || 0) + amount) }
+            : {}),
+          updatedAtIso: new Date().toISOString(),
+        }
+      : null
+
+    const cardRow = cardNow
+      ? {
+          ...cardNow,
+          debt: nextDebt,
+          debtPayVersion: nextVer,
+          updatedAtIso: new Date().toISOString(),
+        }
+      : {
+          num,
+          debt: nextDebt,
+          debtPayVersion: nextVer,
+          status: 'active' as const,
+        }
+    const clientRow = input.clientId
+      ? {
+          ...(useClientStore.getState().clients.find(c => c.id === input.clientId) || { id: input.clientId }),
+          id: input.clientId,
+          debt: nextDebt,
+          updatedAtIso: new Date().toISOString(),
+        }
+      : null
+
+    // Desktop: durable SQLite txn BEFORE memory
+    if (canAtomicLocalDebtRepayCommit()) {
+      const seq = await allocQueueSeq({ persist: false })
+      const queueRow: PendingOp = {
+        clientRef,
+        kind: 'debt_repay',
+        payload: { ...payload, nextDebt, appliedLocal: true },
+        createdAtIso: new Date().toISOString(),
+        seq,
+        attempts: 0,
+        localId: clientRef,
+      }
+      const committed = await commitLocalDebtRepayAtomic({
+        queueRow,
+        card: cardRow as any,
+        client: clientRow as any,
+        shift: nextShift,
+        queueSeq: seq,
+      })
+      if (!committed.ok) {
+        throw new Error(committed.error || 'debt_repay_commit_failed')
+      }
+      await mirrorPendingAfterNativeCommit(queueRow)
+      markMoneyPending({ clientId: input.clientId, cardNum: num })
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        { debt: nextDebt, debtPayVersion: nextVer },
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
+      }
+      if (nextShift) {
+        patchShift(nextShift.id, {
+          debtRepayCash: nextShift.debtRepayCash,
+          updatedAtIso: nextShift.updatedAtIso,
+        })
+      }
+      useOfflineSync.getState().scheduleSyncDebounced(600)
+      void persistPosSnapshot()
+      return { nextDebt, bonusEarned: 0, clientRef }
+    }
+
+    // Fallback: Android / no debtRepayCommit IPC — previous path (queue then memory)
+    markMoneyPending({ clientId: input.clientId, cardNum: num })
+    await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
+    if (nextShift && method === 'cash') {
+      patchShift(nextShift.id, { debtRepayCash: nextShift.debtRepayCash })
+    }
     useCardStore.getState().updateCardLoyalty(
       num,
       { debt: nextDebt, debtPayVersion: nextVer },
@@ -1531,11 +1610,12 @@ export function revertLocalDebtRepayOnReject(payload: {
     const shift = shiftById(payload.shiftId)
     if (shift) {
       const method = payload.method === 'card' ? 'card' : 'cash'
-      if (method === 'card') {
-        patchShift(shift.id, { salesCard: round2(Math.max(0, (Number(shift.salesCard) || 0) - amount)) })
-      } else {
-        patchShift(shift.id, { salesCash: round2(Math.max(0, (Number(shift.salesCash) || 0) - amount)) })
+      if (method === 'cash') {
+        patchShift(shift.id, {
+          debtRepayCash: round2(Math.max(0, (Number(shift.debtRepayCash) || 0) - amount)),
+        })
       }
+      // card repay: never touched salesCard (aligned with server)
     }
   }
   // Версию НЕ понижаем: иначе следующая попытка снова уйдёт со старой версией

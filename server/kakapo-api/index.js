@@ -5037,7 +5037,10 @@ app.post('/cards/:num/debt-repay', (req, res) => {
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch (e) {
-          return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось погасить долг' })
+          return res.status(e?.status || 400).json({
+            detail: e?.message || 'Не удалось погасить долг',
+            code: e?.code || undefined,
+          })
         }
       } else if (repaidTowardDebt > 0.001) {
         try {
@@ -5045,7 +5048,15 @@ app.post('/cards/:num/debt-repay', (req, res) => {
             orderId: repayOrderId,
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
-        } catch { /* журнал чеков; баланс уже на кассе */ }
+        } catch (e) {
+          // appliedLocal: балансы уже на кассе — не откатываем чек, но targeted-ошибку отдаём явно
+          if (repayOrderId && e?.code) {
+            return res.status(e.status || 400).json({
+              detail: e.message || 'Не удалось погасить долг',
+              code: e.code,
+            })
+          }
+        }
       }
       linkedClient.debt = nextDebt
       card.debt = nextDebt

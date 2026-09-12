@@ -183,6 +183,18 @@ export type KakapoDesktopApi = {
     failAt?: string
   }) => Promise<{ ok: boolean; error?: string; code?: string; rolledBack?: boolean; clientRef?: string; saleId?: string }>
   localDbSaleCommitSetFailAt?: (stage: string) => Promise<{ ok: boolean; failAt: string }>
+  /** Atomic SQLite debt repay commit (queue + card/client + shift) */
+  localDbDebtRepayCommit?: (payload: {
+    queueRow: unknown
+    card?: unknown
+    client?: unknown
+    shift?: unknown
+    debtHistoryKey?: string
+    debtHistory?: unknown
+    queueSeq?: number
+    failAt?: string
+  }) => Promise<{ ok: boolean; error?: string; code?: string; rolledBack?: boolean; clientRef?: string }>
+  localDbDebtRepayCommitSetFailAt?: (stage: string) => Promise<{ ok: boolean; failAt: string }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
   /** Пометить установку завершённой — больше не просить скачивание */

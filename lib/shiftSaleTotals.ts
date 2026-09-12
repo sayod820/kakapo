@@ -10,6 +10,7 @@ import {
   aggregateShiftSaleTotals as aggregateShiftSaleTotalsCore,
   overlayShiftSaleTotals as overlayShiftSaleTotalsCore,
   expectedTillCashFromShift as expectedTillCashFromShiftCore,
+  uniqueDebtRepayCashForShift as uniqueDebtRepayCashForShiftCore,
 } from './shiftSaleTotalsCore.mjs'
 
 export type ShiftSaleTotals = {
@@ -19,6 +20,15 @@ export type ShiftSaleTotals = {
   salesCard: number
   salesCredit: number
   paidWallet: number
+}
+
+export type DebtRepayCashRow = {
+  clientRef?: string
+  id?: string
+  shiftId?: string
+  amount?: number
+  method?: string
+  type?: string
 }
 
 export function saleDedupeKey(sale: Pick<PosSale, 'id' | 'clientRef'> | null | undefined): string {
@@ -43,15 +53,23 @@ export function aggregateShiftSaleTotals(
   return aggregateShiftSaleTotalsCore(sales, shiftId) as ShiftSaleTotals
 }
 
+export function uniqueDebtRepayCashForShift(
+  repayRows: DebtRepayCashRow[] | null | undefined,
+  shiftId: string | null | undefined,
+): number {
+  return uniqueDebtRepayCashForShiftCore(repayRows, shiftId)
+}
+
 export function overlayShiftSaleTotals(
   shift: PosShift,
   sales: PosSale[] | null | undefined,
+  repayRows?: DebtRepayCashRow[] | null,
 ): PosShift {
-  return overlayShiftSaleTotalsCore(shift, sales) as PosShift
+  return overlayShiftSaleTotalsCore(shift, sales, repayRows) as PosShift
 }
 
 export function expectedTillCashFromShift(
-  shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal'>,
+  shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash'>,
 ): number {
   return expectedTillCashFromShiftCore(shift)
 }
