@@ -6,9 +6,46 @@ export const DEBT_TERM_DAYS = 30
 export const DEBT_REMINDER_DAYS = 3
 /** После скольких просрочек блокировать новый долг */
 export const DEBT_BLOCK_AFTER_STRIKES = 2
+/** Soft history cap — never drops open remaining rows to fit this size */
+export const DEBT_LEDGER_SOFT_CAP = 120
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
+}
+
+function isOpenLedgerEntry(entry, eps = 0.001) {
+  return round2(entry?.remaining) > eps
+}
+
+function ledgerEntryTime(entry) {
+  return parseIso(entry?.createdAtIso) || 0
+}
+
+/** Newest-first ordering (matches unshift charge semantics). */
+function sortLedgerNewestFirst(entries) {
+  return [...entries].sort((a, b) => ledgerEntryTime(b) - ledgerEntryTime(a))
+}
+
+/**
+ * Cap ledger without dropping any open (remaining > 0) rows.
+ * Paid/closed rows may be pruned (oldest first / keep newest) to fit soft cap.
+ * If open rows alone exceed soft cap, length may temporarily exceed soft cap.
+ */
+export function capDebtLedgerLossless(entries, softCap = DEBT_LEDGER_SOFT_CAP) {
+  const list = Array.isArray(entries) ? entries.filter(Boolean) : []
+  const open = []
+  const closed = []
+  for (const e of list) {
+    if (isOpenLedgerEntry(e)) open.push(e)
+    else closed.push(e)
+  }
+  const availableClosed = Math.max(0, softCap - open.length)
+  const keptClosed = sortLedgerNewestFirst(closed).slice(0, availableClosed)
+  return sortLedgerNewestFirst([...open, ...keptClosed])
+}
+
+export function sumDebtLedgerRemaining(entries) {
+  return round2((entries || []).reduce((s, e) => s + round2(e?.remaining), 0))
 }
 
 function phoneKey(phone) {
@@ -50,12 +87,16 @@ export function ensureDebtLedger(client) {
   if (client.debtCreditBlocked == null) client.debtCreditBlocked = false
 }
 
-export function syncDebtLedgerToCard(client, card) {
+export function syncDebtLedgerToCard(client, card, opts = {}) {
   if (!client || !card) return
   ensureDebtLedger(client)
   card.debtLedger = client.debtLedger
   card.debtOverdueStrikes = client.debtOverdueStrikes
   card.debtCreditBlocked = client.debtCreditBlocked
+  if (opts.syncDebtBalance) {
+    card.debt = round2(client.debt)
+    if (card.debt > 0.001) card.debtEnabled = true
+  }
 }
 
 export function syncDebtLedgerFromCard(card, client) {
@@ -179,7 +220,7 @@ export function addDebtCharge(client, card, {
   }
 
   client.debtLedger.unshift(entry)
-  client.debtLedger = client.debtLedger.slice(0, 120)
+  client.debtLedger = capDebtLedgerLossless(client.debtLedger)
   syncDebtLedgerToCard(client, card)
 
   const notifications = [buildCreatedNotification(client, entry)]
@@ -244,13 +285,17 @@ export function recomputeDebtBlockState(client, card) {
   syncDebtLedgerToCard(client, card)
 }
 
-function reconcileDebtLedger(client) {
+/**
+ * Align ledger with client.debt without writing off open remainings via the soft cap.
+ * Truncation may only prune paid/closed history.
+ */
+export function reconcileDebtLedger(client) {
   ensureDebtLedger(client)
-  const debt = round2(client.debt)
-  const ledgerRemaining = round2(
-    (client.debtLedger || []).reduce((s, e) => s + round2(e.remaining), 0),
-  )
-  const gap = round2(debt - ledgerRemaining)
+  const debtBefore = round2(client.debt)
+  client.debtLedger = capDebtLedgerLossless(client.debtLedger)
+
+  let ledgerRemaining = sumDebtLedgerRemaining(client.debtLedger)
+  const gap = round2(debtBefore - ledgerRemaining)
   if (gap > 0.001) {
     const when = new Date().toISOString()
     client.debtLedger.unshift({
@@ -266,7 +311,7 @@ function reconcileDebtLedger(client) {
       overdueNotified: false,
       overdueStrikeApplied: false,
     })
-    client.debtLedger = client.debtLedger.slice(0, 120)
+    client.debtLedger = capDebtLedgerLossless(client.debtLedger)
   } else if (gap < -0.001) {
     // debt уменьшился (возврат) — гасим backfill-записи чтобы ledger = debt
     let excess = round2(-gap)
@@ -280,13 +325,60 @@ function reconcileDebtLedger(client) {
       entry.remaining = round2(rem - cut)
       excess = round2(excess - cut)
     }
+    client.debtLedger = capDebtLedgerLossless(client.debtLedger)
   }
-  // Sync debt field back from ledger to eliminate drift
-  const newLedgerSum = round2(
-    (client.debtLedger || []).reduce((s, e) => s + round2(e.remaining), 0),
-  )
-  if (Math.abs(round2(client.debt) - newLedgerSum) > 0.001) {
+
+  let newLedgerSum = sumDebtLedgerRemaining(client.debtLedger)
+
+  // Never decrease client.debt only because history was truncated / incomplete.
+  if (newLedgerSum < debtBefore - 0.001) {
+    const missing = round2(debtBefore - newLedgerSum)
+    const when = new Date().toISOString()
+    client.debtLedger.unshift({
+      id: `DL-BF-${phoneKey(client.phone)}-${Date.now()}-safe`,
+      amount: missing,
+      remaining: missing,
+      createdAtIso: when,
+      dueAtIso: addDaysIso(when, DEBT_TERM_DAYS),
+      source: 'backfill',
+      desc: 'Существующий долг',
+      createdNotified: true,
+      reminderNotified: false,
+      overdueNotified: false,
+      overdueStrikeApplied: false,
+    })
+    client.debtLedger = capDebtLedgerLossless(client.debtLedger)
+    newLedgerSum = sumDebtLedgerRemaining(client.debtLedger)
+    client.debt = debtBefore
+  } else if (Math.abs(debtBefore - newLedgerSum) > 0.001) {
+    // Ledger still higher after cutting backfills (real open charges) → raise debt to match.
     client.debt = newLedgerSum
+  }
+
+  // Final invariant: open remaining sum == client.debt
+  newLedgerSum = sumDebtLedgerRemaining(client.debtLedger)
+  if (Math.abs(round2(client.debt) - newLedgerSum) > 0.001) {
+    if (newLedgerSum > round2(client.debt) + 0.001) client.debt = newLedgerSum
+    else {
+      const missing = round2(round2(client.debt) - newLedgerSum)
+      if (missing > 0.001) {
+        const when = new Date().toISOString()
+        client.debtLedger.unshift({
+          id: `DL-BF-${phoneKey(client.phone)}-${Date.now()}-align`,
+          amount: missing,
+          remaining: missing,
+          createdAtIso: when,
+          dueAtIso: addDaysIso(when, DEBT_TERM_DAYS),
+          source: 'backfill',
+          desc: 'Существующий долг',
+          createdNotified: true,
+          reminderNotified: false,
+          overdueNotified: false,
+          overdueStrikeApplied: false,
+        })
+        client.debtLedger = capDebtLedgerLossless(client.debtLedger)
+      }
+    }
   }
 }
 
@@ -296,12 +388,7 @@ export function runDebtMaintenance(db, nowIso = new Date().toISOString()) {
     if (!client?.phone) continue
     ensureDebtLedger(client)
     reconcileDebtLedger(client)
-    const digits = String(client.card || '').replace(/\D/g, '')
-    const card = (db.cards || []).find(c =>
-      (client.card && String(c.num).toUpperCase() === String(client.card).toUpperCase())
-      || (digits && String(c.num).replace(/\D/g, '') === digits)
-      || phoneKey(c.phone) === phoneKey(client.phone),
-    )
+    const card = findCanonicalCardForDb(db, client)
     let blockedNow = false
 
     for (const entry of client.debtLedger) {
@@ -332,9 +419,29 @@ export function runDebtMaintenance(db, nowIso = new Date().toISOString()) {
     if (blockedNow && client.debtCreditBlocked) {
       notifications.push(buildBlockedNotification(client))
     }
-    if (card) syncDebtLedgerToCard(client, card)
+    if (card) syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
   }
   return notifications
+}
+
+/** Prefer client.card; never sync debt onto an unlinked orphan via phone-first match. */
+function findCanonicalCardForDb(db, client) {
+  const cards = db?.cards || []
+  const want = String(client?.card || '').trim().toUpperCase()
+  if (want) {
+    const byNum = cards.find(c => String(c.num || '').toUpperCase() === want && c.status !== 'unlinked')
+    if (byNum) return byNum
+  }
+  const clientId = client?.id != null ? String(client.id) : ''
+  if (clientId) {
+    const byId = cards.find(c => String(c.clientId || '') === clientId && c.status !== 'unlinked')
+    if (byId) return byId
+  }
+  const digits = phoneKey(client?.phone)
+  if (digits) {
+    return cards.find(c => phoneKey(c.phone) === digits && c.status !== 'unlinked') || null
+  }
+  return null
 }
 
 export function buildDebtLedgerResponse(client) {

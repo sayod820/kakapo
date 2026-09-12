@@ -193,6 +193,9 @@ import {
   syncDebtLedgerToCard,
 } from './debtLedger.js'
 import {
+  unlinkNonCanonicalSiblingCards,
+} from './cardCanonical.js'
+import {
   ensureAuditLog,
   pruneAuditLog,
   auditFromReq,
@@ -3667,6 +3670,9 @@ app.patch('/clients/:id', (req, res) => {
   c.docVersion = (Number(c.docVersion) || 0) + 1
   c.updatedAtIso = new Date().toISOString()
   syncCardIdentityFromClient(c)
+  if (c.card) {
+    unlinkNonCanonicalSiblingCards(db, c, c.card, normalizeCardRow)
+  }
   // Долг: единая логика — запись в ledger, проверка лимита, синхронизация карты.
   // В связке «карта+клиент» (saveCardLoyalty) карта обновляется первой, поэтому
   // здесь дельта будет 0 и второй записи в ledger не появится.
@@ -4317,12 +4323,16 @@ function issueCardForNewClient(client) {
     status: 'active',
     level: client.level === 'basic' ? '' : (client.level || ''),
     bonus: Number(client.bonus) || 0,
-    debt: 0,
-    debtLimit: 0,
+    debt: Number(client.debt) || 0,
+    debtLimit: Number(client.debtLimit) || 0,
+    vip: !!client.vip,
+    debtEnabled: !!client.debtEnabled || (Number(client.debt) || 0) > 0,
     issued,
   })
   db.cards.push(card)
   client.card = num
+  unlinkNonCanonicalSiblingCards(db, client, num, normalizeCardRow)
+  syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
   return card
 }
 
@@ -4364,6 +4374,16 @@ function ensureCardRowForClient(client) {
     if (client.id && !card.clientId) card.clientId = client.id
     if (client.phone && !card.phone) card.phone = client.phone
     if (client.name && !card.client) card.client = client.name
+    if (card.status === 'unlinked') {
+      card.status = client.blocked ? 'blocked' : 'active'
+      card.clientId = client.id
+      card.phone = client.phone || card.phone
+      card.client = client.name || card.client
+      card.debt = Number(client.debt) || 0
+      card.debtLimit = Number(client.debtLimit) || 0
+      syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
+    }
+    unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
     return card
   }
   if (!db.cards) db.cards = []
@@ -4384,6 +4404,8 @@ function ensureCardRowForClient(client) {
     issued,
   })
   db.cards.push(card)
+  unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
+  syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
   return card
 }
 
@@ -4429,6 +4451,7 @@ function syncClientFromCardRow(card) {
   }
   if (!client) return
   client.card = card.num
+  unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
   const cardName = String(card.client || '').trim()
   const clientName = String(client.name || '').trim()
   // Имя принадлежит клиенту. Карта — копия. Не затираем реальное ФИО старым именем на карте.
