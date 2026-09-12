@@ -145,9 +145,9 @@ test('T6 reconnect: same clientRef remains once after server copy arrives', () =
   expect(before.salesCash === 3 && after.salesCash === 3, 'cash once')
 })
 
-test('T7 CashierModule overlays live sale totals', () => {
+test('T7 CashierModule overlays live sale totals + durable debt repay', () => {
   const src = fs.readFileSync(path.join(root, 'components', 'trade', 'CashierModule.tsx'), 'utf8')
-  expect(src.includes('overlayShiftSaleTotals'), 'overlay import/use')
+  expect(src.includes('overlayShiftSaleTotalsWithDebtRepay'), 'overlay with ledger')
   expect(src.includes("from '@/lib/shiftSaleTotals'"), 'import path')
 })
 

@@ -51,6 +51,10 @@ async function hydrateProducts() {
 }
 
 async function hydratePos() {
+  try {
+    const { hydrateDebtRepayCashLedger } = await import('./debtRepayCashLedger')
+    await hydrateDebtRepayCashLedger()
+  } catch { /* ignore */ }
   const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
   if (cached) {
     const { usePosStore } = await import('./posStore')
@@ -62,6 +66,11 @@ async function hydratePos() {
   try {
     const { reconcileLocalSalesFromDurables } = await import('./localSaleAtomic')
     await reconcileLocalSalesFromDurables()
+  } catch { /* ignore */ }
+  // 1.2.182: reconstruct ACKed cash debt repayments from server journal (non-blocking)
+  try {
+    const { scheduleDebtRepayCashJournalHydrate } = await import('./debtRepayCashJournal')
+    scheduleDebtRepayCashJournalHydrate()
   } catch { /* ignore */ }
 }
 

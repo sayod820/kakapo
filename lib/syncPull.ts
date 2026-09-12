@@ -283,10 +283,18 @@ async function doPullSyncChanges(opts?: {
         patch.sales = nextSales
       }
       if (Array.isArray(pos.shifts) && (delta.full || pos.shifts.length || delOf('shift').length)) {
+        const { withPreservedDebtRepayCash } = await import('./debtRepayCashLedger')
         const incoming = pos.shifts
         let nextShifts: typeof cur.shifts
         if (delta.full) {
-          nextShifts = incoming as typeof cur.shifts
+          const localById = new Map((cur.shifts || []).map((s: any) => [String(s?.id || ''), s]))
+          nextShifts = (incoming as any[]).map((remote: any) => {
+            const local = localById.get(String(remote?.id || ''))
+            if (String(remote?.status || '') !== 'open' && String(local?.status || '') !== 'open') {
+              return remote
+            }
+            return withPreservedDebtRepayCash(local, remote)
+          }) as typeof cur.shifts
         } else if (!incoming.length) {
           nextShifts = cur.shifts
         } else {
@@ -297,7 +305,8 @@ async function doPullSyncChanges(opts?: {
             if (!remote) return sh
             // Never keep inflated local sale counters over server; UI aggregates
             // unique posSales (incl. pending local) so pending receipts stay visible.
-            return {
+            // Preserve durable debtRepayCash (server denorm folds repay into salesCash).
+            return withPreservedDebtRepayCash(sh, {
               ...sh,
               salesCount: Number(remote.salesCount) || 0,
               salesCash: Number(remote.salesCash) || 0,
@@ -307,7 +316,7 @@ async function doPullSyncChanges(opts?: {
               cashInTotal: Math.max(Number(remote.cashInTotal) || 0, Number(sh.cashInTotal) || 0),
               openingCash: Number(remote.openingCash) || Number(sh.openingCash) || 0,
               updatedAtIso: remote.updatedAtIso || sh.updatedAtIso,
-            }
+            })
           }) as typeof cur.shifts
         }
         const shiftDel = delOf('shift')
@@ -390,6 +399,11 @@ async function doPullSyncChanges(opts?: {
     try {
       const { markLocalSyncAt } = await import('./offlineBootstrap')
       await markLocalSyncAt()
+    } catch { /* ignore */ }
+    // 1.2.182: after inbound sync, backfill open-shift cash debt repay from journal
+    try {
+      const { scheduleDebtRepayCashJournalHydrate } = await import('./debtRepayCashJournal')
+      scheduleDebtRepayCashJournalHydrate()
     } catch { /* ignore */ }
     if (t0) {
       perfNote('sync_pull_ms', performance.now() - t0, opts?.forceFull ? 'full' : 'delta', {

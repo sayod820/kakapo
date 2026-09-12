@@ -89,7 +89,7 @@ import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncExpiry, softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { pickActiveOpenShift } from '@/lib/shiftReconcile'
-import { overlayShiftSaleTotals, expectedTillCashFromShift } from '@/lib/shiftSaleTotals'
+import { overlayShiftSaleTotalsWithDebtRepay, expectedTillCashFromShift } from '@/lib/shiftSaleTotals'
 import { resolveAuthoritativeCustomerDebt } from '@/lib/debtUiProjectionCore.mjs'
 import {
   buildCashierAlertGroups,
@@ -2093,7 +2093,7 @@ export default function CashierModule({
       cashierId: settings.cashierId,
       posId: getBoundPosIdSync() || undefined,
     })
-    return raw ? overlayShiftSaleTotals(raw, sales) : null
+    return raw ? overlayShiftSaleTotalsWithDebtRepay(raw, sales) : null
   }, [shifts, settings.cashierId, sales])
 
   const tillExpected = useMemo(
@@ -2123,7 +2123,7 @@ export default function CashierModule({
 
   function shiftForPos(posId: string) {
     const raw = pickActiveOpenShift(shifts, { posId, cashierId: settings.cashierId }) || null
-    return raw ? overlayShiftSaleTotals(raw, sales) : null
+    return raw ? overlayShiftSaleTotalsWithDebtRepay(raw, sales) : null
   }
 
   function formatOpenedAt(iso?: string | null) {

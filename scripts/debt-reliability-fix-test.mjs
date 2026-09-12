@@ -228,6 +228,20 @@ test('Desktop no longer bumps salesCard on card repay', () => {
   expect(!body.includes('salesCard:'), `unexpected salesCard in debtRepaySafe`)
 })
 
+test('durable debtRepayCash ledger wired (ACK/sync survive)', () => {
+  const ops = fs.readFileSync(path.join(root, 'lib/offlinePosOps.ts'), 'utf8')
+  const cash = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')
+  const pos = fs.readFileSync(path.join(root, 'lib/posStore.ts'), 'utf8')
+  const pull = fs.readFileSync(path.join(root, 'lib/syncPull.ts'), 'utf8')
+  expect(ops.includes('rememberCashDebtRepay'), 'remember on repay')
+  expect(cash.includes('overlayShiftSaleTotalsWithDebtRepay'), 'cashier ledger overlay')
+  expect(pos.includes('withPreservedDebtRepayCash'), 'softSync preserve')
+  expect(pull.includes('withPreservedDebtRepayCash'), 'syncPull preserve')
+  const journal = fs.readFileSync(path.join(root, 'lib/debtRepayCashJournal.ts'), 'utf8')
+  expect(journal.includes('getFinanceJournal'), 'journal backfill module')
+  expect(pos.includes('scheduleDebtRepayCashJournalHydrate'), 'journal on softSync')
+})
+
 // ── UI / atomic wiring ────────────────────────────────────────
 test('18) cashier uses resolveAuthoritativeCustomerDebt', () => {
   const src = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')

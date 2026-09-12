@@ -4,6 +4,10 @@
  */
 import type { PosSale, PosShift } from './types'
 import {
+  cashDebtRepayRowsForShift,
+  withPreservedDebtRepayCash,
+} from './debtRepayCashLedger'
+import {
   saleDedupeKey as saleDedupeKeyCore,
   preferSaleRow as preferSaleRowCore,
   uniqueSalesForShift as uniqueSalesForShiftCore,
@@ -66,6 +70,23 @@ export function overlayShiftSaleTotals(
   repayRows?: DebtRepayCashRow[] | null,
 ): PosShift {
   return overlayShiftSaleTotalsCore(shift, sales, repayRows) as PosShift
+}
+
+/**
+ * Sale-row overlay + durable cash debt-repay ledger.
+ * Reconstructs debtRepayCash after ACK/sync when outbox row is gone.
+ */
+export function overlayShiftSaleTotalsWithDebtRepay(
+  shift: PosShift,
+  sales: PosSale[] | null | undefined,
+  extraRepayRows?: DebtRepayCashRow[] | null,
+): PosShift {
+  const rows = [
+    ...cashDebtRepayRowsForShift(String(shift.id || '')),
+    ...(extraRepayRows || []),
+  ]
+  const preserved = withPreservedDebtRepayCash(shift, shift) as PosShift
+  return overlayShiftSaleTotalsCore(preserved, sales, rows) as PosShift
 }
 
 export function expectedTillCashFromShift(

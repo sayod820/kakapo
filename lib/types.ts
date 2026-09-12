@@ -411,6 +411,8 @@ export interface MoneyLedgerEntry {
   cashierName?: string
   refType?: string
   refId?: string
+  /** Stable op identity for debt_repay (Desktop ledger dedupe). */
+  clientRef?: string
   note?: string
   reason?: string
   meta?: Record<string, unknown>

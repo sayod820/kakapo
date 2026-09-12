@@ -145,7 +145,13 @@ async function refetchEverything() {
   try {
     const { pullSyncChanges } = await import('./syncPull')
     const res = await pullSyncChanges({ forceFull: false })
-    if (res.ok) return
+    if (res.ok) {
+      try {
+        const { scheduleDebtRepayCashJournalHydrate } = await import('./debtRepayCashJournal')
+        scheduleDebtRepayCashJournalHydrate()
+      } catch { /* ignore */ }
+      return
+    }
     if (res.skipped === 'pending') return
   } catch { /* fallback ниже */ }
   // Не тянем весь POS/каталог без нужды — только если каталог пуст
@@ -154,6 +160,11 @@ async function refetchEverything() {
     if (!useProducts.getState().products.length) {
       await useProducts.getState().fetchProducts()
     }
+  } catch { /* ignore */ }
+  // Reconnect with empty catalog still: try journal backfill for open shift
+  try {
+    const { scheduleDebtRepayCashJournalHydrate } = await import('./debtRepayCashJournal')
+    scheduleDebtRepayCashJournalHydrate()
   } catch { /* ignore */ }
 }
 

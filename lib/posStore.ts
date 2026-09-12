@@ -341,6 +341,7 @@ function softListSig(rows: {
   expenseTotal?: number
   cashInTotal?: number
   openingCash?: number
+  debtRepayCash?: number
   closingCash?: number
   updatedAtIso?: string
   createdAtIso?: string
@@ -364,6 +365,7 @@ function softListSig(rows: {
       + (Number(r.expenseTotal) || 0)
       + (Number(r.cashInTotal) || 0)
       + (Number(r.openingCash) || 0)
+      + (Number(r.debtRepayCash) || 0)
       + (Number(r.closingCash) || 0)
     counts += Number(r.salesCount) || 0
     if (Array.isArray(r.items)) {
@@ -403,6 +405,15 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
 
   posSoftSyncInFlight = (async () => {
     try {
+      try {
+        const { hydrateDebtRepayCashLedger } = await import('./debtRepayCashLedger')
+        await hydrateDebtRepayCashLedger()
+      } catch { /* ignore */ }
+      // 1.2.182: journal → durable debtRepayCash (covers empty-delta early return too)
+      try {
+        const { scheduleDebtRepayCashJournalHydrate } = await import('./debtRepayCashJournal')
+        scheduleDebtRepayCashJournalHydrate()
+      } catch { /* ignore */ }
       const { getPosLiteSyncCursor, setPosLiteSyncCursor } = await import('./localEntities')
       const since = await getPosLiteSyncCursor()
       let sales: import('./types').PosSale[] = []
@@ -480,6 +491,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       const keptLocal = mergedSales.some(s => String(s.id || '').startsWith('off-'))
 
       const localShifts = usePosStore.getState().shifts
+      const { withPreservedDebtRepayCash } = await import('./debtRepayCashLedger')
       const isGenericCashier = (n?: string) => {
         const t = String(n || '').trim()
         return !t || /^кассир$/i.test(t)
@@ -504,7 +516,18 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         // Open shift: never keep inflated local denormalized sale counters
         // (orphan leak). UI totals come from unique posSales; expense/cashIn
         // still take max so pending till ops are not erased by stale server.
+        // Preserve durable debtRepayCash after ACK (server folds repay into salesCash).
         if (String(next.status || sh.status) === 'open' || String(local.status) === 'open') {
+          const preserved = withPreservedDebtRepayCash(local, {
+            ...next,
+            salesCount: Number(sh.salesCount) || 0,
+            salesCash: Number(sh.salesCash) || 0,
+            salesCard: Number(sh.salesCard) || 0,
+            salesCredit: Number(sh.salesCredit) || 0,
+            expenseTotal: Math.max(Number(sh.expenseTotal) || 0, Number(local.expenseTotal) || 0),
+            cashInTotal: Math.max(Number(sh.cashInTotal) || 0, Number(local.cashInTotal) || 0),
+            openingCash: Number(sh.openingCash) || Number(local.openingCash) || 0,
+          } as typeof next)
           next = {
             ...next,
             salesCount: Number(sh.salesCount) || 0,
@@ -514,6 +537,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
             expenseTotal: Math.max(Number(sh.expenseTotal) || 0, Number(local.expenseTotal) || 0),
             cashInTotal: Math.max(Number(sh.cashInTotal) || 0, Number(local.cashInTotal) || 0),
             openingCash: Number(sh.openingCash) || Number(local.openingCash) || 0,
+            debtRepayCash: Number(preserved.debtRepayCash) || 0,
           } as typeof next
         }
         return next

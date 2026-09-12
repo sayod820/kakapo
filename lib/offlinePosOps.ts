@@ -5,6 +5,7 @@
 import { api, isNetworkError } from './api'
 import { dropPending, findDuplicateDebtRepay, findDuplicateSale, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId, allocQueueSeq, mirrorPendingAfterNativeCommit, type PendingOp } from './offline'
 import { canAtomicLocalDebtRepayCommit, commitLocalDebtRepayAtomic } from './localDebtRepayAtomic'
+import { forgetCashDebtRepay, rememberCashDebtRepay } from './debtRepayCashLedger'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale } from './clientVipCredit'
@@ -1447,6 +1448,13 @@ export async function debtRepaySafe(
             debtRepayCash: round2((Number(shift.debtRepayCash) || 0) + amount),
           })
         }
+        rememberCashDebtRepay({
+          clientRef,
+          shiftId: input.shiftId,
+          amount,
+          method: 'cash',
+          orderId,
+        })
       }
       void persistPosSnapshot()
       return { offline: false, data: { nextDebt, bonusEarned, clientRef } }
@@ -1554,6 +1562,15 @@ export async function debtRepaySafe(
           updatedAtIso: nextShift.updatedAtIso,
         })
       }
+      if (method === 'cash' && input.shiftId) {
+        rememberCashDebtRepay({
+          clientRef,
+          shiftId: input.shiftId,
+          amount,
+          method: 'cash',
+          orderId,
+        })
+      }
       useOfflineSync.getState().scheduleSyncDebounced(600)
       void persistPosSnapshot()
       return { nextDebt, bonusEarned: 0, clientRef }
@@ -1564,6 +1581,13 @@ export async function debtRepaySafe(
     await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
     if (nextShift && method === 'cash') {
       patchShift(nextShift.id, { debtRepayCash: nextShift.debtRepayCash })
+      rememberCashDebtRepay({
+        clientRef,
+        shiftId: input.shiftId!,
+        amount,
+        method: 'cash',
+        orderId,
+      })
     }
     useCardStore.getState().updateCardLoyalty(
       num,
@@ -1614,6 +1638,7 @@ export function revertLocalDebtRepayOnReject(payload: {
         patchShift(shift.id, {
           debtRepayCash: round2(Math.max(0, (Number(shift.debtRepayCash) || 0) - amount)),
         })
+        if (payload.clientRef) forgetCashDebtRepay(String(payload.clientRef))
       }
       // card repay: never touched salesCard (aligned with server)
     }
