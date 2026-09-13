@@ -952,12 +952,10 @@ export default function DebtsModule({
       const res = await chargeCashDebtFromOpenShift(detailClient, amount, {
         note: histAdd.desc.trim() || `Выдача наличных · ${detailClient.name}`,
       })
-      const desc = histAdd.desc.trim()
-      const histKey = debtAccountKey(detailClient)
-      if (desc && histKey) {
-        const latest = loadDebtHistory(histKey).find(isManualDebtHistoryEntry)
-        if (latest) updateDebtHistoryEntry(histKey, latest.id, { desc })
-      }
+      setDetailTab('cash')
+      setHistTick(t => t + 1)
+      const phone = detailClient.phone
+      if (phone) void syncDebtHistoryFromLedger(phone).finally(() => setHistTick(t => t + 1))
       setHistAdd(emptyHistAdd(histAdd.action))
       setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
       if (!res.offline) void refreshAll()

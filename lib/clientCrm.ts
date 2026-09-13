@@ -43,7 +43,7 @@ export interface AdminClient {
    * Server debtLedger (open remaining per receipt). Optional — used for UI
    * current-debt projection only; not mutated by Desktop UI fix.
    */
-  debtLedger?: { id?: string; amount?: number; remaining?: number; source?: string; orderId?: string; saleId?: string }[]
+  debtLedger?: { id?: string; amount?: number; remaining?: number; source?: string; orderId?: string; saleId?: string; createdAtIso?: string; desc?: string; clientRef?: string }[]
   note?: string
   createdAt?: string
   lastOrderAt?: string

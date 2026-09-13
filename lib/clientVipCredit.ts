@@ -15,9 +15,19 @@ import {
   resolveAuthoritativeCustomerDebt as resolveAuthoritativeCustomerDebtCore,
   sumOpenDebtLedgerRemaining,
 } from './debtUiProjectionCore.mjs'
+import {
+  CASH_ADVANCE_HISTORY_LABEL,
+  findMatchingCashAdvanceLocal,
+  isCashAdvanceLedgerSource,
+  mapDebtLedgerSource,
+  mergeOpenCashAdvancesFromClientLedger,
+  upsertLocalCashAdvanceHistory,
+} from './cashAdvanceHistoryCore.mjs'
 
 export {
   sumOpenDebtLedgerRemaining,
+  CASH_ADVANCE_HISTORY_LABEL,
+  mergeOpenCashAdvancesFromClientLedger,
 }
 
 /** Current displayed debt: debtLedger.remaining sum when present, else CRM client.debt. */
@@ -626,13 +636,7 @@ function saveDebtHistoryList(phone: string, list: DebtHistoryEntry[]) {
 }
 
 function mapLedgerSource(source?: string): DebtHistoryEntry['source'] {
-  const s = String(source || '').toLowerCase()
-  if (s === 'pos') return 'pos'
-  if (s === 'order' || s === 'store') return 'order'
-  if (s === 'cashier') return 'cashier'
-  if (s === 'backfill') return 'pos'
-  if (s === 'manual' || s === 'admin') return 'manual'
-  return 'cashier'
+  return mapDebtLedgerSource(source) as DebtHistoryEntry['source']
 }
 
 function ledgerWhen(iso?: string): { ts: number; date: string; time: string } {
@@ -646,6 +650,10 @@ function ledgerWhen(iso?: string): { ts: number; date: string; time: string } {
 }
 
 function findMatchingLocalDebt(local: DebtHistoryEntry[], e: DebtLedgerEntry): DebtHistoryEntry | undefined {
+  if (isCashAdvanceLedgerSource(e.source)) {
+    const hit = findMatchingCashAdvanceLocal(local, e)
+    if (hit) return hit as DebtHistoryEntry
+  }
   const ledgerId = `${LEDGER_DEBT_PREFIX}${e.id}`
   const byId = local.find(r => r.type === 'debt' && (r.id === ledgerId || r.id === e.id))
   if (byId) return byId
@@ -745,47 +753,86 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
     const amt = Math.abs(Number(e.amount) || 0)
     if (!(amt > 0.001)) continue
 
-    const matched = findMatchingLocalDebt(next, e)
-    if (matched) {
-      const idx = next.findIndex(r => r.id === matched.id)
+    if (isCashAdvanceLedgerSource(e.source)) {
+      const when = ledgerWhen(e.createdAtIso)
+      const upsert = upsertLocalCashAdvanceHistory(next, {
+        amount: amt,
+        ts: when.ts,
+        createdAtIso: e.createdAtIso,
+        ledgerEntryId: e.id,
+        clientRef: (e as { clientRef?: string }).clientRef,
+        when,
+      })
+      next.splice(0, next.length, ...upsert.next)
+      if (upsert.changed) changed = true
+      const idx = next.findIndex(r =>
+        r.type === 'debt'
+        && (r.id === `${LEDGER_DEBT_PREFIX}${e.id}` || r.id === e.id),
+      )
       if (idx >= 0) {
         const cur = next[idx]
         if (
-          cur.dueAtIso !== e.dueAtIso
+          cur.desc !== CASH_ADVANCE_HISTORY_LABEL
+          || cur.dueAtIso !== e.dueAtIso
           || cur.dueDate !== e.dueDate
           || cur.daysLeft !== e.daysLeft
           || !!cur.overdue !== !!e.overdue
-          || (oid && !cur.orderId)
         ) {
           next[idx] = {
             ...cur,
+            desc: CASH_ADVANCE_HISTORY_LABEL,
+            source: 'cashier',
             dueAtIso: e.dueAtIso,
             dueDate: e.dueDate,
             daysLeft: e.daysLeft,
             overdue: e.overdue,
-            orderId: cur.orderId || oid,
           }
           changed = true
         }
       }
     } else {
-      const when = ledgerWhen(e.createdAtIso)
-      next.push({
-        id: `${LEDGER_DEBT_PREFIX}${e.id}`,
-        date: when.date,
-        time: when.time,
-        ts: when.ts,
-        desc: e.desc || 'Долг',
-        amount: -amt,
-        type: 'debt',
-        orderId: oid,
-        source: mapLedgerSource(e.source),
-        dueAtIso: e.dueAtIso,
-        dueDate: e.dueDate,
-        daysLeft: e.daysLeft,
-        overdue: e.overdue,
-      })
-      changed = true
+      const matched = findMatchingLocalDebt(next, e)
+      if (matched) {
+        const idx = next.findIndex(r => r.id === matched.id)
+        if (idx >= 0) {
+          const cur = next[idx]
+          if (
+            cur.dueAtIso !== e.dueAtIso
+            || cur.dueDate !== e.dueDate
+            || cur.daysLeft !== e.daysLeft
+            || !!cur.overdue !== !!e.overdue
+            || (oid && !cur.orderId)
+          ) {
+            next[idx] = {
+              ...cur,
+              dueAtIso: e.dueAtIso,
+              dueDate: e.dueDate,
+              daysLeft: e.daysLeft,
+              overdue: e.overdue,
+              orderId: cur.orderId || oid,
+            }
+            changed = true
+          }
+        }
+      } else {
+        const when = ledgerWhen(e.createdAtIso)
+        next.push({
+          id: `${LEDGER_DEBT_PREFIX}${e.id}`,
+          date: when.date,
+          time: when.time,
+          ts: when.ts,
+          desc: e.desc || 'Долг',
+          amount: -amt,
+          type: 'debt',
+          orderId: oid,
+          source: mapLedgerSource(e.source),
+          dueAtIso: e.dueAtIso,
+          dueDate: e.dueDate,
+          daysLeft: e.daysLeft,
+          overdue: e.overdue,
+        })
+        changed = true
+      }
     }
 
     const paid = Math.max(0, Math.round((Number(e.paidAmount) || 0) * 100) / 100)
@@ -1185,6 +1232,36 @@ export function recordStoreDebtCharge(
     itemsSummary: meta?.itemsSummary,
     source,
   })
+}
+
+/**
+ * Local cash-advance history row — fixed label, idempotent vs ledger sync / reconnect.
+ */
+export function recordCashAdvanceHistory(
+  phone: string,
+  amount: number,
+  meta?: { clientRef?: string; ledgerEntryId?: string; ts?: number },
+): void {
+  const key = String(phone || '').trim()
+  const debt = Math.max(0, Math.round(amount * 100) / 100)
+  if (!key || debt <= 0) return
+  const prev = loadDebtHistory(key)
+  const upsert = upsertLocalCashAdvanceHistory(prev, {
+    amount: debt,
+    ts: meta?.ts || Date.now(),
+    clientRef: meta?.clientRef,
+    ledgerEntryId: meta?.ledgerEntryId,
+  })
+  if (!upsert.changed) return
+  saveDebtHistoryList(key, upsert.next)
+}
+
+/** After cash advance commit: pull durable debtLedger into local history (no-op offline). */
+export async function refreshDebtHistoryAfterCashAdvance(phone: string): Promise<void> {
+  const p = String(phone || '').trim()
+  if (!p) return
+  await syncDebtHistoryFromLedger(p)
+  emitDebtHistoryChange()
 }
 
 /** Убрать локальные строки долга/погашения по чеку (откат отклонённой продажи). */

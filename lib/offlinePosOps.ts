@@ -8,7 +8,7 @@ import { canAtomicLocalDebtRepayCommit, commitLocalDebtRepayAtomic } from './loc
 import { forgetCashDebtRepay, rememberCashDebtRepay } from './debtRepayCashLedger'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
-import { debtAccountKey, dropDebtHistoryByClientRef, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale } from './clientVipCredit'
+import { debtAccountKey, dropDebtHistoryByClientRef, recordCashAdvanceHistory, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale, refreshDebtHistoryAfterCashAdvance } from './clientVipCredit'
 import { localFirstOp, type OfflineResult } from './localFirst'
 import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLoyaltySaved } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
@@ -1132,7 +1132,11 @@ export async function cashAdvanceSafe(
         || cardNow?.phone
       const histKey = debtAccountKey({ id: input.clientId, phone })
       if (histKey) {
-        recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+        recordCashAdvanceHistory(histKey, amount, {
+          clientRef,
+          ledgerEntryId: res?.debtLedgerEntryId || undefined,
+        })
+        void refreshDebtHistoryAfterCashAdvance(histKey)
       }
       void persistPosSnapshot()
       return { offline: false, data: { debt: nextDebt, clientRef } }
@@ -1236,7 +1240,8 @@ export async function cashAdvanceSafe(
         || cardNow?.phone
       const histKey = debtAccountKey({ id: input.clientId, phone })
       if (histKey) {
-        recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+        recordCashAdvanceHistory(histKey, amount, { clientRef })
+        void refreshDebtHistoryAfterCashAdvance(histKey)
       }
       useOfflineSync.getState().scheduleSyncDebounced(600)
       void persistPosSnapshot()
@@ -1259,7 +1264,8 @@ export async function cashAdvanceSafe(
       || cardNow?.phone
     const histKey = debtAccountKey({ id: input.clientId, phone })
     if (histKey) {
-      recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+      recordCashAdvanceHistory(histKey, amount, { clientRef })
+      void refreshDebtHistoryAfterCashAdvance(histKey)
     }
     return { debt: nextDebt, clientRef }
   }

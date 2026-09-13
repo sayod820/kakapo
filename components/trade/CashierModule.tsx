@@ -7885,6 +7885,10 @@ export default function CashierModule({
       if (fresh) setClient(fresh)
       setChargeOpen(false)
       setChargeBuf('')
+      setHistTab('cash')
+      setHistTick(t => t + 1)
+      const phone = fresh?.phone || client.phone
+      if (phone) void syncDebtHistoryFromLedger(phone).finally(() => setHistTick(t => t + 1))
       const nextDebt = Number(charged.data.debt) || Math.round((clientDebt + amount) * 100) / 100
       showToast(
         'Выдано наличными',

@@ -7,6 +7,8 @@ import {
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   loadDebtHistoryForClient,
+  mergeOpenCashAdvancesFromClientLedger,
+  CASH_ADVANCE_HISTORY_LABEL,
   saleOpenCreditAmount,
   saleWasOnCredit,
   type DebtHistoryEntry,
@@ -101,6 +103,17 @@ type ClientDebtClient = {
   id?: string
   phone?: string
   name?: string
+  debtLedger?: {
+    id?: string
+    amount?: number
+    remaining?: number
+    source?: string
+    orderId?: string
+    saleId?: string
+    createdAtIso?: string
+    desc?: string
+    clientRef?: string
+  }[]
 }
 
 type ClientHistLine = {
@@ -179,7 +192,8 @@ export function buildClientDebtPanel({
   if (!client) return emptyClientDebtPanel()
 
   const catalog = products || []
-  const history = loadDebtHistoryForClient(client)
+  const historyBase = loadDebtHistoryForClient(client)
+  const history = mergeOpenCashAdvancesFromClientLedger(historyBase, client.debtLedger).next as DebtHistoryEntry[]
   const clientSales = sales.filter(s => {
     const matchId = client.id && s.clientId === client.id
     const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
@@ -233,9 +247,11 @@ export function buildClientDebtPanel({
     const orig = Math.round(Math.abs(Number(d.originalAmount ?? d.amount) || 0) * 100) / 100
     const paidAmt = Math.round((Number(d.paidAmount) || 0) * 100) / 100
     const rem = Math.round((Number(d.remainingAmount) || 0) * 100) / 100
+    const desc = String(d.desc || '')
+    const isCashAdv = /выдач\s*налич/i.test(desc) || desc === CASH_ADVANCE_HISTORY_LABEL
     cashView.push({
       id: d.id,
-      label: d.desc || 'Наличные',
+      label: isCashAdv ? CASH_ADVANCE_HISTORY_LABEL : (d.desc || 'Наличные'),
       when: `${d.date}${d.time ? ` · ${d.time}` : ''}`,
       debtAdded: orig,
       paid: paidAmt,
@@ -249,9 +265,11 @@ export function buildClientDebtPanel({
   for (const d of paidDebtRows) {
     if (!cashIdSet.has(d.id)) continue
     const orig = Math.round(Math.abs(Number(d.amount) || 0) * 100) / 100
+    const desc = String(d.desc || '')
+    const isCashAdv = /выдач\s*налич/i.test(desc) || desc === CASH_ADVANCE_HISTORY_LABEL
     cashView.push({
       id: d.id,
-      label: d.desc || 'Наличные',
+      label: isCashAdv ? CASH_ADVANCE_HISTORY_LABEL : (d.desc || 'Наличные'),
       when: `${d.date}${d.time ? ` · ${d.time}` : ''}`,
       debtAdded: orig,
       paid: orig,

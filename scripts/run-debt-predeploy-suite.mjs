@@ -28,6 +28,7 @@ const suites = [
   'scripts/fixd-unique-violation-test.mjs',
   'scripts/phase1-ghost-outbox-test.mjs',
   'scripts/cash-advance-safe-test.mjs',
+  'scripts/cash-advance-history-ui-test.mjs',
 ]
 
 const syntaxFiles = [
