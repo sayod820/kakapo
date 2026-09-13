@@ -16,6 +16,7 @@ const suites = [
   'scripts/debt-reliability-fix-test.mjs',
   'scripts/debt-repay-cash-ledger-test.mjs',
   'scripts/debt-repay-cash-journal-test.mjs',
+  'scripts/provision-loyalty-hydrate-import-test.mjs',
   'scripts/shift-sale-totals-test.mjs',
   'scripts/phase5-atomic-sale-test.mjs',
   'scripts/phase6-push-pull-starvation-test.mjs',

@@ -259,8 +259,7 @@ export async function provisionLoyaltyCardSafe(client: AdminClient): Promise<Off
     return { offline: false, data: updated }
   }
 
-  const { useCardStore } = await import('./cardStore')
-  const { hydrateCardStore } = await import('./clientCardSync')
+  const { useCardStore, hydrateCardStore } = await import('./cardStore')
   const { normalizeCard, canonicalCardNum } = await import('./cardCrm')
   const { getRegistrationWelcomeBonus } = await import('./loyaltyStatusConfig')
 
