@@ -149,7 +149,7 @@ export function clearMoneyPendingFromOp(kind: string, payload: Record<string, un
       cardNum: String(p.cardNum || ''),
     })
   }
-  if (kind === 'debt_repay' || kind === 'card_topup') {
+  if (kind === 'debt_repay' || kind === 'card_topup' || kind === 'cash_advance') {
     clearMoneyPending({
       clientId: String(p.clientId || ''),
       cardNum: String(p.num || p.cardNum || ''),

@@ -129,6 +129,8 @@ import {
   listFinanceMoves,
   createFinanceMove,
   applyDebtRepayToShift,
+  applyCashAdvanceToShift,
+  createCashAdvance,
   deleteFinanceMove,
   isCardTopupFinanceMove,
   listStockReceipts,
@@ -4928,6 +4930,70 @@ app.post('/cards/:num/cash-topup', (req, res) => {
     res.json({ card, financeMove: move, bonusEarned, addToBonus })
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось пополнить бонусы' })
+  }
+})
+
+/** Выдача наличных клиенту в долг: касса −amount, canonicalDebt += amount (не absolute PATCH). */
+app.post('/cards/:num/cash-advance', (req, res) => {
+  try {
+    const num = decodeURIComponent(req.params.num).toUpperCase()
+    const card = findCardByNum(num)
+    if (!card) return res.status(404).json({ detail: 'Карта не найдена', code: 'CARD_NOT_FOUND' })
+    const clientRef = String(req.body?.clientRef || '').trim()
+    const dup = findOpRef('cash_advance', clientRef)
+    if (dup) return res.json({ ...dup, card })
+
+    const linkedClient = (db.clients || []).find(c =>
+      c.card === num
+      || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+    )
+
+    const outcome = createCashAdvance(db, {
+      card,
+      linkedClient,
+      clientRef,
+      amount: req.body?.amount,
+      shiftId: req.body?.shiftId,
+      posId: req.body?.posId,
+      cashierId: req.body?.cashierId,
+      cashierName: req.body?.cashierName,
+      note: req.body?.note,
+      createdAtIso: req.body?.createdAtIso,
+      expectedDebtPayVersion: req.body?.expectedDebtPayVersion ?? req.body?.debtPayVersion,
+      cardNum: num,
+    })
+    if (!outcome.ok) {
+      return res.status(outcome.status || 400).json({
+        detail: outcome.detail,
+        code: outcome.code,
+        currentDebtPayVersion: outcome.currentDebtPayVersion,
+        expectedDebtPayVersion: outcome.expectedDebtPayVersion,
+      })
+    }
+
+    Object.assign(card, normalizeCardRow(card))
+    syncClientFromCardRow(card)
+
+    const { result } = outcome
+    auditFromReq(db, req, {
+      app: 'trade',
+      action: 'update',
+      entity: 'debt',
+      entityId: num,
+      entityName: card.client || num,
+      summary: `Выдача наличных ${num}: ${result.prevDebt} → ${result.nextDebt} · из кассы −${result.amount}`,
+      before: { debt: result.prevDebt },
+      after: { debt: result.nextDebt, amount: result.amount, till: result.till },
+    })
+    rememberOpRef('cash_advance', clientRef, result)
+    persist()
+    broadcastPosUpdate({ kind: 'cash-advance', cardNum: num, amount: result.amount })
+    if (linkedClient?.phone) {
+      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
+    }
+    res.json({ card, ...result })
+  } catch (e) {
+    res.status(400).json({ detail: e?.message || 'Не удалось выдать наличные', code: 'CASH_ADVANCE_FAILED' })
   }
 })
 

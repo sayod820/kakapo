@@ -92,6 +92,7 @@ async function doPullSyncChanges(opts?: {
           r.kind === 'sale'
           || r.kind === 'sale_return'
           || r.kind === 'debt_repay'
+          || r.kind === 'cash_advance'
           || r.kind === 'card_topup'
           || r.kind === 'card_loyalty_patch'
         ) {

@@ -27,6 +27,7 @@ const suites = [
   'scripts/fixe2-effect-txn-test.mjs',
   'scripts/fixd-unique-violation-test.mjs',
   'scripts/phase1-ghost-outbox-test.mjs',
+  'scripts/cash-advance-safe-test.mjs',
 ]
 
 const syntaxFiles = [

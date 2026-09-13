@@ -19,6 +19,7 @@ export type QueueKind =
   | 'sale_return'
   | 'card_topup'
   | 'debt_repay'
+  | 'cash_advance'
   | 'finance_move'
   | 'vault_card_to_cash'
   | 'vault_cash_to_card'
@@ -59,6 +60,7 @@ export const QUEUE_KIND_LABEL: Record<QueueKind, string> = {
   sale_return: 'Возврат',
   card_topup: 'Пополнение карты',
   debt_repay: 'Погашение долга',
+  cash_advance: 'Выдача наличных',
   finance_move: 'Движение по кассе',
   vault_card_to_cash: 'Карта → нал',
   vault_cash_to_card: 'Нал → карта',
@@ -499,6 +501,7 @@ function queueKindPriority(kind: QueueKind): number {
     kind === 'sale'
     || kind === 'sale_return'
     || kind === 'debt_repay'
+    || kind === 'cash_advance'
     || kind === 'card_topup'
     || kind === 'card_loyalty_patch'
   ) return 0
@@ -847,6 +850,51 @@ export async function findDuplicateDebtRepay(payload: {
   }) || null
 }
 
+/** Дубль выдачи наличных: тот же отпечаток + prevDebt/версия, пока op в очереди. */
+export async function findDuplicateCashAdvance(payload: {
+  num?: string
+  amount?: number
+  shiftId?: string
+  clientRef?: string
+  clientId?: string
+  note?: string
+  prevDebt?: number
+  expectedDebtPayVersion?: number
+}): Promise<PendingOp | null> {
+  const clientRef = String(payload.clientRef || '').trim()
+  const num = String(payload.num || '').trim()
+  const amount = Math.round((Number(payload.amount) || 0) * 100) / 100
+  const shiftId = String(payload.shiftId || '')
+  const clientId = String(payload.clientId || '')
+  const note = String(payload.note || '').trim()
+  const prevDebt = payload.prevDebt != null
+    ? Math.round((Number(payload.prevDebt) || 0) * 100) / 100
+    : null
+  const expectedVer = payload.expectedDebtPayVersion != null
+    ? Number(payload.expectedDebtPayVersion)
+    : null
+  const pending = (await getPending()).filter(r => r.kind === 'cash_advance')
+  return pending.find(r => {
+    const p = (r.payload || {}) as Record<string, unknown>
+    if (clientRef && String(p.clientRef || r.clientRef || '') === clientRef) return true
+    if (!num || !(amount > 0)) return false
+    if (String(p.num || '').trim() !== num) return false
+    if (Math.round((Number(p.amount) || 0) * 100) / 100 !== amount) return false
+    if (String(p.shiftId || '') !== shiftId) return false
+    if (String(p.clientId || '') !== clientId) return false
+    if (String(p.note || '').trim() !== note) return false
+    if (prevDebt != null && Number.isFinite(prevDebt)) {
+      const pPrev = Math.round((Number(p.prevDebt) || 0) * 100) / 100
+      if (Math.abs(pPrev - prevDebt) > 0.009) return false
+    }
+    if (expectedVer != null && Number.isFinite(expectedVer)) {
+      const pVer = Number(p.expectedDebtPayVersion)
+      if (Number.isFinite(pVer) && pVer !== expectedVer) return false
+    }
+    return true
+  }) || null
+}
+
 const CASHIER_DOUBLE_TAP_MS = 2500
 
 function sameCashierOpFingerprint(kind: QueueKind, a: Record<string, unknown>, b: Record<string, unknown>): boolean {
@@ -925,6 +973,10 @@ export async function enqueueOp<P>(
     const dup = await findDuplicateDebtRepay(payload as any)
     if (dup) return dup as PendingOp<P>
   }
+  if (kind === 'cash_advance') {
+    const dup = await findDuplicateCashAdvance(payload as any)
+    if (dup) return dup as PendingOp<P>
+  }
   if (kind === 'sale') {
     const dup = await findDuplicateSale(payload as any)
     if (dup) return dup as PendingOp<P>
@@ -948,7 +1000,7 @@ export async function enqueueOp<P>(
       clientRef,
       createdAtIso,
       ...(kind === 'sale' && queuedOffline ? { queuedOffline: true, skipStockAfterRevision: true } : {}),
-      ...((kind === 'sale' || kind === 'sale_return' || kind === 'debt_repay' || kind === 'card_topup')
+      ...((kind === 'sale' || kind === 'sale_return' || kind === 'debt_repay' || kind === 'cash_advance' || kind === 'card_topup')
         ? { appliedLocal: true, skipBalances: true } : {}),
     },
     createdAtIso,
@@ -1570,6 +1622,36 @@ async function sendOp(row: PendingOp): Promise<string> {
         const msg = e instanceof Error ? e.message : String(e)
         // Долг уже погашали на другой кассе — взять актуальную версию и повторить 1 раз
         if (!/уже погашали|уже меняли|верси.*ожидали/i.test(msg)) throw e
+        const ver = await refreshCardDebtPayVersion(String(p.num))
+        if (ver == null) throw e
+        try {
+          const live = { ...(row.payload as Record<string, unknown>), expectedDebtPayVersion: ver }
+          row.payload = live as PendingOp['payload']
+          await putPending(row)
+        } catch { /* ignore */ }
+        await send(ver)
+      }
+      return ''
+    }
+    case 'cash_advance': {
+      const p = await resolveRefs(row.payload, ['shiftId'])
+      const send = (ver: unknown) => api.cashAdvanceCard(String(p.num), {
+        clientRef: p.clientRef,
+        amount: Number(p.amount) || 0,
+        note: p.note,
+        cashierId: p.cashierId,
+        cashierName: p.cashierName,
+        shiftId: String(p.shiftId || ''),
+        posId: p.posId,
+        clientId: p.clientId,
+        createdAtIso: p.createdAtIso,
+        expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
+      } as any)
+      try {
+        await send(p.expectedDebtPayVersion)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/уже меняли|верси.*ожидали|DEBT_PAY_VERSION/i.test(msg)) throw e
         const ver = await refreshCardDebtPayVersion(String(p.num))
         if (ver == null) throw e
         try {
@@ -2212,6 +2294,7 @@ export async function flushQueue(
           live.kind === 'sale'
           || live.kind === 'sale_return'
           || live.kind === 'debt_repay'
+          || live.kind === 'cash_advance'
           || live.kind === 'card_topup'
         ) {
           const p = (live.payload || {}) as Record<string, unknown>
@@ -2272,6 +2355,18 @@ export async function flushQueue(
               if (!p.clientRef) p.clientRef = live.clientRef
               const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
               revertLocalDebtRepayOnReject(p as any)
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
+              failed++
+              done++
+              reportProgress()
+              continue
+            } else if (live.kind === 'cash_advance') {
+              const p = (live.payload || {}) as Record<string, unknown>
+              if (!p.clientRef) p.clientRef = live.clientRef
+              const { revertLocalCashAdvanceOnReject } = await import('./offlinePosOps')
+              revertLocalCashAdvanceOnReject(p as any)
               void persistPosSnapshot()
               await deletePending(live.clientRef)
               liveByRef.delete(live.clientRef)

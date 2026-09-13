@@ -847,6 +847,38 @@ export const api = {
     `/cards/${encodeURIComponent(num.trim())}/debt-repay`,
     { method: 'POST', body: JSON.stringify(data) },
   ),
+  /** Выдача наличных в долг: сервер делает debt += amount (не absolute PATCH). */
+  cashAdvanceCard: (num: string, data: {
+    clientRef?: string
+    amount: number
+    note?: string
+    cashierId?: string
+    cashierName?: string
+    shiftId: string
+    posId?: string
+    clientId?: string
+    createdAtIso?: string
+    expectedDebtPayVersion?: number
+  }) => request<{
+    card: AdminCard
+    amount: number
+    prevDebt: number
+    nextDebt: number
+    till: {
+      shiftId: string | null
+      expenseTotal: number | null
+      salesCash?: number | null
+      salesCount?: number | null
+      salesCard?: number | null
+      debtRepayCash?: number | null
+      replay?: boolean
+    }
+    replay?: boolean
+    debtLedgerEntryId?: string | null
+  }>(
+    `/cards/${encodeURIComponent(num.trim())}/cash-advance`,
+    { method: 'POST', body: JSON.stringify(data) },
+  ),
 
   // ── Отзывы ──
   getReviews: (filter?: string | { restId?: string; productId?: string | number }) =>

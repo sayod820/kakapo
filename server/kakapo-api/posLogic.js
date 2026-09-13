@@ -6,6 +6,7 @@ import {
   addDebtCharge,
   applyDebtRepayment,
   canTakeNewDebt,
+  syncDebtLedgerToCard,
 } from './debtLedger.js'
 import { recordSyncDelete } from './syncDeletes.js'
 import { queueDocDelete, rowIdForItem } from './db.js'
@@ -2176,6 +2177,251 @@ export function applyDebtRepayToShift(db, data = {}) {
     method,
     amount,
     salesCash: shift ? Number(shift.salesCash) || 0 : null,
+  }
+}
+
+/**
+ * Выдача наличных клиенту в долг: касса −amount (expenseTotal), долг считает вызывающий.
+ * Idempotent by moneyLedger clientRef + refType=cash_advance.
+ * Never mutates salesCash / salesCard / debtRepayCash / salesCount.
+ */
+export function applyCashAdvanceToShift(db, data = {}) {
+  ensurePosCollections(db)
+  const amount = round2(data.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму выдачи')
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'cash_advance'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (known) {
+      let shift = null
+      if (data.shiftId) shift = db.posShifts.find(s => s.id === data.shiftId)
+      return {
+        shiftId: known.shiftId || shift?.id || null,
+        posId: known.posId || String(shift?.posId || data.posId || '').trim(),
+        amount: round2(known.amount),
+        expenseTotal: shift ? Number(shift.expenseTotal) || 0 : null,
+        salesCash: shift ? Number(shift.salesCash) || 0 : null,
+        salesCount: shift ? Number(shift.salesCount) || 0 : null,
+        salesCard: shift ? Number(shift.salesCard) || 0 : null,
+        debtRepayCash: shift ? Number(shift.debtRepayCash) || 0 : null,
+        replay: true,
+      }
+    }
+  }
+
+  let shift = null
+  if (data.shiftId) {
+    shift = db.posShifts.find(s => s.id === data.shiftId)
+    if (!shift) throw new Error('Смена не найдена')
+    if (shift.status !== 'open') throw new Error('Смена уже закрыта')
+  } else {
+    throw new Error('Откройте смену, чтобы выдать наличные из кассы')
+  }
+
+  const expected = shiftExpectedCash(shift)
+  if (amount > expected + 0.009) {
+    throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
+  }
+
+  const cashierName = String(data.cashierName || shift?.cashierName || '').trim()
+  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const posId = String(shift?.posId || data.posId || '').trim()
+  const note = String(data.note || '').trim()
+  const clientLabel = String(data.clientName || data.cardNum || '').trim()
+
+  shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + amount)
+  touchShift(shift)
+
+  appendMoneyLedger(db, {
+    type: 'cash_advance_cash',
+    amount,
+    direction: 'out',
+    cashAffect: true,
+    posId,
+    shiftId: shift.id || '',
+    cashierId,
+    cashierName,
+    refType: 'cash_advance',
+    refId: String(data.cardNum || ''),
+    clientRef,
+    reason: `Выдача наличных в долг · ${clientLabel}`,
+    note,
+    meta: {
+      cardNum: data.cardNum || '',
+      clientName: data.clientName || '',
+      clientRef: clientRef || undefined,
+      method: 'cash',
+    },
+  })
+
+  return {
+    shiftId: shift.id || null,
+    posId,
+    amount,
+    expenseTotal: Number(shift.expenseTotal) || 0,
+    salesCash: Number(shift.salesCash) || 0,
+    salesCount: Number(shift.salesCount) || 0,
+    salesCard: Number(shift.salesCard) || 0,
+    debtRepayCash: Number(shift.debtRepayCash) || 0,
+  }
+}
+
+/**
+ * Canonical cash-advance: nextDebt = serverDebt + amount (never trusts client absolute debt).
+ * @returns {{ ok: true, result } | { ok: false, status, detail, code?, currentDebtPayVersion?, expectedDebtPayVersion? }}
+ */
+export function createCashAdvance(db, data = {}) {
+  ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  const amount = round2(data.amount)
+  if (!(amount > 0)) {
+    return { ok: false, status: 400, detail: 'Укажите сумму выдачи', code: 'INVALID_AMOUNT' }
+  }
+  if (!String(data.shiftId || '').trim()) {
+    return { ok: false, status: 400, detail: 'Откройте смену, чтобы выдать наличные из кассы', code: 'NO_SHIFT' }
+  }
+
+  const card = data.card
+  if (!card) {
+    return { ok: false, status: 404, detail: 'Карта не найдена', code: 'CARD_NOT_FOUND' }
+  }
+
+  if (clientRef) {
+    const knownLedger = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'cash_advance'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (knownLedger) {
+      const linkedClient = data.linkedClient || null
+      return {
+        ok: true,
+        result: {
+          client: linkedClient,
+          amount: round2(knownLedger.amount),
+          prevDebt: effectiveDebt(card, linkedClient),
+          nextDebt: effectiveDebt(card, linkedClient),
+          till: {
+            shiftId: knownLedger.shiftId || null,
+            posId: knownLedger.posId || '',
+            amount: round2(knownLedger.amount),
+            expenseTotal: null,
+            replay: true,
+          },
+          replay: true,
+          debtLedgerEntryId: knownLedger.meta?.debtLedgerEntryId || null,
+        },
+      }
+    }
+  }
+
+  const linkedClient = data.linkedClient || null
+  const prevDebt = effectiveDebt(card, linkedClient)
+  const expectedPayVer = data.expectedDebtPayVersion ?? data.debtPayVersion
+  if (expectedPayVer !== undefined && expectedPayVer !== null && expectedPayVer !== '') {
+    const exp = Number(expectedPayVer)
+    if (Number.isFinite(exp)) {
+      const current = Number(card.debtPayVersion) || 0
+      if (exp !== current) {
+        return {
+          ok: false,
+          status: 409,
+          detail: `Долг клиента уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Выдачу не приняли — обновите данные.`,
+          code: 'DEBT_PAY_VERSION_CONFLICT',
+          currentDebtPayVersion: current,
+          expectedDebtPayVersion: exp,
+        }
+      }
+    }
+  }
+
+  const nextDebt = round2(prevDebt + amount)
+  let debtLedgerEntryId = null
+  if (linkedClient) {
+    try {
+      const { entry } = addDebtCharge(linkedClient, card, {
+        amount,
+        source: 'cash_advance',
+        desc: String(data.note || '').trim() || 'Выдача наличных в долг',
+        createdAtIso: data.createdAtIso,
+      })
+      debtLedgerEntryId = entry?.id || null
+      linkedClient.debt = nextDebt
+      linkedClient.debtEnabled = true
+      card.debt = nextDebt
+      card.debtEnabled = true
+      syncDebtLedgerToCard(linkedClient, card)
+    } catch (e) {
+      return {
+        ok: false,
+        status: e?.status || 400,
+        detail: e?.message || 'Не удалось начислить долг',
+        code: e?.code || 'DEBT_CHARGE_FAILED',
+      }
+    }
+  } else {
+    card.debt = nextDebt
+    card.debtEnabled = true
+  }
+
+  card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+  touchCrmRow(card)
+  if (linkedClient) touchCrmRow(linkedClient)
+
+  let till
+  try {
+    till = applyCashAdvanceToShift(db, {
+      amount,
+      shiftId: data.shiftId,
+      posId: data.posId,
+      cashierId: data.cashierId,
+      cashierName: data.cashierName,
+      cardNum: data.cardNum || card.num,
+      clientName: card.client || linkedClient?.name || '',
+      note: String(data.note || '').trim(),
+      clientRef,
+    })
+    } catch (e) {
+      // Roll back debt mutation if till fails (same request, in-memory / docs store).
+      card.debt = prevDebt
+      card.debtPayVersion = Math.max(0, (Number(card.debtPayVersion) || 1) - 1)
+      if (linkedClient) {
+        linkedClient.debt = prevDebt
+        if (debtLedgerEntryId && Array.isArray(linkedClient.debtLedger)) {
+          linkedClient.debtLedger = linkedClient.debtLedger.filter(e => String(e.id) !== String(debtLedgerEntryId))
+        }
+        syncDebtLedgerToCard(linkedClient, card)
+      }
+      return {
+        ok: false,
+        status: 400,
+        detail: e?.message || 'Не удалось списать наличные из кассы',
+        code: 'TILL_FAILED',
+      }
+    }
+
+  if (clientRef && till && !till.replay) {
+    const led = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'cash_advance'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (led) {
+      led.meta = { ...(led.meta || {}), debtLedgerEntryId }
+    }
+  }
+
+  return {
+    ok: true,
+    result: {
+      client: linkedClient,
+      amount,
+      prevDebt,
+      nextDebt,
+      till,
+      debtLedgerEntryId,
+    },
   }
 }
 

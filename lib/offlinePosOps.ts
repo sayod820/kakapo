@@ -3,7 +3,7 @@
 // Local-first: сразу локально + очередь, синк с сервером в фоне
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
-import { dropPending, findDuplicateDebtRepay, findDuplicateSale, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId, allocQueueSeq, mirrorPendingAfterNativeCommit, type PendingOp } from './offline'
+import { dropPending, findDuplicateCashAdvance, findDuplicateDebtRepay, findDuplicateSale, getPending, isLocalId, isOnline, newClientRef, newLocalId, persistPosSnapshot, cacheData, readCachedData, resolveLocalId, allocQueueSeq, mirrorPendingAfterNativeCommit, type PendingOp } from './offline'
 import { canAtomicLocalDebtRepayCommit, commitLocalDebtRepayAtomic } from './localDebtRepayAtomic'
 import { forgetCashDebtRepay, rememberCashDebtRepay } from './debtRepayCashLedger'
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
@@ -1027,63 +1027,352 @@ export async function financeMoveSafe(input: {
 }
 
 /** Выдать нал из открытой смены и записать долг на карту. Без смены / без наличных в ящике — ошибка. */
-const chargeCashDebtInflight = new Map<string, Promise<OfflineResult<{ debt: number }>>>()
+const chargeCashDebtInflight = new Map<string, Promise<OfflineResult<{ debt: number; clientRef?: string; duplicate?: boolean }>>>()
 
-export async function chargeCashDebtFromOpenShift(
-  client: AdminClient,
-  amount: number,
-  opts?: { note?: string; posId?: string },
-): Promise<OfflineResult<{ debt: number }>> {
-  const shift = resolveOpenShift(opts?.posId)
-  if (!shift) {
+export type CashAdvanceResult = {
+  debt: number
+  clientRef?: string
+  duplicate?: boolean
+}
+
+/**
+ * Semantic cash advance: delta +amount on debt, expenseTotal +amount once.
+ * Never queues absolute card_loyalty_patch debt.
+ */
+export async function cashAdvanceSafe(
+  num: string,
+  input: {
+    amount: number
+    note?: string
+    cashierId?: string
+    cashierName?: string
+    shiftId: string
+    posId?: string
+    clientId?: string
+    prevDebt: number
+  },
+): Promise<OfflineResult<CashAdvanceResult>> {
+  const amount = round2(input.amount)
+  if (!(amount > 0)) throw new Error('Укажите сумму')
+  const shift = shiftById(input.shiftId) || resolveOpenShift(input.posId)
+  if (!shift || shift.status !== 'open') {
     throw new Error('Откройте смену, чтобы выдать наличные из кассы')
   }
-  const amt = round2(amount)
-  if (!(amt > 0)) throw new Error('Укажите сумму')
   const expected = shiftExpectedCashLocal(shift)
-  if (amt > expected + 0.009) {
+  if (amount > expected + 0.009) {
     throw new Error(`В кассе недостаточно наличных (доступно ${expected.toFixed(2)} сом)`)
   }
-  const inflightKey = ['charge', client.id, amt, shift.id].join('|')
+
+  const inflightKey = ['cash_advance', num, amount, shift.id, String(input.clientId || '')].join('|')
   const existing = chargeCashDebtInflight.get(inflightKey)
-  if (existing) return existing
+  if (existing) {
+    const first = await existing
+    return { offline: first.offline, data: { ...first.data, duplicate: true } }
+  }
 
-  const run = (async (): Promise<OfflineResult<{ debt: number }>> => {
-    const note = opts?.note || `Выдача наличных · ${client.name}`
-    await financeMoveSafe({
-      type: 'withdraw',
-      amount: amt,
-      note,
-      shiftId: shift.id,
-      posId: shift.posId,
-      cashierId: shift.cashierId,
-      cashierName: shift.cashierName,
-      createdBy: shift.cashierName,
-    })
-    try {
-      const { adjustClientDebtSafe } = await import('./offlineLoyaltyOps')
-      return await adjustClientDebtSafe(client, { action: 'charge', amount: amt })
-    } catch (e) {
-      await financeMoveSafe({
-        type: 'deposit',
-        amount: amt,
-        note: `Отмена выдачи наличных · ${client.name}`,
+  const cardNow = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
+  const expectedDebtPayVersion = Number(cardNow?.debtPayVersion) || 0
+  const clientRef = newClientRef()
+  const createdAtIso = new Date().toISOString()
+  const prevDebt = round2(input.prevDebt)
+  const payload = {
+    clientRef,
+    num,
+    amount,
+    note: input.note,
+    cashierId: input.cashierId || shift.cashierId,
+    cashierName: input.cashierName || shift.cashierName,
+    shiftId: shift.id,
+    posId: input.posId || shift.posId,
+    clientId: input.clientId,
+    prevDebt,
+    expectedDebtPayVersion,
+    createdAtIso,
+  }
+
+  if (!isTradeLocalFirst()) {
+    const run = (async (): Promise<OfflineResult<CashAdvanceResult>> => {
+      const call = (ver: number | undefined) => api.cashAdvanceCard(num, {
+        amount,
+        note: input.note,
+        cashierId: payload.cashierId,
+        cashierName: payload.cashierName,
         shiftId: shift.id,
-        posId: shift.posId,
-        cashierId: shift.cashierId,
-        cashierName: shift.cashierName,
-        createdBy: shift.cashierName,
-      }).catch(() => { /* долг не записался — ящик вернём отдельно */ })
-      throw e
+        posId: payload.posId,
+        clientId: input.clientId,
+        clientRef,
+        createdAtIso,
+        expectedDebtPayVersion: ver,
+      })
+      let res: Awaited<ReturnType<typeof api.cashAdvanceCard>>
+      try {
+        res = await call(expectedDebtPayVersion)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (!/уже меняли|верси.*ожидали|DEBT_PAY_VERSION/i.test(msg)) throw e
+        const { refreshCardDebtPayVersion } = await import('./offline')
+        const fresh = await refreshCardDebtPayVersion(num)
+        if (fresh == null) throw e
+        res = await call(fresh)
+      }
+      const nextDebt = round2(Number(res?.card?.debt ?? res?.nextDebt ?? (prevDebt + amount)))
+      const nextVer = (Number((res as any)?.card?.debtPayVersion) || expectedDebtPayVersion + 1)
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        { debt: nextDebt, debtPayVersion: nextVer, debtEnabled: true, ...((res as any)?.card || {}) } as any,
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: nextDebt, debtEnabled: true }, { skipApi: true })
+      }
+      patchShift(shift.id, {
+        expenseTotal: round2((Number(shift.expenseTotal) || 0) + amount),
+      })
+      const phone = useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
+        || cardNow?.phone
+      const histKey = debtAccountKey({ id: input.clientId, phone })
+      if (histKey) {
+        recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+      }
+      void persistPosSnapshot()
+      return { offline: false, data: { debt: nextDebt, clientRef } }
+    })()
+    chargeCashDebtInflight.set(inflightKey, run)
+    try {
+      return await run
+    } finally {
+      chargeCashDebtInflight.delete(inflightKey)
     }
-  })()
+  }
 
+  const applyLocal = async (): Promise<CashAdvanceResult> => {
+    const dup = await findDuplicateCashAdvance({
+      num,
+      amount,
+      shiftId: shift.id,
+      clientRef,
+      clientId: input.clientId,
+      note: input.note,
+      expectedDebtPayVersion,
+      prevDebt,
+    })
+    if (dup) {
+      return {
+        debt: liveDebtNow(num, input.clientId, round2(prevDebt + amount)),
+        duplicate: true,
+        clientRef: String((dup.payload as any)?.clientRef || clientRef),
+      }
+    }
+
+    const nextDebt = round2(prevDebt + amount)
+    const nextVer = expectedDebtPayVersion + 1
+    const nextShift = {
+      ...shift,
+      expenseTotal: round2((Number(shift.expenseTotal) || 0) + amount),
+      updatedAtIso: new Date().toISOString(),
+    }
+    const cardRow = cardNow
+      ? {
+          ...cardNow,
+          debt: nextDebt,
+          debtPayVersion: nextVer,
+          debtEnabled: true,
+          updatedAtIso: new Date().toISOString(),
+        }
+      : {
+          num,
+          debt: nextDebt,
+          debtPayVersion: nextVer,
+          debtEnabled: true,
+          status: 'active' as const,
+        }
+    const clientRow = input.clientId
+      ? {
+          ...(useClientStore.getState().clients.find(c => c.id === input.clientId) || { id: input.clientId }),
+          id: input.clientId,
+          debt: nextDebt,
+          debtEnabled: true,
+          updatedAtIso: new Date().toISOString(),
+        }
+      : null
+
+    const { canAtomicLocalCashAdvanceCommit, commitLocalCashAdvanceAtomic } = await import('./localCashAdvanceAtomic')
+    if (canAtomicLocalCashAdvanceCommit()) {
+      const seq = await allocQueueSeq({ persist: false })
+      const queueRow: PendingOp = {
+        clientRef,
+        kind: 'cash_advance',
+        payload: { ...payload, appliedLocal: true, skipBalances: true },
+        createdAtIso,
+        seq,
+        attempts: 0,
+        localId: clientRef,
+      }
+      const committed = await commitLocalCashAdvanceAtomic({
+        queueRow,
+        card: cardRow as any,
+        client: clientRow as any,
+        shift: nextShift,
+        queueSeq: seq,
+      })
+      if (!committed.ok) {
+        throw new Error(committed.error || 'cash_advance_commit_failed')
+      }
+      await mirrorPendingAfterNativeCommit(queueRow)
+      markMoneyPending({ clientId: input.clientId, cardNum: num })
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        { debt: nextDebt, debtPayVersion: nextVer, debtEnabled: true },
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: nextDebt, debtEnabled: true }, { skipApi: true })
+      }
+      patchShift(nextShift.id, {
+        expenseTotal: nextShift.expenseTotal,
+        updatedAtIso: nextShift.updatedAtIso,
+      })
+      const phone = useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
+        || cardNow?.phone
+      const histKey = debtAccountKey({ id: input.clientId, phone })
+      if (histKey) {
+        recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+      }
+      useOfflineSync.getState().scheduleSyncDebounced(600)
+      void persistPosSnapshot()
+      return { debt: nextDebt, clientRef }
+    }
+
+    // Fallback: Android / no atomic IPC — queue then memory
+    markMoneyPending({ clientId: input.clientId, cardNum: num })
+    await useOfflineSync.getState().queueOp('cash_advance', { ...payload, appliedLocal: true })
+    patchShift(nextShift.id, { expenseTotal: nextShift.expenseTotal })
+    useCardStore.getState().updateCardLoyalty(
+      num,
+      { debt: nextDebt, debtPayVersion: nextVer, debtEnabled: true },
+      { skipApi: true },
+    )
+    if (input.clientId) {
+      useClientStore.getState().updateClient(input.clientId, { debt: nextDebt, debtEnabled: true }, { skipApi: true })
+    }
+    const phone = useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
+      || cardNow?.phone
+    const histKey = debtAccountKey({ id: input.clientId, phone })
+    if (histKey) {
+      recordStoreDebtCharge(histKey, amount, input.note || 'Выдача наличных в долг', { source: 'cashier' })
+    }
+    return { debt: nextDebt, clientRef }
+  }
+
+  const run = localFirstOp(applyLocal)
   chargeCashDebtInflight.set(inflightKey, run)
   try {
     return await run
   } finally {
     chargeCashDebtInflight.delete(inflightKey)
   }
+}
+
+/** Откат локальной выдачи, если сервер отклонил (OCC / смена закрыта). */
+export function revertLocalCashAdvanceOnReject(payload: {
+  num?: string
+  amount?: number
+  shiftId?: string
+  clientId?: string
+  prevDebt?: number
+  expectedDebtPayVersion?: number
+  histKey?: string
+  clientRef?: string
+  note?: string
+}) {
+  const num = String(payload.num || '')
+  const amount = round2(Number(payload.amount) || 0)
+  if (!num || !(amount > 0)) return
+  const prevDebt = payload.prevDebt != null
+    ? round2(Number(payload.prevDebt))
+    : null
+  const ver = Math.max(0, Number(payload.expectedDebtPayVersion) || 0)
+
+  if (payload.shiftId) {
+    const shift = shiftById(payload.shiftId)
+    if (shift) {
+      patchShift(shift.id, {
+        expenseTotal: round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount)),
+      })
+    }
+  }
+  useCardStore.getState().updateCardLoyalty(
+    num,
+    {
+      ...(prevDebt != null ? { debt: prevDebt } : {}),
+      debtPayVersion: ver,
+    } as any,
+    { skipApi: true },
+  )
+  if (payload.clientId && prevDebt != null) {
+    useClientStore.getState().updateClient(payload.clientId, { debt: prevDebt }, { skipApi: true })
+  }
+  clearMoneyPending({ clientId: payload.clientId, cardNum: num })
+  if (payload.clientRef) {
+    try {
+      const histKey = payload.histKey || debtAccountKey({
+        id: payload.clientId,
+        phone: useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.phone,
+      })
+      if (histKey) dropDebtHistoryByClientRef(histKey, String(payload.clientRef))
+    } catch { /* ignore */ }
+  }
+}
+
+export async function chargeCashDebtFromOpenShift(
+  client: AdminClient,
+  amount: number,
+  opts?: { note?: string; posId?: string },
+): Promise<OfflineResult<{ debt: number; clientRef?: string; duplicate?: boolean }>> {
+  const shift = resolveOpenShift(opts?.posId)
+  if (!shift) {
+    throw new Error('Откройте смену, чтобы выдать наличные из кассы')
+  }
+  const amt = round2(amount)
+  if (!(amt > 0)) throw new Error('Укажите сумму')
+
+  let card = useCardStore.getState().cards.find(c =>
+    (client.card && cardNumsMatch(c.num, client.card))
+    || (c.clientId && c.clientId === client.id)
+    || (!!client.phone && phonesMatch(c.phone, client.phone) && c.status !== 'unlinked'),
+  ) || null
+
+  if (!card) {
+    if (isTradeLocalFirst()) {
+      const { provisionLoyaltyCardSafe } = await import('./offlineClientOps')
+      const provisioned = await provisionLoyaltyCardSafe(client)
+      card = useCardStore.getState().cards.find(c =>
+        (provisioned.data.card && cardNumsMatch(c.num, provisioned.data.card))
+        || (c.clientId && c.clientId === client.id),
+      ) || null
+    } else {
+      const { provisionLoyaltyCardForClient } = await import('./clientCardSync')
+      const updated = await provisionLoyaltyCardForClient(client)
+      card = useCardStore.getState().cards.find(c =>
+        (updated.card && cardNumsMatch(c.num, updated.card))
+        || (c.clientId && c.clientId === client.id),
+      ) || null
+    }
+  }
+  if (!card) throw new Error('Не удалось получить карту лояльности')
+
+  const fresh = useClientStore.getState().clients.find(c => c.id === client.id) || client
+  const prevDebt = effectiveDebt(fresh, card)
+  return cashAdvanceSafe(card.num, {
+    amount: amt,
+    note: opts?.note || `Выдача наличных · ${fresh.name || client.name}`,
+    cashierId: shift.cashierId,
+    cashierName: shift.cashierName,
+    shiftId: shift.id,
+    posId: shift.posId || opts?.posId,
+    clientId: fresh.id,
+    prevDebt,
+  })
 }
 
 // ── Пополнение карты наличными ──
