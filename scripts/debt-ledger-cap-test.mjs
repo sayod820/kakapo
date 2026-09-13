@@ -246,14 +246,16 @@ test('6) card reissue: old unlinked, new canonical, no stale sibling debt', () =
       }),
     ],
   }
-  const { unlinked } = unlinkNonCanonicalSiblingCards(db, client, 'КАКАПО-0099', normalizeCardRow)
+  const { unlinked, transferred } = unlinkNonCanonicalSiblingCards(db, client, 'КАКАПО-0099', normalizeCardRow)
   expect(unlinked.includes('КАКАПО-0021'), 'old unlinked')
   const old = db.cards.find(c => c.num === 'КАКАПО-0021')
   const neu = db.cards.find(c => c.num === 'КАКАПО-0099')
   expect(old.status === 'unlinked', 'old status')
-  expect(r2(old.debt) === 0, 'old debt cleared')
+  expect(r2(old.debt) === 0, 'old debt cleared after transfer')
   expect(neu.status === 'active', 'new active')
-  expect(r2(neu.debt) === 217, 'canonical debt kept')
+  // Same-person reissue: sibling open debt moves onto canonical (not destroyed)
+  expect(r2(neu.debt) === r2(217 + 1219.49), `canonical debt after transfer=${neu.debt}`)
+  expect(transferred.some(t => t.from === 'КАКАПО-0021' && r2(t.amount) === 1219.49), 'transfer recorded')
   const canon = findCanonicalCard(db, client)
   expect(canon?.num === 'КАКАПО-0099', 'canonical finder')
 })

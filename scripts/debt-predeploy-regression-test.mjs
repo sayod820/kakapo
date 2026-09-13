@@ -285,18 +285,19 @@ test('8) card reissue — one canonical; sibling unlinked; stale debt ignored', 
   unlinkNonCanonicalSiblingCards(db, client, 'КАКАПО-0046', normalizeCardRow)
   const old = db.cards.find(c => c.num === 'КАКАПО-0021')
   const neu = db.cards.find(c => c.num === 'КАКАПО-0046')
-  expect(old.status === 'unlinked' && r2(old.debt) === 0, 'old cleared')
-  expect(neu.status === 'active' && r2(neu.debt) === 217, 'canonical kept')
+  expect(old.status === 'unlinked' && r2(old.debt) === 0, 'old cleared after transfer')
+  // Same-person sibling debt must transfer onto canonical, not vanish
+  expect(neu.status === 'active' && r2(neu.debt) === r2(217 + 1219.49), `canonical after transfer=${neu.debt}`)
   const canon = findCanonicalCard(db, client)
   expect(canon?.num === 'КАКАПО-0046', 'finder')
   // effective debt must not use unlinked sibling
   const activeOnly = db.cards.filter(c => c.status !== 'unlinked')
   expect(activeOnly.length === 1, 'exactly one active')
-  expect(effectiveDebt(canon, client) === 217, `effective ${effectiveDebt(canon, client)}`)
+  expect(effectiveDebt(canon, client) === r2(217 + 1219.49), `effective ${effectiveDebt(canon, client)}`)
   expect(effectiveDebt(old, client) === 217, 'max(unlinked0, client217)=217 still via client')
   // when reading card debt for sums, skip unlinked
   const sumActive = r2(activeOnly.reduce((s, c) => s + r2(c.debt), 0))
-  expect(sumActive === 217, `active sum ${sumActive}`)
+  expect(sumActive === r2(217 + 1219.49), `active sum ${sumActive}`)
 })
 
 // ── 9. Repaired-customer fixture not rewritten ────────────────

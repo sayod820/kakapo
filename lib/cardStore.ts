@@ -20,6 +20,11 @@ import { isPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
 import { findLocalCard, markCardLoyaltySaved, mergeCardLoyaltyIfRecent } from './loyaltySaveGuard'
 import { loyaltyClientPatchFromCard } from './loyaltyAdminLock'
+import {
+  assertCardAssignableToClient,
+  assertDebtCardUnlinkAllowed,
+  CardOwnershipConflict,
+} from './cardOwnership'
 
 const CARDS_KEY = 'kakapo-cards'
 const PENDING_CARD_MS = 120_000
@@ -198,6 +203,13 @@ export const useCardStore = create<CardStore>((set, get) => ({
   }),
   syncIdentityFromClient: (client, opts) => {
     if (!client.card) return
+    const existing = get().cards.find(c => cardNumsMatch(c.num, client.card))
+    try {
+      assertCardAssignableToClient(existing, client)
+    } catch (e) {
+      if (e instanceof CardOwnershipConflict) return
+      throw e
+    }
     markPendingCardSync(client.card)
     get().updateCard(client.card, {
       client: client.name,
@@ -207,6 +219,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
     }, opts)
   },
   assignToClient: (num, client) => {
+    const existing = get().cards.find(c => cardNumsMatch(c.num, num))
+    assertCardAssignableToClient(existing, client)
     const issued = memberSinceDate(client)
     get().updateCardLoyalty(num, {
       client: client.name,
@@ -224,15 +238,22 @@ export const useCardStore = create<CardStore>((set, get) => ({
     useClientStore.getState().updateClient(client.id, { card: num })
   },
   linkCard: (num, data) => {
+    const existing = get().cards.find(c => cardNumsMatch(c.num, num))
     if (data.clientId) {
       const client = useClientStore.getState().clients.find(c => c.id === data.clientId)
+      if (client) assertCardAssignableToClient(existing, client)
       if (client?.card && client.card !== num) {
+        const prev = get().cards.find(c => cardNumsMatch(c.num, client.card))
+        assertDebtCardUnlinkAllowed(prev)
         get().unlinkCard(client.card)
       }
     }
     const other = get().cards.find(c => c.num !== num && c.phone && phonesMatch(c.phone, data.phone))
     if (other && other.status === 'active') {
-      get().unlinkCard(other.num)
+      if (!(other.clientId && data.clientId && other.clientId !== data.clientId)) {
+        assertDebtCardUnlinkAllowed(other)
+        get().unlinkCard(other.num)
+      }
     }
     get().updateCardLoyalty(num, {
       client: data.clientName,
@@ -261,6 +282,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
     }
   },
   unlinkCard: num => {
+    const existing = get().cards.find(c => cardNumsMatch(c.num, num))
+    assertDebtCardUnlinkAllowed(existing)
     clearClientCard(num)
     set(s => {
       const cards = s.cards.map(c => (c.num === num ? normalizeCard({

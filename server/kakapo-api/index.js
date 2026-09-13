@@ -196,6 +196,10 @@ import {
 } from './debtLedger.js'
 import {
   unlinkNonCanonicalSiblingCards,
+  assertCardAssignableToClient,
+  assertDebtCardUnlinkAllowed,
+  CardOwnershipConflict,
+  bindCardToClient,
 } from './cardCanonical.js'
 import {
   ensureAuditLog,
@@ -3615,6 +3619,20 @@ app.patch('/clients/:id', (req, res) => {
       })
     }
   }
+  // Reject silent card steal: existing owned card cannot be reassigned via client.card patch.
+  if (patch.card != null && String(patch.card).trim()) {
+    const targetCard = findCardByNum(patch.card)
+    if (targetCard) {
+      try {
+        assertCardAssignableToClient(db, targetCard, { ...c, ...patch, id: c.id })
+      } catch (e) {
+        if (e instanceof CardOwnershipConflict) {
+          return res.status(409).json({ detail: e.message, code: e.code, conflict: e.details })
+        }
+        throw e
+      }
+    }
+  }
   // Долг НЕ присваиваем напрямую — проводим через единую логику (ledger + лимит + карта).
   const debtRequested = patch.debt != null ? Number(patch.debt) || 0 : null
   const debtNoteReq = patch.debtNote
@@ -4360,9 +4378,19 @@ function syncCardIdentityFromClient(client) {
     card = (db.cards || []).find(x => x.clientId === client.id && x.status !== 'unlinked')
   }
   if (!card || card.status === 'unlinked') return
-  if (!isPlaceholderClientName(client.name)) card.client = String(client.name).trim()
-  if (client.phone) card.phone = client.phone
-  if (client.id) card.clientId = client.id
+  try {
+    assertCardAssignableToClient(db, card, client)
+  } catch (e) {
+    if (e instanceof CardOwnershipConflict) {
+      // Do not steal another customer's card; clear stale client.card pointer.
+      if (client.card && String(client.card).toUpperCase() === String(card.num).toUpperCase()) {
+        client.card = ''
+      }
+      return
+    }
+    throw e
+  }
+  bindCardToClient(card, client)
   if (client.blocked) card.status = 'blocked'
   else if (card.status === 'blocked') card.status = 'active'
 }
@@ -4373,17 +4401,31 @@ function ensureCardRowForClient(client) {
   if (!client.card) return issueCardForNewClient(client)
   let card = findCardByNum(client.card)
   if (card) {
+    try {
+      assertCardAssignableToClient(db, card, client)
+    } catch (e) {
+      if (e instanceof CardOwnershipConflict) {
+        // Issue a fresh card instead of stealing an owned number.
+        return issueCardForNewClient(client)
+      }
+      throw e
+    }
     if (client.id && !card.clientId) card.clientId = client.id
     if (client.phone && !card.phone) card.phone = client.phone
     if (client.name && !card.client) card.client = client.name
     if (card.status === 'unlinked') {
+      // Reactivate only if assignable (asserted above) and empty/same person
       card.status = client.blocked ? 'blocked' : 'active'
       card.clientId = client.id
       card.phone = client.phone || card.phone
       card.client = client.name || card.client
-      card.debt = Number(client.debt) || 0
-      card.debtLimit = Number(client.debtLimit) || 0
-      syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
+      if (!(Number(card.debt) > 0.001)) {
+        card.debt = Number(client.debt) || 0
+        card.debtLimit = Number(client.debtLimit) || 0
+        syncDebtLedgerToCard(client, card, { syncDebtBalance: true })
+      }
+    } else {
+      bindCardToClient(card, client)
     }
     unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
     return card
@@ -4429,9 +4471,19 @@ function syncClientFromCardRow(card) {
     return
   }
   const phone = card.phone
-  if (!phone) return
-  let client = db.clients.find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
-  if (!client && card.status === 'active') {
+  // Prefer stable clientId ownership; never auto-merge two people by card text alone.
+  let client = card.clientId
+    ? db.clients.find(c => String(c.id) === String(card.clientId))
+    : null
+  if (!client && phone) {
+    const byPhone = db.clients.find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
+    if (byPhone) {
+      // Phone match is allowed only when card has no foreign clientId.
+      const ownerId = String(card.clientId || '')
+      if (!ownerId || ownerId === String(byPhone.id)) client = byPhone
+    }
+  }
+  if (!client && card.status === 'active' && phone) {
     const nums = db.clients.map(c => parseInt(String(c.id).replace(/\D/g, ''), 10)).filter(n => !Number.isNaN(n))
     const n = (nums.length ? Math.max(...nums) : 0) + 1
     client = normalizeClientRow({
@@ -4452,11 +4504,18 @@ function syncClientFromCardRow(card) {
     db.clients.push(client)
   }
   if (!client) return
+  try {
+    assertCardAssignableToClient(db, card, client)
+  } catch (e) {
+    if (e instanceof CardOwnershipConflict) return
+    throw e
+  }
   client.card = card.num
   unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
   const cardName = String(card.client || '').trim()
   const clientName = String(client.name || '').trim()
   // Имя принадлежит клиенту. Карта — копия. Не затираем реальное ФИО старым именем на карте.
+  // Never propagate card display name onto a different real person.
   if (isPlaceholderClientName(clientName) && !isPlaceholderClientName(cardName)) {
     client.name = cardName
   }
@@ -4592,6 +4651,25 @@ app.post('/cards/ensure', (req, res) => {
       return c.card.toUpperCase() === num || digits === num.replace(/\D/g, '')
     })
   if (card) {
+    const attempted = client || (body.phone
+      ? (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(body.phone))
+      : null)
+    if (attempted) {
+      try {
+        assertCardAssignableToClient(db, card, attempted)
+      } catch (e) {
+        if (e instanceof CardOwnershipConflict) {
+          return res.status(409).json({ detail: e.message, code: e.code, conflict: e.details })
+        }
+        throw e
+      }
+    } else if (body.clientId && card.clientId && String(body.clientId) !== String(card.clientId)) {
+      return res.status(409).json({
+        detail: `Карта ${num} уже принадлежит клиенту ${card.clientId}`,
+        code: 'CARD_OWNED_BY_OTHER_CLIENT',
+        conflict: { cardNum: num, ownerClientId: card.clientId, attemptedClientId: body.clientId },
+      })
+    }
     const patch = { ...body, num: card.num }
     delete patch.unlink
     const vipChanged = patch.vip !== undefined && !!patch.vip !== !!card.vip
@@ -4658,6 +4736,14 @@ app.patch('/cards/:num', (req, res) => {
     level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
   }
   if (req.body.unlink) {
+    try {
+      assertDebtCardUnlinkAllowed(card, { allowDebtDestroy: req.body.allowDebtDestroy === true })
+    } catch (e) {
+      if (e instanceof CardOwnershipConflict) {
+        return res.status(409).json({ detail: e.message, code: e.code, conflict: e.details })
+      }
+      throw e
+    }
     const prevClient = db.clients?.find(x => x.card === num)
     if (prevClient) prevClient.card = ''
     Object.assign(card, normalizeCardRow({
@@ -4688,6 +4774,30 @@ app.patch('/cards/:num', (req, res) => {
     delete body.bonusPayVersion
     const prevDebt = Number(card.debt) || 0
     const enforceDebtLimit = !isStaffRequest(req) // лимит только для приложения клиента
+    // Ownership guard before mutating identity fields
+    if (body.clientId != null || body.phone != null) {
+      const attempted = body.clientId
+        ? (db.clients || []).find(c => c.id === body.clientId)
+        : (body.phone
+          ? (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(body.phone))
+          : null)
+      if (attempted) {
+        try {
+          assertCardAssignableToClient(db, card, attempted)
+        } catch (e) {
+          if (e instanceof CardOwnershipConflict) {
+            return res.status(409).json({ detail: e.message, code: e.code, conflict: e.details })
+          }
+          throw e
+        }
+      } else if (body.clientId && card.clientId && String(body.clientId) !== String(card.clientId)) {
+        return res.status(409).json({
+          detail: `Карта ${num} уже принадлежит клиенту ${card.clientId}`,
+          code: 'CARD_OWNED_BY_OTHER_CLIENT',
+          conflict: { cardNum: num, ownerClientId: card.clientId, attemptedClientId: body.clientId },
+        })
+      }
+    }
     if (body.debt != null && enforceDebtLimit) {
       const nextDebt = Number(body.debt) || 0
       if (nextDebt > prevDebt + 0.001) {

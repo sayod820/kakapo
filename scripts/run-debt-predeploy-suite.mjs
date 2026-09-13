@@ -17,6 +17,7 @@ const suites = [
   'scripts/debt-repay-cash-ledger-test.mjs',
   'scripts/debt-repay-cash-journal-test.mjs',
   'scripts/provision-loyalty-hydrate-import-test.mjs',
+  'scripts/card-ownership-guard-test.mjs',
   'scripts/shift-sale-totals-test.mjs',
   'scripts/phase5-atomic-sale-test.mjs',
   'scripts/phase6-push-pull-starvation-test.mjs',
@@ -118,6 +119,8 @@ const idx = fs.readFileSync('server/kakapo-api/index.js', 'utf8')
 if (!idx.includes("from './debtLedger.js'")) throw new Error('index missing debtLedger import')
 if (!idx.includes("from './cardCanonical.js'")) throw new Error('index missing cardCanonical import')
 if (!idx.includes('unlinkNonCanonicalSiblingCards')) throw new Error('index missing unlink wiring')
+if (!idx.includes('assertCardAssignableToClient')) throw new Error('index missing card ownership guard')
+if (!idx.includes('assertDebtCardUnlinkAllowed')) throw new Error('index missing debt unlink guard')
 if (!idx.includes('syncDebtBalance')) throw new Error('index missing syncDebtBalance wiring on issue/ensure')
 const chk = spawnSync(process.execPath, ['--check', 'server/kakapo-api/index.js'], { encoding: 'utf8' })
 if (chk.status !== 0) throw new Error(chk.stderr || 'index syntax fail')
