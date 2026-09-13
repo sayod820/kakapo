@@ -1,7 +1,9 @@
 /**
  * Hydrate durable cash debtRepayCash ledger from authoritative server moneyLedger.
- * Reconstructs already-ACKed cash repayments for the open shift (1.2.182).
- * Non-blocking, coalesced, fail-soft — never zeros local ledger on error.
+ * Reconstructs already-ACKed cash repayments for the *active* open shift only.
+ * Non-blocking, coalesced (per shiftId), fail-soft — never zeros local ledger on error.
+ *
+ * Never applies closed-shift repayments onto a newly opened shift.
  */
 import {
   applyCashDebtRepayJournalRows,
@@ -9,6 +11,7 @@ import {
   isCashDebtRepayJournalRow,
   journalDebtRepayDedupeKey,
   journalRowToLedgerEntry,
+  resolveJournalHydrateShift,
 } from './debtRepayCashJournalCore.mjs'
 import {
   rememberCashDebtRepay,
@@ -22,6 +25,7 @@ export {
   isCashDebtRepayJournalRow,
   journalDebtRepayDedupeKey,
   journalRowToLedgerEntry,
+  resolveJournalHydrateShift,
 }
 
 type OpenShiftLike = {
@@ -30,21 +34,26 @@ type OpenShiftLike = {
   openedAtIso?: string | null
   createdAtIso?: string | null
   debtRepayCash?: number
+  cashierId?: string
+  posId?: string
 }
 
-let inFlight: Promise<{ ok: boolean; applied?: number; reason?: string }> | null = null
+let inFlight: Promise<JournalHydrateResult> | null = null
+let inFlightShiftId = ''
 let lastOkAt = 0
 let lastShiftId = ''
-/** Coalesce window — avoid hammering journal on every softSync tick. */
+/** Coalesce window — per active shiftId only. */
 const COALESCE_MS = 45_000
 
-function pickOpenShift(shifts: OpenShiftLike[] | null | undefined, preferId?: string): OpenShiftLike | null {
-  const list = Array.isArray(shifts) ? shifts : []
-  if (preferId) {
-    const hit = list.find(s => String(s?.id || '') === String(preferId) && String(s?.status || '') === 'open')
-    if (hit) return hit
-  }
-  return list.find(s => String(s?.status || '') === 'open') || null
+/**
+ * Resolve the shift to hydrate: explicit open preferId, else shared pickActiveOpenShift.
+ * Never falls back to "first open in array" (orphan/old open bug).
+ */
+function resolveActiveShiftForHydrate(
+  shifts: OpenShiftLike[] | null | undefined,
+  opts?: { preferId?: string; cashierId?: string; posId?: string },
+): OpenShiftLike | null {
+  return resolveJournalHydrateShift(shifts, opts) as OpenShiftLike | null
 }
 
 function fromIsoForShift(shift: OpenShiftLike): string {
@@ -52,27 +61,26 @@ function fromIsoForShift(shift: OpenShiftLike): string {
   if (opened) return opened
   const created = String(shift.createdAtIso || '').trim()
   if (created) return created
-  // Fallback: start of UTC day — still better than unbounded 10k journal
   const d = new Date()
   d.setUTCHours(0, 0, 0, 0)
   return d.toISOString()
 }
 
 /**
- * Patch open shift.debtRepayCash from ledger so Cashier useMemo refreshes.
- * Does not touch salesCash / salesCount / salesCard.
+ * Patch *open* shift.debtRepayCash from ledger so Cashier useMemo refreshes.
+ * Never writes debtRepayCash onto closed shifts.
  */
 function bumpOpenShiftDebtRepayCash(shiftId: string) {
   const sid = String(shiftId || '').trim()
   if (!sid) return
   try {
-    // Lazy import avoids circular deps with posStore
     void import('./posStore').then(({ usePosStore }) => {
       const total = uniqueCashDebtRepayTotalForShift(sid)
       const shifts = usePosStore.getState().shifts || []
       let changed = false
       const next = shifts.map((s: OpenShiftLike) => {
         if (String(s?.id || '') !== sid) return s
+        if (String(s?.status || '') !== 'open') return s
         const cur = Math.round((Number(s.debtRepayCash) || 0) * 100) / 100
         const want = Math.round(Math.max(cur, total) * 100) / 100
         if (want === cur) return s
@@ -91,9 +99,45 @@ export type JournalHydrateResult = {
   shiftId?: string
 }
 
+async function resolveHydrateContext(preferId?: string): Promise<{
+  shift: OpenShiftLike | null
+  reason?: string
+}> {
+  try {
+    const { usePosStore } = await import('./posStore')
+    const shifts = usePosStore.getState().shifts || []
+    let posId = ''
+    try {
+      const { getBoundPosIdSync } = await import('./tradeDevice')
+      posId = String(getBoundPosIdSync() || '').trim()
+    } catch { /* ignore */ }
+    // Prefer cashierId from the currently newest open shift at this POS (Cashier settings are LS-only).
+    let cashierId = ''
+    const openAtPos = shifts.filter(s =>
+      String(s?.status || '') === 'open'
+      && (!posId || String(s?.posId || '') === posId),
+    )
+    if (openAtPos.length) {
+      const newest = [...openAtPos].sort((a, b) =>
+        Date.parse(String(b.openedAtIso || '')) - Date.parse(String(a.openedAtIso || '')),
+      )[0]
+      cashierId = String(newest?.cashierId || '').trim()
+    }
+    const shift = resolveActiveShiftForHydrate(shifts, {
+      preferId,
+      cashierId: cashierId || undefined,
+      posId: posId || undefined,
+    })
+    return { shift }
+  } catch {
+    return { shift: null, reason: 'no_store' }
+  }
+}
+
 /**
- * Fetch journal and merge into durable ledger. Safe to call often (coalesced).
+ * Fetch journal and merge into durable ledger for the active open shift only.
  * Never clears local ledger on failure.
+ * Never applies rows whose shiftId ≠ active open shift.
  */
 export async function hydrateDebtRepayCashFromJournal(opts?: {
   force?: boolean
@@ -101,39 +145,48 @@ export async function hydrateDebtRepayCashFromJournal(opts?: {
   /** Inject rows for tests (skips network). */
   _testRows?: unknown[]
 }): Promise<JournalHydrateResult> {
-  if (inFlight && !opts?.force && !opts?._testRows) return inFlight
+  const preferId = String(opts?.shiftId || '').trim() || undefined
+  const force = !!opts?.force
+  const testRows = opts?._testRows
+
+  // In-flight reuse only for the same target shift (shift-aware).
+  if (inFlight && !force && !testRows) {
+    if (!preferId || preferId === inFlightShiftId) return inFlight
+    try { await inFlight } catch { /* ignore */ }
+  }
+
+  try {
+    await hydrateDebtRepayCashLedger()
+  } catch { /* ignore */ }
+
+  const ctx = await resolveHydrateContext(preferId)
+  if (ctx.reason === 'no_store') return { ok: false, reason: 'no_store' }
+  const shift = ctx.shift
+  if (!shift?.id || String(shift.status || '') !== 'open') {
+    return { ok: false, reason: 'no_open_shift' }
+  }
+  const shiftId = String(shift.id)
+
+  // Another call may have started for this shift while we resolved context.
+  if (inFlight && !force && !testRows && inFlightShiftId === shiftId) {
+    return inFlight
+  }
+
+  const now = Date.now()
+  if (
+    !force
+    && !testRows
+    && lastShiftId === shiftId
+    && lastOkAt
+    && now - lastOkAt < COALESCE_MS
+  ) {
+    return { ok: true, applied: 0, reason: 'coalesced', shiftId }
+  }
 
   const run = (async (): Promise<JournalHydrateResult> => {
-    try {
-      await hydrateDebtRepayCashLedger()
-    } catch { /* ignore */ }
-
-    let shift: OpenShiftLike | null = null
-    try {
-      const { usePosStore } = await import('./posStore')
-      shift = pickOpenShift(usePosStore.getState().shifts, opts?.shiftId)
-    } catch {
-      return { ok: false, reason: 'no_store' }
-    }
-    if (!shift?.id || String(shift.status || '') !== 'open') {
-      return { ok: false, reason: 'no_open_shift' }
-    }
-    const shiftId = String(shift.id)
-
-    const now = Date.now()
-    if (
-      !opts?.force
-      && !opts?._testRows
-      && lastShiftId === shiftId
-      && lastOkAt
-      && now - lastOkAt < COALESCE_MS
-    ) {
-      return { ok: true, applied: 0, reason: 'coalesced', shiftId }
-    }
-
     let rows: unknown[] = []
-    if (opts?._testRows) {
-      rows = opts._testRows
+    if (testRows) {
+      rows = testRows
     } else {
       try {
         const { isOnline } = await import('./offline')
@@ -154,6 +207,7 @@ export async function hydrateDebtRepayCashFromJournal(opts?: {
       }
     }
 
+    // Exact shiftId match only — closed previous shift rows never land on new open shift.
     const applied = applyCashDebtRepayJournalRows(rows, shiftId, rememberCashDebtRepay)
     bumpOpenShiftDebtRepayCash(shiftId)
     lastOkAt = Date.now()
@@ -161,10 +215,14 @@ export async function hydrateDebtRepayCashFromJournal(opts?: {
     return { ok: true, applied, shiftId }
   })()
 
-  if (!opts?._testRows) {
+  if (!testRows) {
+    inFlightShiftId = shiftId
     inFlight = run.finally(() => {
-      if (inFlight === run) inFlight = null
-    }) as Promise<JournalHydrateResult>
+      if (inFlight === run) {
+        inFlight = null
+        inFlightShiftId = ''
+      }
+    })
     return inFlight
   }
   return run
@@ -178,6 +236,7 @@ export function scheduleDebtRepayCashJournalHydrate(opts?: { force?: boolean; sh
 /** Test helper */
 export function _resetDebtRepayCashJournalHydrateForTests() {
   inFlight = null
+  inFlightShiftId = ''
   lastOkAt = 0
   lastShiftId = ''
 }

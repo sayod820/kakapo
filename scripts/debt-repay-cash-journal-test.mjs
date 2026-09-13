@@ -1,5 +1,5 @@
 /**
- * Server journal → durable cash debtRepayCash backfill (1.2.182).
+ * Server journal → durable cash debtRepayCash backfill (1.2.183).
  * Run: node scripts/debt-repay-cash-journal-test.mjs
  */
 import fs from 'node:fs'
@@ -11,6 +11,7 @@ import {
   isCashDebtRepayJournalRow,
   journalDebtRepayDedupeKey,
   journalRowToLedgerEntry,
+  resolveJournalHydrateShift,
 } from '../lib/debtRepayCashJournalCore.mjs'
 import {
   rememberCashDebtRepay,
@@ -25,6 +26,7 @@ import {
   expectedTillCashFromShift,
   aggregateShiftSaleTotals,
 } from '../lib/shiftSaleTotalsCore.mjs'
+import { pickActiveOpenShift } from '../lib/shiftReconcileCore.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const results = []
@@ -259,17 +261,134 @@ test('wiring: journal hydrate scheduled at lifecycle points', () => {
   const pos = fs.readFileSync(path.join(root, 'lib/posStore.ts'), 'utf8')
   const pull = fs.readFileSync(path.join(root, 'lib/syncPull.ts'), 'utf8')
   const sync = fs.readFileSync(path.join(root, 'lib/offlineSync.ts'), 'utf8')
+  const core = fs.readFileSync(path.join(root, 'lib/debtRepayCashJournalCore.mjs'), 'utf8')
   expect(j.includes('getFinanceJournal'), 'uses finance journal API')
   expect(j.includes("type: 'debt_repay_cash'") || j.includes('debt_repay_cash'), 'type filter')
+  expect(core.includes('pickActiveOpenShift') && core.includes('resolveJournalHydrateShift'), 'active shift picker')
+  expect(j.includes('resolveJournalHydrateShift') || j.includes('resolveActiveShiftForHydrate'), 'uses resolver')
+  expect(!j.includes("list.find(s => String(s?.status || '') === 'open')"), 'no first-open find')
   expect(hydrate.includes('scheduleDebtRepayCashJournalHydrate'), 'bootstrap')
   expect(pos.includes('scheduleDebtRepayCashJournalHydrate'), 'softSync')
   expect(pull.includes('scheduleDebtRepayCashJournalHydrate'), 'syncPull')
   expect(sync.includes('scheduleDebtRepayCashJournalHydrate'), 'reconnect/refetch')
 })
 
-test('desktop version 1.2.182', () => {
+test('active picker: prefers newest server open, not first array open', () => {
+  const shifts = [
+    {
+      id: 'SHIFT-mtwi7klw-yl4r6',
+      status: 'open',
+      posId: 'POS-DEFAULT',
+      cashierId: 'C1',
+      openedAtIso: '2026-09-11T05:14:16.736Z',
+    },
+    {
+      id: 'SHIFT-mtxsgiqx-cvp3g',
+      status: 'open',
+      posId: 'POS-DEFAULT',
+      cashierId: 'C1',
+      openedAtIso: '2026-09-12T02:48:54.769Z',
+    },
+  ]
+  const firstFind = shifts.find(s => s.status === 'open')
+  expect(firstFind.id === 'SHIFT-mtwi7klw-yl4r6', 'array first is orphan')
+  const active = resolveJournalHydrateShift(shifts, { posId: 'POS-DEFAULT', cashierId: 'C1' })
+  expect(active && active.id === 'SHIFT-mtxsgiqx-cvp3g', `active=${active?.id}`)
+  expect(pickActiveOpenShift(shifts, { posId: 'POS-DEFAULT', cashierId: 'C1' })?.id === active.id, 'shared picker')
+})
+
+test('closed old-shift repay NOT applied to new open shift', () => {
+  const OLD = 'SHIFT-mtxsgiqx-cvp3g'
+  const NEW = 'SHIFT-new-day-open'
+  const oldRow = {
+    ...liveJournalRow,
+    shiftId: OLD,
+    clientRef: LIVE_REF,
+    amount: 2,
+  }
+  // Hydrate current open shift while journal still has only closed-shift history
+  applyCashDebtRepayJournalRows([oldRow], NEW, rememberCashDebtRepay)
+  expect(uniqueCashDebtRepayTotalForShift(NEW) === 0, 'hydrate new: old repay skipped')
+  expect(uniqueCashDebtRepayTotalForShift(OLD) === 0, 'hydrate new: does not write under old id')
+
+  const newShift = {
+    id: NEW,
+    status: 'open',
+    openingCash: 0,
+    salesCash: 100,
+    salesCard: 0,
+    salesCount: 1,
+    expenseTotal: 0,
+    cashInTotal: 0,
+    debtRepayCash: 0,
+  }
+  const sales = [
+    { id: 'S1', clientRef: 's1', shiftId: NEW, paidCash: 100, paidCard: 0, debtAdded: 0, total: 100 },
+  ]
+  const over0 = overlayShiftSaleTotals(
+    withPreservedDebtRepayCash(newShift, newShift),
+    sales,
+    loadDebtRepayCashLedger().filter(r => r.shiftId === NEW),
+  )
+  expect(r2(over0.debtRepayCash) === 0, 'current shift debtRepayCash remains 0')
+  expect(r2(expectedTillCashFromShift(over0)) === 100, 'till without historical 2.00')
+
+  // Mixed journal: only NEW rows apply when hydrating NEW
+  const journal = [
+    oldRow,
+    {
+      id: 'LED-new-only',
+      type: 'debt_repay_cash',
+      amount: 5,
+      shiftId: NEW,
+      clientRef: 'new-shift-repay',
+      meta: { method: 'cash' },
+    },
+  ]
+  applyCashDebtRepayJournalRows(journal, NEW, rememberCashDebtRepay)
+  expect(r2(uniqueCashDebtRepayTotalForShift(NEW)) === 5, 'only new shift own repay')
+  expect(filterCashDebtRepayJournalForShift(journal, NEW).length === 1, 'filter one for new')
+  expect(filterCashDebtRepayJournalForShift(journal, OLD).length === 1, 'old still filterable alone')
+
+  const over = overlayShiftSaleTotals(
+    withPreservedDebtRepayCash(newShift, newShift),
+    sales,
+    loadDebtRepayCashLedger().filter(r => r.shiftId === NEW),
+  )
+  expect(r2(over.debtRepayCash) === 5, `new repay only=${over.debtRepayCash}`)
+  expect(r2(over.salesCash) === 100, 'sale cash')
+  expect(r2(expectedTillCashFromShift(over)) === 105, 'till')
+
+  // Preserve must not copy closed shift's field onto a different open id
+  const preservedCross = withPreservedDebtRepayCash(
+    { id: OLD, status: 'closed', debtRepayCash: 2 },
+    { id: NEW, status: 'open', debtRepayCash: 0 },
+  )
+  expect(r2(preservedCross.debtRepayCash) === 5, `cross-id uses NEW ledger only=${preservedCross.debtRepayCash}`)
+
+  // Closed preferId must not resolve to a different open shift
+  const closedPick = resolveJournalHydrateShift(
+    [
+      { id: OLD, status: 'closed', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-12T02:48:54.769Z' },
+      { id: NEW, status: 'open', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-13T03:00:00.000Z' },
+    ],
+    { preferId: OLD },
+  )
+  expect(closedPick === null, 'closed preferId → null (no bleed)')
+
+  const active = resolveJournalHydrateShift(
+    [
+      { id: OLD, status: 'closed', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-12T02:48:54.769Z' },
+      { id: NEW, status: 'open', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-13T03:00:00.000Z' },
+    ],
+    { posId: 'POS-DEFAULT', cashierId: 'C1' },
+  )
+  expect(active && active.id === NEW, `active open=${active?.id}`)
+})
+
+test('desktop version 1.2.183', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'desktop/package.json'), 'utf8'))
-  expect(pkg.version === '1.2.182', `ver=${pkg.version}`)
+  expect(pkg.version === '1.2.183', `ver=${pkg.version}`)
 })
 
 const failed = results.filter(r => r.status === 'FAIL')

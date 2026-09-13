@@ -238,7 +238,10 @@ test('durable debtRepayCash ledger wired (ACK/sync survive)', () => {
   expect(pos.includes('withPreservedDebtRepayCash'), 'softSync preserve')
   expect(pull.includes('withPreservedDebtRepayCash'), 'syncPull preserve')
   const journal = fs.readFileSync(path.join(root, 'lib/debtRepayCashJournal.ts'), 'utf8')
+  const journalCore = fs.readFileSync(path.join(root, 'lib/debtRepayCashJournalCore.mjs'), 'utf8')
   expect(journal.includes('getFinanceJournal'), 'journal backfill module')
+  expect(journalCore.includes('pickActiveOpenShift'), 'active open shift picker')
+  expect(journal.includes('lastShiftId'), 'shift-aware coalesce')
   expect(pos.includes('scheduleDebtRepayCashJournalHydrate'), 'journal on softSync')
 })
 

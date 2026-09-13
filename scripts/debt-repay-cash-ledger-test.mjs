@@ -292,6 +292,22 @@ test('LIVE FIXTURE: expected till 771.68; sale cash 994.18; count 54; card 72.90
   )
 })
 
+test('preserve: closed-shift debtRepayCash must not bleed onto new open shift', () => {
+  rememberCashDebtRepay({
+    clientRef: LIVE_REF,
+    shiftId: LIVE_SHIFT,
+    amount: LIVE_REPAY,
+    method: 'cash',
+  })
+  const NEW = 'SHIFT-new-day-open'
+  const merged = withPreservedDebtRepayCash(
+    { id: LIVE_SHIFT, status: 'closed', debtRepayCash: LIVE_REPAY },
+    { id: NEW, status: 'open', debtRepayCash: 0, salesCash: 0 },
+  )
+  expect(String(merged.id) === NEW, 'keeps new id')
+  expect(r2(merged.debtRepayCash) === 0, `no bleed=${merged.debtRepayCash}`)
+})
+
 test('wiring: Cashier uses overlayShiftSaleTotalsWithDebtRepay', () => {
   const src = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')
   expect(src.includes('overlayShiftSaleTotalsWithDebtRepay'), 'cashier overlay')
