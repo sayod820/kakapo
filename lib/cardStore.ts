@@ -25,6 +25,11 @@ import {
   assertDebtCardUnlinkAllowed,
   CardOwnershipConflict,
 } from './cardOwnership'
+import {
+  mergeCardsServerAuthoritative,
+  patchHasCardIdentity,
+  persistAuthoritativeCrmCaches,
+} from './crmIdentityAuthority'
 
 const CARDS_KEY = 'kakapo-cards'
 const PENDING_CARD_MS = 120_000
@@ -120,16 +125,18 @@ function pushLoyaltyToClient(card: AdminCard, skipApi?: boolean) {
   if (!client) return
   const prevBonus = client.bonus || 0
   const loyalty = loyaltyClientPatchFromCard(card, client)
+  // Always local-only: never PATCH client identity/card binding from loyalty mirror.
+  // Server identity writes require explicit allowIdentityWrite ops.
   useClientStore.getState().updateClient(client.id, {
-    card: card.status === 'unlinked' ? '' : card.num,
     ...loyalty,
     bonus: card.bonus,
     debt: card.debt,
     debtLimit: card.debtLimit,
-  }, { skipApi })
+  }, { skipApi: true })
   if (card.bonus > prevBonus) {
     onBonusCredited(client.phone, card.bonus - prevBonus, card.num)
   }
+  void skipApi
 }
 
 function clearClientCard(num: string) {
@@ -147,9 +154,9 @@ interface CardStore {
   hydrate: () => void
   reload: () => void
   setCards: (list: AdminCard[]) => void
-  updateCard: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean }) => void
-  updateCardLoyalty: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean }) => void
-  syncIdentityFromClient: (client: AdminClient, opts?: { skipApi?: boolean }) => void
+  updateCard: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean; allowIdentityWrite?: boolean }) => void
+  updateCardLoyalty: (num: string, patch: Partial<AdminCard>, opts?: { skipApi?: boolean; allowIdentityWrite?: boolean }) => void
+  syncIdentityFromClient: (client: AdminClient, opts?: { skipApi?: boolean; allowIdentityWrite?: boolean }) => void
   assignToClient: (num: string, client: AdminClient) => void
   linkCard: (num: string, data: {
     phone: string
@@ -189,7 +196,12 @@ export const useCardStore = create<CardStore>((set, get) => ({
   updateCard: (num, patch, opts) => set(s => {
     const cards = s.cards.map(c => (c.num === num ? normalizeCard({ ...c, ...patch, num }) : c))
     saveCards(cards, { skipEmit: opts?.skipApi })
-    if (USE_API && !opts?.skipApi) api.updateCard(num, patch).catch(console.error)
+    if (USE_API && !opts?.skipApi) {
+      const identity = patchHasCardIdentity(patch as Record<string, unknown>)
+      if (!identity || opts?.allowIdentityWrite) {
+        api.updateCard(num, patch).catch(console.error)
+      }
+    }
     return { cards }
   }),
   updateCardLoyalty: (num, patch, opts) => set(s => {
@@ -198,7 +210,12 @@ export const useCardStore = create<CardStore>((set, get) => ({
     saveCards(cards, { skipEmit: opts?.skipApi })
     const updated = cards.find(c => cardNumsMatch(c.num, key))
     if (updated) pushLoyaltyToClient(updated, opts?.skipApi)
-    if (USE_API && !opts?.skipApi && updated) api.updateCard(updated.num, patch).catch(console.error)
+    if (USE_API && !opts?.skipApi && updated) {
+      const identity = patchHasCardIdentity(patch as Record<string, unknown>)
+      if (!identity || opts?.allowIdentityWrite) {
+        api.updateCard(updated.num, patch).catch(console.error)
+      }
+    }
     return { cards }
   }),
   syncIdentityFromClient: (client, opts) => {
@@ -216,7 +233,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       phone: client.phone,
       clientId: client.id,
       status: client.blocked ? 'blocked' : 'active',
-    }, opts)
+    }, { ...opts, allowIdentityWrite: opts?.allowIdentityWrite === true })
   },
   assignToClient: (num, client) => {
     const existing = get().cards.find(c => cardNumsMatch(c.num, num))
@@ -234,8 +251,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
       vip: !!client.vip,
       debtEnabled: !!client.debtEnabled,
       ...(issued ? { issued } : {}),
-    })
-    useClientStore.getState().updateClient(client.id, { card: num })
+    }, { allowIdentityWrite: true })
+    useClientStore.getState().updateClient(client.id, { card: num }, { allowIdentityWrite: true })
   },
   linkCard: (num, data) => {
     const existing = get().cards.find(c => cardNumsMatch(c.num, num))
@@ -266,7 +283,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
       debt: data.debt,
       vip: !!data.vip,
       debtEnabled: !!data.debtEnabled,
-    })
+    }, { allowIdentityWrite: true })
     if (data.clientId) {
       useClientStore.getState().updateClient(data.clientId, {
         card: num,
@@ -397,33 +414,29 @@ export const useCardStore = create<CardStore>((set, get) => ({
       const apiList = ensureArray<AdminCard>(await api.getCards(), 'cards')
       const local = get().cards
       const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
-      const merged = apiCards.map(ac => {
+      // Match by card.num ONLY — never by missing id / phone cross-link.
+      const merged = mergeCardsServerAuthoritative(local, apiCards, {
+        isIdentityPending: isClientIdentityPending,
+        isCardPending: isPendingCardSync,
+        mergeLoyalty: (remote, localCard) => mergeCardLoyaltyIfRecent(remote, localCard),
+      })
+      for (const ac of apiCards) {
         const localCard = findLocalCard(local, ac.num)
-        let row = mergeCardLoyaltyIfRecent(ac, localCard)
         const clientId = String(localCard?.clientId || ac.clientId || '')
-        if (localCard && clientId && isClientIdentityPending(clientId)) {
-          row = {
-            ...row,
-            client: localCard.client || row.client,
-            phone: localCard.phone || row.phone,
-            clientId: localCard.clientId || row.clientId,
-            status: localCard.status,
-          }
-        } else {
+        if (!(localCard && clientId && isClientIdentityPending(clientId))) {
           clearPendingCardSync(ac.num)
         }
-        return row
-      })
-      for (const lc of local) {
-        if (!isPendingCardSync(lc.num)) continue
-        if (!merged.some(c => cardNumsMatch(c.num, lc.num))) merged.push(lc)
       }
       set({ cards: merged, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
       try {
-        const { cacheData } = await import('./offline')
-        void cacheData('cards', merged)
-      } catch { /* кэш недоступен */ }
+        await persistAuthoritativeCrmCaches(useClientStore.getState().clients || [], merged)
+      } catch {
+        try {
+          const { cacheData } = await import('./offline')
+          void cacheData('cards', merged)
+        } catch { /* кэш недоступен */ }
+      }
     } catch (e) {
       console.error(e)
       const msg = e instanceof Error ? e.message : 'Не удалось загрузить карты'

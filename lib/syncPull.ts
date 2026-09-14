@@ -191,45 +191,71 @@ async function doPullSyncChanges(opts?: {
       } catch { /* ignore */ }
     }
 
-    // Clients — не затираем долг/бонусы, пока касса ещё не отправила очередь
+    // Clients — server identity authoritative; never phone-merge across ids
     {
-      const { useClientStore } = await import('./clientStore')
+      const { useClientStore, isClientIdentityPending } = await import('./clientStore')
       const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+      const { mergeClientsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
       const local = useClientStore.getState().clients || []
       let merged = local
       if (Array.isArray(delta.clients) && delta.clients.length) {
         const incoming = delta.full || opts?.forceFull
           ? (delta.clients as AdminClient[])
-          : mergeByIdLww(local, delta.clients as AdminClient[])
-        merged = incoming.map(row => {
-          const prev = local.find(x => String(x.id) === String(row.id))
-          return mergeClientLoyaltyIfRecent(row, prev)
-        })
+          : mergeClientsServerAuthoritative(local, delta.clients as AdminClient[], {
+            isIdentityPending: isClientIdentityPending,
+            mergeLoyalty: (remote, prev) => mergeClientLoyaltyIfRecent(remote, prev),
+          })
+        // forceFull: still run through authority merge so stale local identity cannot linger
+        merged = delta.full || opts?.forceFull
+          ? mergeClientsServerAuthoritative(local, incoming, {
+            isIdentityPending: isClientIdentityPending,
+            mergeLoyalty: (remote, prev) => mergeClientLoyaltyIfRecent(remote, prev),
+          })
+          : incoming
       }
       merged = dropById(merged, delOf('client'))
       if ((delta.clients && delta.clients.length) || delOf('client').length) {
         useClientStore.setState({ clients: merged })
         await cacheClients(merged)
+        try {
+          const { useCardStore } = await import('./cardStore')
+          const { cacheData } = await import('./offline')
+          await cacheData('clients', merged)
+          await persistAuthoritativeCrmCaches(merged, useCardStore.getState().cards || [])
+        } catch { /* ignore */ }
       }
     }
 
-    // Cards
+    // Cards — merge by num, persist data_cards
     if ((Array.isArray(delta.cards) && delta.cards.length) || delOf('card').length) {
       try {
         const { useCardStore } = await import('./cardStore')
+        const { useClientStore, isClientIdentityPending } = await import('./clientStore')
         const { cacheData } = await import('./offline')
-        const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
+        const { mergeCardLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+        const { mergeCardsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
         const local = useCardStore.getState().cards || []
         let merged = local
         if (Array.isArray(delta.cards) && delta.cards.length) {
-          const incoming = delta.full || opts?.forceFull
-            ? (delta.cards as AdminCard[])
-            : mergeByIdLww(local as any, delta.cards as any) as AdminCard[]
-          merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
+          const remote = delta.cards as AdminCard[]
+          merged = mergeCardsServerAuthoritative(
+            delta.full || opts?.forceFull ? [] : local,
+            remote,
+            {
+              isIdentityPending: isClientIdentityPending,
+              mergeLoyalty: (row, prev) => mergeCardLoyaltyIfRecent(row, prev),
+            },
+          )
         }
-        merged = dropById(merged, delOf('card'))
+        // dropById uses .id — cards keyed by num; filter deletes by num
+        const delCards = delOf('card')
+        if (delCards.length) {
+          const s = new Set(delCards)
+          merged = merged.filter(row => !s.has(String(row.num)) && !s.has(String((row as any).id || '')))
+        }
         useCardStore.setState({ cards: merged })
         await cacheData('cards', merged)
+        await persistAuthoritativeCrmCaches(useClientStore.getState().clients || [], merged)
       } catch { /* ignore */ }
     }
 

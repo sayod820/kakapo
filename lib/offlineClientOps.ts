@@ -43,9 +43,12 @@ function findClient(id: string): AdminClient | undefined {
   return useClientStore.getState().clients.find(c => c.id === id)
 }
 
-function syncLinkedCardIdentity(client: AdminClient, opts?: { skipApi?: boolean }) {
+function syncLinkedCardIdentity(client: AdminClient, opts?: { skipApi?: boolean; allowIdentityWrite?: boolean }) {
   if (!client?.card) return
-  useCardStore.getState().syncIdentityFromClient(client, opts)
+  useCardStore.getState().syncIdentityFromClient(client, {
+    skipApi: opts?.skipApi,
+    allowIdentityWrite: opts?.allowIdentityWrite === true,
+  })
   persistCards()
 }
 
@@ -104,7 +107,7 @@ export async function saveClientSafe(input: {
       }, { skipApi: true })
       client = findClient(editingId)!
       markClientIdentityPending(editingId)
-      syncLinkedCardIdentity(client)
+      syncLinkedCardIdentity(client, { skipApi: true, allowIdentityWrite: false })
       await useOfflineSync.getState().queueOp(
         'client_upsert',
         {

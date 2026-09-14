@@ -572,18 +572,17 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       }
 
       // CRM из той же дельты — долг/бонусы без отдельного полного getClients
-      if (deltaClients?.length || crmDeleteClients.length) {
+          if (deltaClients?.length || crmDeleteClients.length) {
         try {
-          const { useClientStore } = await import('./clientStore')
+          const { useClientStore, isClientIdentityPending } = await import('./clientStore')
           const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
-          const { mergeByIdLww } = await import('./syncConflict')
+          const { mergeClientsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
           const local = useClientStore.getState().clients || []
           let merged = local
           if (deltaClients?.length) {
-            const incoming = mergeByIdLww(local as any, deltaClients as any)
-            merged = incoming.map((row: any) => {
-              const prev = local.find(x => String(x.id) === String(row.id))
-              return mergeClientLoyaltyIfRecent(row, prev)
+            merged = mergeClientsServerAuthoritative(local, deltaClients as any, {
+              isIdentityPending: isClientIdentityPending,
+              mergeLoyalty: (remote, prev) => mergeClientLoyaltyIfRecent(remote, prev),
             })
           }
           if (crmDeleteClients.length) {
@@ -591,24 +590,34 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
             merged = merged.filter((row: { id?: string | number }) => !s.has(String(row.id)))
           }
           useClientStore.setState({ clients: merged })
+          try {
+            const { useCardStore } = await import('./cardStore')
+            await persistAuthoritativeCrmCaches(merged, useCardStore.getState().cards || [])
+          } catch { /* ignore */ }
         } catch { /* ignore */ }
       }
       if (deltaCards?.length || crmDeleteCards.length) {
         try {
           const { useCardStore } = await import('./cardStore')
-          const { mergeCardLoyaltyIfRecent, findLocalCard } = await import('./loyaltySaveGuard')
-          const { mergeByIdLww } = await import('./syncConflict')
+          const { useClientStore, isClientIdentityPending } = await import('./clientStore')
+          const { mergeCardLoyaltyIfRecent } = await import('./loyaltySaveGuard')
+          const { mergeCardsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
           const local = useCardStore.getState().cards || []
           let merged = local
           if (deltaCards?.length) {
-            const incoming = mergeByIdLww(local as any, deltaCards as any) as typeof local
-            merged = incoming.map(row => mergeCardLoyaltyIfRecent(row, findLocalCard(local, row.num)))
+            merged = mergeCardsServerAuthoritative(local, deltaCards as any, {
+              isIdentityPending: isClientIdentityPending,
+              mergeLoyalty: (remote, prev) => mergeCardLoyaltyIfRecent(remote, prev),
+            })
           }
           if (crmDeleteCards.length) {
             const s = new Set(crmDeleteCards)
             merged = merged.filter(row => !s.has(String(row.num)) && !s.has(String((row as any).id || '')))
           }
           useCardStore.setState({ cards: merged })
+          try {
+            await persistAuthoritativeCrmCaches(useClientStore.getState().clients || [], merged)
+          } catch { /* ignore */ }
         } catch { /* ignore */ }
       }
 

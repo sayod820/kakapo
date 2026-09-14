@@ -3610,12 +3610,17 @@ app.patch('/clients/:id', (req, res) => {
   const { purge, allowBonusDecrease, ...patch } = req.body || {}
   const expectedDoc = patch.expectedDocVersion
   delete patch.expectedDocVersion
+  // Never accept absolute debtLedger blobs from Desktop — prevents cross-client ledger adoption.
+  delete patch.debtLedger
+  delete patch.debtOverdueStrikes
+  delete patch.debtCreditBlocked
   if (expectedDoc != null && expectedDoc !== '') {
     const cur = Number(c.docVersion) || 0
     const exp = Number(expectedDoc)
     if (Number.isFinite(exp) && exp !== cur) {
       return res.status(409).json({
         detail: `Клиента уже меняли (версия ${cur}, ожидали ${exp})`,
+        code: 'CLIENT_DOC_VERSION_CONFLICT',
       })
     }
   }
@@ -3631,6 +3636,21 @@ app.patch('/clients/:id', (req, res) => {
         }
         throw e
       }
+    }
+  }
+  // Reject pointing this client at a card while another client already canonical-owns it by client.card
+  if (patch.card != null && String(patch.card).trim()) {
+    const want = String(patch.card).trim().toUpperCase()
+    const other = (db.clients || []).find(x =>
+      x.id !== c.id
+      && String(x.card || '').trim().toUpperCase() === want,
+    )
+    if (other) {
+      return res.status(409).json({
+        detail: `Карта ${want} уже указана у клиента ${other.id}`,
+        code: 'CLIENT_CARD_ALREADY_BOUND',
+        conflict: { cardNum: want, ownerClientId: other.id, attemptedClientId: c.id },
+      })
     }
   }
   // Долг НЕ присваиваем напрямую — проводим через единую логику (ledger + лимит + карта).
@@ -4510,6 +4530,11 @@ function syncClientFromCardRow(card) {
     if (e instanceof CardOwnershipConflict) return
     throw e
   }
+  // Hard stop: never adopt another client's card pointer / debtLedger.
+  const ownerId = String(card.clientId || '')
+  const cid = String(client.id || '')
+  if (ownerId && cid && ownerId !== cid) return
+
   client.card = card.num
   unlinkNonCanonicalSiblingCards(db, client, card.num, normalizeCardRow)
   const cardName = String(card.client || '').trim()
@@ -4522,8 +4547,12 @@ function syncClientFromCardRow(card) {
   client.level = cardLevelToBasic(card.level)
   client.bonus = Number(card.bonus) || 0
   client.wallet = Math.max(0, Math.round((Number(card.wallet) || 0) * 100) / 100)
-  client.debt = Number(card.debt) || 0
-  client.debtLimit = Number(card.debtLimit) || 0
+  // Debt/ledger only when card.clientId matches this client (no cross-client adoption)
+  if (!ownerId || ownerId === cid) {
+    client.debt = Number(card.debt) || 0
+    client.debtLimit = Number(card.debtLimit) || 0
+    syncDebtLedgerFromCard(card, client)
+  }
   client.vip = !!card.vip
   // Блок — поле клиента. Карта копирует его при PATCH клиента, не наоборот.
   client.debtEnabled = !!(card.debtEnabled || debtFromNote(card.note))
@@ -4544,7 +4573,6 @@ function syncClientFromCardRow(card) {
     client.updatedAtIso = card.updatedAtIso
     client.serverAtIso = card.serverAtIso || card.updatedAtIso
   }
-  syncDebtLedgerFromCard(card, client)
 }
 
 app.get('/debt/ledger', (req, res) => {
@@ -4772,10 +4800,14 @@ app.patch('/cards/:num', (req, res) => {
     // Версию погашений / бонусов ставит только сервер
     delete body.debtPayVersion
     delete body.bonusPayVersion
+    // Never accept absolute debtLedger from Desktop (cross-client adoption vector)
+    delete body.debtLedger
+    delete body.debtOverdueStrikes
+    delete body.debtCreditBlocked
     const prevDebt = Number(card.debt) || 0
     const enforceDebtLimit = !isStaffRequest(req) // лимит только для приложения клиента
     // Ownership guard before mutating identity fields
-    if (body.clientId != null || body.phone != null) {
+    if (body.clientId != null || body.phone != null || body.client != null || body.status != null) {
       const attempted = body.clientId
         ? (db.clients || []).find(c => c.id === body.clientId)
         : (body.phone
@@ -4795,6 +4827,19 @@ app.patch('/cards/:num', (req, res) => {
           detail: `Карта ${num} уже принадлежит клиенту ${card.clientId}`,
           code: 'CARD_OWNED_BY_OTHER_CLIENT',
           conflict: { cardNum: num, ownerClientId: card.clientId, attemptedClientId: body.clientId },
+        })
+      }
+    }
+    // Reject painting Holov identity onto Sayod-owned card via name/phone alone
+    if ((body.phone != null || body.client != null) && card.clientId) {
+      const owner = (db.clients || []).find(c => String(c.id) === String(card.clientId))
+      if (owner && body.phone != null
+        && normalizePhoneDigits(body.phone)
+        && normalizePhoneDigits(body.phone) !== normalizePhoneDigits(owner.phone)) {
+        return res.status(409).json({
+          detail: `Нельзя сменить телефон карты ${num}: владелец ${card.clientId}`,
+          code: 'CARD_IDENTITY_PHONE_CONFLICT',
+          conflict: { cardNum: num, ownerClientId: card.clientId },
         })
       }
     }

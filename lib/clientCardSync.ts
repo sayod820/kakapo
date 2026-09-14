@@ -327,7 +327,7 @@ export function saveClientProfile(clientId: string | null, form: ClientProfileFo
       cardStore.unlinkCard(prev.card)
     }
 
-    clientStore.updateClient(clientId, { ...profilePatch, card: cardNum })
+    clientStore.updateClient(clientId, { ...profilePatch, card: cardNum }, { allowIdentityWrite: true })
     markClientIdentityPending(clientId)
 
     const client = useClientStore.getState().clients.find(c => c.id === clientId)!
@@ -335,7 +335,7 @@ export function saveClientProfile(clientId: string | null, form: ClientProfileFo
       if (cardNum !== prev.card) {
         cardStore.assignToClient(cardNum, client)
       } else {
-        cardStore.syncIdentityFromClient(client)
+        cardStore.syncIdentityFromClient(client, { allowIdentityWrite: true })
       }
       if (form.blocked !== prev.blocked) {
         const card = cardStore.cards.find(c => c.num === cardNum)
@@ -634,8 +634,8 @@ export function syncExpiredManualLoyaltyLock(phone: string, cardNum?: string, or
     ...debtPatch,
   }
 
-  if (card) cardStore.updateCardLoyalty(card.num, patch)
-  if (client) clientStore.updateClient(client.id, { ...patch, ...(card ? { card: card.num } : {}) })
+  if (card) cardStore.updateCardLoyalty(card.num, patch, { allowIdentityWrite: false })
+  if (client) clientStore.updateClient(client.id, { ...patch }, { allowIdentityWrite: false })
   emitCrmSync()
   return true
 }
@@ -688,7 +688,6 @@ export function syncAutoLevelToCrm(phone: string, level: ClientLevel, cardNum?: 
       levelAssignMode: 'auto' as const,
       levelValidUntil: undefined,
       levelLockedPeriod: undefined,
-      ...(card ? { card: card.num } : {}),
       ...debtPatch,
     })
   }

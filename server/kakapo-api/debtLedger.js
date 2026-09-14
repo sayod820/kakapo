@@ -87,8 +87,23 @@ export function ensureDebtLedger(client) {
   if (client.debtCreditBlocked == null) client.debtCreditBlocked = false
 }
 
+export function syncDebtLedgerFromCard(card, client) {
+  if (!client || !card) return
+  const ownerId = String(card.clientId || '')
+  const cid = String(client.id || '')
+  // Never copy debtLedger onto a different clientId (Sayod↔Holov re-corrupt vector)
+  if (ownerId && cid && ownerId !== cid) return
+  if (Array.isArray(card.debtLedger)) client.debtLedger = card.debtLedger
+  if (card.debtOverdueStrikes != null) client.debtOverdueStrikes = card.debtOverdueStrikes
+  if (card.debtCreditBlocked != null) client.debtCreditBlocked = card.debtCreditBlocked
+  ensureDebtLedger(client)
+}
+
 export function syncDebtLedgerToCard(client, card, opts = {}) {
   if (!client || !card) return
+  const ownerId = String(card.clientId || '')
+  const cid = String(client.id || '')
+  if (ownerId && cid && ownerId !== cid) return
   ensureDebtLedger(client)
   card.debtLedger = client.debtLedger
   card.debtOverdueStrikes = client.debtOverdueStrikes
@@ -97,14 +112,6 @@ export function syncDebtLedgerToCard(client, card, opts = {}) {
     card.debt = round2(client.debt)
     if (card.debt > 0.001) card.debtEnabled = true
   }
-}
-
-export function syncDebtLedgerFromCard(card, client) {
-  if (!client || !card) return
-  if (Array.isArray(card.debtLedger)) client.debtLedger = card.debtLedger
-  if (card.debtOverdueStrikes != null) client.debtOverdueStrikes = card.debtOverdueStrikes
-  if (card.debtCreditBlocked != null) client.debtCreditBlocked = card.debtCreditBlocked
-  ensureDebtLedger(client)
 }
 
 export function canTakeNewDebt(client, card, amount = 0) {

@@ -14,6 +14,11 @@ import {
 import { markClientLoyaltySaved, mergeClientLoyaltyIfRecent } from './loyaltySaveGuard'
 import { isPhoneDeleted, reconcileTombstones, unmarkPhoneDeleted } from './clientTombstones'
 import { clearAppDataLocalCache, persistAppDataLocally } from './localCache'
+import {
+  mergeClientsServerAuthoritative,
+  patchHasClientIdentity,
+  persistAuthoritativeCrmCaches,
+} from './crmIdentityAuthority'
 
 const CLIENTS_KEY = 'kakapo-clients'
 const PENDING_CLIENT_MS = 120_000
@@ -121,7 +126,7 @@ interface ClientStore {
   applyVisibleFilter: () => void
   setClients: (list: AdminClient[]) => void
   addClient: (data: Omit<AdminClient, 'id' | 'orders' | 'spent' | 'createdAt' | 'lastOrderAt'>, opts?: { skipApi?: boolean }) => AdminClient
-  updateClient: (id: string, patch: Partial<AdminClient>, opts?: { skipApi?: boolean }) => void
+  updateClient: (id: string, patch: Partial<AdminClient>, opts?: { skipApi?: boolean; allowIdentityWrite?: boolean }) => void
   removeClient: (id: string) => void
   toggleBlock: (id: string) => void
   fetchFromApi: () => Promise<void>
@@ -182,7 +187,14 @@ export const useClientStore = create<ClientStore>((set, get) => ({
   updateClient: (id, patch, opts) => set(s => {
     const clients = s.clients.map(c => (c.id === id ? normalizeClient({ ...c, ...patch, id }) : c))
     saveClients(clients, { skipEmit: opts?.skipApi })
-    if (USE_API && !opts?.skipApi) api.updateClient(id, patch).catch(console.error)
+    // Stale Desktop CRM must never silently PATCH identity (name/phone/card) to server.
+    // Explicit user/business ops pass allowIdentityWrite: true.
+    if (USE_API && !opts?.skipApi) {
+      const identity = patchHasClientIdentity(patch as Record<string, unknown>)
+      if (!identity || opts?.allowIdentityWrite) {
+        api.updateClient(id, patch).catch(console.error)
+      }
+    }
     return { clients }
   }),
   removeClient: id => {
@@ -240,51 +252,33 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       const apiList = apiRaw.filter(c => !isPhoneDeleted(c.phone))
       const local = prev
       const apiIds = new Set(apiList.map(c => String(c.id)))
-      const merged = apiList.map(c => {
-        const normalized = c
-        const lc = local.find(x => x.id === normalized.id)
-          || local.find(x => phonesMatch(x.phone, normalized.phone))
-        let row = mergeClientLoyaltyIfRecent(normalized, lc)
-        if (lc && isClientIdentityPending(lc.id)) {
-          const caughtUp =
-            String(lc.name || '').trim() === String(normalized.name || '').trim()
-            && phonesMatch(lc.phone, normalized.phone)
-            && !!lc.blocked === !!normalized.blocked
-            && String(lc.email || '').trim() === String(normalized.email || '').trim()
-            && String(lc.addr || '').trim() === String(normalized.addr || '').trim()
-            && String(lc.note || '').trim() === String(normalized.note || '').trim()
-          if (caughtUp) {
-            clearClientIdentityPending(lc.id)
-          } else {
-            row = {
-              ...row,
-              name: lc.name,
-              phone: lc.phone,
-              email: lc.email,
-              addr: lc.addr,
-              note: lc.note,
-              blocked: lc.blocked,
-            }
-          }
-        } else {
-          clearPendingClientSync(normalized.id)
-        }
-        return row
+      // Match by immutable client.id ONLY — never cross-merge by phone.
+      let merged = mergeClientsServerAuthoritative(local, apiList, {
+        isIdentityPending: isClientIdentityPending,
+        mergeLoyalty: (remote, lc) => mergeClientLoyaltyIfRecent(remote, lc),
       })
       for (const lc of local) {
         if (isClientPurged(lc) || isPhoneDeleted(lc.phone)) continue
         if (!isPendingClientSync(lc.id)) continue
         if (apiIds.has(lc.id)) continue
-        if (merged.some(m => m.id === lc.id || phonesMatch(m.phone, lc.phone))) continue
+        if (merged.some(m => m.id === lc.id)) continue
         merged.push(normalizeClient(lc))
+      }
+      for (const row of merged) {
+        if (!isClientIdentityPending(row.id)) clearPendingClientSync(row.id)
       }
       const clients = filterVisibleClients(merged)
       set({ clients, hydrated: true, apiReady: true, apiSyncing: false, apiError: '' })
       emitCrmSync()
       try {
-        const { cacheData } = await import('./offline')
-        void cacheData('clients', clients)
-      } catch { /* кэш недоступен */ }
+        const { useCardStore } = await import('./cardStore')
+        await persistAuthoritativeCrmCaches(clients, useCardStore.getState().cards || [])
+      } catch {
+        try {
+          const { cacheData } = await import('./offline')
+          void cacheData('clients', clients)
+        } catch { /* кэш недоступен */ }
+      }
     } catch (e) {
       console.error(e)
       const msg = e instanceof Error ? e.message : 'Не удалось загрузить клиентов'
