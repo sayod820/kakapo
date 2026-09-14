@@ -179,7 +179,7 @@ function cardForClient(client: EnrichedClient, cards: AdminCard[]): AdminCard | 
 async function repayDebtIntoOpenShift(
   client: EnrichedClient,
   amount: number,
-  opts: { method: PayMethod; note?: string; orderId?: string },
+  opts: { method: PayMethod; note?: string; orderId?: string; parentCashAdvanceClientRef?: string },
 ) {
   const shift = resolveOpenShift(getBoundPosIdSync())
   if (!shift) {
@@ -199,6 +199,7 @@ async function repayDebtIntoOpenShift(
   }
   return debtRepaySafe(card.num, {
     orderId: opts.orderId,
+    parentCashAdvanceClientRef: opts.parentCashAdvanceClientRef,
     amount,
     method: opts.method,
     note: opts.note,
@@ -816,6 +817,7 @@ export default function DebtsModule({
             orderId: oid,
             debtEntryId: newest.id,
             label: newest.desc || target.label,
+            parentCashAdvanceClientRef: !oid ? String((newest as any).clientRef || '').trim() || undefined : undefined,
           }
         }
       }
@@ -827,6 +829,8 @@ export default function DebtsModule({
         method,
         note: `Погашение · ${target.label} · ${detailClient.name}`,
         orderId: target.orderId,
+        parentCashAdvanceClientRef: (target as any).parentCashAdvanceClientRef
+          || (!target.orderId ? String((target as any).clientRef || '').trim() || undefined : undefined),
       })
       if (repaid.data.duplicate) {
         setHistMsg('Это погашение уже записано')

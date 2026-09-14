@@ -42,8 +42,11 @@ test('S1 sqlSaleCommit uses db.transaction', () => {
   expect(localDbSrc.includes('desktop:localDbSaleCommit'), 'IPC handler missing')
 })
 
-test('S2 failAt stages T1–T5 present', () => {
-  for (const stage of ['before', 'after_queue', 'after_layers', 'after_sale', 'after_shift', 'before_commit']) {
+test('S2 failAt stages T1–T5 + D2 card/client present', () => {
+  for (const stage of [
+    'before', 'after_queue', 'after_layers', 'after_sale', 'after_shift',
+    'after_card', 'after_client', 'before_commit',
+  ]) {
     expect(localDbSrc.includes(`failAt === '${stage}'`), `missing failAt ${stage}`)
   }
 })
@@ -83,13 +86,26 @@ test('S7 preview layers + adopt without double KV persist', () => {
   expect(layersSrc.includes('Do not schedulePersist'), 'must skip re-persist after atomic')
 })
 
-test('S8 atomic set: queue + layers + sale + shift', () => {
+test('S8 atomic set: queue + layers + sale + shift + D2 debt entities', () => {
   expect(localDbSrc.includes('sqlQueuePut(queueRow)'), 'queue in tx')
   expect(localDbSrc.includes("sqlKvSet('catalog_stock_layers'"), 'layers in tx')
   expect(localDbSrc.includes("sqlMirrorPut('sale'"), 'sale mirror in tx')
   expect(localDbSrc.includes("sqlMirrorPut('shift'"), 'shift mirror in tx')
+  expect(localDbSrc.includes("sqlEntityPut('card'"), 'D2 card entity in sale tx')
+  expect(localDbSrc.includes("sqlEntityPut('client'"), 'D2 client entity in sale tx')
+  expect(localDbSrc.includes("sqlUpsertKvArrayRow('data_clients'"), 'D2 data_clients patch')
+  expect(localDbSrc.includes("sqlUpsertKvArrayRow('data_cards'"), 'D2 data_cards patch')
   expect(!opsSrc.includes('persistPosSnapshot()') || opsSrc.indexOf('commitLocalSaleAtomic') < opsSrc.indexOf('void persistPosSnapshot()', opsSrc.indexOf('commitLocalSaleAtomic')),
     'snapshot after commit')
+})
+
+test('S9 D2 credit sale passes client/card into commitLocalSaleAtomic', () => {
+  expect(opsSrc.includes('creditClientRow'), 'creditClientRow')
+  expect(opsSrc.includes('creditCardRow'), 'creditCardRow')
+  expect(opsSrc.includes('client: creditClientRow'), 'pass client')
+  expect(opsSrc.includes('card: creditCardRow'), 'pass card')
+  expect(atomicSrc.includes('client: input.client'), 'atomic forwards client')
+  expect(atomicSrc.includes('card: input.card'), 'atomic forwards card')
 })
 
 // ── Transaction simulator (mirrors better-sqlite3 rollback semantics) ──

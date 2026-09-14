@@ -577,6 +577,8 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           const { useClientStore, isClientIdentityPending } = await import('./clientStore')
           const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
           const { mergeClientsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
+          const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+          await refreshDebtOverlayFromQueue()
           const local = useClientStore.getState().clients || []
           let merged = local
           if (deltaClients?.length) {
@@ -602,6 +604,8 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           const { useClientStore, isClientIdentityPending } = await import('./clientStore')
           const { mergeCardLoyaltyIfRecent } = await import('./loyaltySaveGuard')
           const { mergeCardsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
+          const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+          await refreshDebtOverlayFromQueue()
           const local = useCardStore.getState().cards || []
           let merged = local
           if (deltaCards?.length) {

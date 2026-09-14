@@ -304,7 +304,7 @@ function isTransientFailError(err: string): boolean {
  * «Смена не найдена» сюда НЕ входит: смена может уехать на сервер следующей операцией.
  */
 function isHardValidationError(err: string): boolean {
-  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|связанная операция|сначала дождитесь|поставщик не найден|товар #|смена уже закрыта|недостаточно|нечего возвращать|чек не найден/i.test(err)
+  return /обязател|некоррект|invalid|validation|дубликат|уже существу|forbidden|403|401|нет прав|связанная операция|сначала дождитесь|поставщик не найден|товар #|смена уже закрыта|недостаточно|нечего возвращать|чек не найден|DEBT_RECEIPT_NOT_FOUND|DEBT_RECEIPT_AMBIGUOUS|DEBT_RECEIPT_ALREADY_PAID|IDEMPOTENCY_KEY_REUSED|тот же clientRef уже использован|уже погашен/i.test(err)
 }
 
 function queueFingerprint(list: PendingOp[]): string {

@@ -17,6 +17,15 @@ export type LocalDebtRepayCommitInput = {
   shift?: PosShift | null
   debtHistoryKey?: string
   debtHistory?: unknown
+  /** Phase D3: durable cash till ledger row (idempotent by clientRef) */
+  cashRepayLedgerEntry?: {
+    clientRef: string
+    shiftId: string
+    amount: number
+    method?: string
+    orderId?: string
+    createdAtIso?: string
+  } | null
   queueSeq?: number
   failAt?: string
 }
@@ -52,6 +61,7 @@ export async function commitLocalDebtRepayAtomic(
       shift: input.shift || undefined,
       debtHistoryKey: input.debtHistoryKey,
       debtHistory: input.debtHistory,
+      cashRepayLedgerEntry: input.cashRepayLedgerEntry || undefined,
       queueSeq: input.queueSeq,
       failAt: input.failAt,
     })

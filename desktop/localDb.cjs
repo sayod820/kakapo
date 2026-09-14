@@ -194,9 +194,28 @@ function sqlQueueDelete(clientRef) {
 }
 
 /**
- * Phase 5 — atomic local sale commit (better-sqlite3 transaction).
- * Writes: outbox queue + stock layers KV + sale mirror + optional shift mirror + optional queue_seq.
- * failAt (dev): before | after_queue | after_layers | after_sale | after_shift | before_commit
+ * Upsert one object into a JSON-array KV collection (by id field).
+ * No-op when key is missing / not an array — entities remain canonical.
+ */
+function sqlUpsertKvArrayRow(key, idField, idValue, row) {
+  const id = String(idValue || '').trim()
+  if (!id || !row || typeof row !== 'object') return false
+  const cur = sqlKvGet(key)
+  if (!Array.isArray(cur)) return false
+  const next = cur.slice()
+  const idx = next.findIndex(x => x && String(x[idField] || '') === id)
+  if (idx >= 0) next[idx] = { ...next[idx], ...row, [idField]: next[idx][idField] }
+  else next.push(row)
+  sqlKvSet(key, next)
+  return true
+}
+
+/**
+ * Phase 5/D2 — atomic local sale commit (better-sqlite3 transaction).
+ * Writes: outbox + stock layers + sale/shift mirrors + optional queue_seq
+ * + optional client/card debt projections (entities + hydrate KV caches).
+ * failAt (dev): before | after_queue | after_layers | after_sale | after_shift
+ *   | after_card | after_client | before_commit
  */
 let saleTxFailAt = ''
 
@@ -254,6 +273,30 @@ function sqlSaleCommit(payload) {
       throw err
     }
 
+    // Phase D2: durable debt projections inside same txn (by card.num / client.id only)
+    if (p.card && (p.card.num || p.card.id)) {
+      const cid = String(p.card.num || p.card.id)
+      sqlEntityPut('card', cid, p.card, p.card.updatedAtIso || new Date().toISOString(), false)
+      sqlUpsertKvArrayRow('data_cards', 'num', cid, p.card)
+    }
+    if (failAt === 'after_card') {
+      const err = new Error('TEST_FAIL_AFTER_CARD')
+      err.code = 'TEST_FAIL_AFTER_CARD'
+      throw err
+    }
+
+    if (p.client && p.client.id) {
+      const id = String(p.client.id)
+      sqlEntityPut('client', id, p.client, p.client.updatedAtIso || new Date().toISOString(), false)
+      sqlUpsertKvArrayRow('catalog_clients', 'id', id, p.client)
+      sqlUpsertKvArrayRow('data_clients', 'id', id, p.client)
+    }
+    if (failAt === 'after_client') {
+      const err = new Error('TEST_FAIL_AFTER_CLIENT')
+      err.code = 'TEST_FAIL_AFTER_CLIENT'
+      throw err
+    }
+
     if (p.queueSeq != null && Number.isFinite(Number(p.queueSeq))) {
       sqlKvSet('queue_seq', Number(p.queueSeq))
     }
@@ -276,7 +319,7 @@ function sqlSaleCommit(payload) {
 /**
  * Debt repay atomic commit (better-sqlite3 transaction).
  * Writes: outbox queue + card/client entities + shift mirror + optional debtHistory KV + queue_seq.
- * failAt: before | after_queue | after_card | after_client | after_shift | after_history | before_commit
+ * failAt: before | after_queue | after_card | after_client | after_shift | after_history | after_ledger | before_commit
  */
 let debtRepayTxFailAt = ''
 
@@ -309,6 +352,8 @@ function sqlDebtRepayCommit(payload) {
     if (p.card && (p.card.num || p.card.id)) {
       const cid = String(p.card.num || p.card.id)
       sqlEntityPut('card', cid, p.card, p.card.updatedAtIso || new Date().toISOString(), false)
+      // D3: same hydrate caches as credit-sale D2
+      sqlUpsertKvArrayRow('data_cards', 'num', cid, p.card)
     }
     if (failAt === 'after_card') {
       const err = new Error('TEST_FAIL_AFTER_CARD')
@@ -317,7 +362,10 @@ function sqlDebtRepayCommit(payload) {
     }
 
     if (p.client && p.client.id) {
-      sqlEntityPut('client', String(p.client.id), p.client, p.client.updatedAtIso || new Date().toISOString(), false)
+      const id = String(p.client.id)
+      sqlEntityPut('client', id, p.client, p.client.updatedAtIso || new Date().toISOString(), false)
+      sqlUpsertKvArrayRow('catalog_clients', 'id', id, p.client)
+      sqlUpsertKvArrayRow('data_clients', 'id', id, p.client)
     }
     if (failAt === 'after_client') {
       const err = new Error('TEST_FAIL_AFTER_CLIENT')
@@ -341,6 +389,31 @@ function sqlDebtRepayCommit(payload) {
     if (failAt === 'after_history') {
       const err = new Error('TEST_FAIL_AFTER_HISTORY')
       err.code = 'TEST_FAIL_AFTER_HISTORY'
+      throw err
+    }
+
+    // D3: durable cash repay till ledger inside same txn (idempotent by clientRef)
+    if (p.cashRepayLedgerEntry && p.cashRepayLedgerEntry.clientRef) {
+      const entry = p.cashRepayLedgerEntry
+      const cur = sqlKvGet('data_debt_repay_cash_ledger')
+      const list = Array.isArray(cur) ? cur.slice() : []
+      const ref = String(entry.clientRef)
+      const idx = list.findIndex(r => r && String(r.clientRef || '') === ref)
+      if (idx >= 0) {
+        list[idx] = {
+          ...list[idx],
+          ...entry,
+          amount: Number(list[idx].amount) || Number(entry.amount) || 0,
+          clientRef: ref,
+        }
+      } else {
+        list.push(entry)
+      }
+      sqlKvSet('data_debt_repay_cash_ledger', list)
+    }
+    if (failAt === 'after_ledger') {
+      const err = new Error('TEST_FAIL_AFTER_LEDGER')
+      err.code = 'TEST_FAIL_AFTER_LEDGER'
       throw err
     }
 

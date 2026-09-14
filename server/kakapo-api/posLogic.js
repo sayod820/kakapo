@@ -2168,6 +2168,8 @@ export function applyDebtRepayToShift(db, data = {}) {
       clientName: data.clientName || '',
       method,
       clientRef: clientRef || undefined,
+      orderId: data.orderId || undefined,
+      clientId: data.clientId || undefined,
     },
   })
 
@@ -2254,6 +2256,7 @@ export function applyCashAdvanceToShift(db, data = {}) {
       clientName: data.clientName || '',
       clientRef: clientRef || undefined,
       method: 'cash',
+      clientId: data.clientId || undefined,
     },
   })
 
@@ -2339,20 +2342,28 @@ export function createCashAdvance(db, data = {}) {
 
   const nextDebt = round2(prevDebt + amount)
   let debtLedgerEntryId = null
+  let debtChargeReplay = false
   if (linkedClient) {
     try {
-      const { entry } = addDebtCharge(linkedClient, card, {
+      const charge = addDebtCharge(linkedClient, card, {
         amount,
         source: 'cash_advance',
         desc: String(data.note || '').trim() || 'Выдача наличных в долг',
         createdAtIso: data.createdAtIso,
+        clientRef,
       })
-      debtLedgerEntryId = entry?.id || null
-      linkedClient.debt = nextDebt
-      linkedClient.debtEnabled = true
-      card.debt = nextDebt
-      card.debtEnabled = true
-      syncDebtLedgerToCard(linkedClient, card)
+      debtLedgerEntryId = charge.entry?.id || null
+      debtChargeReplay = !!charge.replay
+      if (!debtChargeReplay) {
+        linkedClient.debt = nextDebt
+        linkedClient.debtEnabled = true
+        card.debt = nextDebt
+        card.debtEnabled = true
+        syncDebtLedgerToCard(linkedClient, card)
+      } else {
+        // Replay: keep absolute projection; do not re-add amount
+        syncDebtLedgerToCard(linkedClient, card)
+      }
     } catch (e) {
       return {
         ok: false,
@@ -2361,14 +2372,22 @@ export function createCashAdvance(db, data = {}) {
         code: e?.code || 'DEBT_CHARGE_FAILED',
       }
     }
+  } else if (!clientRef) {
+    card.debt = nextDebt
+    card.debtEnabled = true
   } else {
+    // No linked client: still bump once; moneyLedger clientRef is durable backstop
     card.debt = nextDebt
     card.debtEnabled = true
   }
 
-  card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
-  touchCrmRow(card)
-  if (linkedClient) touchCrmRow(linkedClient)
+  if (!debtChargeReplay) {
+    card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
+    touchCrmRow(card)
+    if (linkedClient) touchCrmRow(linkedClient)
+  } else {
+    // Already applied — keep versions; till path may still need moneyLedger replay
+  }
 
   let till
   try {
@@ -2382,9 +2401,12 @@ export function createCashAdvance(db, data = {}) {
       clientName: card.client || linkedClient?.name || '',
       note: String(data.note || '').trim(),
       clientRef,
+      clientId: linkedClient?.id || data.clientId,
     })
-    } catch (e) {
-      // Roll back debt mutation if till fails (same request, in-memory / docs store).
+  } catch (e) {
+    // Roll back debt mutation if till fails (same request, in-memory / docs store).
+    // Do not roll back a prior durable debt charge replay (crash-window resume).
+    if (!debtChargeReplay) {
       card.debt = prevDebt
       card.debtPayVersion = Math.max(0, (Number(card.debtPayVersion) || 1) - 1)
       if (linkedClient) {
@@ -2394,13 +2416,14 @@ export function createCashAdvance(db, data = {}) {
         }
         syncDebtLedgerToCard(linkedClient, card)
       }
-      return {
-        ok: false,
-        status: 400,
-        detail: e?.message || 'Не удалось списать наличные из кассы',
-        code: 'TILL_FAILED',
-      }
     }
+    return {
+      ok: false,
+      status: 400,
+      detail: e?.message || 'Не удалось списать наличные из кассы',
+      code: 'TILL_FAILED',
+    }
+  }
 
   if (clientRef && till && !till.replay) {
     const led = (db.moneyLedger || []).find(r =>
@@ -2412,15 +2435,17 @@ export function createCashAdvance(db, data = {}) {
     }
   }
 
+  const outDebt = debtChargeReplay ? effectiveDebt(card, linkedClient) : nextDebt
   return {
     ok: true,
     result: {
       client: linkedClient,
       amount,
-      prevDebt,
-      nextDebt,
+      prevDebt: debtChargeReplay ? outDebt : prevDebt,
+      nextDebt: outDebt,
       till,
       debtLedgerEntryId,
+      replay: !!(debtChargeReplay || till?.replay),
     },
   }
 }
@@ -3354,6 +3379,7 @@ export function createPosSale(db, data = {}) {
         source: 'pos',
         orderId: sale.orderId,
         saleId: sale.id,
+        clientRef: clientRef || undefined,
         desc: String(data.note || '').trim() || `Касса · ${sale.orderId || sale.number}`,
         createdAtIso: sale.createdAtIso,
       })
@@ -3422,6 +3448,7 @@ export function createPosSale(db, data = {}) {
         source: 'pos',
         orderId: sale.orderId,
         saleId: sale.id,
+        clientRef: clientRef || undefined,
         desc: String(data.note || '').trim() || `Касса · ${sale.orderId || sale.number}`,
         createdAtIso: sale.createdAtIso,
       })

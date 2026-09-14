@@ -1161,8 +1161,27 @@ export async function cashAdvanceSafe(
       prevDebt,
     })
     if (dup) {
+      const abs = round2(Number(
+        (dup.payload as any)?.nextDebt
+        ?? liveDebtNow(num, input.clientId, round2(prevDebt + amount)),
+      ))
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        {
+          debt: abs,
+          debtEnabled: true,
+          debtPayVersion: Math.max(
+            Number(cardNow?.debtPayVersion) || 0,
+            (Number((dup.payload as any)?.expectedDebtPayVersion) || expectedDebtPayVersion) + 1,
+          ),
+        },
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: abs, debtEnabled: true }, { skipApi: true })
+      }
       return {
-        debt: liveDebtNow(num, input.clientId, round2(prevDebt + amount)),
+        debt: abs,
         duplicate: true,
         clientRef: String((dup.payload as any)?.clientRef || clientRef),
       }
@@ -1200,18 +1219,19 @@ export async function cashAdvanceSafe(
         }
       : null
 
+    const seq = await allocQueueSeq({ persist: false })
+    const queueRow: PendingOp = {
+      clientRef,
+      kind: 'cash_advance',
+      payload: { ...payload, nextDebt, appliedLocal: true, skipBalances: true },
+      createdAtIso,
+      seq,
+      attempts: 0,
+      localId: clientRef,
+    }
+
     const { canAtomicLocalCashAdvanceCommit, commitLocalCashAdvanceAtomic } = await import('./localCashAdvanceAtomic')
     if (canAtomicLocalCashAdvanceCommit()) {
-      const seq = await allocQueueSeq({ persist: false })
-      const queueRow: PendingOp = {
-        clientRef,
-        kind: 'cash_advance',
-        payload: { ...payload, appliedLocal: true, skipBalances: true },
-        createdAtIso,
-        seq,
-        attempts: 0,
-        localId: clientRef,
-      }
       const committed = await commitLocalCashAdvanceAtomic({
         queueRow,
         card: cardRow as any,
@@ -1248,9 +1268,49 @@ export async function cashAdvanceSafe(
       return { debt: nextDebt, clientRef }
     }
 
-    // Fallback: Android / no atomic IPC — queue then memory
+    // Android / file-store: write-ahead envelope
+    {
+      const { canEnvelopeLocalDebtCommit, commitLocalDebtOpEnvelope } = await import('./localDebtCommitEnvelope')
+      if (canEnvelopeLocalDebtCommit()) {
+        const committed = await commitLocalDebtOpEnvelope({
+          kind: 'cash_advance',
+          queueRow,
+          card: cardRow as any,
+          client: clientRow as any,
+          shift: nextShift,
+        })
+        if (!committed.ok) {
+          throw new Error(committed.error || 'cash_advance_envelope_failed')
+        }
+        markMoneyPending({ clientId: input.clientId, cardNum: num })
+        useCardStore.getState().updateCardLoyalty(
+          num,
+          { debt: nextDebt, debtPayVersion: nextVer, debtEnabled: true },
+          { skipApi: true },
+        )
+        if (input.clientId) {
+          useClientStore.getState().updateClient(input.clientId, { debt: nextDebt, debtEnabled: true }, { skipApi: true })
+        }
+        patchShift(nextShift.id, {
+          expenseTotal: nextShift.expenseTotal,
+          updatedAtIso: nextShift.updatedAtIso,
+        })
+        const phone = useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
+          || cardNow?.phone
+        const histKey = debtAccountKey({ id: input.clientId, phone })
+        if (histKey) {
+          recordCashAdvanceHistory(histKey, amount, { clientRef })
+          void refreshDebtHistoryAfterCashAdvance(histKey)
+        }
+        useOfflineSync.getState().scheduleSyncDebounced(600)
+        void persistPosSnapshot()
+        return { debt: nextDebt, clientRef }
+      }
+    }
+
+    // Last-resort fallback — queue then memory (not atomic)
     markMoneyPending({ clientId: input.clientId, cardNum: num })
-    await useOfflineSync.getState().queueOp('cash_advance', { ...payload, appliedLocal: true })
+    await useOfflineSync.getState().queueOp('cash_advance', { ...payload, nextDebt, appliedLocal: true })
     patchShift(nextShift.id, { expenseTotal: nextShift.expenseTotal })
     useCardStore.getState().updateCardLoyalty(
       num,
@@ -1648,11 +1708,19 @@ export async function debtRepaySafe(
     prevDebt: number
     /** Гасим конкретный чек — и локально, и на сервере списываем с него */
     orderId?: string
+    /** D6: child waits for this CA clientRef until DL-* is known */
+    parentCashAdvanceClientRef?: string
   },
 ): Promise<OfflineResult<DebtRepayResult>> {
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
   const amount = round2(input.amount)
-  const orderId = String(input.orderId || '').trim() || undefined
+  let orderId = String(input.orderId || '').trim() || undefined
+  let parentCaRef = String(input.parentCashAdvanceClientRef || '').trim() || undefined
+  const unsafeTarget = orderId && /^cash-/i.test(orderId)
+  if (unsafeTarget) {
+    parentCaRef = parentCaRef || undefined
+    // Do not enqueue synthetic target — hold until CA ACK patches DL
+  }
   const key = debtRepayDupKey({
     num,
     amount,
@@ -1660,7 +1728,7 @@ export async function debtRepaySafe(
     clientId: input.clientId,
     method,
     note: input.note,
-    orderId,
+    orderId: unsafeTarget ? undefined : orderId,
   })
   const pending = debtRepayInflight.get(key)
   if (pending) {
@@ -1690,8 +1758,32 @@ export async function debtRepaySafe(
     clientId: input.clientId,
     prevDebt: round2(input.prevDebt),
     expectedDebtPayVersion,
-    orderId,
+    orderId: unsafeTarget ? undefined : orderId,
     histKey: histKey || undefined,
+    ...(parentCaRef || unsafeTarget
+      ? {
+          parentCashAdvanceClientRef: parentCaRef,
+          ...(unsafeTarget ? { _unsafeOrderId: orderId } : {}),
+        }
+      : {}),
+  }
+
+  // D6: if synthetic target and no parent — link to pending CA same card/client when unique
+  if (unsafeTarget && !payload.parentCashAdvanceClientRef) {
+    try {
+      const { getPending } = await import('./offline')
+      const pending = await getPending()
+      const cas = pending.filter(r =>
+        r.kind === 'cash_advance'
+        && (
+          String((r.payload as any)?.num || '') === num
+          || (input.clientId && String((r.payload as any)?.clientId || '') === String(input.clientId))
+        ),
+      )
+      if (cas.length === 1) {
+        payload.parentCashAdvanceClientRef = cas[0].clientRef
+      }
+    } catch { /* ignore */ }
   }
 
   // Браузер: сразу API, без очереди
@@ -1776,8 +1868,25 @@ export async function debtRepaySafe(
       expectedDebtPayVersion,
     })
     if (dup) {
+      const abs = round2(Number((dup.payload as any)?.nextDebt
+        ?? Math.max(0, input.prevDebt - amount)))
+      // Absolute hydrate — never subtract amount again
+      useCardStore.getState().updateCardLoyalty(
+        num,
+        {
+          debt: abs,
+          debtPayVersion: Math.max(
+            Number(cardNow?.debtPayVersion) || 0,
+            (Number((dup.payload as any)?.expectedDebtPayVersion) || expectedDebtPayVersion) + 1,
+          ),
+        },
+        { skipApi: true },
+      )
+      if (input.clientId) {
+        useClientStore.getState().updateClient(input.clientId, { debt: abs }, { skipApi: true })
+      }
       return {
-        nextDebt: liveDebtNow(num, input.clientId, round2(Math.max(0, input.prevDebt - amount))),
+        nextDebt: abs,
         bonusEarned: 0,
         duplicate: true,
         clientRef: String((dup.payload as any)?.clientRef || clientRef),
@@ -1819,23 +1928,36 @@ export async function debtRepaySafe(
         }
       : null
 
+    const cashLedgerEntry = (method === 'cash' && input.shiftId)
+      ? {
+          clientRef,
+          shiftId: input.shiftId,
+          amount,
+          method: 'cash' as const,
+          orderId,
+          createdAtIso: new Date().toISOString(),
+        }
+      : null
+
+    const seq = await allocQueueSeq({ persist: false })
+    const queueRow: PendingOp = {
+      clientRef,
+      kind: 'debt_repay',
+      payload: { ...payload, nextDebt, appliedLocal: true },
+      createdAtIso: new Date().toISOString(),
+      seq,
+      attempts: 0,
+      localId: clientRef,
+    }
+
     // Desktop: durable SQLite txn BEFORE memory
     if (canAtomicLocalDebtRepayCommit()) {
-      const seq = await allocQueueSeq({ persist: false })
-      const queueRow: PendingOp = {
-        clientRef,
-        kind: 'debt_repay',
-        payload: { ...payload, nextDebt, appliedLocal: true },
-        createdAtIso: new Date().toISOString(),
-        seq,
-        attempts: 0,
-        localId: clientRef,
-      }
       const committed = await commitLocalDebtRepayAtomic({
         queueRow,
         card: cardRow as any,
         client: clientRow as any,
         shift: nextShift,
+        cashRepayLedgerEntry: cashLedgerEntry,
         queueSeq: seq,
       })
       if (!committed.ok) {
@@ -1857,21 +1979,54 @@ export async function debtRepaySafe(
           updatedAtIso: nextShift.updatedAtIso,
         })
       }
-      if (method === 'cash' && input.shiftId) {
-        rememberCashDebtRepay({
-          clientRef,
-          shiftId: input.shiftId,
-          amount,
-          method: 'cash',
-          orderId,
-        })
+      if (cashLedgerEntry) {
+        rememberCashDebtRepay(cashLedgerEntry)
       }
       useOfflineSync.getState().scheduleSyncDebounced(600)
       void persistPosSnapshot()
       return { nextDebt, bonusEarned: 0, clientRef }
     }
 
-    // Fallback: Android / no debtRepayCommit IPC — previous path (queue then memory)
+    // Android / file-store: write-ahead envelope (no fake multi-file txn)
+    {
+      const { canEnvelopeLocalDebtCommit, commitLocalDebtOpEnvelope } = await import('./localDebtCommitEnvelope')
+      if (canEnvelopeLocalDebtCommit()) {
+        const committed = await commitLocalDebtOpEnvelope({
+          kind: 'debt_repay',
+          queueRow,
+          card: cardRow as any,
+          client: clientRow as any,
+          shift: nextShift,
+          cashRepayLedgerEntry: cashLedgerEntry,
+        })
+        if (!committed.ok) {
+          throw new Error(committed.error || 'debt_repay_envelope_failed')
+        }
+        markMoneyPending({ clientId: input.clientId, cardNum: num })
+        useCardStore.getState().updateCardLoyalty(
+          num,
+          { debt: nextDebt, debtPayVersion: nextVer },
+          { skipApi: true },
+        )
+        if (input.clientId) {
+          useClientStore.getState().updateClient(input.clientId, { debt: nextDebt }, { skipApi: true })
+        }
+        if (nextShift) {
+          patchShift(nextShift.id, {
+            debtRepayCash: nextShift.debtRepayCash,
+            updatedAtIso: nextShift.updatedAtIso,
+          })
+        }
+        if (cashLedgerEntry) {
+          rememberCashDebtRepay(cashLedgerEntry)
+        }
+        useOfflineSync.getState().scheduleSyncDebounced(600)
+        void persistPosSnapshot()
+        return { nextDebt, bonusEarned: 0, clientRef }
+      }
+    }
+
+    // Last-resort fallback (should be rare): queue then memory — not atomic
     markMoneyPending({ clientId: input.clientId, cardNum: num })
     await useOfflineSync.getState().queueOp('debt_repay', { ...payload, nextDebt })
     if (nextShift && method === 'cash') {
@@ -2566,6 +2721,8 @@ async function createSaleSafeInner(
         : round2(Number(client.wallet) || 0)
       salePayload.appliedLocal = true
       salePayload.skipBalances = true
+      salePayload.clientId = client.id
+      if (client.card) salePayload.cardNum = client.card
       salePayload.clientDebtAfter = nextDebt
       salePayload.walletAfter = nextWallet
       if (salePayload.bonusBalanceAfter != null) {
@@ -2614,6 +2771,28 @@ async function createSaleSafeInner(
           || s.id === dup.localId,
         )
         if (existing) {
+          // D2: ensure memory debt matches durable absolute clientDebtAfter (never +D again)
+          try {
+            const p = (dup.payload || {}) as Record<string, unknown>
+            const debtAfter = p.clientDebtAfter != null ? round2(Number(p.clientDebtAfter)) : NaN
+            const cid = String(p.clientId || (p._revert as any)?.clientId || '').trim()
+            const cnum = String(p.cardNum || (p._revert as any)?.cardNum || '').trim()
+            if (Number.isFinite(debtAfter) && cid) {
+              useClientStore.getState().updateClient(cid, { debt: debtAfter, debtEnabled: true }, { skipApi: true })
+              if (cnum) {
+                const ver = Number(p.expectedDebtPayVersion)
+                useCardStore.getState().updateCardLoyalty(
+                  cnum,
+                  {
+                    debt: debtAfter,
+                    debtEnabled: true,
+                    ...(Number.isFinite(ver) ? { debtPayVersion: ver + 1 } : {}),
+                  },
+                  { skipApi: true },
+                )
+              }
+            }
+          } catch { /* ignore */ }
           return { ...existing, _offline: true } as PosSale & { orderId?: string; _offline?: boolean }
         }
         // Crash after COMMIT / before UI: durable row exists — restore without second stock/outbox
@@ -2663,6 +2842,34 @@ async function createSaleSafeInner(
           }
         : null
 
+      // Phase D2: absolute debt projections for SQLite txn (by client.id / card.num only)
+      const stampIso = new Date().toISOString()
+      let creditClientRow: import('./clientCrm').AdminClient | null = null
+      let creditCardRow: import('./cardCrm').AdminCard | null = null
+      if (client && debtAdded > 0.001) {
+        const baseClient = useClientStore.getState().clients.find(c => c.id === client.id) || client
+        creditClientRow = {
+          ...baseClient,
+          id: client.id,
+          debt: nextDebt,
+          debtEnabled: true,
+          updatedAtIso: stampIso,
+        } as import('./clientCrm').AdminClient
+        if (client.card) {
+          const baseCard = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, client.card!))
+            || linkedCard
+            || { num: client.card }
+          creditCardRow = {
+            ...baseCard,
+            num: client.card,
+            debt: nextDebt,
+            debtEnabled: true,
+            debtPayVersion: expectedDebtPayVersion + 1,
+            updatedAtIso: stampIso,
+          } as import('./cardCrm').AdminCard
+        }
+      }
+
       const seq = await allocQueueSeq({ persist: false })
       const queueRow: PendingOp = {
         clientRef: stableRef,
@@ -2686,6 +2893,8 @@ async function createSaleSafeInner(
         stockLayers: nextLayers,
         sale: offlineSale,
         shift: nextShift,
+        client: creditClientRow,
+        card: creditCardRow,
         queueSeq: seq,
       })
       if (!committed.ok) {
@@ -2715,6 +2924,7 @@ async function createSaleSafeInner(
 
       if (client) {
         if (debtAdded > 0.001) {
+          // Absolute hydrate from committed projection (same nextDebt) — never +debtAdded again
           useClientStore.getState().updateClient(
             client.id,
             { debt: nextDebt, debtEnabled: true },

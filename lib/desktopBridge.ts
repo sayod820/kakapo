@@ -179,6 +179,8 @@ export type KakapoDesktopApi = {
     stockLayers?: unknown
     sale?: unknown
     shift?: unknown
+    client?: unknown
+    card?: unknown
     queueSeq?: number
     failAt?: string
   }) => Promise<{ ok: boolean; error?: string; code?: string; rolledBack?: boolean; clientRef?: string; saleId?: string }>
@@ -191,6 +193,7 @@ export type KakapoDesktopApi = {
     shift?: unknown
     debtHistoryKey?: string
     debtHistory?: unknown
+    cashRepayLedgerEntry?: unknown
     queueSeq?: number
     failAt?: string
   }) => Promise<{ ok: boolean; error?: string; code?: string; rolledBack?: boolean; clientRef?: string }>

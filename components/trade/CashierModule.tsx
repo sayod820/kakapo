@@ -7761,7 +7761,8 @@ export default function CashierModule({
             orderId: oid,
             debtEntryId: newest.id,
             label: newest.desc || target.label,
-          }
+            parentCashAdvanceClientRef: !oid ? String((newest as any).clientRef || '').trim() || undefined : undefined,
+          } as typeof target
           setHistTick(t => t + 1)
         }
       }
@@ -7781,6 +7782,7 @@ export default function CashierModule({
         clientId: client.id,
         prevDebt,
         orderId: target?.orderId,
+        parentCashAdvanceClientRef: (target as any)?.parentCashAdvanceClientRef,
       })
       const nextDebt = Number(repaid.data.nextDebt) || Math.max(0, prevDebt - payAmt)
       if (repaid.data.duplicate) {

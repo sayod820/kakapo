@@ -1,5 +1,5 @@
 /**
- * Server journal → durable cash debtRepayCash backfill (1.2.187).
+ * Server journal → durable cash debtRepayCash backfill (≥1.2.187 / 1.2.189).
  * Run: node scripts/debt-repay-cash-journal-test.mjs
  */
 import fs from 'node:fs'
@@ -386,9 +386,13 @@ test('closed old-shift repay NOT applied to new open shift', () => {
   expect(active && active.id === NEW, `active open=${active?.id}`)
 })
 
-test('desktop version 1.2.187', () => {
+test('desktop version ≥ 1.2.187', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'desktop/package.json'), 'utf8'))
-  expect(pkg.version === '1.2.187', `ver=${pkg.version}`)
+  const parts = String(pkg.version || '').split('.').map(Number)
+  const ok = parts[0] > 1
+    || (parts[0] === 1 && parts[1] > 2)
+    || (parts[0] === 1 && parts[1] === 2 && parts[2] >= 187)
+  expect(ok, `ver=${pkg.version}`)
 })
 
 const failed = results.filter(r => r.status === 'FAIL')

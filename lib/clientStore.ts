@@ -244,6 +244,10 @@ export const useClientStore = create<ClientStore>((set, get) => ({
         api.getDeletedPhones(),
         api.getClients(),
       ])
+      try {
+        const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+        await refreshDebtOverlayFromQueue()
+      } catch { /* ignore */ }
       const apiRaw = ensureArray<AdminClient>(rawClients, 'clients')
         .map(c => normalizeClient(c))
         .filter(c => !isClientPurged(c))

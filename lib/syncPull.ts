@@ -19,6 +19,7 @@ import {
   applyPendingStockOverlayToProducts,
   mergeLayersProtectingLocal,
 } from './pendingPullGate'
+import { refreshDebtOverlayFromPending } from './pendingDebtOverlay'
 import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
@@ -59,13 +60,19 @@ async function doPullSyncChanges(opts?: {
   if (!opts?.ignorePending) {
     try {
       pendingSnapshot = await getPending()
+    } catch { /* ignore */ }
+  } else {
+    try { pendingSnapshot = await getPending() } catch { /* ignore */ }
+  }
+  // Phase D5: durable debt overlay from outbox (survives restart / TTL / forceFull)
+  try { refreshDebtOverlayFromPending(pendingSnapshot) } catch { /* ignore */ }
+  if (!opts?.ignorePending) {
+    try {
       // Phase 6: only READY-to-push blocks; cooldown/failed allow inbound + overlay
       if (shouldSkipFullPullForPending(pendingSnapshot)) {
         return { ok: false, skipped: 'pending' }
       }
     } catch { /* ignore */ }
-  } else {
-    try { pendingSnapshot = await getPending() } catch { /* ignore */ }
   }
 
   const t0 = isPerfEnabled() ? performance.now() : 0

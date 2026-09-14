@@ -412,6 +412,10 @@ export const useCardStore = create<CardStore>((set, get) => ({
     try {
       clearAppDataLocalCache()
       const apiList = ensureArray<AdminCard>(await api.getCards(), 'cards')
+      try {
+        const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+        await refreshDebtOverlayFromQueue()
+      } catch { /* ignore */ }
       const local = get().cards
       const apiCards = applyDeletedPhoneMask(apiList.map(c => normalizeCard(c)))
       // Match by card.num ONLY — never by missing id / phone cross-link.

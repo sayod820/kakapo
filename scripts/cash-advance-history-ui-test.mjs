@@ -72,6 +72,7 @@ test('ledger sync after local write does not duplicate', () => {
   })
   expect(countCashAdvanceHistoryRows(merged.next) === 1, `got ${countCashAdvanceHistoryRows(merged.next)}`)
   expect(merged.next.some(r => r.id === 'ldg-DL-1789303943141-e5kn' || r.clientRef === 'ref-1'))
+  expect(merged.next[0].orderId === 'DL-1789303943141-e5kn', 'server ledger id stored as orderId')
 })
 
 test('local write after ledger sync does not duplicate', () => {

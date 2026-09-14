@@ -3,6 +3,16 @@
 import { cardDigits, cardNumsMatch, canonicalCardNum, type AdminCard } from './cardCrm'
 import type { AdminClient, ClientLevel } from './clientCrm'
 import { normalizeLoyaltyLevel } from './loyaltyAdminLock'
+import {
+  applyPendingDebtOverlayToCard,
+  applyPendingDebtOverlayToClient,
+  ensureDebtOverlay,
+} from './pendingDebtOverlay'
+
+/** Prefer active overlay; lazy-build empty if never refreshed (callers should refresh from getPending). */
+function debtOverlayForMerge() {
+  return ensureDebtOverlay()
+}
 
 const TTL_MS = 180_000
 const MANUAL_STORE_KEY = 'kakapo-manual-loyalty-v1'
@@ -267,16 +277,29 @@ export function mergeCardLoyaltyIfRecent(apiCard: AdminCard, localCard?: AdminCa
     merged = mergeLoyaltyFields(apiCard, localCard, false)
   }
   if (localCard && isMoneyPendingCard(apiCard.num)) {
+    // Phase D5: moneyPending may still pin bonus/wallet (optimization).
+    // Debt correctness comes from durable queue overlay (server base + pending Δ),
+    // not from pinning local debt (avoids double-apply and TTL/restart holes).
     merged = {
       ...merged,
       bonus: localCard.bonus ?? merged.bonus,
-      debt: localCard.debt ?? merged.debt,
       wallet: localCard.wallet ?? merged.wallet,
       posCashBonus: localCard.posCashBonus ?? merged.posCashBonus,
-      // Версия только растёт: сервер мог уйти вперёд (погашение с другой кассы)
       debtPayVersion: Math.max(
         Number(localCard.debtPayVersion) || 0,
         Number(merged.debtPayVersion) || 0,
+      ),
+    }
+  }
+  // Durable pending debt overlay (D5) — always from server apiCard.debt base
+  {
+    const overlaid = applyPendingDebtOverlayToCard(apiCard, localCard, debtOverlayForMerge())
+    merged = {
+      ...merged,
+      debt: overlaid.debt,
+      debtPayVersion: Math.max(
+        Number(merged.debtPayVersion) || 0,
+        Number(overlaid.debtPayVersion) || 0,
       ),
     }
   }
@@ -292,9 +315,13 @@ export function mergeClientLoyaltyIfRecent(apiClient: AdminClient, localClient?:
     merged = {
       ...merged,
       bonus: localClient.bonus ?? merged.bonus,
-      debt: localClient.debt ?? merged.debt,
       wallet: localClient.wallet ?? merged.wallet,
+      // debt: durable overlay below (D5); do not pin local debt here
     }
+  }
+  {
+    const overlaid = applyPendingDebtOverlayToClient(apiClient, localClient, debtOverlayForMerge())
+    merged = { ...merged, debt: overlaid.debt }
   }
   merged = applyManualLoyaltyToClient(merged)
   if (localClient && isRecent(clientSavedAt, localClient.id)) {

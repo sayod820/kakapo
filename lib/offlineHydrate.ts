@@ -28,6 +28,11 @@ export function hydrateOfflineCaches(): Promise<void> {
     ])
     // After products in memory — apply durable layers → stock (no catalog rewrite)
     await hydrateStockLayers()
+    // Phase D5: warm durable debt overlay from outbox before any inbound pull
+    try {
+      const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+      await refreshDebtOverlayFromQueue()
+    } catch { /* ignore */ }
   })()
   return hydrating
 }
@@ -54,6 +59,11 @@ async function hydratePos() {
   try {
     const { hydrateDebtRepayCashLedger } = await import('./debtRepayCashLedger')
     await hydrateDebtRepayCashLedger()
+  } catch { /* ignore */ }
+  // Phase D3: finish Android write-ahead debt envelopes left after crash
+  try {
+    const { recoverLocalDebtOpEnvelopes } = await import('./localDebtCommitEnvelope')
+    await recoverLocalDebtOpEnvelopes()
   } catch { /* ignore */ }
   const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
   if (cached) {

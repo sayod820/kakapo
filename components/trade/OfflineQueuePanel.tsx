@@ -178,6 +178,14 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   async function discardOne(row: PendingOp) {
     if (syncing || busyRef) return
     const label = QUEUE_KIND_LABEL[row.kind] || row.kind
+    try {
+      const { canRemoveDebtQueueOp } = await import('@/lib/debtOpErrorClassifier')
+      const gate = canRemoveDebtQueueOp(row)
+      if (!gate.ok) {
+        window.alert(gate.detail || 'DEBT_PENDING_CANNOT_REMOVE')
+        return
+      }
+    } catch { /* allow confirm path */ }
     if (!confirm(`Убрать из очереди «${label}»?\n\nНа сервер эта операция больше не уйдёт. На телефоне данные останутся как есть.`)) {
       return
     }
@@ -186,6 +194,8 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
       const { dropPending } = await import('@/lib/offline')
       await dropPending(row.clientRef)
       await refresh()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Не удалось убрать из очереди')
     } finally {
       setBusyRef(null)
     }

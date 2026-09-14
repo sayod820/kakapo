@@ -238,7 +238,9 @@ test('CASE6b atomic commit wiring present', () => {
   const offline = fs.readFileSync(path.join(root, 'lib/offline.ts'), 'utf8')
   expect(/case 'cash_advance'/.test(offline), 'sendOp cash_advance')
   expect(/findDuplicateCashAdvance/.test(offline), 'dedupe')
-  expect(/revertLocalCashAdvanceOnReject/.test(offline), 'OCC revert')
+  // D6: OCC on cash_advance is RETRYABLE_VERSION (no auto-revert); DL mapping before delete
+  expect(/classifyDebtOpError/.test(offline), 'D6 classifier')
+  expect(/persistCashAdvanceAckMapping/.test(offline), 'ACK DL mapping')
 })
 
 test('CASE7/8 pending overlay + restart guards in source', () => {

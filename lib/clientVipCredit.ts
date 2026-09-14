@@ -782,11 +782,15 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
             ...cur,
             desc: CASH_ADVANCE_HISTORY_LABEL,
             source: 'cashier',
+            orderId: cur.orderId || e.id,
             dueAtIso: e.dueAtIso,
             dueDate: e.dueDate,
             daysLeft: e.daysLeft,
             overdue: e.overdue,
           }
+          changed = true
+        } else if (!cur.orderId && e.id) {
+          next[idx] = { ...cur, orderId: e.id }
           changed = true
         }
       }
@@ -1021,12 +1025,20 @@ function pushDebtHistory(
   saveDebtHistoryList(phone, [row, ...prev])
 }
 
-/** Стабильный ключ для погашения наличной выдачи */
+/**
+ * Стабильный ключ для targeted погашения cash_advance — только server debtLedger.id.
+ * Не синтезирует fake cash-${localId} (после recovery сервер не знает таких ключей).
+ */
 export function cashDebtOrderId(row: { id?: string; orderId?: string }): string {
   const oid = String(row.orderId || '').trim()
-  if (oid) return oid
-  const id = String(row.id || '').trim()
-  return id ? `cash-${id}` : ''
+  if (oid && !/^cash-/i.test(oid)) return oid
+  const rawId = String(row.id || '').trim()
+  if (!rawId) return ''
+  if (rawId.startsWith(LEDGER_DEBT_PREFIX)) {
+    return rawId.slice(LEDGER_DEBT_PREFIX.length)
+  }
+  if (rawId.startsWith('DL-')) return rawId
+  return ''
 }
 
 export async function chargeCredit(

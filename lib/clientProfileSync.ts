@@ -238,6 +238,10 @@ async function loadCrmData(): Promise<{ clients: AdminClient[]; cards: AdminCard
         import('./cardStore'),
         import('./loyaltySaveGuard'),
       ])
+      try {
+        const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+        await refreshDebtOverlayFromQueue()
+      } catch { /* ignore */ }
       const localClients = useClientStore.getState().clients
       const localCards = useCardStore.getState().cards
       return {

@@ -3732,8 +3732,9 @@ function TradeAppGate() {
       m.ensureDesktopLocalFirst()
       void m.ensureBrowserOnlineOnly()
     }).catch(() => {})
-    void hydrateOfflineCaches()
-    useOfflineSync.getState().start()
+    void hydrateOfflineCaches().then(() => {
+      useOfflineSync.getState().start()
+    })
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
   }, [])

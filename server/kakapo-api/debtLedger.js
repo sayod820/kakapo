@@ -199,12 +199,20 @@ export function addDebtCharge(client, card, {
   source = 'pos',
   orderId,
   saleId,
+  clientRef,
   desc = 'Долг',
   createdAtIso,
 } = {}) {
   ensureDebtLedger(client)
   const amt = round2(amount)
   if (!(amt > 0)) return { entry: null, notifications: [] }
+
+  const ref = String(clientRef || '').trim()
+  // Phase D4: durable business backstop — same clientRef must not create a second charge
+  if (ref) {
+    const known = (client.debtLedger || []).find(e => String(e.clientRef || '').trim() === ref)
+    if (known) return { entry: known, notifications: [], replay: true }
+  }
 
   const when = createdAtIso && !Number.isNaN(Date.parse(createdAtIso))
     ? new Date(createdAtIso).toISOString()
@@ -219,6 +227,7 @@ export function addDebtCharge(client, card, {
     source,
     orderId: orderId || undefined,
     saleId: saleId || undefined,
+    clientRef: ref || undefined,
     desc: String(desc || 'Долг').trim(),
     createdNotified: false,
     reminderNotified: false,
@@ -235,14 +244,19 @@ export function addDebtCharge(client, card, {
   return { entry, notifications }
 }
 
+const LEDGER_DEBT_PREFIX = 'ldg-'
+
 function debtReceiptMatchKeys(entry) {
   const saleId = String(entry?.saleId || '').trim()
   const orderId = String(entry?.orderId || '').trim()
+  const id = String(entry?.id || '').trim()
   return [
     saleId,
     orderId,
     saleId ? `sale-${saleId}` : '',
     orderId ? `sale-${orderId}` : '',
+    id,
+    id ? `${LEDGER_DEBT_PREFIX}${id}` : '',
   ].filter(Boolean)
 }
 
@@ -250,7 +264,63 @@ function debtReceiptMatchesTarget(entry, prefer) {
   const p = String(prefer || '').trim()
   if (!p) return false
   const upper = p.toUpperCase()
-  return debtReceiptMatchKeys(entry).some(k => k === p || k.toUpperCase() === upper)
+  if (debtReceiptMatchKeys(entry).some(k => k === p || k.toUpperCase() === upper)) return true
+  // Legacy local keys: cash-ldg-DL-… / cash-log-DL-… / cash-DL-… → match server ledger id tail
+  const legacy = normalizeLegacyCashRepayPrefer(p)
+  if (legacy && idTailMatches(entry, legacy)) return true
+  return false
+}
+
+/** Strip synthetic cash-* prefixes down to DL-… ledger id tail when possible. */
+export function normalizeLegacyCashRepayPrefer(prefer) {
+  let p = String(prefer || '').trim()
+  if (!p) return ''
+  if (/^cash-/i.test(p)) p = p.replace(/^cash-/i, '')
+  if (/^ldg-/i.test(p)) p = p.replace(/^ldg-/i, '')
+  if (/^log-/i.test(p)) p = p.replace(/^log-/i, '')
+  if (p.startsWith('DL-')) return p
+  return ''
+}
+
+function idTailMatches(entry, ledgerId) {
+  const id = String(entry?.id || '').trim()
+  const want = String(ledgerId || '').trim()
+  if (!id || !want) return false
+  return id === want || id.endsWith(want.slice(-12))
+}
+
+export function isLegacyCashRepayTarget(prefer) {
+  return /^cash-/i.test(String(prefer || '').trim())
+}
+
+function isCashAdvanceSource(entry) {
+  return String(entry?.source || '').toLowerCase() === 'cash_advance'
+}
+
+/** Unambiguous cash_advance fallback after server recovery (legacy cash-* keys only). */
+export function findCashAdvanceRepayFallback(entries, repayAmount) {
+  const amt = round2(repayAmount)
+  if (!(amt > 0.001)) return { kind: 'none', candidates: [] }
+  const candidates = (Array.isArray(entries) ? entries : []).filter(e =>
+    isCashAdvanceSource(e)
+    && isOpenLedgerEntry(e)
+    && Math.abs(round2(e.remaining) - amt) <= 0.011,
+  )
+  if (candidates.length === 0) return { kind: 'none', candidates: [] }
+  if (candidates.length === 1) return { kind: 'one', target: candidates[0], candidates }
+  return { kind: 'many', candidates }
+}
+
+export function resolveDebtRepaymentTarget(client, prefer, repayAmount) {
+  const all = client?.debtLedger || []
+  const p = String(prefer || '').trim()
+  if (!p) return null
+  const direct = all.find(e => debtReceiptMatchesTarget(e, p))
+  if (direct) return direct
+  if (!isLegacyCashRepayTarget(p)) return null
+  const fb = findCashAdvanceRepayFallback(all, repayAmount)
+  if (fb.kind === 'one') return fb.target
+  return fb
 }
 
 function debtRepayError(code, message, status = 400) {
@@ -275,7 +345,17 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
 
   if (prefer) {
     const all = client.debtLedger || []
-    const target = all.find(e => debtReceiptMatchesTarget(e, prefer))
+    let target = all.find(e => debtReceiptMatchesTarget(e, prefer))
+    if (!target && isLegacyCashRepayTarget(prefer)) {
+      const fb = findCashAdvanceRepayFallback(all, left)
+      if (fb.kind === 'many') {
+        throw debtRepayError(
+          'DEBT_RECEIPT_AMBIGUOUS',
+          `Найдено несколько непогашенных выдач наличных на ${round2(left).toFixed(2)} — уточните чек (${prefer})`,
+        )
+      }
+      if (fb.kind === 'one') target = fb.target
+    }
     if (!target) {
       throw debtRepayError(
         'DEBT_RECEIPT_NOT_FOUND',

@@ -289,6 +289,154 @@ test('charge + repay still compose', () => {
   expect(sumDebtLedgerRemaining(client.debtLedger) === 55, 'rem 55')
 })
 
+// ── CASH ADVANCE LEGACY TARGET + SERVER LEDGER ID ─────────────
+function mkCashAdv(id, remaining, at = '2026-09-13T12:00:00.000Z') {
+  return {
+    id,
+    amount: remaining,
+    remaining,
+    createdAtIso: at,
+    dueAtIso: at,
+    source: 'cash_advance',
+    desc: 'Выдача наличных в долг',
+    createdNotified: true,
+  }
+}
+
+test('CA-1) exact match by server debtLedger.id (DL-…)', () => {
+  const client = {
+    phone: '1',
+    debt: 486.7,
+    debtLedger: [mkCashAdv('DL-1789309389399-c099', 486.7)],
+  }
+  applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'DL-1789309389399-c099' })
+  expect(r2(client.debtLedger[0].remaining) === 0, 'paid')
+})
+
+test('CA-2) exact match by ldg-DL-… prefix', () => {
+  const client = {
+    phone: '1',
+    debt: 486.7,
+    debtLedger: [mkCashAdv('DL-1789309389399-c099', 486.7)],
+  }
+  applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'ldg-DL-1789309389399-c099' })
+  expect(r2(client.debtLedger[0].remaining) === 0, 'paid via ldg prefix')
+})
+
+test('CA-3) legacy cash-* key → fallback exactly 1 cash_advance', () => {
+  const client = {
+    phone: '1',
+    debt: 912.24,
+    debtLedger: [
+      mkCashAdv('DL-1789309389399-c099', 486.7),
+      { ...mkCashAdv('DL-REPAIR-HOLOV-BASE-320.04', 320.04, '2026-09-12T10:00:00.000Z'), source: 'backfill' },
+    ],
+  }
+  applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'cash-log-DL-1789309380388-J-99' })
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-1789309389399-c099').remaining) === 0, 'CA paid')
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-REPAIR-HOLOV-BASE-320.04').remaining) === 320.04, 'other untouched')
+})
+
+test('CA-4) legacy cash-* key → 0 matches → DEBT_RECEIPT_NOT_FOUND', () => {
+  const client = {
+    phone: '1',
+    debt: 100,
+    debtLedger: [mkCashAdv('DL-X', 50)],
+  }
+  let code = ''
+  try {
+    applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'cash-old-key' })
+  } catch (e) {
+    code = e.code || ''
+  }
+  expect(code === 'DEBT_RECEIPT_NOT_FOUND', `code=${code}`)
+  expect(r2(client.debtLedger[0].remaining) === 50, 'unchanged')
+})
+
+test('CA-5) legacy cash-* key → >1 cash_advance same amount → DEBT_RECEIPT_AMBIGUOUS', () => {
+  const client = {
+    phone: '1',
+    debt: 973.4,
+    debtLedger: [
+      mkCashAdv('DL-A', 486.7, '2026-09-10T10:00:00.000Z'),
+      mkCashAdv('DL-B', 486.7, '2026-09-11T10:00:00.000Z'),
+    ],
+  }
+  let code = ''
+  try {
+    applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'cash-legacy-dup' })
+  } catch (e) {
+    code = e.code || ''
+  }
+  expect(code === 'DEBT_RECEIPT_AMBIGUOUS', `code=${code}`)
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-A').remaining) === 486.7, 'A untouched')
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-B').remaining) === 486.7, 'B untouched')
+})
+
+test('CA-6) repeat same targeted repay → DEBT_RECEIPT_ALREADY_PAID', () => {
+  const client = {
+    phone: '1',
+    debt: 486.7,
+    debtLedger: [mkCashAdv('DL-1789309389399-c099', 486.7)],
+  }
+  applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'DL-1789309389399-c099' })
+  let code = ''
+  try {
+    applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'DL-1789309389399-c099' })
+  } catch (e) {
+    code = e.code || ''
+  }
+  expect(code === 'DEBT_RECEIPT_ALREADY_PAID', `code=${code}`)
+})
+
+test('CA-7) wrong amount on legacy key → NOT_FOUND (no partial FIFO)', () => {
+  const client = {
+    phone: '1',
+    debt: 486.7,
+    debtLedger: [mkCashAdv('DL-1789309389399-c099', 486.7)],
+  }
+  let code = ''
+  try {
+    applyDebtRepayment(client, { num: 'C' }, 400, { orderId: 'cash-log-DL-old' })
+  } catch (e) {
+    code = e.code || ''
+  }
+  expect(code === 'DEBT_RECEIPT_NOT_FOUND', `code=${code}`)
+  expect(r2(client.debtLedger[0].remaining) === 486.7, 'unchanged')
+})
+
+test('CA-8) pos source same amount not picked by cash_advance fallback', () => {
+  const client = {
+    phone: '1',
+    debt: 973.4,
+    debtLedger: [
+      { ...mkCashAdv('DL-POS', 486.7), source: 'pos', orderId: 'K-9649' },
+      mkCashAdv('DL-CA', 486.7, '2026-09-11T10:00:00.000Z'),
+    ],
+  }
+  applyDebtRepayment(client, { num: 'C' }, 486.7, { orderId: 'cash-legacy-single-ca' })
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-CA').remaining) === 0, 'only CA paid')
+  expect(r2(client.debtLedger.find(e => e.id === 'DL-POS').remaining) === 486.7, 'pos untouched')
+})
+
+test('CA-9) offline queue keeps debt_repay on DEBT_RECEIPT errors', () => {
+  const src = fs.readFileSync(path.join(root, 'lib/offline.ts'), 'utf8')
+  expect(src.includes('debtReceiptSyncErr'), 'sync err guard')
+  expect(src.includes('DEBT_RECEIPT_NOT_FOUND'), 'NOT_FOUND guard')
+  expect(src.includes('DEBT_RECEIPT_AMBIGUOUS'), 'AMBIGUOUS guard')
+  expect(src.includes('Чек долга не найден'), 'ru guard')
+  const rejectIdx = src.indexOf('const rejectRe =')
+  const rejectLine = src.slice(rejectIdx, rejectIdx + 600)
+  expect(!rejectLine.includes('чек не найден'), 'rejectRe must not auto-revert debt receipt sync errors')
+})
+
+test('CA-10) cashDebtOrderId uses server ledger id, not cash-local', () => {
+  const vip = fs.readFileSync(path.join(root, 'lib/clientVipCredit.ts'), 'utf8')
+  expect(vip.includes('Не синтезирует fake cash-${localId}'), 'doc')
+  expect(!vip.includes('return id ? `cash-${id}`'), 'no cash- synthesis')
+  expect(vip.includes("rawId.startsWith(LEDGER_DEBT_PREFIX)"), 'ldg strip')
+})
+
 const failed = results.filter(r => r.status === 'FAIL')
 console.log(`\n${results.length - failed.length}/${results.length} passed`)
 if (failed.length) {

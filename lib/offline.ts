@@ -535,6 +535,19 @@ function lsQueueWrite(list: PendingOp[]) {
   try { localStorage.setItem(LS_PREFIX + STORE_QUEUE, JSON.stringify(list)) } catch { /* quota */ }
 }
 
+/**
+ * Sync peek of LS queue mirror (write-ahead). Used by D5 debt overlay when
+ * async getPending has not refreshed the active overlay yet.
+ * Not a substitute for getPending() on Desktop/Android (SQLite/files may be richer).
+ */
+export function peekPendingSync(): PendingOp[] {
+  try {
+    return lsQueueRead().sort(byOrder)
+  } catch {
+    return []
+  }
+}
+
 /** Убрать одну op из LS-зеркала по clientRef. Идемпотентно; не трогает чужие refs. */
 function lsQueueDeleteClientRef(clientRef: string): void {
   const ref = String(clientRef || '')
@@ -642,6 +655,15 @@ export async function putPending(row: PendingOp): Promise<void> {
     lsQueueWrite(list)
   } catch { /* quota */ }
 
+  // Phase D5: keep durable debt overlay warm from LS write-ahead
+  try {
+    if (row.kind === 'sale' || row.kind === 'debt_repay' || row.kind === 'cash_advance') {
+      void import('./pendingDebtOverlay').then(({ refreshDebtOverlayFromPending }) => {
+        refreshDebtOverlayFromPending(lsQueueRead())
+      }).catch(() => {})
+    }
+  } catch { /* ignore */ }
+
   const files = androidFiles()
   const desk = deskDb()
   if (desk?.localDbQueuePut) {
@@ -697,6 +719,13 @@ export async function deletePending(clientRef: string): Promise<void> {
   // Всегда (Desktop / Android / Browser): убрать LS-зеркало этой op — без early return
   lsQueueDeleteClientRef(ref)
 
+  // Phase D5: rebuild overlay after ACK/drop
+  try {
+    void import('./pendingDebtOverlay').then(({ refreshDebtOverlayFromPending }) => {
+      refreshDebtOverlayFromPending(lsQueueRead())
+    }).catch(() => {})
+  } catch { /* ignore */ }
+
   if (isPerfEnabled()) {
     try {
       const left = lsQueueRead().length
@@ -705,19 +734,37 @@ export async function deletePending(clientRef: string): Promise<void> {
   }
 }
 
-/** Внутреннее: не вызывать из UI кассы — очередь нельзя стирать вручную */
+/** Внутреннее / UI: удаление из очереди. Debt appliedLocal — блокируется (D6). */
 export async function dropPending(clientRef: string): Promise<void> {
-  await deletePending(clientRef)
+  const ref = String(clientRef || '').trim()
+  if (!ref) return
+  const row = (await getPending()).find(r => r.clientRef === ref)
+  if (row) {
+    const { canRemoveDebtQueueOp } = await import('./debtOpErrorClassifier')
+    const gate = canRemoveDebtQueueOp(row)
+    if (!gate.ok) {
+      const err = new Error(gate.detail || 'DEBT_PENDING_CANNOT_REMOVE')
+      ;(err as any).code = gate.code || 'DEBT_PENDING_CANNOT_REMOVE'
+      throw err
+    }
+  }
+  await deletePending(ref)
 }
 
-/** Стереть всю очередь (браузер online-only / ремонт) */
+/** Стереть всю очередь (браузер online-only / ремонт). Debt appliedLocal rows skipped (D6). */
 export async function clearAllPending(): Promise<void> {
+  const { canRemoveDebtQueueOp } = await import('./debtOpErrorClassifier')
   const list = await getPending()
   for (const row of list) {
+    const gate = canRemoveDebtQueueOp(row)
+    if (!gate.ok) continue
     try { await deletePending(row.clientRef) } catch { /* ignore */ }
   }
-  // Belt-and-suspenders: deletePending уже чистит LS по ref; полный wipe на случай битого LS
-  try { lsQueueWrite([]) } catch { /* ignore */ }
+  // Do not wipe entire LS if debt ops remain
+  const left = await getPending()
+  if (left.length === 0) {
+    try { lsQueueWrite([]) } catch { /* ignore */ }
+  }
 }
 
 /** Повторить отклонённую операцию при следующей отправке */
@@ -1393,6 +1440,57 @@ export async function refreshCardDebtPayVersion(cardNum: string): Promise<number
   }
 }
 
+/**
+ * Phase D6: after CA server ACK — persist DL-* before queue delete,
+ * then patch child debt_repay ops that waited on this CA.
+ */
+async function persistCashAdvanceAckMapping(caRow: PendingOp, debtLedgerEntryId: string): Promise<void> {
+  const dlId = String(debtLedgerEntryId || '').trim()
+  const caRef = String(caRow.clientRef || '').trim()
+  if (!dlId || !caRef) return
+  const p = (caRow.payload || {}) as Record<string, unknown>
+  try {
+    const { debtAccountKey, recordCashAdvanceHistory } = await import('./clientVipCredit')
+    const { useClientStore } = await import('./clientStore')
+    const { useCardStore } = await import('./cardStore')
+    const { cardNumsMatch } = await import('./cardCrm')
+    const num = String(p.num || p.cardNum || '').trim()
+    const clientId = String(p.clientId || '').trim()
+    const phone = useClientStore.getState().clients.find(c => c.id === clientId)?.phone
+      || useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))?.phone
+      || ''
+    const histKey = debtAccountKey({ id: clientId, phone }) || phone
+    if (histKey) {
+      recordCashAdvanceHistory(histKey, Number(p.amount) || 0, {
+        clientRef: caRef,
+        ledgerEntryId: dlId,
+      })
+    }
+  } catch { /* history best-effort */ }
+
+  try {
+    const all = await getPending()
+    for (const r of all) {
+      if (r.kind !== 'debt_repay') continue
+      const rp = { ...((r.payload || {}) as Record<string, unknown>) }
+      const parent = String(rp.parentCashAdvanceClientRef || rp.awaitCashAdvanceClientRef || '').trim()
+      const unsafe = /^cash-/i.test(String(rp.orderId || rp._unsafeOrderId || ''))
+      const sameCard = String(rp.num || '') === String(p.num || '')
+        || String(rp.clientId || '') === String(p.clientId || '')
+      if (parent === caRef || (unsafe && sameCard && !String(rp.orderId || '').startsWith('DL-'))) {
+        rp.orderId = dlId
+        delete rp._unsafeOrderId
+        // keep parent ref for diagnostics but clear hold
+        r.payload = rp
+        r.failed = false
+        r.lastError = ''
+        r.nextRetryAt = undefined
+        await putPending(r)
+      }
+    }
+  } catch { /* child patch best-effort */ }
+}
+
 /** Отправка одной операции. Возвращает id созданной записи, если он есть. */
 async function sendOp(row: PendingOp): Promise<string> {
   switch (row.kind) {
@@ -1601,6 +1699,11 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'debt_repay': {
       const p = await resolveRefs(row.payload, ['shiftId'])
+      // D6: never send synthetic cash-* targets
+      const { isUnsafeDebtRepayTarget } = await import('./debtOpErrorClassifier')
+      if (isUnsafeDebtRepayTarget(p.orderId)) {
+        throw new BrokenRefError(`Синтетический target ${p.orderId} — ждём DL id выдачи`)
+      }
       const send = (ver: unknown) => api.debtRepayCard(String(p.num), {
         clientRef: p.clientRef,
         amount: Number(p.amount) || 0,
@@ -1617,11 +1720,12 @@ async function sendOp(row: PendingOp): Promise<string> {
         expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
       } as any)
       try {
-        await send(p.expectedDebtPayVersion)
+        const res = await send(p.expectedDebtPayVersion)
+        return String((res as any)?.clientRef || p.clientRef || '')
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         // Долг уже погашали на другой кассе — взять актуальную версию и повторить 1 раз
-        if (!/уже погашали|уже меняли|верси.*ожидали/i.test(msg)) throw e
+        if (!/уже погашали|уже меняли|верси.*ожидали|DEBT_PAY_VERSION/i.test(msg)) throw e
         const ver = await refreshCardDebtPayVersion(String(p.num))
         if (ver == null) throw e
         try {
@@ -1630,8 +1734,8 @@ async function sendOp(row: PendingOp): Promise<string> {
           await putPending(row)
         } catch { /* ignore */ }
         await send(ver)
+        return String(p.clientRef || '')
       }
-      return ''
     }
     case 'cash_advance': {
       const p = await resolveRefs(row.payload, ['shiftId'])
@@ -1647,8 +1751,9 @@ async function sendOp(row: PendingOp): Promise<string> {
         createdAtIso: p.createdAtIso,
         expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
       } as any)
+      let res: any
       try {
-        await send(p.expectedDebtPayVersion)
+        res = await send(p.expectedDebtPayVersion)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         if (!/уже меняли|верси.*ожидали|DEBT_PAY_VERSION/i.test(msg)) throw e
@@ -1659,9 +1764,16 @@ async function sendOp(row: PendingOp): Promise<string> {
           row.payload = live as PendingOp['payload']
           await putPending(row)
         } catch { /* ignore */ }
-        await send(ver)
+        res = await send(ver)
       }
-      return ''
+      // D6 ACK order: persist DL mapping BEFORE queue delete (caller deletes after return)
+      const dlId = String(res?.debtLedgerEntryId || '').trim()
+      if (dlId) {
+        try {
+          await persistCashAdvanceAckMapping(row, dlId)
+        } catch { /* still return dlId so caller can retry mapping */ }
+      }
+      return dlId || String(p.clientRef || '')
     }
     case 'finance_move': {
       const p = await resolveRefs(row.payload, ['shiftId'])
@@ -2283,6 +2395,14 @@ export async function flushQueue(
         continue
       }
       try {
+        // D6: CA→repay dependency — hold child until DL id known
+        if (live.kind === 'debt_repay') {
+          const { debtRepayHoldReason } = await import('./debtOpErrorClassifier')
+          const hold = debtRepayHoldReason(live, [...liveByRef.values()])
+          if (hold) {
+            throw new BrokenRefError(hold)
+          }
+        }
         const serverId = await sendOp(live)
         if (live.localId && serverId) {
           await rememberId(live.localId, serverId)
@@ -2334,8 +2454,62 @@ export async function flushQueue(
         live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
         live.failed = true
         live.nextRetryAt = Date.now() + pendingRetryDelayMs(live.attempts)
-        // Конфликт версии / нет остатка / нет денег — откатить локально, чтобы UI не врал
-        const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|чек не найден|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
+
+        // Phase D6: classify debt errors — never silently revert appliedLocal debt
+        if (live.kind === 'debt_repay' || live.kind === 'cash_advance') {
+          const {
+            classifyDebtOpError,
+            DEBT_OP_ERROR_CLASS,
+            heldBackoffMs,
+          } = await import('./debtOpErrorClassifier')
+          const cls = classifyDebtOpError(live.kind, e)
+          live.lastError = cls.message || live.lastError
+          if (cls.class === DEBT_OP_ERROR_CLASS.RETRYABLE_VERSION) {
+            // Refresh OCC version; keep same clientRef; no local re-apply; cooldown then retry
+            try {
+              const num = String((live.payload as any)?.num || '')
+              const ver = await refreshCardDebtPayVersion(num)
+              if (ver != null) {
+                live.payload = {
+                  ...(live.payload as object),
+                  expectedDebtPayVersion: ver,
+                } as PendingOp['payload']
+              }
+            } catch { /* ignore */ }
+            live.failed = false
+            live.nextRetryAt = Date.now() + pendingRetryDelayMs(Math.min(live.attempts, 6))
+            await putPending(live)
+            liveByRef.set(live.clientRef, live)
+            failed++
+            done++
+            reportProgress()
+            continue
+          }
+          // HELD / PERMANENT / UNKNOWN for debt: keep queue + overlay, long backoff
+          live.failed = true
+          live.nextRetryAt = Date.now() + heldBackoffMs(cls, live.attempts)
+          ;(live.payload as any)._debtErrorClass = cls.class
+          ;(live.payload as any)._debtErrorCode = cls.code
+          await putPending(live)
+          liveByRef.set(live.clientRef, live)
+          failed++
+          done++
+          reportProgress()
+          continue
+        }
+
+        // Targeted debt receipt sync errors on non-debt kinds (legacy path kept for safety)
+        const debtReceiptSyncErr = /DEBT_RECEIPT_NOT_FOUND|DEBT_RECEIPT_AMBIGUOUS|Чек долга не найден/i.test(live.lastError)
+        if (live.kind === 'debt_repay' && debtReceiptSyncErr) {
+          await putPending(live)
+          liveByRef.set(live.clientRef, live)
+          failed++
+          done++
+          reportProgress()
+          continue
+        }
+        // Конфликт версии / нет остатка / нет денег — откатить локально (НЕ debt_repay/cash_advance — D6)
+        const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
         if (rejectRe.test(live.lastError)) {
           try {
             if (live.kind === 'supplier_payment_create') {
@@ -2350,30 +2524,6 @@ export async function flushQueue(
                 Number(p.amount) || Number((p.payment as any)?.amount) || 0,
                 (p.payment as any) || null,
               )
-            } else if (live.kind === 'debt_repay') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              if (!p.clientRef) p.clientRef = live.clientRef
-              const { revertLocalDebtRepayOnReject } = await import('./offlinePosOps')
-              revertLocalDebtRepayOnReject(p as any)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              liveByRef.delete(live.clientRef)
-              failed++
-              done++
-              reportProgress()
-              continue
-            } else if (live.kind === 'cash_advance') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              if (!p.clientRef) p.clientRef = live.clientRef
-              const { revertLocalCashAdvanceOnReject } = await import('./offlinePosOps')
-              revertLocalCashAdvanceOnReject(p as any)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              liveByRef.delete(live.clientRef)
-              failed++
-              done++
-              reportProgress()
-              continue
             } else if (live.kind === 'card_topup') {
               const p = (live.payload || {}) as Record<string, unknown>
               if (!p.clientRef) p.clientRef = live.clientRef

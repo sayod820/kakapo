@@ -15,6 +15,17 @@ import {
   rowIdForItem,
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
+import {
+  buildDebtOpFingerprint,
+  checkIdempotencyReplay,
+  requireClientRef,
+  fingerprintFromMoneyLedgerDebtRepay,
+  fingerprintFromMoneyLedgerCashAdvance,
+  fingerprintFromPosSale,
+  debtOpRefDocId,
+  IDEMPOTENCY_KEY_REUSED,
+  CLIENT_REF_REQUIRED,
+} from './debtOpIdempotency.js'
 import { buildSyncChanges } from './syncChanges.js'
 import { recordSyncDelete } from './syncDeletes.js'
 import { mkdirSync } from 'fs'
@@ -190,6 +201,7 @@ import {
   canTakeNewDebt,
   handleClientDebtDelta,
   applyDebtRepayment,
+  resolveDebtRepaymentTarget,
   runDebtMaintenance,
   syncDebtLedgerFromCard,
   syncDebtLedgerToCard,
@@ -307,22 +319,77 @@ function pruneOpRefs() {
 
 /** Результат ранее проведённой операции с тем же ключом (или null) */
 function findOpRef(kind, clientRef) {
-  const ref = String(clientRef || '').trim()
-  if (!ref) return null
-  const row = ensureOpRefs().find(r => r.clientRef === ref && r.kind === kind)
+  const row = findOpRefRow(kind, clientRef)
   return row ? row.result : null
 }
 
-function rememberOpRef(kind, clientRef, result) {
+/** Full opRef row including fingerprint (Phase D4). */
+function findOpRefRow(kind, clientRef) {
+  const ref = String(clientRef || '').trim()
+  if (!ref) return null
+  return ensureOpRefs().find(r => r.clientRef === ref && r.kind === kind) || null
+}
+
+function rememberOpRef(kind, clientRef, result, fingerprint = null) {
   const ref = String(clientRef || '').trim()
   if (!ref) return
   const rows = ensureOpRefs()
   const idx = rows.findIndex(r => r.clientRef === ref && r.kind === kind)
-  const row = { clientRef: ref, kind, result, createdAtIso: new Date().toISOString() }
-  // FIX D: one opRef per (kind, clientRef) — replace, do not append duplicates
+  const id = debtOpRefDocId(kind, ref)
+  const row = {
+    id,
+    clientRef: ref,
+    kind,
+    result,
+    fingerprint: fingerprint || (idx >= 0 ? rows[idx].fingerprint : null) || null,
+    createdAtIso: new Date().toISOString(),
+  }
+  // FIX D / D4: one opRef per (kind, clientRef) — replace, do not append duplicates
   if (idx >= 0) rows[idx] = row
   else rows.push(row)
   pruneOpRefs()
+}
+
+/**
+ * Phase D4: if opRef exists — replay or 409 payload collision.
+ * @returns {boolean} true if response already sent
+ */
+function replyDebtOpReplayOrConflict(res, kind, clientRef, fingerprint, extra = {}) {
+  const row = findOpRefRow(kind, clientRef)
+  if (!row) return false
+  // Incomplete claim is not a success replay (resume apply / concurrent wait)
+  if (row.result && row.result.status === 'applying') {
+    const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
+    if (!check.ok) {
+      res.status(check.status || 409).json({
+        detail: check.detail,
+        code: check.code || IDEMPOTENCY_KEY_REUSED,
+        clientRef,
+        kind,
+      })
+      return true
+    }
+    return false
+  }
+  const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
+  if (!check.ok) {
+    res.status(check.status || 409).json({
+      detail: check.detail,
+      code: check.code || IDEMPOTENCY_KEY_REUSED,
+      clientRef,
+      kind,
+    })
+    return true
+  }
+  const result = row.result && typeof row.result === 'object' ? row.result : {}
+  res.json({
+    ...result,
+    ...extra,
+    clientRef,
+    replayed: true,
+    duplicate: true,
+  })
+  return true
 }
 
 const { replyIfKnownOp, remember: rememberKnownOp } = makeIdempotency(findOpRef, rememberOpRef)
@@ -2667,6 +2734,23 @@ app.post('/pos/sales', async (req, res) => {
     // Идемпотентность офлайн-синхронизации: если чек с таким clientRef уже проведён — возвращаем его
     const clientRef = body.clientRef ? String(body.clientRef).trim() : ''
     const skipBalances = !!(body.appliedLocal || body.skipBalances)
+    const debtAddedEarly = Math.round((Number(body.debtAdded) || 0) * 100) / 100
+    // Phase D4: credit / local-first sale must carry clientRef
+    if ((skipBalances || debtAddedEarly > 0.001) && !clientRef) {
+      return res.status(400).json({
+        detail: 'clientRef обязателен для идемпотентной продажи в долг / local-first',
+        code: CLIENT_REF_REQUIRED,
+      })
+    }
+    const saleFp = buildDebtOpFingerprint('pos_sale', {
+      amount: body.total,
+      debtAdded: debtAddedEarly,
+      clientId: body.clientId,
+      cardNum: body.cardNum,
+      method: body.paymentMethod,
+      shiftId: body.shiftId,
+      // orderId intentionally omitted — may remap after sync
+    })
     const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
     const loyaltyCreateOrder = (d, sale, b) => createClientOrderFromPosSale(d, sale, b)
 
@@ -2692,8 +2776,28 @@ app.post('/pos/sales', async (req, res) => {
     }
 
     if (clientRef) {
+      const opRow = findOpRefRow('pos_sale', clientRef)
+      if (opRow) {
+        const check = checkIdempotencyReplay(opRow.fingerprint, saleFp)
+        if (!check.ok) {
+          return res.status(check.status || 409).json({
+            detail: check.detail,
+            code: check.code || IDEMPOTENCY_KEY_REUSED,
+            clientRef,
+          })
+        }
+      }
       const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
       if (dup) {
+        const dupFp = fingerprintFromPosSale(dup)
+        const check = checkIdempotencyReplay(dupFp || opRow?.fingerprint, saleFp)
+        if (!check.ok) {
+          return res.status(check.status || 409).json({
+            detail: check.detail,
+            code: check.code || IDEMPOTENCY_KEY_REUSED,
+            clientRef,
+          })
+        }
         // FIX A: existing sale replay — дозавершить missing loyalty (earn/spend) ровно один раз
         if (dup.clientPhone) {
           const lr = await finishLoyalty(dup, { broadcastNewOrder: true })
@@ -2702,9 +2806,9 @@ app.post('/pos/sales', async (req, res) => {
           }
           if (lr.completedNow || lr.order) persist()
         }
-        return res.json(dup)
+        return res.json({ ...dup, replayed: true, duplicate: true, clientRef })
       }
-      if (replyIfKnownOp(res, 'pos_sale', clientRef)) return
+      if (replyDebtOpReplayOrConflict(res, 'pos_sale', clientRef, saleFp)) return
     }
     if (bonusSpendReq > 0 && !skipBalances) {
       const phone = String(body.clientPhone || '').trim()
@@ -2735,12 +2839,14 @@ app.post('/pos/sales', async (req, res) => {
         return res.status(400).json({ detail: lr.error || 'Не удалось списать бонусы' })
       }
     }
-    if (clientRef && !saleReplay) rememberOpRef('pos_sale', clientRef, { id: row.id, orderId: row.orderId })
     // FIX D: await flush so 23505 reconcile can replace loser before response
     await flushDbAsync()
     const canonical = clientRef
       ? (db.posSales || []).find(s => String(s.clientRef || '').trim() === clientRef) || row
       : row
+    if (clientRef) {
+      rememberOpRef('pos_sale', clientRef, { id: canonical.id, orderId: canonical.orderId }, saleFp)
+    }
     const wasReplay = saleReplay || (canonical && canonical.id !== row.id)
     if (!wasReplay) {
       broadcastPosUpdate({ kind: 'sale', id: canonical.id })
@@ -2764,7 +2870,9 @@ app.post('/pos/sales', async (req, res) => {
         },
       })
     }
-    res.json(canonical)
+    res.json(wasReplay
+      ? { ...canonical, replayed: true, duplicate: true, clientRef: clientRef || canonical.clientRef }
+      : canonical)
   } catch (e) {
     res.status(400).json({
       detail: e?.message || 'Не удалось провести продажу',
@@ -5089,14 +5197,70 @@ app.post('/cards/:num/cash-topup', (req, res) => {
 })
 
 /** Выдача наличных клиенту в долг: касса −amount, canonicalDebt += amount (не absolute PATCH). */
-app.post('/cards/:num/cash-advance', (req, res) => {
+app.post('/cards/:num/cash-advance', async (req, res) => {
   try {
     const num = decodeURIComponent(req.params.num).toUpperCase()
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена', code: 'CARD_NOT_FOUND' })
-    const clientRef = String(req.body?.clientRef || '').trim()
-    const dup = findOpRef('cash_advance', clientRef)
-    if (dup) return res.json({ ...dup, card })
+
+    const refGate = requireClientRef(req.body?.clientRef)
+    if (!refGate.ok) {
+      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+    }
+    const clientRef = refGate.clientRef
+    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
+    const fp = buildDebtOpFingerprint('cash_advance', {
+      amount,
+      method: 'cash',
+      clientId: req.body?.clientId,
+      cardNum: num,
+      shiftId: req.body?.shiftId,
+    })
+
+    if (replyDebtOpReplayOrConflict(res, 'cash_advance', clientRef, fp, { card })) return
+
+    const knownLedger = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'cash_advance'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (knownLedger) {
+      const ledFp = fingerprintFromMoneyLedgerCashAdvance(knownLedger)
+      const check = checkIdempotencyReplay(ledFp, fp)
+      if (!check.ok) {
+        return res.status(check.status || 409).json({
+          detail: check.detail,
+          code: check.code || IDEMPOTENCY_KEY_REUSED,
+          clientRef,
+        })
+      }
+      const linkedClient = (db.clients || []).find(c =>
+        c.card === num
+        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+      )
+      const result = {
+        client: linkedClient || null,
+        amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+        prevDebt: Math.max(0, Number(card.debt) || 0),
+        nextDebt: Math.max(0, Number(card.debt) || 0),
+        till: {
+          shiftId: knownLedger.shiftId || null,
+          posId: knownLedger.posId || '',
+          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+          expenseTotal: null,
+          replay: true,
+        },
+        replay: true,
+        replayed: true,
+        duplicate: true,
+        clientRef,
+        debtLedgerEntryId: knownLedger.meta?.debtLedgerEntryId || null,
+      }
+      rememberOpRef('cash_advance', clientRef, result, fp)
+      return res.json({ card, ...result })
+    }
+
+    // Claim opRef before mutation (closes same-process double-apply window)
+    rememberOpRef('cash_advance', clientRef, { status: 'applying', clientRef }, fp)
 
     const linkedClient = (db.clients || []).find(c =>
       c.card === num
@@ -5118,6 +5282,10 @@ app.post('/cards/:num/cash-advance', (req, res) => {
       cardNum: num,
     })
     if (!outcome.ok) {
+      // Drop pending claim so a corrected retry can proceed
+      const rows = ensureOpRefs()
+      const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'cash_advance')
+      if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
       return res.status(outcome.status || 400).json({
         detail: outcome.detail,
         code: outcome.code,
@@ -5140,64 +5308,90 @@ app.post('/cards/:num/cash-advance', (req, res) => {
       before: { debt: result.prevDebt },
       after: { debt: result.nextDebt, amount: result.amount, till: result.till },
     })
-    rememberOpRef('cash_advance', clientRef, result)
+    rememberOpRef('cash_advance', clientRef, { ...result, clientRef }, fp)
     persist()
+    await flushDbAsync()
     broadcastPosUpdate({ kind: 'cash-advance', cardNum: num, amount: result.amount })
     if (linkedClient?.phone) {
       broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
     }
-    res.json({ card, ...result })
+    res.json({ card, ...result, clientRef, replayed: !!result.replay, duplicate: !!result.replay })
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось выдать наличные', code: 'CASH_ADVANCE_FAILED' })
   }
 })
 
 /** Погашение долга с кассы: нал → в ожидаемую кассу смены */
-app.post('/cards/:num/debt-repay', (req, res) => {
+app.post('/cards/:num/debt-repay', async (req, res) => {
   try {
     const num = decodeURIComponent(req.params.num).toUpperCase()
     const card = findCardByNum(num)
     if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
-    const clientRef = String(req.body?.clientRef || '').trim()
-    const dup = findOpRef('debt_repay', clientRef)
-    if (dup) return res.json({ ...dup, card })
+
+    const refGate = requireClientRef(req.body?.clientRef)
+    if (!refGate.ok) {
+      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+    }
+    const clientRef = refGate.clientRef
+    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
+    const method = String(req.body?.method || 'cash').toLowerCase() === 'card' ? 'card' : 'cash'
+    const orderId = String(req.body?.orderId || '').trim() || undefined
+    const fp = buildDebtOpFingerprint('debt_repay', {
+      amount,
+      method,
+      clientId: req.body?.clientId,
+      cardNum: num,
+      orderId,
+      shiftId: req.body?.shiftId,
+    })
+
+    if (replyDebtOpReplayOrConflict(res, 'debt_repay', clientRef, fp, { card })) return
+
     // Entity-idempotency: ledger уже есть по clientRef (opRef протух) — не крутим долг/кассу
-    if (clientRef) {
-      const knownLedger = (db.moneyLedger || []).find(r =>
-        String(r.refType || '') === 'debt_repay'
-        && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
-      )
-      if (knownLedger) {
-        const result = {
-          client: (db.clients || []).find(c =>
-            c.card === num
-            || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-          ) || null,
-          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-          method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
-          prevDebt: Math.max(0, Number(card.debt) || 0),
-          nextDebt: Math.max(0, Number(card.debt) || 0),
-          bonusEarned: 0,
-          till: {
-            shiftId: knownLedger.shiftId || null,
-            posId: knownLedger.posId || '',
-            method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
-            amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-            salesCash: null,
-            replay: true,
-          },
-          replay: true,
-        }
-        rememberOpRef('debt_repay', clientRef, result)
-        return res.json({ card, ...result })
+    const knownLedger = (db.moneyLedger || []).find(r =>
+      String(r.refType || '') === 'debt_repay'
+      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
+    )
+    if (knownLedger) {
+      const ledFp = fingerprintFromMoneyLedgerDebtRepay(knownLedger)
+      const check = checkIdempotencyReplay(ledFp, fp)
+      if (!check.ok) {
+        return res.status(check.status || 409).json({
+          detail: check.detail,
+          code: check.code || IDEMPOTENCY_KEY_REUSED,
+          clientRef,
+        })
       }
+      const result = {
+        client: (db.clients || []).find(c =>
+          c.card === num
+          || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
+        ) || null,
+        amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+        method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
+        prevDebt: Math.max(0, Number(card.debt) || 0),
+        nextDebt: Math.max(0, Number(card.debt) || 0),
+        bonusEarned: 0,
+        till: {
+          shiftId: knownLedger.shiftId || null,
+          posId: knownLedger.posId || '',
+          method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
+          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
+          salesCash: null,
+          replay: true,
+        },
+        replay: true,
+        replayed: true,
+        duplicate: true,
+        clientRef,
+      }
+      rememberOpRef('debt_repay', clientRef, result, fp)
+      return res.json({ card, ...result })
     }
 
     const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
-    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
     if (!(amount > 0)) return res.status(400).json({ detail: 'Укажите сумму погашения' })
 
-    const method = String(req.body?.method || 'cash').toLowerCase() === 'card' ? 'card' : 'cash'
     if (method === 'cash' && !String(req.body?.shiftId || '').trim()) {
       return res.status(400).json({ detail: 'Откройте смену, чтобы принять наличные в кассу' })
     }
@@ -5229,6 +5423,18 @@ app.post('/cards/:num/debt-repay', (req, res) => {
     const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
     const repaidTowardDebt = Math.round(Math.max(0, prevDebt - nextDebt) * 100) / 100
 
+    // D4 case 18: different clientRef against already-paid selected receipt → business reject
+    // (same clientRef already returned via opRef / moneyLedger backstops above)
+    if (orderId && linkedClient) {
+      const target = resolveDebtRepaymentTarget(linkedClient, orderId, amount)
+      if (target && Math.round((Number(target.remaining) || 0) * 100) / 100 <= 0.001) {
+        return res.status(400).json({
+          detail: `Чек долга уже погашен (${orderId})`,
+          code: 'DEBT_RECEIPT_ALREADY_PAID',
+        })
+      }
+    }
+
     // Дубль из очереди после уже погашенного долга — не крутим кассу и debtPayVersion
     if (appliedLocal && repaidTowardDebt < 0.001) {
       const result = {
@@ -5240,14 +5446,20 @@ app.post('/cards/:num/debt-repay', (req, res) => {
         bonusEarned: 0,
         till: null,
         noop: true,
+        replayed: true,
+        clientRef,
       }
-      rememberOpRef('debt_repay', clientRef, result)
+      rememberOpRef('debt_repay', clientRef, result, fp)
       persist()
+      await flushDbAsync()
       return res.json({ card, ...result })
     }
 
+    // Claim before mutation
+    rememberOpRef('debt_repay', clientRef, { status: 'applying', clientRef }, fp)
+
     // Погашение по конкретному чеку: списываем с этой записи ленты, не общим FIFO
-    const repayOrderId = String(req.body?.orderId || '').trim() || undefined
+    const repayOrderId = orderId
     if (linkedClient) {
       if (!appliedLocal) {
         try {
@@ -5258,6 +5470,11 @@ app.post('/cards/:num/debt-repay', (req, res) => {
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch (e) {
+          const rows = ensureOpRefs()
+          const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'debt_repay')
+          if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
+          // Different clientRef against already-paid target → business reject (D4 case 18).
+          // Same clientRef after successful apply is handled by opRef / moneyLedger backstops above.
           return res.status(e?.status || 400).json({
             detail: e?.message || 'Не удалось погасить долг',
             code: e?.code || undefined,
@@ -5270,8 +5487,10 @@ app.post('/cards/:num/debt-repay', (req, res) => {
             desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
           })
         } catch (e) {
-          // appliedLocal: балансы уже на кассе — не откатываем чек, но targeted-ошибку отдаём явно
           if (repayOrderId && e?.code) {
+            const rows = ensureOpRefs()
+            const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'debt_repay')
+            if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
             return res.status(e.status || 400).json({
               detail: e.message || 'Не удалось погасить долг',
               code: e.code,
@@ -5311,6 +5530,8 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       clientName: card.client || linkedClient?.name || '',
       note: String(req.body?.note || '').trim(),
       clientRef,
+      orderId: repayOrderId,
+      clientId: linkedClient?.id || req.body?.clientId,
     })
 
     auditFromReq(db, req, {
@@ -5333,9 +5554,11 @@ app.post('/cards/:num/debt-repay', (req, res) => {
       nextDebt,
       bonusEarned,
       till,
+      clientRef,
     }
-    rememberOpRef('debt_repay', clientRef, result)
+    rememberOpRef('debt_repay', clientRef, result, fp)
     persist()
+    await flushDbAsync()
     broadcastPosUpdate({ kind: 'debt-repay', cardNum: num, amount, method })
     if (linkedClient?.phone) {
       broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })

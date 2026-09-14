@@ -1,11 +1,14 @@
 /**
- * Phase 5 — Desktop atomic local sale commit.
- * SQLite transaction: outbox + stock layers + sale/shift mirrors.
+ * Phase 5 / D2 — Desktop atomic local sale commit.
+ * SQLite transaction: outbox + stock layers + sale/shift mirrors
+ * + optional client/card debt projections (entities + hydrate KV).
  * Memory/Zustand applied ONLY after COMMIT.
  */
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { PendingOp } from './offline'
+import type { AdminCard } from './cardCrm'
+import type { AdminClient } from './clientCrm'
 import type { PosSale, PosShift, ProductStockLayer } from './types'
 
 export type LocalSaleCommitInput = {
@@ -13,6 +16,10 @@ export type LocalSaleCommitInput = {
   stockLayers: ProductStockLayer[]
   sale: PosSale & { orderId?: string; _offline?: boolean }
   shift?: PosShift | null
+  /** Phase D2: full client row with debt already set to post-sale absolute value */
+  client?: AdminClient | null
+  /** Phase D2: full card row with debt (+ debtPayVersion when credit) already set */
+  card?: AdminCard | null
   queueSeq?: number
   /** Dev failure injection — passed to native */
   failAt?: string
@@ -50,6 +57,8 @@ export async function commitLocalSaleAtomic(input: LocalSaleCommitInput): Promis
       stockLayers: input.stockLayers,
       sale: input.sale,
       shift: input.shift || undefined,
+      client: input.client || undefined,
+      card: input.card || undefined,
       queueSeq: input.queueSeq,
       failAt: input.failAt,
     })
@@ -94,6 +103,8 @@ export async function setLocalSaleCommitFailAt(stage: string): Promise<void> {
 /**
  * CASE D / restart: sale already in SQLite (mirror+queue) but Zustand/UI missed success.
  * Restore sale+shift into memory WITHOUT re-applying stock.
+ * Phase D2: also hydrate absolute client/card debt from pending payload (clientDebtAfter)
+ * so duplicate clientRef never adds debt twice.
  */
 export async function restoreCommittedSaleUi(opts: {
   clientRef?: string
@@ -149,6 +160,31 @@ export async function restoreCommittedSaleUi(opts: {
       }))
     }
   }
+
+  // D2: absolute debt hydrate from payload (never additive)
+  try {
+    const p = (opts.pending?.payload || {}) as Record<string, unknown>
+    const debtAfter = p.clientDebtAfter != null ? Number(p.clientDebtAfter) : NaN
+    const clientId = String(p.clientId || (p._revert as any)?.clientId || '').trim()
+    const cardNum = String(p.cardNum || (p._revert as any)?.cardNum || '').trim()
+    if (Number.isFinite(debtAfter) && clientId) {
+      const { useClientStore } = await import('./clientStore')
+      const { useCardStore } = await import('./cardStore')
+      const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+      const absDebt = round2(Math.max(0, debtAfter))
+      useClientStore.getState().updateClient(
+        clientId,
+        { debt: absDebt, debtEnabled: true },
+        { skipApi: true },
+      )
+      if (cardNum) {
+        const ver = Number(p.expectedDebtPayVersion)
+        const patch: Record<string, unknown> = { debt: absDebt, debtEnabled: true }
+        if (Number.isFinite(ver)) patch.debtPayVersion = ver + 1
+        useCardStore.getState().updateCardLoyalty(cardNum, patch as any, { skipApi: true })
+      }
+    }
+  } catch { /* ignore */ }
 
   return { ...sale, _offline: true }
 }
