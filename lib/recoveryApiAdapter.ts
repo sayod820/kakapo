@@ -14,6 +14,16 @@ export {
   applyRollbackDecision,
 } from './recoveryApiAdapterCore.mjs'
 
+export {
+  PRODUCTION_ALLOWLIST,
+  REFUSE_PRODUCTION_REPLAY,
+  isProductionMutationHost,
+  isAllowlistedProductionBase,
+  createOperatorEnableToken,
+  verifyOperatorEnableToken,
+  assertProductionReplayAllowed,
+} from './recoveryProductionGuardCore.mjs'
+
 /** Explicit map: QueueKind → api.* (for audits / runbooks) */
 export const RECOVERY_API_FN_BY_KIND: Record<string, string> = {
   sale: 'api.createPosSale',

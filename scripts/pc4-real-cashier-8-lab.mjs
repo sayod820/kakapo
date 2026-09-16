@@ -856,16 +856,25 @@ async function main() {
     note: 'ShiftId remap allowed; clientRef/seq/payments must hold for drained ops. Pull may refresh stock projection.',
   }
 
-  // ── Crash / resume on derivative ──
+  // ── Crash / resume on derivative (PC-4B: local-only subset + server index for ACK-lost) ──
   console.log('[pc4] crash/resume fixture…')
   const crashDir = path.join(ROOT, 'scripts', '_diag_out', 'REAL_CASHIER_8_CRASH')
   fs.mkdirSync(crashDir, { recursive: true })
   fs.copyFileSync(path.join(LAB_DIR, 'kakapo.sqlite'), path.join(crashDir, 'kakapo.sqlite'))
-  // synthetic crash resume with small queue subset
-  const crashQueue = realQueue.filter(r => r.kind === 'sale').slice(0, 12).map(r => ({
-    ...r,
-    payload: { ...r.payload },
-  }))
+  // Use local-only blocked sales (not ACK-lost IDEMPOTENCY without server proof).
+  // Mixing ACK-lost without serverByClientRef correctly STOP_CHAINs (fail-closed) — harness bug previously.
+  const localOnlyForCrash = classified.ops
+    .filter(o => o.kind === 'sale' && o.classification === 'DEPENDENCY_BLOCKED')
+    .slice(0, 12)
+  const crashQueue = localOnlyForCrash.map(o => {
+    const src = realQueue.find(r => r.clientRef === o.clientRef) || o
+    return {
+      ...src,
+      failed: false,
+      lastError: '',
+      payload: { ...(src.payload || o.payload || {}) },
+    }
+  })
   let crashSession = ex.createDurableRecoverySession({
     recoverySessionId: 'RS-crash8',
     snapshotManifestHash: sourceBefore.sha256,
@@ -877,9 +886,16 @@ async function main() {
     isDesktop: true,
     serverReachable: true,
     queue: crashQueue,
-    sales: [],
+    sales: crashQueue.map(r => ({
+      id: r.localId, clientRef: r.clientRef, shiftId: r.payload?.shiftId,
+      paidCash: r.payload?.paidCash, paidCard: r.payload?.paidCard, debtAdded: r.payload?.debtAdded,
+    })),
     stock: { p1: 100 },
-    classifyCtx: { serverClosedIds: new Set(crashQueue.map(r => r.payload?.shiftId).filter(Boolean)) },
+    debt: {},
+    classifyCtx: {
+      serverClosedIds: new Set(crashQueue.map(r => r.payload?.shiftId).filter(Boolean)),
+      serverByClientRef: new Map(),
+    },
     crashAfterAckCount: 3,
   }
   const crashMock = await startMock({ shifts: [], sales: [] })
@@ -891,28 +907,40 @@ async function main() {
     engine.classifyQueueFresh(crashWorld.queue, crashWorld.classifyCtx).ops,
     { plannedTargetShiftId: cOpen.id },
   )
-  crashSession = ex.enterReplayFreeze(
-    ex.executeShiftRemapBatch(crashSession, cPlan.rows, crashWorld).session,
-  )
-  crashSession = ex.persistSessionPatch(crashSession, { targetServerShiftId: cOpen.id })
+  const cRemap = ex.executeShiftRemapBatch(crashSession, cPlan.rows, crashWorld)
+  crashSession = ex.enterReplayFreeze(cRemap.session || crashSession)
+  crashSession = ex.persistSessionPatch(crashSession, {
+    targetServerShiftId: cOpen.id,
+    classificationAt: new Date().toISOString(),
+  })
   crashWorld.crashAfterAckCount = 3
-  // Ensure remapped rows are sendable: open target in classify ctx
   crashWorld.classifyCtx = {
     serverClosedIds: new Set(),
     serverShiftById: new Map([[cOpen.id, { status: 'open' }]]),
+    serverByClientRef: new Map(),
   }
   const c1 = await ex.executeRecoveryReplay(crashSession, crashWorld, crashApi, { limit: 20 })
   crashWorld.crashAfterAckCount = null
-  const c2 = (c1.resumable || !c1.ok)
-    ? await ex.executeRecoveryReplay(c1.session || crashSession, crashWorld, crashApi, { limit: 20 })
-    : c1
+  let c2 = c1
+  if (c1.resumable || !c1.ok) {
+    c2 = await ex.executeRecoveryReplay(c1.session || crashSession, crashWorld, crashApi, { limit: 20 })
+  }
+  // drain remainder if still queue
+  while (crashWorld.queue.length > 0 && (c2.ok || c2.resumable)) {
+    const more = await ex.executeRecoveryReplay(c2.session || crashSession, crashWorld, crashApi, { limit: 20 })
+    c2 = more
+    if (!more.ok && !more.resumable) break
+    if ((more.processed || 0) === 0 && !more.resumable) break
+  }
   report.crashResume = {
     crashed: !!c1.resumable || c1.error === 'CRASH_AFTER_ACK_BATCH',
     firstError: c1.error || c1.code || null,
-    resumedOk: !!c2.ok,
+    resumedOk: !!c2.ok && crashWorld.queue.length === 0,
     queueLeft: crashWorld.queue.length,
     sales: crashMock.store.sales.length,
     uniqueRefs: new Set(crashMock.store.sales.map(s => s.clientRef)).size,
+    subsetSize: crashQueue.length,
+    harnessNote: 'local-only DEPENDENCY_BLOCKED sales; ACK-lost excluded without server index (expected fail-closed)',
   }
   await crashMock.close()
 
