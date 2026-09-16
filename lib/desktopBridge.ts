@@ -200,6 +200,23 @@ export type KakapoDesktopApi = {
   localDbDebtRepayCommitSetFailAt?: (stage: string) => Promise<{ ok: boolean; failAt: string }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
+  /** PC-1A recovery audit trail */
+  localDbRecoveryAuditAppend?: (entry: {
+    ts?: string
+    action: string
+    clientRef?: string
+    kind?: string
+    before?: unknown
+    after?: unknown
+    reason?: string
+  }) => Promise<{ ok: boolean }>
+  localDbRecoveryAuditList?: (limit?: number) => Promise<unknown[]>
+  /** PC-1A: atomic pending sale shift remap (no network) */
+  localDbRemapSaleShift?: (payload: {
+    clientRef: string
+    expectedOldShiftId: string
+    newShiftId: string
+  }) => Promise<{ ok: boolean; error?: string; seq?: number; clientRef?: string; newShiftId?: string }>
   /** Пометить установку завершённой — больше не просить скачивание */
   localDbMarkInstalled?: () => Promise<{ ok: boolean; bootstrapComplete: boolean }>
   /** Offline V2: теневое зеркало сущностей (не влияет на кассу, пока режим off) */

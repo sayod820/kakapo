@@ -255,6 +255,11 @@ function scheduleReconnect(
     reconnectTimer = null
     reconnectDueAt = 0
     void (async () => {
+      try {
+        const { ensureRecoveryGateReady, isRecoveryModeBlockingSync } = await import('./desktopRecovery')
+        await ensureRecoveryGateReady()
+        if (isRecoveryModeBlockingSync()) return
+      } catch { /* continue */ }
       // Если сейчас идёт flush — не бросаем цепочку, повторим чуть позже
       if (get().syncing || syncLock) {
         scheduleReconnect(get, set, 4000)
@@ -390,6 +395,19 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
 
   flush: async () => {
     if (get().syncing) return
+    try {
+      const { assertSyncAllowed, RECOVERY_SKIP } = await import('./desktopRecovery')
+      const gate = await assertSyncAllowed('offlineSync.flush')
+      if (!gate.allowed) {
+        set({
+          syncing: false,
+          lastError: 'Синхронизация заблокирована режимом восстановления.',
+          progress: { done: 0, total: 0 },
+        })
+        void RECOVERY_SKIP
+        return
+      }
+    } catch { /* continue */ }
     // Не блокируем flush по navigator.onLine — сначала пробуем отправить
     set({ syncing: true, lastError: null, progress: { done: 0, total: Math.max(1, get().pending) } })
     try {
@@ -525,11 +543,27 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
     if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
     syncDebounceTimer = setTimeout(() => {
       syncDebounceTimer = null
-      void get().syncNow()
+      void (async () => {
+        try {
+          const { isRecoveryModeBlockingSync, ensureRecoveryGateReady } = await import('./desktopRecovery')
+          await ensureRecoveryGateReady()
+          if (isRecoveryModeBlockingSync()) return
+        } catch { /* continue */ }
+        void get().syncNow()
+      })()
     }, delayMs)
   },
 
   syncNow: async () => {
+    try {
+      const { assertSyncAllowed, RECOVERY_SKIP } = await import('./desktopRecovery')
+      const gate = await assertSyncAllowed('offlineSync.syncNow')
+      if (!gate.allowed) {
+        set({ lastError: 'Синхронизация заблокирована режимом восстановления.', syncing: false })
+        void RECOVERY_SKIP
+        return
+      }
+    } catch { /* continue */ }
     if (syncLock || get().syncing) {
       // Earlier-wins: may pull forward an existing long backoff
       scheduleReconnect(get, set, 4000)
@@ -640,6 +674,19 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
   },
 
   forceSync: async (opts) => {
+    try {
+      const { assertSyncAllowed, RECOVERY_SKIP } = await import('./desktopRecovery')
+      const gate = await assertSyncAllowed('offlineSync.forceSync')
+      if (!gate.allowed) {
+        set({
+          syncing: false,
+          lastError: 'Синхронизация заблокирована режимом восстановления.',
+          progress: { done: 0, total: 0 },
+        })
+        void RECOVERY_SKIP
+        return
+      }
+    } catch { /* continue */ }
     // Ручная отправка: блокируем только реальное пробитие, не поиск
     if (isCashierPaymentCritical()) {
       scheduleReconnect(get, set, 1500)
@@ -766,6 +813,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
         scheduleReconnect(get, set, 2000)
         return
       }
+      try {
+        const { ensureRecoveryGateReady, isRecoveryModeBlockingSync } = await import('./desktopRecovery')
+        await ensureRecoveryGateReady()
+        if (isRecoveryModeBlockingSync()) {
+          set({ lastError: 'Синхронизация заблокирована режимом восстановления.' })
+          return
+        }
+      } catch { /* continue */ }
       await get().syncNow()
     }
 
@@ -786,6 +841,11 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       const onWake = () => {
         void (async () => {
           if (isCashierPaymentCritical()) return
+          try {
+            const { ensureRecoveryGateReady, isRecoveryModeBlockingSync } = await import('./desktopRecovery')
+            await ensureRecoveryGateReady()
+            if (isRecoveryModeBlockingSync()) return
+          } catch { /* continue */ }
           resetBackoff()
           await get().syncNow()
         })()
@@ -796,7 +856,15 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       })
     }
 
-    void get().refresh().then(() => { void reconnect() })
+    // PC-1A: load recovery gate BEFORE first reconnect/syncNow
+    void (async () => {
+      try {
+        const { ensureRecoveryGateReady } = await import('./desktopRecovery')
+        await ensureRecoveryGateReady()
+      } catch { /* ignore */ }
+      await get().refresh()
+      void reconnect()
+    })()
 
     if (intervalId) clearInterval(intervalId)
     intervalId = setInterval(() => {
@@ -804,6 +872,14 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       if (isCashierPaymentCritical()) return
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       void (async () => {
+        try {
+          const { ensureRecoveryGateReady, isRecoveryModeBlockingSync } = await import('./desktopRecovery')
+          await ensureRecoveryGateReady()
+          if (isRecoveryModeBlockingSync()) {
+            await get().refresh()
+            return
+          }
+        } catch { /* continue */ }
         // Быстрый взгляд по стору: в покое не дёргаем SQLite/refresh каждые 4с
         const quickPending = get().pending
         const quickFailed = get().failed

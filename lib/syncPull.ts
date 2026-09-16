@@ -27,7 +27,7 @@ import type { AdminCard } from './cardCrm'
 
 export type SyncPullResult = {
   ok: boolean
-  skipped?: 'offline' | 'pending' | 'error'
+  skipped?: 'offline' | 'pending' | 'error' | 'recovery'
   cursor?: string
   error?: string
 }
@@ -54,6 +54,13 @@ async function doPullSyncChanges(opts?: {
   forceFull?: boolean
   ignorePending?: boolean
 }): Promise<SyncPullResult> {
+  // PC-1A: block inbound pull in recovery (and fail-closed before gate ready on Desktop)
+  try {
+    const { assertSyncAllowed } = await import('./desktopRecovery')
+    const gate = await assertSyncAllowed('pullSyncChanges')
+    if (!gate.allowed) return { ok: false, skipped: 'recovery' }
+  } catch { /* continue when module unavailable */ }
+
   if (!isOnline()) return { ok: false, skipped: 'offline' }
 
   let pendingSnapshot: Awaited<ReturnType<typeof getPending>> = []

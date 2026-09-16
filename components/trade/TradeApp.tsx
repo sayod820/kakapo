@@ -21,6 +21,7 @@ import TradeLoginPage from '@/components/trade/TradeLoginPage'
 import TradeDeviceGate from '@/components/trade/TradeDeviceGate'
 import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
+import RecoveryModeBanner from '@/components/trade/RecoveryModeBanner'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import {
   getKakapoDesktop,
@@ -3467,6 +3468,7 @@ function TradeAppInner({
   return (
     <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`} data-theme={theme}>
       <style>{CSS}</style>
+      <RecoveryModeBanner />
 
       {!posFullscreen && (
         <>
@@ -3732,8 +3734,15 @@ function TradeAppGate() {
       m.ensureDesktopLocalFirst()
       void m.ensureBrowserOnlineOnly()
     }).catch(() => {})
-    void hydrateOfflineCaches().then(() => {
+    // PC-1A: recovery gate MUST be ready before sync.start / silentSync
+    void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
+      await ensureRecoveryGateReady()
+      await hydrateOfflineCaches()
       useOfflineSync.getState().start()
+    }).catch(() => {
+      void hydrateOfflineCaches().then(() => {
+        useOfflineSync.getState().start()
+      })
     })
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
@@ -3744,7 +3753,11 @@ function TradeAppGate() {
       void isLocalBootstrapComplete().then(done => {
         setLocalDbReady(done)
         if (done) {
-          void import('@/lib/offlineBootstrap').then(m => m.silentSyncFromServer()).catch(() => {})
+          void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
+            await ensureRecoveryGateReady()
+            const { silentSyncFromServer } = await import('@/lib/offlineBootstrap')
+            await silentSyncFromServer()
+          }).catch(() => {})
         }
       }).catch(() => {
         // Не открываем кассу «вслепую» — показываем экран первой загрузки

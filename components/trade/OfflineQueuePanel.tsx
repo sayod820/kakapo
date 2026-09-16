@@ -6,6 +6,7 @@ import { useOfflineSync } from '@/lib/offlineSync'
 import { QUEUE_KIND_LABEL, type PendingOp } from '@/lib/offline'
 import { productBarcodes } from '@/lib/productBarcodes'
 import { useProducts } from '@/lib/store'
+import { ensureRecoveryGateReady, isRecoveryModeActive } from '@/lib/desktopRecovery'
 
 const CSS = `
   .k-queue-back{
@@ -148,6 +149,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   const [mounted, setMounted] = useState(false)
   /** Не закрывать по клику на фон в том же жесте, что открыл окно */
   const [canCloseBackdrop, setCanCloseBackdrop] = useState(false)
+  const [recovery, setRecovery] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -155,6 +157,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
     document.body.style.overflow = 'hidden'
     const t = window.setTimeout(() => setCanCloseBackdrop(true), 280)
     void refresh()
+    void ensureRecoveryGateReady().then(() => setRecovery(isRecoveryModeActive()))
     return () => {
       document.body.style.overflow = prev
       window.clearTimeout(t)
@@ -165,6 +168,10 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   const failed = items.filter(i => i.failed)
 
   async function sendOne(row: PendingOp) {
+    if (recovery) {
+      window.alert('Синхронизация заблокирована режимом восстановления.')
+      return
+    }
     if (syncing || busyRef) return
     setBusyRef(row.clientRef)
     try {
@@ -202,6 +209,10 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   }
 
   async function sendAll() {
+    if (recovery) {
+      window.alert('Синхронизация заблокирована режимом восстановления.')
+      return
+    }
     if (syncing || busyRef) return
     setBusyRef('__all__')
     try {
@@ -237,10 +248,10 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           <button
             type="button"
             className="k-btn k-btn-g"
-            disabled={isBusy}
+            disabled={isBusy || recovery}
             onClick={() => void sendOne(row)}
           >
-            {busyRef === row.clientRef ? 'Отправка…' : 'Отправить сейчас'}
+            {recovery ? 'Заблокировано' : busyRef === row.clientRef ? 'Отправка…' : 'Отправить сейчас'}
           </button>
           {row.failed && (
             <button
@@ -275,10 +286,16 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           <div>
             <div className="t">Очередь синхронизации</div>
             <div className="s">
-              {waiting.length > 0 ? `Ждут отправки: ${waiting.length}` : 'Нет ожидающих'}
-              {failed.length > 0 ? ` · повторим сами: ${failed.length}` : ''}
-              {online ? ' · связь есть' : ' · нет связи с сервером'}
-              {lastError ? ` · ${lastError}` : ''}
+              {recovery
+                ? 'Режим восстановления — синхронизация заблокирована'
+                : (
+                  <>
+                    {waiting.length > 0 ? `Ждут отправки: ${waiting.length}` : 'Нет ожидающих'}
+                    {failed.length > 0 ? ` · повторим сами: ${failed.length}` : ''}
+                    {online ? ' · связь есть' : ' · нет связи с сервером'}
+                    {lastError ? ` · ${lastError}` : ''}
+                  </>
+                )}
             </div>
           </div>
           <button type="button" className="k-btn k-btn-s" onClick={onClose}>Закрыть</button>
@@ -318,10 +335,14 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
           <button
             type="button"
             className="k-btn k-btn-g"
-            disabled={forcing || !!busyRef || items.length === 0}
+            disabled={forcing || !!busyRef || items.length === 0 || recovery}
             onClick={() => void sendAll()}
           >
-            {forcing ? 'Принудительная отправка…' : 'Принудительно отправить всё'}
+            {recovery
+              ? 'Синхронизация заблокирована'
+              : forcing
+                ? 'Принудительная отправка…'
+                : 'Принудительно отправить всё'}
           </button>
         </div>
       </div>

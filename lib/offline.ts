@@ -1290,6 +1290,8 @@ export interface FlushResult {
   failed: number
   stopped: boolean
   remaining: number
+  /** PC-1A: flush blocked by recovery mode */
+  skipped?: string
 }
 
 let flushing = false
@@ -2345,6 +2347,16 @@ async function sendOp(row: PendingOp): Promise<string> {
 export async function flushQueue(
   onProgress?: (done: number, total: number) => void,
 ): Promise<FlushResult> {
+  // PC-1A: central recovery gate — must run before any sendOp
+  try {
+    const { assertSyncAllowed, RECOVERY_SKIP } = await import('./desktopRecovery')
+    const gate = await assertSyncAllowed('flushQueue')
+    if (!gate.allowed) {
+      const remaining = (await getPending()).length
+      return { sent: 0, failed: 0, stopped: true, remaining, skipped: RECOVERY_SKIP }
+    }
+  } catch { /* non-desktop / import fail → continue */ }
+
   if (flushing) return { sent: 0, failed: 0, stopped: true, remaining: (await getPending()).length }
   flushing = true
   let sent = 0

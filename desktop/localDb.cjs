@@ -144,6 +144,17 @@ function openSqlite() {
     );
     CREATE INDEX IF NOT EXISTS idx_entities_kind_updated ON entities(kind, updated_at);
     CREATE INDEX IF NOT EXISTS idx_entities_updated ON entities(updated_at);
+    CREATE TABLE IF NOT EXISTS recovery_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      action TEXT NOT NULL,
+      client_ref TEXT,
+      kind TEXT,
+      before_json TEXT,
+      after_json TEXT,
+      reason TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_recovery_audit_ts ON recovery_audit(ts);
   `)
 }
 
@@ -191,6 +202,142 @@ function sqlQueuePut(row) {
 
 function sqlQueueDelete(clientRef) {
   db.prepare('DELETE FROM queue WHERE client_ref = ?').run(String(clientRef || ''))
+}
+
+function sqlRecoveryAuditAppend(entry) {
+  const e = entry && typeof entry === 'object' ? entry : {}
+  db.prepare(`
+    INSERT INTO recovery_audit(ts, action, client_ref, kind, before_json, after_json, reason)
+    VALUES(?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(e.ts || new Date().toISOString()),
+    String(e.action || ''),
+    e.clientRef != null ? String(e.clientRef) : null,
+    e.kind != null ? String(e.kind) : null,
+    e.before != null ? JSON.stringify(e.before) : null,
+    e.after != null ? JSON.stringify(e.after) : null,
+    e.reason != null ? String(e.reason) : null,
+  )
+  return { ok: true }
+}
+
+function sqlRecoveryAuditList(limit) {
+  const lim = Math.min(5000, Math.max(1, Number(limit) || 200))
+  return db.prepare(`
+    SELECT id, ts, action, client_ref AS clientRef, kind, before_json, after_json, reason
+    FROM recovery_audit ORDER BY id DESC LIMIT ?
+  `).all(lim).map(r => ({
+    id: r.id,
+    ts: r.ts,
+    action: r.action,
+    clientRef: r.clientRef,
+    kind: r.kind,
+    before: r.before_json ? (() => { try { return JSON.parse(r.before_json) } catch { return r.before_json } })() : null,
+    after: r.after_json ? (() => { try { return JSON.parse(r.after_json) } catch { return r.after_json } })() : null,
+    reason: r.reason,
+  }))
+}
+
+/**
+ * Atomic remap of pending sale shiftId in queue + sale entity/mirror/snapshot.
+ * Preserves clientRef, seq, items, payments. No network.
+ */
+function sqlRemapSaleShift(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const clientRef = String(p.clientRef || '').trim()
+  const oldId = String(p.expectedOldShiftId || '').trim()
+  const newId = String(p.newShiftId || '').trim()
+  if (!clientRef || !oldId || !newId) {
+    return { ok: false, error: 'missing_args' }
+  }
+
+  const run = db.transaction(() => {
+    const qrow = db.prepare('SELECT payload FROM queue WHERE client_ref = ?').get(clientRef)
+    if (!qrow) {
+      const err = new Error('not_in_queue')
+      err.code = 'NOT_IN_QUEUE'
+      throw err
+    }
+    let row
+    try { row = JSON.parse(qrow.payload) } catch {
+      const err = new Error('bad_queue_payload')
+      err.code = 'BAD_PAYLOAD'
+      throw err
+    }
+    if (String(row.kind || '') !== 'sale') {
+      const err = new Error('not_sale')
+      err.code = 'NOT_SALE'
+      throw err
+    }
+    const curShift = String((row.payload && row.payload.shiftId) || '')
+    if (curShift !== oldId) {
+      const err = new Error('shift_mismatch')
+      err.code = 'SHIFT_MISMATCH'
+      throw err
+    }
+    const seq = Number(row.seq) || 0
+    row.payload = { ...(row.payload || {}), shiftId: newId }
+    sqlQueuePut(row)
+
+    // entities sale by clientRef / localId
+    const ents = db.prepare(`SELECT id, payload FROM entities WHERE kind = 'sale'`).all()
+    for (const e of ents) {
+      let data
+      try { data = JSON.parse(e.payload) } catch { continue }
+      const match = String(data.clientRef || '') === clientRef
+        || (row.localId && String(e.id) === String(row.localId))
+      if (!match) continue
+      if (String(data.shiftId || '') === oldId || String(data.clientRef || '') === clientRef) {
+        data.shiftId = newId
+        sqlEntityPut('sale', e.id, data, data.updatedAtIso || new Date().toISOString(), false)
+      }
+    }
+
+    // mirror sale
+    try {
+      const mrows = db.prepare(`SELECT id, payload FROM mirror WHERE kind = 'sale'`).all()
+      for (const m of mrows) {
+        let data
+        try { data = JSON.parse(m.payload) } catch { continue }
+        if (String(data.clientRef || '') !== clientRef && String(m.id) !== String(row.localId || '')) continue
+        data.shiftId = newId
+        sqlMirrorPut('sale', m.id, data)
+      }
+    } catch { /* ignore */ }
+
+    // data_pos_snapshot sales
+    try {
+      const snap = sqlKvGet('data_pos_snapshot')
+      if (snap && Array.isArray(snap.sales)) {
+        let changed = false
+        snap.sales = snap.sales.map(s => {
+          if (!s) return s
+          if (String(s.clientRef || '') === clientRef || (row.localId && String(s.id) === String(row.localId))) {
+            if (String(s.shiftId || '') === oldId || String(s.clientRef || '') === clientRef) {
+              changed = true
+              return { ...s, shiftId: newId }
+            }
+          }
+          return s
+        })
+        if (changed) sqlKvSet('data_pos_snapshot', snap)
+      }
+    } catch { /* ignore */ }
+
+    sqlRecoveryAuditAppend({
+      ts: new Date().toISOString(),
+      action: 'SHIFT_REMAP',
+      clientRef,
+      kind: 'sale',
+      before: { shiftId: oldId, seq },
+      after: { shiftId: newId, seq, clientRef },
+      reason: 'sqlRemapSaleShift',
+    })
+
+    return { ok: true, seq, clientRef, newShiftId: newId }
+  })
+
+  return run()
 }
 
 /**
@@ -836,6 +983,33 @@ function installLocalDbIpc() {
     } catch (e) {
       console.error('[localDb] queueDelete', e)
       return { ok: false }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbRecoveryAuditAppend', (_e, entry) => {
+    try {
+      return sqlRecoveryAuditAppend(entry)
+    } catch (e) {
+      console.error('[localDb] recoveryAuditAppend', e)
+      return { ok: false }
+    }
+  })
+
+  ipcMain.handle('desktop:localDbRecoveryAuditList', (_e, limit) => {
+    try {
+      return sqlRecoveryAuditList(limit)
+    } catch (e) {
+      console.error('[localDb] recoveryAuditList', e)
+      return []
+    }
+  })
+
+  ipcMain.handle('desktop:localDbRemapSaleShift', (_e, payload) => {
+    try {
+      return sqlRemapSaleShift(payload)
+    } catch (e) {
+      console.error('[localDb] remapSaleShift', e)
+      return { ok: false, error: String((e && e.message) || e), code: e && e.code ? String(e.code) : '' }
     }
   })
 

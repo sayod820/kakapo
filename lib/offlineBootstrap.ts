@@ -350,6 +350,11 @@ export async function runLocalBootstrap(
 
 /** Тихий синк при появлении интернета — только дельты после первого bootstrap */
 export async function silentSyncFromServer(): Promise<void> {
+  try {
+    const { assertSyncAllowed } = await import('./desktopRecovery')
+    const gate = await assertSyncAllowed('silentSyncFromServer')
+    if (!gate.allowed) return
+  } catch { /* continue */ }
   if (!isOnline()) return
   const alive = await pingApiForBootstrap(4000)
   if (!alive) return
@@ -365,7 +370,7 @@ export async function silentSyncFromServer(): Promise<void> {
       await markLocalSyncAt()
       return
     }
-    if (res.skipped === 'pending') return
+    if (res.skipped === 'pending' || res.skipped === 'recovery') return
   } catch { /* fallback */ }
   // Fallback: не полный POS — только пустой каталог / сотрудники
   try {
