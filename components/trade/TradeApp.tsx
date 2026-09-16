@@ -3734,10 +3734,14 @@ function TradeAppGate() {
       m.ensureDesktopLocalFirst()
       void m.ensureBrowserOnlineOnly()
     }).catch(() => {})
-    // PC-1A: recovery gate MUST be ready before sync.start / silentSync
+    // PC-1A/PC-5: recovery gate MUST be ready; auto-recovery runs before sync.start
     void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
       await ensureRecoveryGateReady()
       await hydrateOfflineCaches()
+      try {
+        const { maybeRunAutomaticDesktopRecovery } = await import('@/lib/desktopRecoveryOrchestrator')
+        await maybeRunAutomaticDesktopRecovery()
+      } catch { /* keep fail-closed recoveryMode if orchestrator throws */ }
       useOfflineSync.getState().start()
     }).catch(() => {
       void hydrateOfflineCaches().then(() => {
@@ -3755,6 +3759,10 @@ function TradeAppGate() {
         if (done) {
           void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
             await ensureRecoveryGateReady()
+            try {
+              const { maybeRunAutomaticDesktopRecovery } = await import('@/lib/desktopRecoveryOrchestrator')
+              await maybeRunAutomaticDesktopRecovery()
+            } catch { /* keep recovery fail-closed */ }
             const { silentSyncFromServer } = await import('@/lib/offlineBootstrap')
             await silentSyncFromServer()
           }).catch(() => {})

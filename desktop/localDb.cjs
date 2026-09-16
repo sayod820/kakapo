@@ -1073,6 +1073,64 @@ function installLocalDbIpc() {
     return { ok: true, meta: { ...meta, bootstrapComplete: isSetupComplete() } }
   })
 
+  /**
+   * PC-5 — immutable pre-recovery backup of live SQLite triplet + manifest.
+   * Must succeed before Desktop orchestrator starts mutations.
+   */
+  ipcMain.handle('desktop:localDbRecoveryBackup', () => {
+    try {
+      if (!rootDir) return { ok: false, error: 'root_missing' }
+      const sqlite = path.join(rootDir, DB_FILE)
+      if (!fs.existsSync(sqlite)) return { ok: false, error: 'sqlite_missing' }
+      try {
+        if (db) db.pragma('wal_checkpoint(PASSIVE)')
+      } catch { /* best-effort */ }
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const destDir = path.join(rootDir, 'recovery-backups', `backup-${stamp}`)
+      ensureDir(destDir)
+      const files = {}
+      function copyOne(name) {
+        const src = path.join(rootDir, name)
+        if (!fs.existsSync(src)) return null
+        const dst = path.join(destDir, name)
+        fs.copyFileSync(src, dst)
+        const sha = crypto.createHash('sha256').update(fs.readFileSync(dst)).digest('hex').toUpperCase()
+        const st = fs.statSync(dst)
+        files[name] = { sha256: sha, size: st.size }
+        return sha
+      }
+      const sqliteSha = copyOne(DB_FILE)
+      copyOne(`${DB_FILE}-wal`)
+      copyOne(`${DB_FILE}-shm`)
+      const metaAll = sqlMetaGetAll()
+      const manifest = {
+        ok: true,
+        at: new Date().toISOString(),
+        version: app.getVersion ? app.getVersion() : null,
+        deviceId: metaAll.deviceId || metaAll.tradeDeviceId || null,
+        queueCount: sqlQueueLen(),
+        queueSeq: metaAll.queueSeq || null,
+        syncCursor: metaAll.syncCursor || null,
+        sqliteSha256: sqliteSha,
+        sha256: sqliteSha,
+        files,
+        destDir,
+      }
+      fs.writeFileSync(path.join(destDir, 'MANIFEST.json'), JSON.stringify(manifest, null, 2), 'utf8')
+      try {
+        sqlMetaPatch({
+          lastRecoveryBackupAt: manifest.at,
+          lastRecoveryBackupDir: destDir,
+          lastRecoveryBackupSha: sqliteSha,
+        })
+      } catch { /* ignore */ }
+      return { ok: true, manifest }
+    } catch (e) {
+      console.error('[localDb] recoveryBackup', e)
+      return { ok: false, error: e && e.message ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('desktop:localDbMarkInstalled', () => {
     writeInstallOk()
     return { ok: true, bootstrapComplete: true }

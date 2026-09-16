@@ -200,6 +200,12 @@ export type KakapoDesktopApi = {
   localDbDebtRepayCommitSetFailAt?: (stage: string) => Promise<{ ok: boolean; failAt: string }>
   localDbMetaGet?: () => Promise<Record<string, unknown>>
   localDbMetaPatch?: (patch: Record<string, unknown>) => Promise<{ ok: boolean; meta: Record<string, unknown> }>
+  /** PC-5 immutable SQLite triplet backup before recovery mutations */
+  localDbRecoveryBackup?: () => Promise<{
+    ok: boolean
+    manifest?: Record<string, unknown>
+    error?: string
+  }>
   /** PC-1A recovery audit trail */
   localDbRecoveryAuditAppend?: (entry: {
     ts?: string

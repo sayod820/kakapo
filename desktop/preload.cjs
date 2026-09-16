@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('kakapoDesktop', {
   localDbDebtRepayCommitSetFailAt: (stage) => ipcRenderer.invoke('desktop:localDbDebtRepayCommitSetFailAt', stage),
   localDbMetaGet: () => ipcRenderer.invoke('desktop:localDbMetaGet'),
   localDbMetaPatch: (patch) => ipcRenderer.invoke('desktop:localDbMetaPatch', patch),
+  localDbRecoveryBackup: () => ipcRenderer.invoke('desktop:localDbRecoveryBackup'),
   localDbRecoveryAuditAppend: (entry) => ipcRenderer.invoke('desktop:localDbRecoveryAuditAppend', entry),
   localDbRecoveryAuditList: (limit) => ipcRenderer.invoke('desktop:localDbRecoveryAuditList', limit),
   localDbRemapSaleShift: (payload) => ipcRenderer.invoke('desktop:localDbRemapSaleShift', payload),
