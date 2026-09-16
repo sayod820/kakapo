@@ -115,12 +115,14 @@ test('R1 fail-closed / recovery blocks (semantics)', () => {
 test('R4 classify ACK-lost + shift blocked', () => {
   function classify(row, opts = {}) {
     if (!row?.clientRef) return 'INVALID'
-    if (opts.serverHasClientRef) return 'ALREADY_COMMITTED_SERVER'
+    if (opts.semanticMatchProven === true) return 'ALREADY_COMMITTED_SERVER'
+    if (opts.serverHasClientRef && opts.semanticMatchProven !== true) return 'UNKNOWN'
     if (row.failed && /IDEMPOTENCY/i.test(row.lastError || '')) return 'CONFLICT'
     if (opts.serverShiftOpen === false) return 'DEPENDENCY_BLOCKED'
     return 'SAFE_TO_SEND'
   }
-  expect(classify({ clientRef: 'a', failed: true, lastError: 'IDEMPOTENCY' }, { serverHasClientRef: true }) === 'ALREADY_COMMITTED_SERVER', 'ack')
+  expect(classify({ clientRef: 'a', failed: true, lastError: 'IDEMPOTENCY' }, { semanticMatchProven: true }) === 'ALREADY_COMMITTED_SERVER', 'ack')
+  expect(classify({ clientRef: 'a' }, { serverHasClientRef: true }) === 'UNKNOWN', 'no fingerprint no ack')
   expect(classify({ clientRef: 'b', failed: false }, { serverShiftOpen: false }) === 'DEPENDENCY_BLOCKED', 'dep')
 })
 

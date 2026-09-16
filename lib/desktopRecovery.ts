@@ -19,6 +19,9 @@ export type RecoveryAuditAction =
   | 'SHIFT_REMAP'
   | 'CLASSIFY'
   | 'GATE_READY'
+  | 'SNAPSHOT'
+  | 'REPLAY_ACKED'
+  | 'GHOST_RECONCILED'
 
 export type RecoveryAuditEntry = {
   ts: string
@@ -205,14 +208,23 @@ export async function assertSyncAllowed(source: string): Promise<
 export function classifyPendingOperation(
   row: PendingOp,
   opts?: {
+    /** @deprecated Prefer semanticMatchProven — clientRef alone must not ACK */
     serverHasClientRef?: boolean
+    /** Exact business fingerprint match vs server row */
+    semanticMatchProven?: boolean
     serverShiftOpen?: boolean
     shiftId?: string
   },
 ): { classification: PendingClassification; reason: string } {
   if (!row?.clientRef) return { classification: 'INVALID', reason: 'missing clientRef' }
-  if (opts?.serverHasClientRef) {
-    return { classification: 'ALREADY_COMMITTED_SERVER', reason: 'server has same clientRef' }
+  if (opts?.semanticMatchProven === true) {
+    return { classification: 'ALREADY_COMMITTED_SERVER', reason: 'exact semantic match' }
+  }
+  if (opts?.serverHasClientRef && opts?.semanticMatchProven !== true) {
+    return {
+      classification: 'UNKNOWN',
+      reason: 'server clientRef hit without semantic fingerprint proof',
+    }
   }
   if (row.failed) {
     const err = String(row.lastError || '')
