@@ -3,14 +3,16 @@
 import { useEffect, useState } from 'react'
 import { isKakapoDesktop } from '@/lib/desktopBridge'
 import { isRecoveryModeActive, ensureRecoveryGateReady } from '@/lib/desktopRecovery'
+import { getRecoveryPhase, RECOVERY_PHASE } from '@/lib/desktopRecoveryExecutor'
 import { useOfflineSync } from '@/lib/offlineSync'
 
 /**
- * PC-1A — Desktop recovery banner.
+ * PC-1A/PC-3 — Desktop recovery banner with phase.
  * Browser never shows this (isKakapoDesktop gate).
  */
 export default function RecoveryModeBanner() {
   const [active, setActive] = useState(false)
+  const [phase, setPhase] = useState<string>(RECOVERY_PHASE.PREPARE)
   const pending = useOfflineSync(s => s.pending)
   const failed = useOfflineSync(s => s.failed)
   const items = useOfflineSync(s => s.items)
@@ -18,12 +20,15 @@ export default function RecoveryModeBanner() {
   useEffect(() => {
     if (!isKakapoDesktop()) return
     let cancelled = false
-    void ensureRecoveryGateReady().then(() => {
-      if (!cancelled) setActive(isRecoveryModeActive())
-    })
-    const t = window.setInterval(() => {
-      if (!cancelled) setActive(isRecoveryModeActive())
-    }, 2000)
+    const tick = () => {
+      if (cancelled) return
+      setActive(isRecoveryModeActive())
+      void getRecoveryPhase().then(p => {
+        if (!cancelled) setPhase(p)
+      })
+    }
+    void ensureRecoveryGateReady().then(tick)
+    const t = window.setInterval(tick, 2000)
     return () => {
       cancelled = true
       window.clearInterval(t)
@@ -41,12 +46,22 @@ export default function RecoveryModeBanner() {
     })
     : '—'
 
+  const phaseLabel =
+    phase === RECOVERY_PHASE.REPLAY
+      ? 'ФИНАЛЬНЫЙ REPLAY — новые продажи временно заблокированы'
+      : phase === RECOVERY_PHASE.COMPLETE
+        ? 'Восстановление завершено — ожидает снятие режима'
+        : 'Подготовка — локальные продажи разрешены, синхронизация остановлена'
+
   return (
     <div
       role="status"
       data-recovery-banner="1"
+      data-recovery-phase={phase}
       style={{
-        background: 'linear-gradient(90deg, #3d2a12, #5a3a18)',
+        background: phase === RECOVERY_PHASE.REPLAY
+          ? 'linear-gradient(90deg, #4a1515, #7a2020)'
+          : 'linear-gradient(90deg, #3d2a12, #5a3a18)',
         color: '#ffe7b8',
         borderBottom: '1px solid #8a6230',
         padding: '10px 16px',
@@ -59,14 +74,12 @@ export default function RecoveryModeBanner() {
       <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2 }}>
         Режим восстановления.
       </div>
-      <div>
-        Продажи сохраняются локально. Синхронизация с сервером временно приостановлена.
-      </div>
+      <div>{phaseLabel}</div>
       <div style={{ marginTop: 4, fontSize: 12, opacity: 0.92, fontWeight: 500 }}>
         Очередь: {pending + failed}
         {failed > 0 ? ` · ошибок: ${failed}` : ''}
         {' · '}самая старая: {oldestLabel}
-        {' · '}recovery: active
+        {' · '}phase: {phase}
       </div>
     </div>
   )

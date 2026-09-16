@@ -125,7 +125,9 @@ export async function dryRunRecoveryPlan(input: {
 
 /**
  * Execute one recovery step against live Desktop (still requires recoveryMode).
- * ACK/REMAP only — REPLAY_OP refuses real POST in PC-2 (plannedOnly).
+ * ACK/REMAP use PC-1A primitives. REPLAY_OP is executed only via
+ * desktopRecoveryExecutor.executeRecoveryReplay with an injected API adapter
+ * (PC-3) — never generic flushQueue; live production POST still operator-gated.
  */
 export async function executeRecoveryStep(step: {
   type: string
@@ -158,11 +160,10 @@ export async function executeRecoveryStep(step: {
     })
   }
   if (step.type === 'REPLAY_OP') {
-    // PC-2: no production flush / POST
     return {
       ok: false,
-      error: 'REPLAY_DEFERRED_TO_PC3_LIVE',
-      code: 'PLANNED_ONLY',
+      error: 'USE_executeRecoveryReplay_WITH_INJECTED_API',
+      code: 'PC3_EXECUTOR_REQUIRED',
       plannedOnly: true,
     }
   }

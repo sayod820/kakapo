@@ -22,6 +22,12 @@ export type RecoveryAuditAction =
   | 'SNAPSHOT'
   | 'REPLAY_ACKED'
   | 'GHOST_RECONCILED'
+  | 'REPLAY_INTENT'
+  | 'REPLAY_COMMITTED'
+  | 'PHASE_CHANGE'
+  | 'SHIFT_OPEN'
+  | 'PULL'
+  | 'REFUSE_DISABLE'
 
 export type RecoveryAuditEntry = {
   ts: string
@@ -122,6 +128,17 @@ export async function ensureRecoveryGateReady(): Promise<{ recovery: boolean }> 
       const desk = getKakapoDesktop()
       const meta = desk?.localDbMetaGet ? await desk.localDbMetaGet() : {}
       recoveryActive = meta?.recoveryMode === true || meta?.recoveryMode === 'true' || meta?.recoveryMode === 1
+      // PC-3 upgrade arm: external/installer flag → force recovery BEFORE any sync
+      if (
+        !recoveryActive
+        && (meta?.recoveryRequiredAfterUpgrade === true || meta?.recoveryRequiredAfterUpgrade === 'true')
+        && meta?.recoveryCompleted !== true
+      ) {
+        recoveryActive = true
+        try {
+          await desk?.localDbMetaPatch?.({ recoveryMode: true, recoveryPhase: 'RECOVERY_PREPARE' })
+        } catch { /* keep in-memory fail-closed */ }
+      }
     } catch {
       // Fail-closed: cannot read meta → keep recovery-like block until success
       recoveryActive = true
@@ -162,15 +179,35 @@ export async function appendRecoveryAudit(entry: Omit<RecoveryAuditEntry, 'ts'> 
 /**
  * Explicit operator/sign-off control. Never auto-cleared.
  * Desktop-only.
+ * Disabling (enabled=false) requires opts.signOffVerified unless force (tests only).
  */
 export async function setRecoveryMode(
   enabled: boolean,
   reason = 'explicit',
-): Promise<{ ok: boolean; recovery: boolean; error?: string }> {
+  opts?: { signOffVerified?: boolean; force?: boolean },
+): Promise<{ ok: boolean; recovery: boolean; error?: string; errors?: string[] }> {
   if (!isKakapoDesktop() && testOverride == null) {
     return { ok: false, recovery: false, error: 'not_desktop' }
   }
   await ensureRecoveryGateReady()
+
+  if (!enabled && !opts?.force && !opts?.signOffVerified && reason !== 'pc3_signoff') {
+    // Soft refuse when a durable session claims incomplete — PC-3 disableRecoveryStrict sets sign-off
+    try {
+      const desk = isKakapoDesktop() ? getKakapoDesktop() : null
+      const meta = desk?.localDbMetaGet ? await desk.localDbMetaGet() : {}
+      const sess = meta?.recoverySession as { status?: string; pullCompleted?: boolean } | undefined
+      if (sess && sess.status && sess.status !== 'COMPLETED' && !sess.pullCompleted) {
+        await appendRecoveryAudit({
+          action: 'REFUSE_DISABLE',
+          reason: 'session_incomplete',
+          before: { status: sess.status },
+        })
+        return { ok: false, recovery: recoveryActive, error: 'REFUSE_DISABLE', errors: ['session_incomplete'] }
+      }
+    } catch { /* continue with explicit disable if meta unreadable only when force */ }
+  }
+
   const before = recoveryActive
   recoveryActive = !!enabled
   if (testOverride != null) testOverride = recoveryActive
@@ -178,7 +215,9 @@ export async function setRecoveryMode(
   if (isKakapoDesktop()) {
     try {
       const desk = getKakapoDesktop()
-      await desk?.localDbMetaPatch?.({ recoveryMode: recoveryActive })
+      const patch: Record<string, unknown> = { recoveryMode: recoveryActive }
+      if (!recoveryActive) patch.recoveryCompleted = true
+      await desk?.localDbMetaPatch?.(patch)
     } catch (e) {
       recoveryActive = before
       return { ok: false, recovery: before, error: e instanceof Error ? e.message : String(e) }

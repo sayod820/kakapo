@@ -140,9 +140,15 @@ test('S1 engine core exports', () => {
 test('S2 TS façade + offlinePosOps recovery shift wiring', () => {
   expect(fs.existsSync(path.join(root, 'lib/desktopRecoveryEngine.ts')), 'engine ts')
   const ops = read('lib/offlinePosOps.ts')
+  const eng = read('lib/desktopRecoveryEngine.ts')
   expect(ops.includes('isRecoveryModeActive'), 'recovery gate in resolve')
   expect(ops.includes('off-recovery') || ops.includes('ensureLocalRecoveryShift'), 'recovery shift')
-  expect(ops.includes('REPLAY_DEFERRED') || read('lib/desktopRecoveryEngine.ts').includes('REPLAY_DEFERRED_TO_PC3_LIVE'), 'no live replay')
+  expect(
+    eng.includes('REPLAY_DEFERRED_TO_PC3_LIVE')
+    || eng.includes('PC3_EXECUTOR_REQUIRED')
+    || eng.includes('USE_executeRecoveryReplay'),
+    'no live replay',
+  )
 })
 
 test('S3 PC-1A gate still present', () => {

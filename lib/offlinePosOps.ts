@@ -25,6 +25,7 @@ import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPay
 import { pickActiveOpenShift } from './shiftReconcile'
 import { isRecoveryModeActive } from './desktopRecovery'
 import { pickSaleTargetShift, isRecoveryShiftId } from './desktopRecoveryEngineCore.mjs'
+import { allowLocalBusinessMutation } from './desktopRecoveryExecutorCore.mjs'
 
 /**
  * Sticky clientRef for one logical money attempt (browser timeout-after-commit).
@@ -2752,6 +2753,20 @@ export async function createSaleSafe(
 async function createSaleSafeInner(
   input: CreateSaleSafeInput,
 ): Promise<OfflineResult<PosSale & { orderId?: string; _offline?: boolean }>> {
+  // PC-3: RECOVERY_REPLAY freeze — block NEW business mutations during final drain
+  if (isRecoveryModeActive()) {
+    try {
+      const { getRecoveryPhase } = await import('./desktopRecoveryExecutor')
+      const phase = await getRecoveryPhase()
+      if (!allowLocalBusinessMutation(phase)) {
+        throw new Error('RECOVERY_REPLAY_FREEZE: новые продажи временно заблокированы до завершения восстановления')
+      }
+    } catch (e) {
+      if (e instanceof Error && /RECOVERY_REPLAY_FREEZE/.test(e.message)) throw e
+      /* if phase unreadable, allow PREPARE-safe path below */
+    }
+  }
+
   // PC-2: while recoveryMode, ensure a dedicated off-recovery-* shift exists and is used
   if (isRecoveryModeActive()) {
     try {
