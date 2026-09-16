@@ -236,14 +236,28 @@ export async function openShiftSafe(input: {
   note?: string
 }): Promise<OfflineResult<PosShift>> {
   const posId = String(input.posId || '').trim()
+
+  // Browser online: hydrate server-authoritative open shift BEFORE open/closed decision
+  try {
+    const { isBrowserOnlineShiftAdoptEnabled, adoptServerOpenShiftsBrowser, findAdoptedOpenShiftForPos } =
+      await import('./browserAdoptServerOpenShift')
+    if (isBrowserOnlineShiftAdoptEnabled()) {
+      await adoptServerOpenShiftsBrowser({ posId, reason: 'openShiftSafe' })
+      const adopted = findAdoptedOpenShiftForPos(posId)
+      if (adopted) {
+        return { data: adopted, offline: false }
+      }
+    }
+  } catch { /* fall through to local checks */ }
+
   const opens = usePosStore.getState().shifts.filter(s => s.status === 'open')
-  // Prefer server open if already present — do not spawn another off-shift ghost.
+  // Prefer server open if already present — adopt, do not spawn another open.
   const serverOpen = opens.find(s => !String(s.id || '').startsWith('off-')
     && (!posId || String(s.posId || '') === posId)
     && String(s.cashierId || '') === String(input.cashierId))
     || opens.find(s => !String(s.id || '').startsWith('off-') && (!posId || String(s.posId || '') === posId))
   if (serverOpen) {
-    throw new Error('На этой точке продаж уже открыта сессия')
+    return { data: serverOpen, offline: false }
   }
   if (posId && opens.some(s => String(s.posId || '') === posId)) {
     throw new Error('На этой точке продаж уже открыта сессия')

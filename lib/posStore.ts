@@ -452,7 +452,9 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           .map((d: { id?: string }) => String(d.id || ''))
           .filter(Boolean)
         nextLiteCursor = String(delta.cursor || '')
-        // Пустая дельта (и без deletes) — только курсор
+        // Пустая дельта (и без deletes) — только курсор.
+        // Browser online: still GET/adopt open POS shifts — empty pos-lite delta
+        // skips opens created on other clients after this browser's cursor advanced.
         if (
           !sales.length
           && !shifts.length
@@ -463,6 +465,13 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           && !crmDeleteCards.length
         ) {
           if (nextLiteCursor) await setPosLiteSyncCursor(nextLiteCursor)
+          try {
+            const { isBrowserOnlineShiftAdoptEnabled, adoptServerOpenShiftsBrowser } =
+              await import('./browserAdoptServerOpenShift')
+            if (isBrowserOnlineShiftAdoptEnabled()) {
+              await adoptServerOpenShiftsBrowser({ reason: 'softSync_empty_delta' })
+            }
+          } catch { /* ignore */ }
           return
         }
       } catch {

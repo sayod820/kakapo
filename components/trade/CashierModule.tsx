@@ -1777,6 +1777,14 @@ export default function CashierModule({
 
   // При старте — только лёгкая дельта чеков; каталог/клиенты уже через useApiSync + /sync/changes
   useEffect(() => {
+    // Browser online: adopt server-open POS shift BEFORE "Сессия закрыта" / "Новая сессия"
+    void import('@/lib/browserAdoptServerOpenShift')
+      .then(async m => {
+        if (!m.isBrowserOnlineShiftAdoptEnabled()) return
+        const posId = getBoundPosIdSync() || undefined
+        await m.adoptServerOpenShiftsBrowser({ posId, reason: 'cashier_startup' })
+      })
+      .catch(() => {})
     void softSyncPosAfterSale().then(() => {
       // If lite cursor skipped sale rows while shift counters advanced — backfill projection
       void import('@/lib/posSalesInboundRepair')
@@ -4393,6 +4401,30 @@ export default function CashierModule({
     return res.data
   }
 
+  /** Browser: refresh server open before offering "Новая сессия". */
+  async function requestNewSession(posId: string) {
+    setDashMenuPosId(null)
+    if (activeShift) {
+      showToast('Сессия уже открыта', 'Сначала закройте текущую сессию или продолжите продажу')
+      return
+    }
+    try {
+      const m = await import('@/lib/browserAdoptServerOpenShift')
+      if (m.isBrowserOnlineShiftAdoptEnabled()) {
+        await m.adoptServerOpenShiftsBrowser({ posId, reason: 'new_session_click' })
+        const adopted = m.findAdoptedOpenShiftForPos(posId)
+        if (adopted) {
+          // Adopted existing open — enter register, never open modal / POST
+          setPosSurface('register')
+          return
+        }
+      }
+    } catch { /* fall through */ }
+    setOpeningPosId(posId)
+    setMsg('')
+    setOpenShiftModal(true)
+  }
+
   async function openShift() {
     if (shiftBusyRef.current || busy) return
     shiftBusyRef.current = true
@@ -4403,6 +4435,20 @@ export default function CashierModule({
       if (cash < 0) throw new Error('Укажите сумму наличных')
       const posId = openingPosId || visiblePosPoints[0]?.id
       if (!posId) throw new Error('Сначала создайте точку продаж')
+      // Browser: never POST open while server already has an open for this POS
+      try {
+        const m = await import('@/lib/browserAdoptServerOpenShift')
+        if (m.isBrowserOnlineShiftAdoptEnabled()) {
+          await m.adoptServerOpenShiftsBrowser({ posId, reason: 'openShift_guard' })
+          const adopted = m.findAdoptedOpenShiftForPos(posId)
+          if (adopted) {
+            setOpenShiftModal(false)
+            setOpeningPosId(null)
+            setPosSurface('register')
+            return
+          }
+        }
+      } catch { /* continue to open */ }
       const picked = cashierOptions.find(c => c.id === pickedCashierId)
       const cashier = await ensureCashier(picked?.name || gateName, pickedCashierId)
       const next = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
@@ -8018,7 +8064,9 @@ export default function CashierModule({
               {visiblePosPoints.map(point => {
                 const shift = shiftForPos(point.id)
                 const openedLabel = formatOpenedAt(shift?.openedAtIso)
+                // Browser online: any open on this POS is continueable (cashier mismatch OK)
                 const isMine = !!(shift && myOpenShift && shift.id === myOpenShift.id)
+                  || (!!shift && !isTradeLocalFirst())
                 const menuOpen = dashMenuPosId === point.id
                 return (
                   <div
@@ -8078,16 +8126,7 @@ export default function CashierModule({
                               <button
                                 type="button"
                                 className="odoo-card-drop-item"
-                                onClick={() => {
-                                  setDashMenuPosId(null)
-                                  if (myOpenShift) {
-                                    showToast('Сессия уже открыта', 'Сначала закройте текущую сессию')
-                                    return
-                                  }
-                                  setOpeningPosId(point.id)
-                                  setMsg('')
-                                  setOpenShiftModal(true)
-                                }}
+                                onClick={() => { void requestNewSession(point.id) }}
                               >
                                 Открыть сессию
                               </button>
@@ -8159,16 +8198,7 @@ export default function CashierModule({
                         <button
                           type="button"
                           className="odoo-btn-primary"
-                          onClick={() => {
-                            setDashMenuPosId(null)
-                            if (myOpenShift) {
-                              showToast('Сессия уже открыта', 'Сначала закройте текущую сессию или продолжите продажу')
-                              return
-                            }
-                            setOpeningPosId(point.id)
-                            setMsg('')
-                            setOpenShiftModal(true)
-                          }}
+                          onClick={() => { void requestNewSession(point.id) }}
                         >
                           Новая сессия
                         </button>
