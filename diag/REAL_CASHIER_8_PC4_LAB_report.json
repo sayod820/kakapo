@@ -1,0 +1,3832 @@
+{
+  "auditAt": "2026-09-16T10:38:01.189Z",
+  "REAL_CASHIER_8_SOURCE_MUTATED": "NO",
+  "PRODUCTION_MUTATED": "NO",
+  "LIVE_CASHIER_DB_MUTATED": "NO",
+  "PRODUCTION_SERVER_POSTS": 0,
+  "REVISION_COORDINATOR_CHANGED": "NO",
+  "sourceIntegrity": {
+    "path": "C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\_diag_out\\REAL_CASHIER_8\\kakapo.sqlite",
+    "sizeBytes": 43421696,
+    "mtimeLocal": "2026-09-16T10:03:51.283Z",
+    "sha256": "874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA",
+    "walPresent": false,
+    "shmPresent": false,
+    "note": "WAL/SHM absent expected after clean shutdown",
+    "operatorReportedSize": 43421696,
+    "sizeMatch": true,
+    "after": {
+      "path": "C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\_diag_out\\REAL_CASHIER_8\\kakapo.sqlite",
+      "sizeBytes": 43421696,
+      "mtimeLocal": "2026-09-16T10:03:51.283Z",
+      "sha256": "874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA"
+    },
+    "mutated": false
+  },
+  "labCopy": {
+    "dir": "C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\scripts\\_diag_out\\REAL_CASHIER_8_LAB",
+    "files": [
+      "kakapo.sqlite"
+    ],
+    "labShaAfterCopy": "874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA",
+    "matchesSource": true
+  },
+  "freshness": {
+    "sourceMtime": "2026-09-16T10:03:51.283Z",
+    "queueSeq": 950190,
+    "syncCursor": "2026-09-16T03:00:46.253Z",
+    "deviceId": "4d5bc201-cad3-4fc2-b27e-3ca39db34a6b",
+    "newestQueueUpdated": "2026-09-16T10:02:59.535Z",
+    "newestSaleCreated": "2026-09-16T10:02:59.433Z",
+    "localSalesCount": 10218,
+    "queueTotal": 91
+  },
+  "localDb": {
+    "integrityCheck": "ok",
+    "journalMode": "wal",
+    "openShiftsLocal": [
+      {
+        "id": "SHIFT-mtxsgiqx-cvp3g",
+        "cashierId": "CASHIER-msbrov4p-5fleg",
+        "note": ""
+      },
+      {
+        "id": "SHIFT-mtwi7klw-yl4r6",
+        "cashierId": "CASHIER-msbrov4p-5fleg",
+        "note": ""
+      },
+      {
+        "id": "SHIFT-mtuxu2kz-u4xco",
+        "cashierId": "CASHIER-msbrov4p-5fleg",
+        "note": ""
+      }
+    ],
+    "closedShiftsSample": [
+      "off-shift-1786416457069-o6c8ck",
+      "off-shift-1786502363016-8k24i4",
+      "off-shift-1786588438055-oiab8z",
+      "off-shift-1786675738110-keu1ra",
+      "off-shift-1786761858571-muev70"
+    ]
+  },
+  "serverGet": {
+    "ok": true,
+    "error": null,
+    "cached": true,
+    "salesCount": 10136,
+    "shiftsCount": 46,
+    "openShifts": [],
+    "clientsCount": 41,
+    "fetchedAt": "2026-09-16T10:25:49.048Z",
+    "PRODUCTION_SERVER_POSTS": 0
+  },
+  "classification": {
+    "queueTotal": 91,
+    "byStatus": {
+      "ready": 19,
+      "failed": 72,
+      "cooldown": 0
+    },
+    "byKind": {
+      "sale": 90,
+      "stock_layer_delete": 1
+    },
+    "minSeq": 949898,
+    "maxSeq": 950190,
+    "oldestUpdated": "2026-09-16T02:58:59.075Z",
+    "newestUpdated": "2026-09-16T10:02:59.535Z",
+    "summary": {
+      "SAFE_TO_SEND": 1,
+      "ALREADY_COMMITTED_SERVER": 8,
+      "CONFLICT": 0,
+      "DEPENDENCY_BLOCKED": 82,
+      "INVALID": 0,
+      "UNKNOWN": 0
+    },
+    "ackLostExact": 8,
+    "ackPlanSample": [
+      {
+        "clientRef": "881725fb-3171-4a59-acaa-7d041ffcd0bf",
+        "kind": "sale",
+        "seq": 949898,
+        "expectedServerId": "SALE-mu28bcjw-w2tif",
+        "fingerprint": "2352e2a7ebda1b811fe477edf394a63fdfa878e3906233851ec85802ba6b7ef1",
+        "serverFingerprint": "2352e2a7ebda1b811fe477edf394a63fdfa878e3906233851ec85802ba6b7ef1"
+      },
+      {
+        "clientRef": "d78f3338-8d0e-4e0f-bdda-5b2d21ee22fa",
+        "kind": "sale",
+        "seq": 949927,
+        "expectedServerId": "SALE-mu2f66r3-6fp97",
+        "fingerprint": "ca0a361fe668fb8b40db5272f85975444193a020d6debdc7acdc4e5ca25dc85f",
+        "serverFingerprint": "ca0a361fe668fb8b40db5272f85975444193a020d6debdc7acdc4e5ca25dc85f"
+      },
+      {
+        "clientRef": "fd230198-1ef5-4ac7-919c-985e34596618",
+        "kind": "sale",
+        "seq": 949998,
+        "expectedServerId": "SALE-mu2mfc5z-99s47",
+        "fingerprint": "ccadd9fdbdb4e0e694aea3f1710ed102b2107f3e42c1601796b4c4ac2f30ab05",
+        "serverFingerprint": "ccadd9fdbdb4e0e694aea3f1710ed102b2107f3e42c1601796b4c4ac2f30ab05"
+      },
+      {
+        "clientRef": "7d1b788d-a895-400a-8225-62af1bd98c5c",
+        "kind": "sale",
+        "seq": 950071,
+        "expectedServerId": "SALE-mu2tb49t-8jpj3",
+        "fingerprint": "7f04142eb37ad0da88307e82857a7d9441a74a9bc6ecf28999b4063975180dc1",
+        "serverFingerprint": "7f04142eb37ad0da88307e82857a7d9441a74a9bc6ecf28999b4063975180dc1"
+      },
+      {
+        "clientRef": "9065a382-df85-4d50-9103-5b03fdd9b702",
+        "kind": "sale",
+        "seq": 950079,
+        "expectedServerId": "SALE-mu2tgjhy-d3el0",
+        "fingerprint": "a26a1bf76510e89ec5e800f1b2c059644e8220b4cdeeaa4a09844127f1908cf9",
+        "serverFingerprint": "a26a1bf76510e89ec5e800f1b2c059644e8220b4cdeeaa4a09844127f1908cf9"
+      }
+    ],
+    "dependencyBlocked": 82,
+    "conflict": 0,
+    "invalid": 0,
+    "unknown": 0,
+    "safeToSend": 1,
+    "alreadyCommitted": 8,
+    "localOnlySales": 82,
+    "blockers": [],
+    "unsupportedKinds": []
+  },
+  "ghostShifts": {
+    "localOpenServerClosed": [
+      "SHIFT-mtxsgiqx-cvp3g",
+      "SHIFT-mtwi7klw-yl4r6",
+      "SHIFT-mtuxu2kz-u4xco"
+    ],
+    "localOffOrRecovery": [
+      {
+        "id": "off-shift-1786416457069-o6c8ck",
+        "status": "closed"
+      },
+      {
+        "id": "off-shift-1786502363016-8k24i4",
+        "status": "closed"
+      },
+      {
+        "id": "off-shift-1786588438055-oiab8z",
+        "status": "closed"
+      },
+      {
+        "id": "off-shift-1786675738110-keu1ra",
+        "status": "closed"
+      },
+      {
+        "id": "off-shift-1786761858571-muev70",
+        "status": "closed"
+      },
+      {
+        "id": "off-shift-1786848773698-yxlpaa",
+        "status": "closed"
+      }
+    ],
+    "serverOpenCount": 0
+  },
+  "crmDebt": {
+    "U-26": {
+      "local": 64,
+      "server": 64
+    },
+    "U-37": {
+      "local": 207.85,
+      "server": 207.85
+    }
+  },
+  "warehouseFinance": {
+    "pendingReceipts": 0,
+    "pendingWriteoffs": 0,
+    "pendingFinance": 0,
+    "pendingLoyalty": 0,
+    "pendingDebtOps": 0
+  },
+  "prepTool": {
+    "exitCode": 0,
+    "ok": true,
+    "stdoutTail": ":\\\\Users\\\\user\\\\Desktop\\\\КАКАПО\\\\kakapo-next\\\\kakapo\\\\scripts\\\\_diag_out\\\\REAL_CASHIER_8_LAB\\\\kakapo.sqlite\",\n    \"dest\": \"C:\\\\Users\\\\user\\\\Desktop\\\\КАКАПО\\\\kakapo-next\\\\kakapo\\\\scripts\\\\_diag_out\\\\REAL_CASHIER_8_LAB\\\\pc4-prep-backup-2026-09-16T10-38-01-934Z\",\n    \"hashes\": {\n      \"kakapo.sqlite\": \"874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA\",\n      \"kakapo.sqlite-wal\": \"E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855\",\n      \"kakapo.sqlite-shm\": \"FD4C9FDA9CD3F9AE7C962B0DDF37232294D55580E1AA165AA06129B8549389EB\"\n    }\n  },\n  \"before\": {},\n  \"after\": {\n    \"recoveryMode\": true,\n    \"recoveryRequiredAfterUpgrade\": true,\n    \"recoveryPhase\": \"RECOVERY_PREPARE\"\n  },\n  \"note\": \"Only recovery metadata keys written. Queue/entities untouched by this tool.\"\n}\n",
+    "stderrTail": "",
+    "verify": {
+      "recoveryMode": true,
+      "recoveryRequiredAfterUpgrade": true,
+      "queueUnchanged": true,
+      "queueCount": 91
+    }
+  },
+  "installer": {
+    "path": "C:\\Users\\user\\Desktop\\КАКАПО\\kakapo-next\\kakapo\\desktop\\dist\\KAKAPO-Kassa-Setup-1.2.190.exe",
+    "exists": true,
+    "sha256": "AF55CDA79213C8B83CBABBE17AEB4BF346D74F48DDEF16A7FF9763C68D63E7D5",
+    "expected": "AF55CDA79213C8B83CBABBE17AEB4BF346D74F48DDEF16A7FF9763C68D63E7D5",
+    "match": true
+  },
+  "firstBoot": {
+    "recoveryActive": true,
+    "gateReady": true,
+    "flushAttempts": 2,
+    "skipped": true,
+    "posts": 0,
+    "queueUnchanged": true,
+    "banner": true,
+    "note": "Simulation of gate+flush refusal; full Electron UI AppData launch not required for this proof"
+  },
+  "prepareLocalSale": {
+    "clientRef": "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+    "shiftId": "off-recovery-RS-lab8-mu3yw2vb",
+    "note": "LAB-generated; excluded from real conservation"
+  },
+  "preReplayGate": {
+    "hardBlockers": 0,
+    "hardBlockerSample": [],
+    "unsupported": 0,
+    "unsupportedSample": []
+  },
+  "labReplay": {
+    "ok": true,
+    "ack": 8,
+    "remap": 82,
+    "targetShiftId": "SHIFT-LAB-REC-47",
+    "mockPosts": 85,
+    "adapterMutations": 85,
+    "productionPosts": 0,
+    "queueLeft": 0,
+    "verify": {
+      "ok": true,
+      "session": {
+        "recoverySessionId": "RS-lab8-mu3yw2vb",
+        "createdAt": "2026-09-16T10:38:02.503Z",
+        "deviceId": "4d5bc201-cad3-4fc2-b27e-3ca39db34a6b",
+        "sourceQueueSeq": 0,
+        "sourceSyncCursor": "2026-09-16T03:00:46.253Z",
+        "snapshotManifestHash": "874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA",
+        "snapshotExists": true,
+        "status": "PULL_READY",
+        "phase": "RECOVERY_REPLAY",
+        "targetServerShiftId": "SHIFT-LAB-REC-47",
+        "targetShiftOpenClientRef": "recovery-open-RS-lab8-mu3yw2vb",
+        "classificationAt": "2026-09-16T10:38:02.811Z",
+        "classificationCounts": {
+          "SAFE_TO_SEND": 0,
+          "ALREADY_COMMITTED_SERVER": 0,
+          "CONFLICT": 0,
+          "DEPENDENCY_BLOCKED": 0,
+          "INVALID": 0,
+          "UNKNOWN": 0
+        },
+        "queueWatermark": {
+          "count": 0,
+          "maxSeq": 0,
+          "minSeq": 0,
+          "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "replayCursor": "28811c99-45bf-4bbd-a46e-5b8c8f38d151",
+        "lastCompletedSeq": 950180,
+        "stoppedReason": null,
+        "checkpoints": [
+          {
+            "ts": "2026-09-16T10:38:02.513Z",
+            "type": "ACK_INTENT",
+            "clientRef": "881725fb-3171-4a59-acaa-7d041ffcd0bf",
+            "seq": 949898,
+            "expectedServerId": "SALE-mu28bcjw-w2tif"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.514Z",
+            "type": "ACK_DONE",
+            "clientRef": "881725fb-3171-4a59-acaa-7d041ffcd0bf",
+            "seq": 949898
+          },
+          {
+            "ts": "2026-09-16T10:38:02.515Z",
+            "type": "ACK_INTENT",
+            "clientRef": "d78f3338-8d0e-4e0f-bdda-5b2d21ee22fa",
+            "seq": 949927,
+            "expectedServerId": "SALE-mu2f66r3-6fp97"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.515Z",
+            "type": "ACK_DONE",
+            "clientRef": "d78f3338-8d0e-4e0f-bdda-5b2d21ee22fa",
+            "seq": 949927
+          },
+          {
+            "ts": "2026-09-16T10:38:02.515Z",
+            "type": "ACK_INTENT",
+            "clientRef": "fd230198-1ef5-4ac7-919c-985e34596618",
+            "seq": 949998,
+            "expectedServerId": "SALE-mu2mfc5z-99s47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_DONE",
+            "clientRef": "fd230198-1ef5-4ac7-919c-985e34596618",
+            "seq": 949998
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_INTENT",
+            "clientRef": "7d1b788d-a895-400a-8225-62af1bd98c5c",
+            "seq": 950071,
+            "expectedServerId": "SALE-mu2tb49t-8jpj3"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_DONE",
+            "clientRef": "7d1b788d-a895-400a-8225-62af1bd98c5c",
+            "seq": 950071
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_INTENT",
+            "clientRef": "9065a382-df85-4d50-9103-5b03fdd9b702",
+            "seq": 950079,
+            "expectedServerId": "SALE-mu2tgjhy-d3el0"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_DONE",
+            "clientRef": "9065a382-df85-4d50-9103-5b03fdd9b702",
+            "seq": 950079
+          },
+          {
+            "ts": "2026-09-16T10:38:02.516Z",
+            "type": "ACK_INTENT",
+            "clientRef": "68594638-bfb3-4819-8b04-1ef1ae8b982f",
+            "seq": 950095,
+            "expectedServerId": "SALE-mu2x3kyy-cinl9"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.517Z",
+            "type": "ACK_DONE",
+            "clientRef": "68594638-bfb3-4819-8b04-1ef1ae8b982f",
+            "seq": 950095
+          },
+          {
+            "ts": "2026-09-16T10:38:02.517Z",
+            "type": "ACK_INTENT",
+            "clientRef": "c40c13b7-668d-4d40-b067-6700069d85da",
+            "seq": 950096,
+            "expectedServerId": "SALE-mu2x6m5o-08pu7"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.517Z",
+            "type": "ACK_DONE",
+            "clientRef": "c40c13b7-668d-4d40-b067-6700069d85da",
+            "seq": 950096
+          },
+          {
+            "ts": "2026-09-16T10:38:02.518Z",
+            "type": "ACK_INTENT",
+            "clientRef": "e7c6dbcf-c25b-4446-8a88-58ac8aae68ba",
+            "seq": 950103,
+            "expectedServerId": "SALE-mu2x86gn-nrwnh"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.518Z",
+            "type": "ACK_DONE",
+            "clientRef": "e7c6dbcf-c25b-4446-8a88-58ac8aae68ba",
+            "seq": 950103
+          },
+          {
+            "ts": "2026-09-16T10:38:02.567Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+            "seq": 950104,
+            "oldShiftId": "SHIFT-mtz7ukp1-xfhxr"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.568Z",
+            "type": "REMAP_DONE",
+            "clientRef": "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+            "seq": 950104,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.568Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "51b54853-bef6-447a-9bb6-d69c7122c372",
+            "seq": 950105,
+            "oldShiftId": "SHIFT-mtz7ukp1-xfhxr"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.569Z",
+            "type": "REMAP_DONE",
+            "clientRef": "51b54853-bef6-447a-9bb6-d69c7122c372",
+            "seq": 950105,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.569Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+            "seq": 950106,
+            "oldShiftId": "SHIFT-mtz7ukp1-xfhxr"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.570Z",
+            "type": "REMAP_DONE",
+            "clientRef": "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+            "seq": 950106,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.570Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+            "seq": 950107,
+            "oldShiftId": "SHIFT-mtz7ukp1-xfhxr"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.571Z",
+            "type": "REMAP_DONE",
+            "clientRef": "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+            "seq": 950107,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.571Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+            "seq": 950111,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.572Z",
+            "type": "REMAP_DONE",
+            "clientRef": "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+            "seq": 950111,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.572Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+            "seq": 950112,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.572Z",
+            "type": "REMAP_DONE",
+            "clientRef": "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+            "seq": 950112,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.572Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+            "seq": 950113,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.572Z",
+            "type": "REMAP_DONE",
+            "clientRef": "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+            "seq": 950113,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.573Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "5edb148b-1395-4754-83c1-cc883390d683",
+            "seq": 950114,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.573Z",
+            "type": "REMAP_DONE",
+            "clientRef": "5edb148b-1395-4754-83c1-cc883390d683",
+            "seq": 950114,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.573Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "78f9b4a1-870b-4662-ac0a-7d661050699b",
+            "seq": 950115,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.573Z",
+            "type": "REMAP_DONE",
+            "clientRef": "78f9b4a1-870b-4662-ac0a-7d661050699b",
+            "seq": 950115,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.573Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+            "seq": 950116,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_DONE",
+            "clientRef": "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+            "seq": 950116,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+            "seq": 950117,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_DONE",
+            "clientRef": "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+            "seq": 950117,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "de5fb71b-88d2-499a-9e35-c645fcac7664",
+            "seq": 950118,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_DONE",
+            "clientRef": "de5fb71b-88d2-499a-9e35-c645fcac7664",
+            "seq": 950118,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+            "seq": 950119,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.574Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+            "seq": 950119,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+            "seq": 950120,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_DONE",
+            "clientRef": "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+            "seq": 950120,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b4943515-4746-47d7-a68a-1840f0e7afda",
+            "seq": 950122,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b4943515-4746-47d7-a68a-1840f0e7afda",
+            "seq": 950122,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+            "seq": 950123,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.575Z",
+            "type": "REMAP_DONE",
+            "clientRef": "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+            "seq": 950123,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+            "seq": 950124,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_DONE",
+            "clientRef": "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+            "seq": 950124,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+            "seq": 950125,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_DONE",
+            "clientRef": "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+            "seq": 950125,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+            "seq": 950126,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+            "seq": 950126,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.576Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "959c5fa4-85e5-4e53-885c-a473eb35257a",
+            "seq": 950127,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_DONE",
+            "clientRef": "959c5fa4-85e5-4e53-885c-a473eb35257a",
+            "seq": 950127,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+            "seq": 950128,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_DONE",
+            "clientRef": "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+            "seq": 950128,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+            "seq": 950129,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_DONE",
+            "clientRef": "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+            "seq": 950129,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.577Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "63b44066-dce2-4731-85de-3d77a1b69f94",
+            "seq": 950130,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_DONE",
+            "clientRef": "63b44066-dce2-4731-85de-3d77a1b69f94",
+            "seq": 950130,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+            "seq": 950131,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_DONE",
+            "clientRef": "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+            "seq": 950131,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+            "seq": 950132,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_DONE",
+            "clientRef": "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+            "seq": 950132,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.578Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+            "seq": 950133,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_DONE",
+            "clientRef": "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+            "seq": 950133,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b8629f76-a578-46ae-a334-c9b0f92074de",
+            "seq": 950134,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b8629f76-a578-46ae-a334-c9b0f92074de",
+            "seq": 950134,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+            "seq": 950135,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_DONE",
+            "clientRef": "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+            "seq": 950135,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+            "seq": 950136,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_DONE",
+            "clientRef": "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+            "seq": 950136,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.579Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "095abd15-1f01-47a4-9c64-4889aa377d0d",
+            "seq": 950137,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.580Z",
+            "type": "REMAP_DONE",
+            "clientRef": "095abd15-1f01-47a4-9c64-4889aa377d0d",
+            "seq": 950137,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.580Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "08bede3d-70e0-41c0-bb59-4b4faac09870",
+            "seq": 950138,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.580Z",
+            "type": "REMAP_DONE",
+            "clientRef": "08bede3d-70e0-41c0-bb59-4b4faac09870",
+            "seq": 950138,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.580Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f4158412-011a-4178-9357-36a5c9ff1297",
+            "seq": 950139,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.580Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f4158412-011a-4178-9357-36a5c9ff1297",
+            "seq": 950139,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.581Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+            "seq": 950140,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.581Z",
+            "type": "REMAP_DONE",
+            "clientRef": "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+            "seq": 950140,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.581Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+            "seq": 950141,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.581Z",
+            "type": "REMAP_DONE",
+            "clientRef": "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+            "seq": 950141,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.581Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "9bc289b0-851e-4ede-bfc0-09f432768878",
+            "seq": 950142,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.583Z",
+            "type": "REMAP_DONE",
+            "clientRef": "9bc289b0-851e-4ede-bfc0-09f432768878",
+            "seq": 950142,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.583Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "1b9b337e-8aec-4040-b569-e1eb507fb900",
+            "seq": 950143,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_DONE",
+            "clientRef": "1b9b337e-8aec-4040-b569-e1eb507fb900",
+            "seq": 950143,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+            "seq": 950144,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_DONE",
+            "clientRef": "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+            "seq": 950144,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+            "seq": 950145,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_DONE",
+            "clientRef": "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+            "seq": 950145,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.584Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "ec853015-e605-4419-a6b7-2d6f7706079a",
+            "seq": 950146,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_DONE",
+            "clientRef": "ec853015-e605-4419-a6b7-2d6f7706079a",
+            "seq": 950146,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+            "seq": 950147,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_DONE",
+            "clientRef": "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+            "seq": 950147,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+            "seq": 950148,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_DONE",
+            "clientRef": "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+            "seq": 950148,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.585Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b1a1b99e-fd43-4212-9055-754c5475f790",
+            "seq": 950149,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b1a1b99e-fd43-4212-9055-754c5475f790",
+            "seq": 950149,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "e015fde6-2d41-4707-bf62-56751db3fea4",
+            "seq": 950150,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_DONE",
+            "clientRef": "e015fde6-2d41-4707-bf62-56751db3fea4",
+            "seq": 950150,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "95673194-4b22-4dd7-b4ee-ac63158b641b",
+            "seq": 950151,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_DONE",
+            "clientRef": "95673194-4b22-4dd7-b4ee-ac63158b641b",
+            "seq": 950151,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f77a5443-b510-4516-bc08-a604c136e8fd",
+            "seq": 950152,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f77a5443-b510-4516-bc08-a604c136e8fd",
+            "seq": 950152,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.586Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+            "seq": 950153,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_DONE",
+            "clientRef": "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+            "seq": 950153,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+            "seq": 950154,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_DONE",
+            "clientRef": "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+            "seq": 950154,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+            "seq": 950155,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_DONE",
+            "clientRef": "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+            "seq": 950155,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+            "seq": 950156,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_DONE",
+            "clientRef": "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+            "seq": 950156,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.587Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+            "seq": 950157,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_DONE",
+            "clientRef": "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+            "seq": 950157,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "4756574f-04f7-435c-853c-d0fae94996b3",
+            "seq": 950158,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_DONE",
+            "clientRef": "4756574f-04f7-435c-853c-d0fae94996b3",
+            "seq": 950158,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+            "seq": 950159,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_DONE",
+            "clientRef": "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+            "seq": 950159,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f33989a3-de12-4008-b729-d0e0ac2fe018",
+            "seq": 950160,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f33989a3-de12-4008-b729-d0e0ac2fe018",
+            "seq": 950160,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.588Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "de949340-8672-46bc-9958-7cc938a7591d",
+            "seq": 950161,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_DONE",
+            "clientRef": "de949340-8672-46bc-9958-7cc938a7591d",
+            "seq": 950161,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+            "seq": 950162,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_DONE",
+            "clientRef": "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+            "seq": 950162,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "a1bbb864-e36e-47a5-804b-9261ac387889",
+            "seq": 950163,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_DONE",
+            "clientRef": "a1bbb864-e36e-47a5-804b-9261ac387889",
+            "seq": 950163,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.589Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "18ba5455-3e41-4da2-979e-3f35b968f80c",
+            "seq": 950164,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_DONE",
+            "clientRef": "18ba5455-3e41-4da2-979e-3f35b968f80c",
+            "seq": 950164,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "819b49c3-b177-4186-b481-5397947e1d7a",
+            "seq": 950165,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_DONE",
+            "clientRef": "819b49c3-b177-4186-b481-5397947e1d7a",
+            "seq": 950165,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "2a11ee20-e850-405d-987e-e68161b387e7",
+            "seq": 950166,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_DONE",
+            "clientRef": "2a11ee20-e850-405d-987e-e68161b387e7",
+            "seq": 950166,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.590Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+            "seq": 950167,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_DONE",
+            "clientRef": "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+            "seq": 950167,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "54a98125-a474-46c9-87f6-8d67dbaa4648",
+            "seq": 950168,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_DONE",
+            "clientRef": "54a98125-a474-46c9-87f6-8d67dbaa4648",
+            "seq": 950168,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b7413190-273c-436d-8aeb-cac20004731b",
+            "seq": 950169,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b7413190-273c-436d-8aeb-cac20004731b",
+            "seq": 950169,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.591Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+            "seq": 950170,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+            "seq": 950170,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+            "seq": 950171,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_DONE",
+            "clientRef": "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+            "seq": 950171,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+            "seq": 950172,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_DONE",
+            "clientRef": "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+            "seq": 950172,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+            "seq": 950173,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_DONE",
+            "clientRef": "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+            "seq": 950173,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.592Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "85d57b82-4804-4fab-a42c-49ad599d32b0",
+            "seq": 950174,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_DONE",
+            "clientRef": "85d57b82-4804-4fab-a42c-49ad599d32b0",
+            "seq": 950174,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "14f65cf5-6076-4e66-920e-f22975cc10d6",
+            "seq": 950175,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_DONE",
+            "clientRef": "14f65cf5-6076-4e66-920e-f22975cc10d6",
+            "seq": 950175,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+            "seq": 950176,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_DONE",
+            "clientRef": "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+            "seq": 950176,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "1ca25295-004d-4c57-ac2a-194d735778c7",
+            "seq": 950177,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_DONE",
+            "clientRef": "1ca25295-004d-4c57-ac2a-194d735778c7",
+            "seq": 950177,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.593Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+            "seq": 950178,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_DONE",
+            "clientRef": "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+            "seq": 950178,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "6c140aae-fc31-4be1-a744-6812a0178669",
+            "seq": 950179,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_DONE",
+            "clientRef": "6c140aae-fc31-4be1-a744-6812a0178669",
+            "seq": 950179,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f1a3f916-65a5-4506-9511-fbe01723e369",
+            "seq": 950181,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f1a3f916-65a5-4506-9511-fbe01723e369",
+            "seq": 950181,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+            "seq": 950182,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+            "seq": 950182,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.594Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+            "seq": 950183,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_DONE",
+            "clientRef": "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+            "seq": 950183,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+            "seq": 950184,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_DONE",
+            "clientRef": "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+            "seq": 950184,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+            "seq": 950185,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_DONE",
+            "clientRef": "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+            "seq": 950185,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+            "seq": 950186,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_DONE",
+            "clientRef": "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+            "seq": 950186,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.595Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "f67f5947-8dba-427d-b9ba-42c50b643200",
+            "seq": 950187,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_DONE",
+            "clientRef": "f67f5947-8dba-427d-b9ba-42c50b643200",
+            "seq": 950187,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+            "seq": 950188,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_DONE",
+            "clientRef": "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+            "seq": 950188,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+            "seq": 950189,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_DONE",
+            "clientRef": "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+            "seq": 950189,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_INTENT",
+            "clientRef": "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+            "seq": 950190,
+            "oldShiftId": "SHIFT-mtxsgiqx-cvp3g"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.596Z",
+            "type": "REMAP_DONE",
+            "clientRef": "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+            "seq": 950190,
+            "newShiftId": "SHIFT-LAB-REC-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.601Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+            "kind": "sale",
+            "seq": 950104,
+            "fingerprint": "2c50cd5e073c0a4ea0e360da8d2040a53972d853a8fff62ccbd69dbc259a9987"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.603Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+            "kind": "sale",
+            "seq": 950104,
+            "serverId": "SALE-LAB-9"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.603Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+            "kind": "sale",
+            "seq": 950104,
+            "serverId": "SALE-LAB-9"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.606Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "51b54853-bef6-447a-9bb6-d69c7122c372",
+            "kind": "sale",
+            "seq": 950105,
+            "fingerprint": "a1d8844cd5afecee82e9afc3e2a0a1f51f21b6d9aa57713eabfccd3c4a3c8891"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.608Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "51b54853-bef6-447a-9bb6-d69c7122c372",
+            "kind": "sale",
+            "seq": 950105,
+            "serverId": "SALE-LAB-10"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.608Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "51b54853-bef6-447a-9bb6-d69c7122c372",
+            "kind": "sale",
+            "seq": 950105,
+            "serverId": "SALE-LAB-10"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.610Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+            "kind": "sale",
+            "seq": 950106,
+            "fingerprint": "02dedf86e952de6f5a03324da954a518b030c21f5e5fac7b4a1d5aa67d4bb315"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.612Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+            "kind": "sale",
+            "seq": 950106,
+            "serverId": "SALE-LAB-11"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.612Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+            "kind": "sale",
+            "seq": 950106,
+            "serverId": "SALE-LAB-11"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.615Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+            "kind": "sale",
+            "seq": 950107,
+            "fingerprint": "9138f78d0fb4bc70a729caa778da839a531ae0fffea21387a84fa7f0af1e41ee"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.616Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+            "kind": "sale",
+            "seq": 950107,
+            "serverId": "SALE-LAB-12"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.616Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+            "kind": "sale",
+            "seq": 950107,
+            "serverId": "SALE-LAB-12"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.618Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+            "kind": "sale",
+            "seq": 950111,
+            "fingerprint": "90c90a0223e257fde12ad5c8ab689e5fbe7c4f26a7dcc76e7bccd9d6a2ed3e0a"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.619Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+            "kind": "sale",
+            "seq": 950111,
+            "serverId": "SALE-LAB-13"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.619Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+            "kind": "sale",
+            "seq": 950111,
+            "serverId": "SALE-LAB-13"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.621Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+            "kind": "sale",
+            "seq": 950112,
+            "fingerprint": "634bfac874af4f801d075dad63958138728965d2eba0b2fef12142621066c819"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.623Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+            "kind": "sale",
+            "seq": 950112,
+            "serverId": "SALE-LAB-14"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.623Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+            "kind": "sale",
+            "seq": 950112,
+            "serverId": "SALE-LAB-14"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.627Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+            "kind": "sale",
+            "seq": 950113,
+            "fingerprint": "e6984259669e1306446ffde788f7aa57146678505cdde44888e96bbacb35def4"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.629Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+            "kind": "sale",
+            "seq": 950113,
+            "serverId": "SALE-LAB-15"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.629Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+            "kind": "sale",
+            "seq": 950113,
+            "serverId": "SALE-LAB-15"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.631Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "5edb148b-1395-4754-83c1-cc883390d683",
+            "kind": "sale",
+            "seq": 950114,
+            "fingerprint": "634bfac874af4f801d075dad63958138728965d2eba0b2fef12142621066c819"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.633Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "5edb148b-1395-4754-83c1-cc883390d683",
+            "kind": "sale",
+            "seq": 950114,
+            "serverId": "SALE-LAB-16"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.633Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "5edb148b-1395-4754-83c1-cc883390d683",
+            "kind": "sale",
+            "seq": 950114,
+            "serverId": "SALE-LAB-16"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.635Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "78f9b4a1-870b-4662-ac0a-7d661050699b",
+            "kind": "sale",
+            "seq": 950115,
+            "fingerprint": "cd06664d1501da18aef56bd0dcc9ba94053981d94ce3766d77e291e50d2b0d0a"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.637Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "78f9b4a1-870b-4662-ac0a-7d661050699b",
+            "kind": "sale",
+            "seq": 950115,
+            "serverId": "SALE-LAB-17"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.637Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "78f9b4a1-870b-4662-ac0a-7d661050699b",
+            "kind": "sale",
+            "seq": 950115,
+            "serverId": "SALE-LAB-17"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.638Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+            "kind": "sale",
+            "seq": 950116,
+            "fingerprint": "969f8d2105ae514cdcd20d624dcbae835ae50bf897a4857a822f9e2fe699b448"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.639Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+            "kind": "sale",
+            "seq": 950116,
+            "serverId": "SALE-LAB-18"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.639Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+            "kind": "sale",
+            "seq": 950116,
+            "serverId": "SALE-LAB-18"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.641Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+            "kind": "sale",
+            "seq": 950117,
+            "fingerprint": "ef1f70e23868a7a6144a8efa8b57f0f4f193f13b86e7b14bb47e74efc7a35935"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.642Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+            "kind": "sale",
+            "seq": 950117,
+            "serverId": "SALE-LAB-19"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.642Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+            "kind": "sale",
+            "seq": 950117,
+            "serverId": "SALE-LAB-19"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.644Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "de5fb71b-88d2-499a-9e35-c645fcac7664",
+            "kind": "sale",
+            "seq": 950118,
+            "fingerprint": "a012ecadf5a69d35709ccb34d440b00c70540482249fde122cb7c46a61d017a9"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.645Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "de5fb71b-88d2-499a-9e35-c645fcac7664",
+            "kind": "sale",
+            "seq": 950118,
+            "serverId": "SALE-LAB-20"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.645Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "de5fb71b-88d2-499a-9e35-c645fcac7664",
+            "kind": "sale",
+            "seq": 950118,
+            "serverId": "SALE-LAB-20"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.646Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+            "kind": "sale",
+            "seq": 950119,
+            "fingerprint": "1381de2efbcc450305a2cd73765a21599a3dd22c7b86991dccda42b609eafbc4"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.647Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+            "kind": "sale",
+            "seq": 950119,
+            "serverId": "SALE-LAB-21"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.647Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+            "kind": "sale",
+            "seq": 950119,
+            "serverId": "SALE-LAB-21"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.650Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+            "kind": "sale",
+            "seq": 950120,
+            "fingerprint": "70914682ff8ab28839a35340fc68a2db4c04f6915e04289abaa0b8d37ac59077"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.653Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+            "kind": "sale",
+            "seq": 950120,
+            "serverId": "SALE-LAB-22"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.653Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+            "kind": "sale",
+            "seq": 950120,
+            "serverId": "SALE-LAB-22"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.654Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b4943515-4746-47d7-a68a-1840f0e7afda",
+            "kind": "sale",
+            "seq": 950122,
+            "fingerprint": "a303002b981047583e7a0882ab1694f525c46e60616f6ba754557205fb84acc5"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.655Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b4943515-4746-47d7-a68a-1840f0e7afda",
+            "kind": "sale",
+            "seq": 950122,
+            "serverId": "SALE-LAB-23"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.655Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b4943515-4746-47d7-a68a-1840f0e7afda",
+            "kind": "sale",
+            "seq": 950122,
+            "serverId": "SALE-LAB-23"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.657Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+            "kind": "sale",
+            "seq": 950123,
+            "fingerprint": "c18d1a8990b85c589e4e57052522dc313024b82be17a5dc41bb41f1841f84ff1"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.658Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+            "kind": "sale",
+            "seq": 950123,
+            "serverId": "SALE-LAB-24"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.658Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+            "kind": "sale",
+            "seq": 950123,
+            "serverId": "SALE-LAB-24"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.659Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+            "kind": "sale",
+            "seq": 950124,
+            "fingerprint": "e4fec2aedd61c3a7acb5ba6ea4471b8c7b07e0cba73f457c3de4ce8617cd65b6"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.660Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+            "kind": "sale",
+            "seq": 950124,
+            "serverId": "SALE-LAB-25"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.660Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+            "kind": "sale",
+            "seq": 950124,
+            "serverId": "SALE-LAB-25"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.661Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+            "kind": "sale",
+            "seq": 950125,
+            "fingerprint": "a4c5df6cac88c3a80512d78236a7a9e73d883583ea57c09f0870147330e4568d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.662Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+            "kind": "sale",
+            "seq": 950125,
+            "serverId": "SALE-LAB-26"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.662Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+            "kind": "sale",
+            "seq": 950125,
+            "serverId": "SALE-LAB-26"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.663Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+            "kind": "sale",
+            "seq": 950126,
+            "fingerprint": "51f15712f2116ef81e4b186edbee2a2102314599404ff4da6dc6cacc73052226"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.664Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+            "kind": "sale",
+            "seq": 950126,
+            "serverId": "SALE-LAB-27"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.664Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+            "kind": "sale",
+            "seq": 950126,
+            "serverId": "SALE-LAB-27"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.666Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "959c5fa4-85e5-4e53-885c-a473eb35257a",
+            "kind": "sale",
+            "seq": 950127,
+            "fingerprint": "a2208b9e79c86dfbd1c63c918a316d4ebca77752ed70321be45bd2fdeaa42e2b"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.667Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "959c5fa4-85e5-4e53-885c-a473eb35257a",
+            "kind": "sale",
+            "seq": 950127,
+            "serverId": "SALE-LAB-28"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.667Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "959c5fa4-85e5-4e53-885c-a473eb35257a",
+            "kind": "sale",
+            "seq": 950127,
+            "serverId": "SALE-LAB-28"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.670Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+            "kind": "sale",
+            "seq": 950128,
+            "fingerprint": "ddf93f7e8d599d8d8873b8b75bb73898d7dd4911a7294a436e06cb66e60bf136"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.673Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+            "kind": "sale",
+            "seq": 950128,
+            "serverId": "SALE-LAB-29"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.673Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+            "kind": "sale",
+            "seq": 950128,
+            "serverId": "SALE-LAB-29"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.675Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+            "kind": "sale",
+            "seq": 950129,
+            "fingerprint": "096b466fee09e2b2d56ed787da4444cbe05e9a52577b142ec33154959e72a003"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.677Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+            "kind": "sale",
+            "seq": 950129,
+            "serverId": "SALE-LAB-30"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.677Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+            "kind": "sale",
+            "seq": 950129,
+            "serverId": "SALE-LAB-30"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.679Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "63b44066-dce2-4731-85de-3d77a1b69f94",
+            "kind": "sale",
+            "seq": 950130,
+            "fingerprint": "9a88468e945008ec661d345bd7befb69a5d6152b2dd265ef05186fd8dcc2a1c5"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.681Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "63b44066-dce2-4731-85de-3d77a1b69f94",
+            "kind": "sale",
+            "seq": 950130,
+            "serverId": "SALE-LAB-31"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.681Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "63b44066-dce2-4731-85de-3d77a1b69f94",
+            "kind": "sale",
+            "seq": 950130,
+            "serverId": "SALE-LAB-31"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.684Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+            "kind": "sale",
+            "seq": 950131,
+            "fingerprint": "26e35a8161f12fef70ba95adf76c3a6eeba3d25dc2e2e46f346baa1a6a1a0f9b"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.686Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+            "kind": "sale",
+            "seq": 950131,
+            "serverId": "SALE-LAB-32"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.686Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+            "kind": "sale",
+            "seq": 950131,
+            "serverId": "SALE-LAB-32"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.688Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+            "kind": "sale",
+            "seq": 950132,
+            "fingerprint": "3fb60c995042fdedfbc7f6a823a8d9bb0bad6f6972009e7636e50cf4c9db5636"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.689Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+            "kind": "sale",
+            "seq": 950132,
+            "serverId": "SALE-LAB-33"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.689Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+            "kind": "sale",
+            "seq": 950132,
+            "serverId": "SALE-LAB-33"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.691Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+            "kind": "sale",
+            "seq": 950133,
+            "fingerprint": "540971875eb9a9ecc8909325e62a9160eb0b0023f4940a6585a947ee8dd71a90"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.693Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+            "kind": "sale",
+            "seq": 950133,
+            "serverId": "SALE-LAB-34"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.693Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+            "kind": "sale",
+            "seq": 950133,
+            "serverId": "SALE-LAB-34"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.694Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b8629f76-a578-46ae-a334-c9b0f92074de",
+            "kind": "sale",
+            "seq": 950134,
+            "fingerprint": "6e6fa2f845e6bb286c30bea55814268ef740d3c9aa644479ea5704a73d1a0829"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.696Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b8629f76-a578-46ae-a334-c9b0f92074de",
+            "kind": "sale",
+            "seq": 950134,
+            "serverId": "SALE-LAB-35"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.696Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b8629f76-a578-46ae-a334-c9b0f92074de",
+            "kind": "sale",
+            "seq": 950134,
+            "serverId": "SALE-LAB-35"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.697Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+            "kind": "sale",
+            "seq": 950135,
+            "fingerprint": "67b3a5df4b6346d4e0477c2fd5a671ea644e046df7a5a75d3ac84807ca59b93c"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.699Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+            "kind": "sale",
+            "seq": 950135,
+            "serverId": "SALE-LAB-36"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.699Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+            "kind": "sale",
+            "seq": 950135,
+            "serverId": "SALE-LAB-36"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.702Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+            "kind": "sale",
+            "seq": 950136,
+            "fingerprint": "0ed793838235fa9b8b294a33bfdb40fa8385a60ae57abde781c507df25f06e4e"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.704Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+            "kind": "sale",
+            "seq": 950136,
+            "serverId": "SALE-LAB-37"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.704Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+            "kind": "sale",
+            "seq": 950136,
+            "serverId": "SALE-LAB-37"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.705Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "095abd15-1f01-47a4-9c64-4889aa377d0d",
+            "kind": "sale",
+            "seq": 950137,
+            "fingerprint": "10935ace7d3532170028188cdc5ca4419a03679ae7563ef2c0593da638538ec7"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.706Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "095abd15-1f01-47a4-9c64-4889aa377d0d",
+            "kind": "sale",
+            "seq": 950137,
+            "serverId": "SALE-LAB-38"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.706Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "095abd15-1f01-47a4-9c64-4889aa377d0d",
+            "kind": "sale",
+            "seq": 950137,
+            "serverId": "SALE-LAB-38"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.708Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "08bede3d-70e0-41c0-bb59-4b4faac09870",
+            "kind": "sale",
+            "seq": 950138,
+            "fingerprint": "d512814533bf09a2667c9a965aed43a270e5c667e8b0dac7c01bce5d86b52904"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.708Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "08bede3d-70e0-41c0-bb59-4b4faac09870",
+            "kind": "sale",
+            "seq": 950138,
+            "serverId": "SALE-LAB-39"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.708Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "08bede3d-70e0-41c0-bb59-4b4faac09870",
+            "kind": "sale",
+            "seq": 950138,
+            "serverId": "SALE-LAB-39"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.710Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f4158412-011a-4178-9357-36a5c9ff1297",
+            "kind": "sale",
+            "seq": 950139,
+            "fingerprint": "470ef5af87cf3a7904992f0a9160c1dd8d3d4edf97bc198ca9ebcc6228c442ba"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.711Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f4158412-011a-4178-9357-36a5c9ff1297",
+            "kind": "sale",
+            "seq": 950139,
+            "serverId": "SALE-LAB-40"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.711Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f4158412-011a-4178-9357-36a5c9ff1297",
+            "kind": "sale",
+            "seq": 950139,
+            "serverId": "SALE-LAB-40"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.712Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+            "kind": "sale",
+            "seq": 950140,
+            "fingerprint": "18b7e3b2941a8aa1764cc6b2ccc7875d5ee69a894ec32ea88b569c7ae60a122d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.713Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+            "kind": "sale",
+            "seq": 950140,
+            "serverId": "SALE-LAB-41"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.713Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+            "kind": "sale",
+            "seq": 950140,
+            "serverId": "SALE-LAB-41"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.715Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+            "kind": "sale",
+            "seq": 950141,
+            "fingerprint": "2994358ad21fbc7b2387dd81fdb6d3b813354a0507518b5721763370002ed275"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.718Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+            "kind": "sale",
+            "seq": 950141,
+            "serverId": "SALE-LAB-42"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.718Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+            "kind": "sale",
+            "seq": 950141,
+            "serverId": "SALE-LAB-42"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.719Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "9bc289b0-851e-4ede-bfc0-09f432768878",
+            "kind": "sale",
+            "seq": 950142,
+            "fingerprint": "969f8d2105ae514cdcd20d624dcbae835ae50bf897a4857a822f9e2fe699b448"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.720Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "9bc289b0-851e-4ede-bfc0-09f432768878",
+            "kind": "sale",
+            "seq": 950142,
+            "serverId": "SALE-LAB-43"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.720Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "9bc289b0-851e-4ede-bfc0-09f432768878",
+            "kind": "sale",
+            "seq": 950142,
+            "serverId": "SALE-LAB-43"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.721Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "1b9b337e-8aec-4040-b569-e1eb507fb900",
+            "kind": "sale",
+            "seq": 950143,
+            "fingerprint": "f43d8e1dd39294a475aeec402c2ad46ce107c8c47ad49e332d8e167ebc9fe4ce"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.722Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "1b9b337e-8aec-4040-b569-e1eb507fb900",
+            "kind": "sale",
+            "seq": 950143,
+            "serverId": "SALE-LAB-44"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.722Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "1b9b337e-8aec-4040-b569-e1eb507fb900",
+            "kind": "sale",
+            "seq": 950143,
+            "serverId": "SALE-LAB-44"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.724Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+            "kind": "sale",
+            "seq": 950144,
+            "fingerprint": "b5729fa4720a424ece8278bfda7504b862725601fc62c2468177c26c815f1493"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.725Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+            "kind": "sale",
+            "seq": 950144,
+            "serverId": "SALE-LAB-45"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.725Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+            "kind": "sale",
+            "seq": 950144,
+            "serverId": "SALE-LAB-45"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.727Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+            "kind": "sale",
+            "seq": 950145,
+            "fingerprint": "a139e8137fceaf8dbfc3cd3afd977740b99f4dbb4142a98b966e120198dfcf85"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.728Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+            "kind": "sale",
+            "seq": 950145,
+            "serverId": "SALE-LAB-46"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.728Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+            "kind": "sale",
+            "seq": 950145,
+            "serverId": "SALE-LAB-46"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.730Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "ec853015-e605-4419-a6b7-2d6f7706079a",
+            "kind": "sale",
+            "seq": 950146,
+            "fingerprint": "7d115f6663c2f40d6c4c08b4bbb15bbdef159585751fd151de2d20f61670757d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.733Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "ec853015-e605-4419-a6b7-2d6f7706079a",
+            "kind": "sale",
+            "seq": 950146,
+            "serverId": "SALE-LAB-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.733Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "ec853015-e605-4419-a6b7-2d6f7706079a",
+            "kind": "sale",
+            "seq": 950146,
+            "serverId": "SALE-LAB-47"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.735Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+            "kind": "sale",
+            "seq": 950147,
+            "fingerprint": "f7ca784d6f3860cfdd5beb980a7a3886b8a0c3883b7305ad6853d92763256853"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.736Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+            "kind": "sale",
+            "seq": 950147,
+            "serverId": "SALE-LAB-48"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.736Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+            "kind": "sale",
+            "seq": 950147,
+            "serverId": "SALE-LAB-48"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.737Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+            "kind": "sale",
+            "seq": 950148,
+            "fingerprint": "ceed4d14b5d8cf6bf9d6d6fb90a0104ba6a45c6f4baa8bdf9c0b82447651913d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.739Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+            "kind": "sale",
+            "seq": 950148,
+            "serverId": "SALE-LAB-49"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.739Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+            "kind": "sale",
+            "seq": 950148,
+            "serverId": "SALE-LAB-49"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.740Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b1a1b99e-fd43-4212-9055-754c5475f790",
+            "kind": "sale",
+            "seq": 950149,
+            "fingerprint": "f29d7f55cec5b4f1282bd9ab3b87868dd3a7796dc3441e874b8ce339c1fe51c2"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.742Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b1a1b99e-fd43-4212-9055-754c5475f790",
+            "kind": "sale",
+            "seq": 950149,
+            "serverId": "SALE-LAB-50"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.742Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b1a1b99e-fd43-4212-9055-754c5475f790",
+            "kind": "sale",
+            "seq": 950149,
+            "serverId": "SALE-LAB-50"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.743Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "e015fde6-2d41-4707-bf62-56751db3fea4",
+            "kind": "sale",
+            "seq": 950150,
+            "fingerprint": "2d154ba16223ca91af0bf4590d8eaacbbe54947a583e46e4c24fcfab2617d069"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.744Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "e015fde6-2d41-4707-bf62-56751db3fea4",
+            "kind": "sale",
+            "seq": 950150,
+            "serverId": "SALE-LAB-51"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.744Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "e015fde6-2d41-4707-bf62-56751db3fea4",
+            "kind": "sale",
+            "seq": 950150,
+            "serverId": "SALE-LAB-51"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.745Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "95673194-4b22-4dd7-b4ee-ac63158b641b",
+            "kind": "sale",
+            "seq": 950151,
+            "fingerprint": "f0d20c82b7a831e53a250c7fc07ae1e8fc3420eb6a02ef4bb73535a9313e417f"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.746Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "95673194-4b22-4dd7-b4ee-ac63158b641b",
+            "kind": "sale",
+            "seq": 950151,
+            "serverId": "SALE-LAB-52"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.747Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "95673194-4b22-4dd7-b4ee-ac63158b641b",
+            "kind": "sale",
+            "seq": 950151,
+            "serverId": "SALE-LAB-52"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.748Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f77a5443-b510-4516-bc08-a604c136e8fd",
+            "kind": "sale",
+            "seq": 950152,
+            "fingerprint": "76a8cc2a8ab41a062eb3cb35c81d1c7ec52eb0ccf0a445ada8cc74b4008f5950"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.749Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f77a5443-b510-4516-bc08-a604c136e8fd",
+            "kind": "sale",
+            "seq": 950152,
+            "serverId": "SALE-LAB-53"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.749Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f77a5443-b510-4516-bc08-a604c136e8fd",
+            "kind": "sale",
+            "seq": 950152,
+            "serverId": "SALE-LAB-53"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.749Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+            "kind": "sale",
+            "seq": 950153,
+            "fingerprint": "4824d6069d01d755cd0bf4a7d47162b493c9b827bfe8d0fd762ddc10973a6faa"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.751Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+            "kind": "sale",
+            "seq": 950153,
+            "serverId": "SALE-LAB-54"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.751Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+            "kind": "sale",
+            "seq": 950153,
+            "serverId": "SALE-LAB-54"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.753Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+            "kind": "sale",
+            "seq": 950154,
+            "fingerprint": "bec56b21a8098bf1fe835003f40f60f0588a53c8202ed384bb7bfe388067f02e"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.754Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+            "kind": "sale",
+            "seq": 950154,
+            "serverId": "SALE-LAB-55"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.754Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+            "kind": "sale",
+            "seq": 950154,
+            "serverId": "SALE-LAB-55"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.756Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+            "kind": "sale",
+            "seq": 950155,
+            "fingerprint": "66c9401bc86b22a0a126c685806319468cd9045c578805b894554643cc3386b6"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.757Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+            "kind": "sale",
+            "seq": 950155,
+            "serverId": "SALE-LAB-56"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.757Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+            "kind": "sale",
+            "seq": 950155,
+            "serverId": "SALE-LAB-56"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.758Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+            "kind": "sale",
+            "seq": 950156,
+            "fingerprint": "ddf573e65a005b4defec86344b4a37daa05655ec0f5fb93ade18ac15b6bea3ba"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.759Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+            "kind": "sale",
+            "seq": 950156,
+            "serverId": "SALE-LAB-57"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.759Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+            "kind": "sale",
+            "seq": 950156,
+            "serverId": "SALE-LAB-57"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.760Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+            "kind": "sale",
+            "seq": 950157,
+            "fingerprint": "224a9475f32ca7c1c87be266c6f8ea315e8eea71264bf810d695010cebc02ebf"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.761Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+            "kind": "sale",
+            "seq": 950157,
+            "serverId": "SALE-LAB-58"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.761Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+            "kind": "sale",
+            "seq": 950157,
+            "serverId": "SALE-LAB-58"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.762Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "4756574f-04f7-435c-853c-d0fae94996b3",
+            "kind": "sale",
+            "seq": 950158,
+            "fingerprint": "a52820292e494065cdcf70d558dff4c2e27fca42cfeb91e5f91b4de967e0925d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.763Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "4756574f-04f7-435c-853c-d0fae94996b3",
+            "kind": "sale",
+            "seq": 950158,
+            "serverId": "SALE-LAB-59"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.763Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "4756574f-04f7-435c-853c-d0fae94996b3",
+            "kind": "sale",
+            "seq": 950158,
+            "serverId": "SALE-LAB-59"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.763Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+            "kind": "sale",
+            "seq": 950159,
+            "fingerprint": "de78796c58caa5ada6aea92313e59ca7e2ed425f0d7a56f0b4b45148f58319ce"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.765Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+            "kind": "sale",
+            "seq": 950159,
+            "serverId": "SALE-LAB-60"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.765Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+            "kind": "sale",
+            "seq": 950159,
+            "serverId": "SALE-LAB-60"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.766Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f33989a3-de12-4008-b729-d0e0ac2fe018",
+            "kind": "sale",
+            "seq": 950160,
+            "fingerprint": "cf32316b71c05cb74267a46f667e8f2beb0ca5e8d1fb766ec1d890e9e9553cca"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.767Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f33989a3-de12-4008-b729-d0e0ac2fe018",
+            "kind": "sale",
+            "seq": 950160,
+            "serverId": "SALE-LAB-61"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.767Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f33989a3-de12-4008-b729-d0e0ac2fe018",
+            "kind": "sale",
+            "seq": 950160,
+            "serverId": "SALE-LAB-61"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.768Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "de949340-8672-46bc-9958-7cc938a7591d",
+            "kind": "sale",
+            "seq": 950161,
+            "fingerprint": "62d62aa689375bcf9eb6a07e827074fedea9e24223520192ef2470ce37d95e8b"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.769Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "de949340-8672-46bc-9958-7cc938a7591d",
+            "kind": "sale",
+            "seq": 950161,
+            "serverId": "SALE-LAB-62"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.769Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "de949340-8672-46bc-9958-7cc938a7591d",
+            "kind": "sale",
+            "seq": 950161,
+            "serverId": "SALE-LAB-62"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.769Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+            "kind": "sale",
+            "seq": 950162,
+            "fingerprint": "96ee44d82865ca131f193df0f6f64e75cdc5eb0bf176910a1954085f422bc21b"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.770Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+            "kind": "sale",
+            "seq": 950162,
+            "serverId": "SALE-LAB-63"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.770Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+            "kind": "sale",
+            "seq": 950162,
+            "serverId": "SALE-LAB-63"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.771Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "a1bbb864-e36e-47a5-804b-9261ac387889",
+            "kind": "sale",
+            "seq": 950163,
+            "fingerprint": "063b1e7850a2efb5a1356ba2082e4b78de09f70e4a6fd7e10ee6714c48f8dd19"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.772Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "a1bbb864-e36e-47a5-804b-9261ac387889",
+            "kind": "sale",
+            "seq": 950163,
+            "serverId": "SALE-LAB-64"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.772Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "a1bbb864-e36e-47a5-804b-9261ac387889",
+            "kind": "sale",
+            "seq": 950163,
+            "serverId": "SALE-LAB-64"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.772Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "18ba5455-3e41-4da2-979e-3f35b968f80c",
+            "kind": "sale",
+            "seq": 950164,
+            "fingerprint": "ec8afed63edaf08e4fac0fb03430ff819a1f22b4b36835033de0d0bb58029fab"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.773Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "18ba5455-3e41-4da2-979e-3f35b968f80c",
+            "kind": "sale",
+            "seq": 950164,
+            "serverId": "SALE-LAB-65"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.773Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "18ba5455-3e41-4da2-979e-3f35b968f80c",
+            "kind": "sale",
+            "seq": 950164,
+            "serverId": "SALE-LAB-65"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.774Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "819b49c3-b177-4186-b481-5397947e1d7a",
+            "kind": "sale",
+            "seq": 950165,
+            "fingerprint": "969f8d2105ae514cdcd20d624dcbae835ae50bf897a4857a822f9e2fe699b448"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.775Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "819b49c3-b177-4186-b481-5397947e1d7a",
+            "kind": "sale",
+            "seq": 950165,
+            "serverId": "SALE-LAB-66"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.775Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "819b49c3-b177-4186-b481-5397947e1d7a",
+            "kind": "sale",
+            "seq": 950165,
+            "serverId": "SALE-LAB-66"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.776Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "2a11ee20-e850-405d-987e-e68161b387e7",
+            "kind": "sale",
+            "seq": 950166,
+            "fingerprint": "e3ec86215f3bfd62b507aaa20a940b0435327c169717a7d591e5273916212875"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.776Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "2a11ee20-e850-405d-987e-e68161b387e7",
+            "kind": "sale",
+            "seq": 950166,
+            "serverId": "SALE-LAB-67"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.777Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "2a11ee20-e850-405d-987e-e68161b387e7",
+            "kind": "sale",
+            "seq": 950166,
+            "serverId": "SALE-LAB-67"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.777Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+            "kind": "sale",
+            "seq": 950167,
+            "fingerprint": "29738deacb72279428fa210442a23b0ec5dd9294af20134e3c3691b59cd753b8"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.778Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+            "kind": "sale",
+            "seq": 950167,
+            "serverId": "SALE-LAB-68"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.778Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+            "kind": "sale",
+            "seq": 950167,
+            "serverId": "SALE-LAB-68"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.779Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "54a98125-a474-46c9-87f6-8d67dbaa4648",
+            "kind": "sale",
+            "seq": 950168,
+            "fingerprint": "69ecf28bb8a39c6c6396ab1862053ac20f80499ad8346d2d668f82cd7d1e93c7"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.780Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "54a98125-a474-46c9-87f6-8d67dbaa4648",
+            "kind": "sale",
+            "seq": 950168,
+            "serverId": "SALE-LAB-69"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.780Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "54a98125-a474-46c9-87f6-8d67dbaa4648",
+            "kind": "sale",
+            "seq": 950168,
+            "serverId": "SALE-LAB-69"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.780Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b7413190-273c-436d-8aeb-cac20004731b",
+            "kind": "sale",
+            "seq": 950169,
+            "fingerprint": "52543b690aae3c8a171f17102c8d294136be5ca253df92109c07f977871415fa"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.781Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b7413190-273c-436d-8aeb-cac20004731b",
+            "kind": "sale",
+            "seq": 950169,
+            "serverId": "SALE-LAB-70"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.781Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b7413190-273c-436d-8aeb-cac20004731b",
+            "kind": "sale",
+            "seq": 950169,
+            "serverId": "SALE-LAB-70"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.782Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+            "kind": "sale",
+            "seq": 950170,
+            "fingerprint": "7cfc75c76764247891d51946da52bcdbe6a1c9310aa793f40a2b80978b6177f0"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.783Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+            "kind": "sale",
+            "seq": 950170,
+            "serverId": "SALE-LAB-71"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.783Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+            "kind": "sale",
+            "seq": 950170,
+            "serverId": "SALE-LAB-71"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.784Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+            "kind": "sale",
+            "seq": 950171,
+            "fingerprint": "c30e4c7c2d2b564823eda1474b79c8010451a784cac2707144249958f7064dc8"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.786Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+            "kind": "sale",
+            "seq": 950171,
+            "serverId": "SALE-LAB-72"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.786Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+            "kind": "sale",
+            "seq": 950171,
+            "serverId": "SALE-LAB-72"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.787Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+            "kind": "sale",
+            "seq": 950172,
+            "fingerprint": "d8cd6a92fd6c2a29d1bf8c0960559f0e9bcd8f7c47e6abadb2cdebc625d168fc"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.788Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+            "kind": "sale",
+            "seq": 950172,
+            "serverId": "SALE-LAB-73"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.788Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+            "kind": "sale",
+            "seq": 950172,
+            "serverId": "SALE-LAB-73"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.789Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+            "kind": "sale",
+            "seq": 950173,
+            "fingerprint": "6fd69dea773a429fce599550d518152a85c8062335063dacac93feb7e6d60f56"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.789Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+            "kind": "sale",
+            "seq": 950173,
+            "serverId": "SALE-LAB-74"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.789Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+            "kind": "sale",
+            "seq": 950173,
+            "serverId": "SALE-LAB-74"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.790Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "85d57b82-4804-4fab-a42c-49ad599d32b0",
+            "kind": "sale",
+            "seq": 950174,
+            "fingerprint": "0431c955d12ba961ee93e196d8651439d36df3e58f1babc61cbf753073dcc08e"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.791Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "85d57b82-4804-4fab-a42c-49ad599d32b0",
+            "kind": "sale",
+            "seq": 950174,
+            "serverId": "SALE-LAB-75"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.791Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "85d57b82-4804-4fab-a42c-49ad599d32b0",
+            "kind": "sale",
+            "seq": 950174,
+            "serverId": "SALE-LAB-75"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.791Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "14f65cf5-6076-4e66-920e-f22975cc10d6",
+            "kind": "sale",
+            "seq": 950175,
+            "fingerprint": "80754d2108beba79e7a1fbce56d61a6dfb0e15330836f3164d9b198df8546711"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.792Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "14f65cf5-6076-4e66-920e-f22975cc10d6",
+            "kind": "sale",
+            "seq": 950175,
+            "serverId": "SALE-LAB-76"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.792Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "14f65cf5-6076-4e66-920e-f22975cc10d6",
+            "kind": "sale",
+            "seq": 950175,
+            "serverId": "SALE-LAB-76"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.793Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+            "kind": "sale",
+            "seq": 950176,
+            "fingerprint": "f34cb188af48cbb89c5b8c5dd80cdd62d101406f6283fe39df36e557c05dbeb6"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.794Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+            "kind": "sale",
+            "seq": 950176,
+            "serverId": "SALE-LAB-77"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.794Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+            "kind": "sale",
+            "seq": 950176,
+            "serverId": "SALE-LAB-77"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.794Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "1ca25295-004d-4c57-ac2a-194d735778c7",
+            "kind": "sale",
+            "seq": 950177,
+            "fingerprint": "8960df80ec0c42955e65f6be3ea28c2ea7b0bafe66cd61eeb18ca33a9711dd49"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.795Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "1ca25295-004d-4c57-ac2a-194d735778c7",
+            "kind": "sale",
+            "seq": 950177,
+            "serverId": "SALE-LAB-78"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.795Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "1ca25295-004d-4c57-ac2a-194d735778c7",
+            "kind": "sale",
+            "seq": 950177,
+            "serverId": "SALE-LAB-78"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.795Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+            "kind": "sale",
+            "seq": 950178,
+            "fingerprint": "4827d0ea63a6a1e62f39934b6750ab880930253d7e6581717aead51c71ebec4f"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.796Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+            "kind": "sale",
+            "seq": 950178,
+            "serverId": "SALE-LAB-79"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.796Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+            "kind": "sale",
+            "seq": 950178,
+            "serverId": "SALE-LAB-79"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.797Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "6c140aae-fc31-4be1-a744-6812a0178669",
+            "kind": "sale",
+            "seq": 950179,
+            "fingerprint": "9e95c3247e86a8aa4678aece5ea12a6e578886e87fb61b0bf9d1591c436b04e8"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.798Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "6c140aae-fc31-4be1-a744-6812a0178669",
+            "kind": "sale",
+            "seq": 950179,
+            "serverId": "SALE-LAB-80"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.798Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "6c140aae-fc31-4be1-a744-6812a0178669",
+            "kind": "sale",
+            "seq": 950179,
+            "serverId": "SALE-LAB-80"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.798Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f1a3f916-65a5-4506-9511-fbe01723e369",
+            "kind": "sale",
+            "seq": 950181,
+            "fingerprint": "5facb3d717bef2f00d6ed611bf97ac2fc62c6dfd023323655df7c38c580abecc"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.799Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f1a3f916-65a5-4506-9511-fbe01723e369",
+            "kind": "sale",
+            "seq": 950181,
+            "serverId": "SALE-LAB-81"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.799Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f1a3f916-65a5-4506-9511-fbe01723e369",
+            "kind": "sale",
+            "seq": 950181,
+            "serverId": "SALE-LAB-81"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.800Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+            "kind": "sale",
+            "seq": 950182,
+            "fingerprint": "ec8f58b9fbb6105bfb5cc46d469440c6c3709cf3cf3720d9bd6f35e8fc50660a"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.800Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+            "kind": "sale",
+            "seq": 950182,
+            "serverId": "SALE-LAB-82"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.800Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+            "kind": "sale",
+            "seq": 950182,
+            "serverId": "SALE-LAB-82"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.801Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+            "kind": "sale",
+            "seq": 950183,
+            "fingerprint": "2cbbe41c2eed50f25cb49fcf759d74b9b1535f6975b87d7a57e184db50ad981d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.801Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+            "kind": "sale",
+            "seq": 950183,
+            "serverId": "SALE-LAB-83"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.802Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+            "kind": "sale",
+            "seq": 950183,
+            "serverId": "SALE-LAB-83"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.802Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+            "kind": "sale",
+            "seq": 950184,
+            "fingerprint": "e58b9d9b1a3b09df7a869d64821a814744250f38f08c87c32217336a67849647"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.802Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+            "kind": "sale",
+            "seq": 950184,
+            "serverId": "SALE-LAB-84"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.802Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+            "kind": "sale",
+            "seq": 950184,
+            "serverId": "SALE-LAB-84"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.803Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+            "kind": "sale",
+            "seq": 950185,
+            "fingerprint": "4cb654ea09e1fcaa3a392b300e7bc3d50f3d7b548555b2932b0d0dbf908863a2"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.803Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+            "kind": "sale",
+            "seq": 950185,
+            "serverId": "SALE-LAB-85"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.803Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+            "kind": "sale",
+            "seq": 950185,
+            "serverId": "SALE-LAB-85"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.803Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+            "kind": "sale",
+            "seq": 950186,
+            "fingerprint": "36bba3420d4ca5216e39c22c9e076b168dc2405467a6a46d50acc55da60101c5"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.804Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+            "kind": "sale",
+            "seq": 950186,
+            "serverId": "SALE-LAB-86"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.804Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+            "kind": "sale",
+            "seq": 950186,
+            "serverId": "SALE-LAB-86"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.804Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "f67f5947-8dba-427d-b9ba-42c50b643200",
+            "kind": "sale",
+            "seq": 950187,
+            "fingerprint": "042454663baf7d8cb0c6193f628814a79a2398d6e338e5a49bcaa1005264fb8e"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.805Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "f67f5947-8dba-427d-b9ba-42c50b643200",
+            "kind": "sale",
+            "seq": 950187,
+            "serverId": "SALE-LAB-87"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.805Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "f67f5947-8dba-427d-b9ba-42c50b643200",
+            "kind": "sale",
+            "seq": 950187,
+            "serverId": "SALE-LAB-87"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.805Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+            "kind": "sale",
+            "seq": 950188,
+            "fingerprint": "e74c17c8f99c0a5cedc8b1c22123a15f9c2e728dbe83fa1f7ed2cf2c39528dd1"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.805Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+            "kind": "sale",
+            "seq": 950188,
+            "serverId": "SALE-LAB-88"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.806Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+            "kind": "sale",
+            "seq": 950188,
+            "serverId": "SALE-LAB-88"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.806Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+            "kind": "sale",
+            "seq": 950189,
+            "fingerprint": "b80d83708e20c3281bde8df40dcb9ca6e903109376d3ab40c9666c7eb424ecf9"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.806Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+            "kind": "sale",
+            "seq": 950189,
+            "serverId": "SALE-LAB-89"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.806Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+            "kind": "sale",
+            "seq": 950189,
+            "serverId": "SALE-LAB-89"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.806Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+            "kind": "sale",
+            "seq": 950190,
+            "fingerprint": "625798e19777c55a9ab2d14f3b15774fe1e194e16cd658cbe235a6414557591d"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.807Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+            "kind": "sale",
+            "seq": 950190,
+            "serverId": "SALE-LAB-90"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.807Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+            "kind": "sale",
+            "seq": 950190,
+            "serverId": "SALE-LAB-90"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.807Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+            "kind": "sale",
+            "seq": 950191,
+            "fingerprint": "de65fb2943673ea34504c5a6621b035a9cb620d45638d1e6b029b69f5002e9ea"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.808Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+            "kind": "sale",
+            "seq": 950191,
+            "serverId": "SALE-LAB-91"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.808Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+            "kind": "sale",
+            "seq": 950191,
+            "serverId": "SALE-LAB-91"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.808Z",
+            "type": "REPLAY_INTENT",
+            "clientRef": "28811c99-45bf-4bbd-a46e-5b8c8f38d151",
+            "kind": "stock_layer_delete",
+            "seq": 950180,
+            "fingerprint": "0a2d37f6971055a724b2b66744570be292bf9adf48aad8824ab49a815e75f193"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.811Z",
+            "type": "REPLAY_COMMITTED",
+            "clientRef": "28811c99-45bf-4bbd-a46e-5b8c8f38d151",
+            "kind": "stock_layer_delete",
+            "seq": 950180,
+            "serverId": "LAYER-28811c99-45bf-4bbd-a46e-5b8c8f38d151"
+          },
+          {
+            "ts": "2026-09-16T10:38:02.811Z",
+            "type": "REPLAY_ACKED",
+            "clientRef": "28811c99-45bf-4bbd-a46e-5b8c8f38d151",
+            "kind": "stock_layer_delete",
+            "seq": 950180,
+            "serverId": "LAYER-28811c99-45bf-4bbd-a46e-5b8c8f38d151"
+          }
+        ],
+        "completedClientRefs": [
+          "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+          "51b54853-bef6-447a-9bb6-d69c7122c372",
+          "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+          "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+          "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+          "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+          "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+          "5edb148b-1395-4754-83c1-cc883390d683",
+          "78f9b4a1-870b-4662-ac0a-7d661050699b",
+          "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+          "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+          "de5fb71b-88d2-499a-9e35-c645fcac7664",
+          "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+          "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+          "b4943515-4746-47d7-a68a-1840f0e7afda",
+          "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+          "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+          "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+          "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+          "959c5fa4-85e5-4e53-885c-a473eb35257a",
+          "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+          "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+          "63b44066-dce2-4731-85de-3d77a1b69f94",
+          "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+          "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+          "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+          "b8629f76-a578-46ae-a334-c9b0f92074de",
+          "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+          "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+          "095abd15-1f01-47a4-9c64-4889aa377d0d",
+          "08bede3d-70e0-41c0-bb59-4b4faac09870",
+          "f4158412-011a-4178-9357-36a5c9ff1297",
+          "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+          "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+          "9bc289b0-851e-4ede-bfc0-09f432768878",
+          "1b9b337e-8aec-4040-b569-e1eb507fb900",
+          "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+          "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+          "ec853015-e605-4419-a6b7-2d6f7706079a",
+          "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+          "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+          "b1a1b99e-fd43-4212-9055-754c5475f790",
+          "e015fde6-2d41-4707-bf62-56751db3fea4",
+          "95673194-4b22-4dd7-b4ee-ac63158b641b",
+          "f77a5443-b510-4516-bc08-a604c136e8fd",
+          "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+          "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+          "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+          "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+          "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+          "4756574f-04f7-435c-853c-d0fae94996b3",
+          "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+          "f33989a3-de12-4008-b729-d0e0ac2fe018",
+          "de949340-8672-46bc-9958-7cc938a7591d",
+          "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+          "a1bbb864-e36e-47a5-804b-9261ac387889",
+          "18ba5455-3e41-4da2-979e-3f35b968f80c",
+          "819b49c3-b177-4186-b481-5397947e1d7a",
+          "2a11ee20-e850-405d-987e-e68161b387e7",
+          "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+          "54a98125-a474-46c9-87f6-8d67dbaa4648",
+          "b7413190-273c-436d-8aeb-cac20004731b",
+          "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+          "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+          "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+          "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+          "85d57b82-4804-4fab-a42c-49ad599d32b0",
+          "14f65cf5-6076-4e66-920e-f22975cc10d6",
+          "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+          "1ca25295-004d-4c57-ac2a-194d735778c7",
+          "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+          "6c140aae-fc31-4be1-a744-6812a0178669",
+          "f1a3f916-65a5-4506-9511-fbe01723e369",
+          "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+          "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+          "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+          "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+          "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+          "f67f5947-8dba-427d-b9ba-42c50b643200",
+          "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+          "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+          "8747f0f1-2327-4cba-bf60-599a8cd0e469",
+          "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+          "28811c99-45bf-4bbd-a46e-5b8c8f38d151"
+        ],
+        "ackCleanedClientRefs": [
+          "881725fb-3171-4a59-acaa-7d041ffcd0bf",
+          "d78f3338-8d0e-4e0f-bdda-5b2d21ee22fa",
+          "fd230198-1ef5-4ac7-919c-985e34596618",
+          "7d1b788d-a895-400a-8225-62af1bd98c5c",
+          "9065a382-df85-4d50-9103-5b03fdd9b702",
+          "68594638-bfb3-4819-8b04-1ef1ae8b982f",
+          "c40c13b7-668d-4d40-b067-6700069d85da",
+          "e7c6dbcf-c25b-4446-8a88-58ac8aae68ba"
+        ],
+        "remappedClientRefs": [
+          "32d8bd16-5d75-4b85-891c-dceb0443cc5a",
+          "51b54853-bef6-447a-9bb6-d69c7122c372",
+          "d40c624e-1a4f-421e-aa9c-cf73c95aed2e",
+          "d2af4631-b45c-44cc-b39e-81afb65a23f4",
+          "37d7262f-cab0-4952-ba5b-624c6dc2fec1",
+          "163df7de-6d1c-4a4a-ae2c-c503ce237b5c",
+          "eb0951d9-96bb-4602-a4b0-b9f44df3a1ce",
+          "5edb148b-1395-4754-83c1-cc883390d683",
+          "78f9b4a1-870b-4662-ac0a-7d661050699b",
+          "7394c892-9b7e-4b77-8c09-e0d2c1ce77dc",
+          "21365ee5-dddf-4828-aa26-6bffba0c4e27",
+          "de5fb71b-88d2-499a-9e35-c645fcac7664",
+          "b36602ba-267f-4aa4-8dae-77a59ec1d829",
+          "71799b8d-5ce8-4661-9c12-cc302c58a06d",
+          "b4943515-4746-47d7-a68a-1840f0e7afda",
+          "bb5a4de2-8c42-4366-952f-2ebab9f84b00",
+          "bbcb0432-d6f4-4857-94fc-2bc1974f26e6",
+          "87d38b2f-6cbc-4d5f-8182-1ea10270cb2e",
+          "f5ff2255-6ca4-48c6-ab7c-e11162880c19",
+          "959c5fa4-85e5-4e53-885c-a473eb35257a",
+          "94b6e892-ec78-43fe-aa4f-263b4959fb44",
+          "fd77b0b4-3c81-450e-98eb-577a2eefcd77",
+          "63b44066-dce2-4731-85de-3d77a1b69f94",
+          "89dc12d9-e388-46e3-bbdc-dedbade7c2e4",
+          "faf2fdf0-b3b3-480a-a1c0-5e05422a30e6",
+          "fe114b87-6d54-4c56-8162-ad5a3ca74aa5",
+          "b8629f76-a578-46ae-a334-c9b0f92074de",
+          "6672b055-3aba-4f1e-b3d6-5ed200e7c0e0",
+          "6f6867d0-f1d5-4952-a458-c043eabf38d9",
+          "095abd15-1f01-47a4-9c64-4889aa377d0d",
+          "08bede3d-70e0-41c0-bb59-4b4faac09870",
+          "f4158412-011a-4178-9357-36a5c9ff1297",
+          "bb33e576-ab28-4bee-86f2-d5ebbb60a716",
+          "0f7ae46c-2efc-49eb-95ea-b9771319ea2a",
+          "9bc289b0-851e-4ede-bfc0-09f432768878",
+          "1b9b337e-8aec-4040-b569-e1eb507fb900",
+          "6b9b868d-e29b-4d14-916c-c69c26095ceb",
+          "248d27f1-5b65-4e2a-9ae1-d5560662c928",
+          "ec853015-e605-4419-a6b7-2d6f7706079a",
+          "51253f52-40b2-4296-b3cf-5eb01a3f16f2",
+          "54d27ede-99c8-48f2-bade-aa2c1bcc867a",
+          "b1a1b99e-fd43-4212-9055-754c5475f790",
+          "e015fde6-2d41-4707-bf62-56751db3fea4",
+          "95673194-4b22-4dd7-b4ee-ac63158b641b",
+          "f77a5443-b510-4516-bc08-a604c136e8fd",
+          "4f63f4f8-40e5-438f-8809-30e00b07d72d",
+          "02cfeb9c-44b6-4846-8ed3-606247a802c7",
+          "abc0992a-b890-4140-8c8c-ee4e9a6d19d1",
+          "15b9db68-639b-4a50-9624-5c9180d0b5dc",
+          "5e2a2509-d594-48ec-bc4a-7d08ac2a37ff",
+          "4756574f-04f7-435c-853c-d0fae94996b3",
+          "d53ac603-a1e1-41ac-bc54-4bd8d7f6106c",
+          "f33989a3-de12-4008-b729-d0e0ac2fe018",
+          "de949340-8672-46bc-9958-7cc938a7591d",
+          "a8dc6474-5772-41cd-95b2-d3e58fab6ce1",
+          "a1bbb864-e36e-47a5-804b-9261ac387889",
+          "18ba5455-3e41-4da2-979e-3f35b968f80c",
+          "819b49c3-b177-4186-b481-5397947e1d7a",
+          "2a11ee20-e850-405d-987e-e68161b387e7",
+          "d4d2402f-18fb-4e4c-851b-f49802215fc6",
+          "54a98125-a474-46c9-87f6-8d67dbaa4648",
+          "b7413190-273c-436d-8aeb-cac20004731b",
+          "f334e8fc-e425-4a54-bf1a-7a0282dbbb49",
+          "9e3f5cea-4269-4a4d-a7c2-1e18d25e2109",
+          "2266b3e5-1a90-4d79-a195-8ac6251a3210",
+          "76f5b258-c945-4785-b46a-fbb80b6dc79b",
+          "85d57b82-4804-4fab-a42c-49ad599d32b0",
+          "14f65cf5-6076-4e66-920e-f22975cc10d6",
+          "c44e3823-fc4a-4782-8eb2-1d265e6e8a38",
+          "1ca25295-004d-4c57-ac2a-194d735778c7",
+          "226fb3d7-534e-42eb-83bf-5364d55f71d1",
+          "6c140aae-fc31-4be1-a744-6812a0178669",
+          "f1a3f916-65a5-4506-9511-fbe01723e369",
+          "b004d4e0-3047-432e-aa96-c9d36dfdaa44",
+          "30ae9e9c-4894-46b5-8bd6-d0bc29578e7d",
+          "7f7f0c80-3903-4f16-ad50-fc0e1bc72b6b",
+          "0d752acd-4e0a-4b96-af4c-c6603b485a6c",
+          "b8b8e600-ebe8-4744-8939-1250d492bd1b",
+          "f67f5947-8dba-427d-b9ba-42c50b643200",
+          "34c6af88-12d2-46ae-b4b0-ffb3a3463964",
+          "99e8aede-01f1-4f2f-8c84-5f12fd2f3340",
+          "8747f0f1-2327-4cba-bf60-599a8cd0e469"
+        ],
+        "pullCompleted": false,
+        "ghostFinalized": false,
+        "localRecoveryShiftId": "off-recovery-RS-lab8-mu3yw2vb",
+        "dbIdentity": null
+      },
+      "pullReady": true
+    },
+    "pull": {
+      "ok": true,
+      "checks": [
+        {
+          "id": "U-26",
+          "expected": 64,
+          "got": 64,
+          "ok": true
+        },
+        {
+          "id": "U-37",
+          "expected": 207.85,
+          "got": 207.85,
+          "ok": true
+        }
+      ]
+    },
+    "ghosts": {
+      "ok": true,
+      "targetRemainsOpen": true
+    },
+    "canDisable": {
+      "ok": true
+    },
+    "stockUnchanged": false,
+    "replayDetail": {
+      "ok": true,
+      "processed": 84,
+      "queueLeft": 0,
+      "stoppedReason": null
+    }
+  },
+  "conservation": {
+    "originalRealSaleOps": 90,
+    "preservedViaAck": 8,
+    "preservedViaReplay": 90,
+    "stillQueued": 0,
+    "lost": 0,
+    "lostSample": [],
+    "duplicateOnMock": false,
+    "stockUnchanged": false,
+    "labTestSaleExcluded": "LAB-TEST-SALE-RS-lab8-mu3yw2vb",
+    "paymentTotalsBefore": {
+      "cash": 1921.7534999999998,
+      "card": 741.365,
+      "debt": 0
+    },
+    "note": "ShiftId remap allowed; clientRef/seq/payments must hold for drained ops"
+  },
+  "crashResume": {
+    "crashed": false,
+    "firstError": "STOP_CHAIN",
+    "resumedOk": false,
+    "queueLeft": 12,
+    "sales": 0,
+    "uniqueRefs": 0
+  },
+  "rollback": {
+    "beforeReplay": {
+      "allowBlindRestore": true,
+      "restoredQueue": 5
+    },
+    "afterPartial": {
+      "allowBlindRestore": false,
+      "resumeRequired": true
+    }
+  },
+  "verdicts": {
+    "V_READY_production_prep": "READY",
+    "W_READY_arm_live": "NOT READY",
+    "X_READY_install_live": "NOT READY",
+    "Y_READY_live_replay": "NOT READY",
+    "reasons": []
+  },
+  "runbook": [
+    "1. Quit live Desktop",
+    "2. Copy final triplet → REAL_CASHIER_FINAL + SHA256",
+    "3. LAB validate with 1.2.190 (this report)",
+    "4. pc4-recovery-prep --arm on live path (app closed)",
+    "5. Install 1.2.190 → verify zero network mutations",
+    "6. Fresh classify → operator review",
+    "7. REPLAY freeze → controlled replay",
+    "8. verifyPostDrain → pull → ghosts → disableRecoveryStrict"
+  ]
+}

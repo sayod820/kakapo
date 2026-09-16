@@ -1,6 +1,9 @@
 {
-  "NEED_FRESH_COPY": true,
-  "reason": "scripts/_diag_out/REAL_CASHIER_8/kakapo.sqlite not provided — operator must copy live triplet",
-  "at": "2026-09-16T09:11:50.554Z",
-  "commitHint": "eedaf6c2+"
+  "NEED_FRESH_COPY": false,
+  "REAL_CASHIER_8": "scripts/_diag_out/REAL_CASHIER_8/kakapo.sqlite",
+  "sourceSha256": "874CAEDD3DAA5C0FFA05834FA61930A6C7F13A26C9D2600774027B92A0E1B9DA",
+  "sizeBytes": 43421696,
+  "mtimeLocal": "2026-09-16T10:03:51.283Z",
+  "labReport": "diag/REAL_CASHIER_8_PC4_LAB_report.json",
+  "at": "2026-09-16T15:38:00+05:00"
 }
