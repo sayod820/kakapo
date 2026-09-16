@@ -631,12 +631,14 @@ export default function WarehouseRevisionsPanel({
       const res = editingId
         ? await updateStockRevisionSafe(editingId, payload)
         : await createStockRevisionSafe(payload)
-      if (!res.offline) {
-        void Promise.all([onRefresh(), fetchProducts(), loadLayers()])
-      } else {
+      if (res.offline) {
+        resetForm()
         setMsg('Ревизия сохранена локально · отправится при связи')
+      } else {
+        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+        resetForm()
+        setMsg('Ревизия сохранена')
       }
-      resetForm()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
@@ -653,7 +655,7 @@ export default function WarehouseRevisionsPanel({
       await cancelStockRevisionSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      void onRefresh()
+      await onRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось отменить')
     } finally {
@@ -671,7 +673,7 @@ export default function WarehouseRevisionsPanel({
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
       if (!res.offline) {
-        void Promise.all([onRefresh(), fetchProducts(), loadLayers()])
+        await Promise.all([onRefresh(), fetchProducts(), loadLayers()])
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить ревизию')

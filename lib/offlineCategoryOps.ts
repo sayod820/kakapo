@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════
 import { api } from './api'
 import { newClientRef } from './offline'
-import { localFirstOp, type OfflineResult } from './localFirst'
+import { racePlatformOp, type OfflineResult } from './localFirst'
 import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import {
@@ -15,12 +15,12 @@ import type { Category } from './types'
 
 export type { OfflineResult }
 
-/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
+/** Platform-aware: browser awaits apiCall; Desktop/Android localFirst. */
 async function raceOp<T>(
-  _apiCall: () => Promise<T>,
+  apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  return localFirstOp(localApply)
+  return racePlatformOp(apiCall, localApply)
 }
 
 function newLocalCategoryId(list: Category[]): number {

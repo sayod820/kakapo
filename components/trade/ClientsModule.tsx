@@ -8,10 +8,10 @@ import {
   cardHasDebtSection,
   cardLoyaltyFromCard,
   cardNumsMatch,
-  effectiveDebt,
   type AdminCard,
   type CardLoyaltyForm,
 } from '@/lib/cardCrm'
+import { resolveAuthoritativeCustomerDebt } from '@/lib/debtUiProjectionCore.mjs'
 import {
   earnedAutoLevelForClient,
   loyaltySummaryForClient,
@@ -33,6 +33,7 @@ import {
   type ClientProfileForm,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { isTradeLocalFirst } from '@/lib/offlineV2'
 import {
   loadDebtHistory,
   recordBalanceTopup,
@@ -131,7 +132,15 @@ function cardForClient(client: AdminClient, cards: AdminCard[]): AdminCard | und
 }
 
 function clientShownDebt(client: AdminClient, cards: AdminCard[]): number {
-  return effectiveDebt(cardForClient(client, cards), client)
+  // Browser before authoritative sync: IDB hydrate is provisional (apiReady=false).
+  if (!isTradeLocalFirst() && !useClientStore.getState().apiReady) return 0
+  const card = cardForClient(client, cards)
+  return resolveAuthoritativeCustomerDebt({
+    clientDebt: client.debt,
+    cardDebt: card?.debt,
+    debtLedger: client.debtLedger,
+    cardDebtLedger: (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
+  })
 }
 
 type HistoryRow =
@@ -697,7 +706,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
         <div className="k-cli-list">
           {filtered.map(c => {
             const card = cardForClient(c, cards)
-            const debt = effectiveDebt(card, c)
+            const debt = clientShownDebt(c, cards)
             const levelColor = CLIENT_LEVEL_COLORS[c.level] || 'var(--muted)'
             const debtLimit = resolveEffectiveDebtLimit(c)
             const overLimit = debtLimit > 0 && debt > debtLimit
@@ -1021,7 +1030,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
                     <div className="k-kpi k-statcard"><div className="kl">Заказов</div><div className="kv">{detailClient.orders}</div></div>
                     <div className="k-kpi k-statcard"><div className="kl">Покупки</div><div className="kv">{fmtMoney(detailClient.spent)}</div></div>
                     <div className="k-kpi k-statcard"><div className="kl">Бонусы</div><div className="kv" style={{ color: 'var(--gold)' }}>{detailClient.bonus > 0 ? detailClient.bonus.toLocaleString() : '—'}</div></div>
-                    <div className="k-kpi k-statcard"><div className="kl">Долг</div><div className="kv" style={{ color: detailClient.debt > 0 ? 'var(--red)' : 'var(--muted)' }}>{detailClient.debt > 0 ? fmtMoney(detailClient.debt) : '—'}</div></div>
+                    <div className="k-kpi k-statcard"><div className="kl">Долг</div><div className="kv" style={{ color: clientShownDebt(detailClient, cards) > 0 ? 'var(--red)' : 'var(--muted)' }}>{clientShownDebt(detailClient, cards) > 0 ? fmtMoney(clientShownDebt(detailClient, cards)) : '—'}</div></div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button type="button" className="k-btn k-btn-g" onClick={() => openCashForm(detailClient)}>💵 Наличные</button>
@@ -1042,7 +1051,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
                       { l: 'VIP', v: detailClient.vip ? 'Да' : 'Нет' },
                       { l: 'Раздел долга', v: cardHasDebtSection(cardForClient(detailClient, cards) || {}, detailClient) ? 'Включён' : 'Выключен' },
                       { l: 'Лимит долга', v: resolveEffectiveDebtLimit(detailClient) > 0 ? fmtMoney(resolveEffectiveDebtLimit(detailClient)) : '—' },
-                      { l: 'Доступно по лимиту', v: resolveEffectiveDebtLimit(detailClient) > 0 ? fmtMoney(Math.max(0, resolveEffectiveDebtLimit(detailClient) - detailClient.debt)) : '—' },
+                      { l: 'Доступно по лимиту', v: resolveEffectiveDebtLimit(detailClient) > 0 ? fmtMoney(Math.max(0, resolveEffectiveDebtLimit(detailClient) - clientShownDebt(detailClient, cards))) : '—' },
                       { l: 'Кэшбэк', v: `${bonusPercentForLevel(detailClient.level, !!detailClient.vip)}%` },
                       { l: 'Режим уровня', v: inferLevelAssignMode(cardForClient(detailClient, cards) || {}, detailClient) === 'manual' ? 'Вручную' : 'Авто' },
                     ].map(row => (

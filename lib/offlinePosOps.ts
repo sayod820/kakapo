@@ -9,7 +9,7 @@ import { forgetCashDebtRepay, rememberCashDebtRepay } from './debtRepayCashLedge
 import { cardNumsMatch, effectiveDebt } from './cardCrm'
 import { phonesMatch, type AdminClient } from './clientCrm'
 import { debtAccountKey, dropDebtHistoryByClientRef, recordCashAdvanceHistory, recordStoreDebtCharge, recordStoreDebtRepayment, removeDebtHistoryForSale, refreshDebtHistoryAfterCashAdvance } from './clientVipCredit'
-import { localFirstOp, type OfflineResult } from './localFirst'
+import { localFirstOp, racePlatformOp, type OfflineResult } from './localFirst'
 import { markMoneyPending, clearMoneyPending, markClientLoyaltySaved, markCardLoyaltySaved } from './loyaltySaveGuard'
 import { isTradeLocalFirst, shadowMirrorPut, shadowMirrorSale, shadowMirrorShift } from './offlineV2'
 import { canAtomicLocalSaleCommit, commitLocalSaleAtomic, restoreCommittedSaleUi } from './localSaleAtomic'
@@ -23,6 +23,26 @@ import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 import { pickActiveOpenShift } from './shiftReconcile'
+
+/**
+ * Sticky clientRef for one logical money attempt (browser timeout-after-commit).
+ * Reused until success; cleared only after ACK so retry does not mint a new ref.
+ */
+const stickyMoneyClientRefs = new Map<string, string>()
+
+function stickyMoneyClientRef(scope: string): string {
+  const key = String(scope || '').trim()
+  if (!key) return newClientRef()
+  const existing = stickyMoneyClientRefs.get(key)
+  if (existing) return existing
+  const ref = newClientRef()
+  stickyMoneyClientRefs.set(key, ref)
+  return ref
+}
+
+function clearStickyMoneyClientRef(scope: string) {
+  stickyMoneyClientRefs.delete(String(scope || '').trim())
+}
 
 export type SaleCartLine = {
   productId: number
@@ -134,14 +154,15 @@ export function resolveOpenShift(posId?: string, cashierId?: string): PosShift |
 }
 
 /**
- * Local-first: сразу localApply (очередь + стор), сервер в фоне.
- * apiCall игнорируется — оставлен в сигнатуре для совместимости вызовов.
+ * Platform-aware cashier mutation:
+ * - Desktop/Android: localApply + outbox (apiCall ignored)
+ * - Browser: await apiCall only — never localApply/queue on failure
  */
 async function raceCashierOp<T>(
-  _apiCall: () => Promise<T>,
+  apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  return localFirstOp(localApply)
+  return racePlatformOp(apiCall, localApply)
 }
 
 // ── Смена ──
@@ -917,12 +938,14 @@ export async function financeMoveSafe(input: {
     throw new Error('Нет открытой смены — откройте смену или внесите в основной ящик')
   }
 
-  const clientRef = newClientRef()
   const createdAtIso = new Date().toISOString()
   const expectedPayVersion = input.supplierId
     ? supplierPayVersion(usePosStore.getState().suppliers.find(s => s.id === input.supplierId))
     : undefined
   const expectedVaultVersion = payFrom === 'vault' ? vaultVersionLocal() : undefined
+  const inflightKey = ['fin', input.type, amount, payFrom, method, String(shiftId || ''), String(input.note || '').trim(), String(input.supplierId || '')].join('|')
+  const stickyScope = `finance_move|${inflightKey}`
+  const clientRef = stickyMoneyClientRef(stickyScope)
   const payload = {
     ...input,
     payFrom,
@@ -939,7 +962,6 @@ export async function financeMoveSafe(input: {
     ...(expectedVaultVersion != null ? { expectedVaultVersion } : {}),
   }
 
-  const inflightKey = ['fin', payload.type, amount, payFrom, method, String(payload.shiftId || ''), String(payload.note || '').trim(), String(payload.supplierId || '')].join('|')
   const existing = financeMoveInflight.get(inflightKey)
   if (existing) return existing
 
@@ -1020,7 +1042,9 @@ export async function financeMoveSafe(input: {
   })()
   financeMoveInflight.set(inflightKey, run)
   try {
-    return await run
+    const res = await run
+    clearStickyMoneyClientRef(stickyScope)
+    return res
   } finally {
     financeMoveInflight.delete(inflightKey)
   }
@@ -1064,6 +1088,7 @@ export async function cashAdvanceSafe(
   }
 
   const inflightKey = ['cash_advance', num, amount, shift.id, String(input.clientId || '')].join('|')
+  const stickyScope = `cash_advance|${inflightKey}`
   const existing = chargeCashDebtInflight.get(inflightKey)
   if (existing) {
     const first = await existing
@@ -1072,7 +1097,7 @@ export async function cashAdvanceSafe(
 
   const cardNow = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
   const expectedDebtPayVersion = Number(cardNow?.debtPayVersion) || 0
-  const clientRef = newClientRef()
+  const clientRef = stickyMoneyClientRef(stickyScope)
   const createdAtIso = new Date().toISOString()
   const prevDebt = round2(input.prevDebt)
   const payload = {
@@ -1143,7 +1168,9 @@ export async function cashAdvanceSafe(
     })()
     chargeCashDebtInflight.set(inflightKey, run)
     try {
-      return await run
+      const res = await run
+      clearStickyMoneyClientRef(stickyScope)
+      return res
     } finally {
       chargeCashDebtInflight.delete(inflightKey)
     }
@@ -1333,7 +1360,9 @@ export async function cashAdvanceSafe(
   const run = localFirstOp(applyLocal)
   chargeCashDebtInflight.set(inflightKey, run)
   try {
-    return await run
+    const res = await run
+    clearStickyMoneyClientRef(stickyScope)
+    return res
   } finally {
     chargeCashDebtInflight.delete(inflightKey)
   }
@@ -1466,11 +1495,12 @@ export async function cardTopupSafe(
     String(input.shiftId || ''),
     String(input.note || '').trim(),
   ].join('|')
+  const stickyScope = `card_topup|${inflightKey}`
   const pending = cardTopupInflight.get(inflightKey)
   if (pending) return pending
 
   const run = (async (): Promise<OfflineResult<{ clientRef: string }>> => {
-  const clientRef = newClientRef()
+  const clientRef = stickyMoneyClientRef(stickyScope)
   const createdAtIso = new Date().toISOString()
   const cardNow = useCardStore.getState().cards.find(c => c.num === num || cardNumsMatch(c.num, num))
   const expectedBonusPayVersion = Number(cardNow?.bonusPayVersion) || 0
@@ -1553,7 +1583,9 @@ export async function cardTopupSafe(
 
   cardTopupInflight.set(inflightKey, run)
   try {
-    return await run
+    const res = await run
+    clearStickyMoneyClientRef(stickyScope)
+    return res
   } finally {
     cardTopupInflight.delete(inflightKey)
   }
@@ -1730,6 +1762,7 @@ export async function debtRepaySafe(
     note: input.note,
     orderId: unsafeTarget ? undefined : orderId,
   })
+  const stickyScope = `debt_repay|${key}`
   const pending = debtRepayInflight.get(key)
   if (pending) {
     const first = await pending
@@ -1739,7 +1772,7 @@ export async function debtRepaySafe(
   const cardNow = useCardStore.getState().cards.find(c => cardNumsMatch(c.num, num))
   const expectedDebtPayVersion = Number(cardNow?.debtPayVersion) || 0
 
-  const clientRef = newClientRef()
+  const clientRef = stickyMoneyClientRef(stickyScope)
   const histKey = debtAccountKey({
     id: input.clientId,
     phone: useClientStore.getState().clients.find(c => c.id === input.clientId)?.phone
@@ -1848,7 +1881,9 @@ export async function debtRepaySafe(
     })()
     debtRepayInflight.set(key, run)
     try {
-      return await run
+      const res = await run
+      clearStickyMoneyClientRef(stickyScope)
+      return res
     } finally {
       debtRepayInflight.delete(key)
     }
@@ -2053,7 +2088,9 @@ export async function debtRepaySafe(
   const run = localFirstOp(applyLocal)
   debtRepayInflight.set(key, run)
   try {
-    return await run
+    const res = await run
+    clearStickyMoneyClientRef(stickyScope)
+    return res
   } finally {
     debtRepayInflight.delete(key)
   }
@@ -2160,7 +2197,8 @@ export async function returnSaleSafe(
     throw new Error('Возврат по этому чеку уже в очереди')
   }
 
-  const clientRef = newClientRef()
+  const stickyScope = `sale_return|${sale.id}|${JSON.stringify(input.items || [])}|${String(input.note || '')}`
+  const clientRef = stickyMoneyClientRef(stickyScope)
   const party = resolveSaleClientAndCard({
     clientId: sale.clientId,
     clientPhone: sale.clientPhone,
@@ -2239,8 +2277,21 @@ export async function returnSaleSafe(
     return returned
   }
 
-  const res = await localFirstOp(applyAndQueue)
-  if (res.data) shadowMirrorSale(res.data)
+  const res = await racePlatformOp(
+    () => api.returnPosSale(sale.id, {
+      clientRef,
+      note: input.note,
+      cashierId: input.cashierId,
+      items: input.items,
+      expectedDebtPayVersion: expectedDebtPayVersion || undefined,
+      expectedBonusPayVersion: expectedBonusPayVersion || undefined,
+    }),
+    applyAndQueue,
+  )
+  if (res.data) {
+    shadowMirrorSale(res.data)
+    clearStickyMoneyClientRef(stickyScope)
+  }
   return res
 }
 
@@ -3743,7 +3794,7 @@ function isLocalCardTopupMove(row: FinanceMove): boolean {
   return /пополнение бонусов/i.test(reason) || /пополнение бонусов/i.test(note)
 }
 
-// ── Точки продаж / кассиры (мгновенно локально) ──
+// ── Точки продаж / кассиры ──
 
 export async function createPosPointSafe(input: {
   name: string
@@ -3772,7 +3823,23 @@ export async function createPosPointSafe(input: {
     void persistPosSnapshot()
     return point
   }
-  return localFirstOp(applyLocal)
+  const res = await racePlatformOp(
+    async () => {
+      const saved = await api.createPosPoint({
+        name: point.name,
+        code: point.code,
+        note: point.note,
+        receiptPhone: point.receiptPhone,
+      })
+      usePosStore.setState(s => ({
+        posPoints: [saved, ...s.posPoints.filter(p => p.id !== saved.id)],
+      }))
+      void persistPosSnapshot()
+      return saved
+    },
+    applyLocal,
+  )
+  return res
 }
 
 export async function updatePosPointSafe(
@@ -3802,7 +3869,22 @@ export async function updatePosPointSafe(
     void persistPosSnapshot()
     return point
   }
-  return localFirstOp(applyLocal)
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+  return racePlatformOp(
+    async () => {
+      const saved = await api.updatePosPoint(id, patch)
+      usePosStore.setState(s => ({
+        posPoints: s.posPoints.map(p => (p.id === id ? { ...p, ...saved } : p)),
+      }))
+      void persistPosSnapshot()
+      return saved
+    },
+    applyLocal,
+  )
 }
 
 export async function deletePosPointSafe(id: string): Promise<OfflineResult<{ id: string }>> {
@@ -3821,7 +3903,22 @@ export async function deletePosPointSafe(id: string): Promise<OfflineResult<{ id
     void persistPosSnapshot()
     return { id }
   }
-  return localFirstOp(applyLocal)
+  if (isLocalId(id)) {
+    const data = await applyLocal()
+    void useOfflineSync.getState().syncNow()
+    return { offline: true, data }
+  }
+  return racePlatformOp(
+    async () => {
+      const res = await api.deletePosPoint(id)
+      usePosStore.setState(s => ({
+        posPoints: s.posPoints.filter(p => p.id !== id),
+      }))
+      void persistPosSnapshot()
+      return res
+    },
+    applyLocal,
+  )
 }
 
 export async function ensureCashierSafe(input: {
@@ -3858,5 +3955,15 @@ export async function ensureCashierSafe(input: {
     void persistPosSnapshot()
     return cashier
   }
-  return localFirstOp(applyLocal)
+  return racePlatformOp(
+    async () => {
+      const saved = await api.createCashier({ name: trimmed, pin: '0000' })
+      usePosStore.setState(s => ({
+        cashiers: [...s.cashiers.filter(c => c.id !== saved.id && c.name !== saved.name), saved],
+      }))
+      void persistPosSnapshot()
+      return saved
+    },
+    applyLocal,
+  )
 }

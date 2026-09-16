@@ -193,7 +193,12 @@ async function repayDebtIntoOpenShift(
   }
   if (!card) throw new Error('Не удалось получить карту лояльности')
   const fresh = useClientStore.getState().clients.find(c => c.id === client.id) || client
-  const prevDebt = Math.max(0, Number(fresh.debt) || 0, Number(card.debt) || 0)
+  const prevDebt = resolveAuthoritativeCustomerDebt({
+    clientDebt: fresh.debt,
+    cardDebt: card.debt,
+    debtLedger: fresh.debtLedger,
+    cardDebtLedger: (card as AdminCard & { debtLedger?: EnrichedClient['debtLedger'] })?.debtLedger,
+  })
   if (amount > prevDebt + 0.009) {
     throw new Error(`Долг клиента ${fmtMoney(prevDebt)}`)
   }
@@ -509,8 +514,8 @@ export default function DebtsModule({
   /** Синхронный guard: setState(saving) не успевает до второго клика */
   const moneyBusyRef = useRef(false)
 
-  const refreshAll = useCallback(() => {
-    void Promise.all([
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
       hydrateOfflineCaches(),
       softSyncPosAfterSale(),
       syncClientsFromApi(),
@@ -525,8 +530,8 @@ export default function DebtsModule({
   const debtClients = useMemo(() => {
     void histTick
     return clients
-      .filter(c => cardHasDebtSection(cardForClient(c, cards) || {}, c) || (Number(c.debt) || 0) > 0)
       .map(c => enrichDebtClient(c, cards, sales))
+      .filter(c => cardHasDebtSection(cardForClient(c, cards) || {}, c) || (Number(c.debt) || 0) > 0)
   }, [clients, cards, sales, histTick])
 
   const counts = useMemo(() => ({
@@ -759,7 +764,7 @@ export default function DebtsModule({
       })
       const nextRemain = Math.round((maxPay - amount) * 100) / 100
       setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-      void refreshAll()
+      await refreshAll()
       if (nextRemain > 0.001) {
         setSaleRepay({ amount: String(nextRemain), saving: false, method })
       } else {
@@ -871,7 +876,7 @@ export default function DebtsModule({
       }
       setRepayQuick(null)
       setHistMsg(`Погашено: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-      void refreshAll()
+      await refreshAll()
     } catch (e) {
       setRepayQuick(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
@@ -950,7 +955,7 @@ export default function DebtsModule({
         }
         setHistAdd(emptyHistAdd('repay'))
         setHistMsg(`Оплата записана: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-        if (!res.offline) void refreshAll()
+        if (!res.offline) await refreshAll()
         return
       }
       const res = await chargeCashDebtFromOpenShift(detailClient, amount, {
@@ -962,7 +967,7 @@ export default function DebtsModule({
       if (phone) void syncDebtHistoryFromLedger(phone).finally(() => setHistTick(t => t + 1))
       setHistAdd(emptyHistAdd(histAdd.action))
       setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
-      if (!res.offline) void refreshAll()
+      if (!res.offline) await refreshAll()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
       setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
@@ -1012,7 +1017,7 @@ export default function DebtsModule({
         skipDebtHistory: true,
       })
       setHistMsg(`С карты убрано: ${fmtMoney(amt)}`)
-      void refreshAll()
+      await refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось')
     } finally {
@@ -1041,7 +1046,7 @@ export default function DebtsModule({
     try {
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(removed, null))
       setHistMsg(`Удалено: ${fmtMoney(abs)}`)
-      void refreshAll()
+      await refreshAll()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось обновить баланс')
     } finally {
@@ -1079,7 +1084,7 @@ export default function DebtsModule({
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(before, after))
       setHistEdit(null)
       setHistMsg(`Запись обновлена: ${fmtMoney(amountAbs)}`)
-      void refreshAll()
+      await refreshAll()
     } catch (e) {
       setHistEdit(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Ошибка сохранения')

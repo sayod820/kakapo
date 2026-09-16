@@ -4,10 +4,10 @@
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
 import { isLocalId, newClientRef, newLocalId, resolveLocalId } from './offline'
-import { localFirstOp, type OfflineResult } from './localFirst'
+import { racePlatformOp, type OfflineResult } from './localFirst'
 import { applyPurchasePayToOpenShift } from './offlinePosOps'
 import { supplierSupplyVersion, supplierPayVersion } from './offlineSupplierOps'
-import { shadowMirrorPut } from './offlineV2'
+import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
 import type { ProductStockLayer, StockReceipt, StockRevision, StockWriteoff, RevisionWaitDevice } from './types'
@@ -21,6 +21,31 @@ import { getTradeDeviceIdSync } from './tradeDevice'
 
 function round2(v: number) {
   return Math.round((Number(v) || 0) * 100) / 100
+}
+
+/** Sticky clientRef until create ACK — browser timeout-after-commit retry safety. */
+const stickyWarehouseClientRefs = new Map<string, string>()
+
+function stickyWarehouseClientRef(scope: string): string {
+  const key = String(scope || '').trim()
+  if (!key) return newClientRef()
+  const existing = stickyWarehouseClientRefs.get(key)
+  if (existing) return existing
+  const ref = newClientRef()
+  stickyWarehouseClientRefs.set(key, ref)
+  return ref
+}
+
+function clearStickyWarehouseClientRef(scope: string) {
+  stickyWarehouseClientRefs.delete(String(scope || '').trim())
+}
+
+function warehouseCreateScope(kind: string, payload: unknown): string {
+  try {
+    return `${kind}|${JSON.stringify(payload)}`
+  } catch {
+    return `${kind}|${Date.now()}`
+  }
 }
 
 export type { OfflineResult }
@@ -52,12 +77,66 @@ export type WriteoffPayload = {
   items: { productId: number; qty: number }[]
 }
 
-/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
+/**
+ * Platform-aware warehouse mutation:
+ * - Desktop/Android: localApply + outbox (apiCall ignored)
+ * - Browser: await apiCall only — never localApply/queue on failure
+ */
 async function raceWarehouseOp<T>(
-  _apiCall: () => Promise<T>,
+  apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  return localFirstOp(localApply)
+  return racePlatformOp(apiCall, localApply)
+}
+
+/** After browser API ACK — merge canonical entity into store (no off-rec-* phantoms). */
+function upsertReceiptOnline(receipt: StockReceipt) {
+  usePosStore.setState(s => ({
+    receipts: [
+      receipt,
+      ...s.receipts.filter(r => (
+        r.id !== receipt.id
+        && !(receipt.clientRef && r.clientRef && r.clientRef === receipt.clientRef)
+      )),
+    ],
+  }))
+}
+
+function upsertWriteoffOnline(writeoff: StockWriteoff) {
+  usePosStore.setState(s => ({
+    writeoffs: [
+      writeoff,
+      ...s.writeoffs.filter(w => (
+        w.id !== writeoff.id
+        && !(writeoff.clientRef && w.clientRef && w.clientRef === writeoff.clientRef)
+      )),
+    ],
+  }))
+}
+
+function upsertRevisionOnline(revision: StockRevision) {
+  usePosStore.setState(s => ({
+    revisions: [
+      revision,
+      ...s.revisions.filter(r => (
+        r.id !== revision.id
+        && !(revision.clientRef && r.clientRef && r.clientRef === revision.clientRef)
+      )),
+    ],
+  }))
+}
+
+/**
+ * Authoritative warehouse refresh after browser mutation ACK.
+ * Prefer this over inventing stock/layer state from the POST body alone.
+ */
+export async function reconcileAfterWarehouseOnlineMutation(opts?: { expiryDays?: number }) {
+  const { softSyncWarehouse } = await import('./posStore')
+  const { useProducts } = await import('./store')
+  await Promise.all([
+    softSyncWarehouse({ expiryDays: opts?.expiryDays }),
+    useProducts.getState().fetchProducts(),
+  ])
 }
 
 async function bumpProductStock(
@@ -402,7 +481,8 @@ function hasBlockingRevisionLocal(): boolean {
 export async function createStockReceiptSafe(
   payload: ReceiptPayload,
 ): Promise<OfflineResult<StockReceipt>> {
-  const clientRef = newClientRef()
+  const stickyScope = warehouseCreateScope('stock_receipt_create', payload)
+  const clientRef = stickyWarehouseClientRef(stickyScope)
   const createdAtIso = new Date().toISOString()
   const supplierName = payload.supplierId
     ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
@@ -441,7 +521,11 @@ export async function createStockReceiptSafe(
   }
 
   const res = await raceWarehouseOp(() => api.createStockReceipt(body), applyLocal)
-  if (res.data) shadowMirrorPut('stock_receipt', res.data.id, res.data)
+  if (res.data) {
+    shadowMirrorPut('stock_receipt', res.data.id, res.data)
+    if (!res.offline) upsertReceiptOnline(res.data)
+    clearStickyWarehouseClientRef(stickyScope)
+  }
   return res
 }
 
@@ -518,7 +602,12 @@ export async function updateStockReceiptSafe(
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(() => api.updateStockReceipt(persistId, { ...body, id: persistId }), applyLocal)
+  const res = await raceWarehouseOp(() => api.updateStockReceipt(persistId, { ...body, id: persistId }), applyLocal)
+  if (res.data && !res.offline) {
+    shadowMirrorPut('stock_receipt', res.data.id, res.data)
+    upsertReceiptOnline(res.data)
+  }
+  return res
 }
 
 export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<{ id: string }>> {
@@ -552,10 +641,16 @@ export async function deleteStockReceiptSafe(id: string): Promise<OfflineResult<
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(
+  const res = await raceWarehouseOp(
     () => api.deleteStockReceipt(persistId, { clientRef }),
     applyLocal,
   )
+  if (!res.offline) {
+    usePosStore.setState(s => ({
+      receipts: s.receipts.filter(r => r.id !== id && r.id !== persistId),
+    }))
+  }
+  return res
 }
 
 async function applyWriteoffStock(items: { productId: number; qty: number }[], sign: 1 | -1) {
@@ -603,7 +698,8 @@ async function buildLocalWriteoff(
 export async function createStockWriteoffSafe(
   payload: WriteoffPayload,
 ): Promise<OfflineResult<StockWriteoff>> {
-  const clientRef = newClientRef()
+  const stickyScope = warehouseCreateScope('stock_writeoff_create', payload)
+  const clientRef = stickyWarehouseClientRef(stickyScope)
   const createdAtIso = new Date().toISOString()
   const body = { ...payload, clientRef, createdAtIso }
 
@@ -618,7 +714,11 @@ export async function createStockWriteoffSafe(
   }
 
   const res = await raceWarehouseOp(() => api.createStockWriteoff(body), applyLocal)
-  if (res.data) shadowMirrorPut('stock_writeoff', res.data.id, res.data)
+  if (res.data) {
+    shadowMirrorPut('stock_writeoff', res.data.id, res.data)
+    if (!res.offline) upsertWriteoffOnline(res.data)
+    clearStickyWarehouseClientRef(stickyScope)
+  }
   return res
 }
 
@@ -651,7 +751,12 @@ export async function updateStockWriteoffSafe(
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(() => api.updateStockWriteoff(id, body), applyLocal)
+  const res = await raceWarehouseOp(() => api.updateStockWriteoff(id, body), applyLocal)
+  if (res.data && !res.offline) {
+    shadowMirrorPut('stock_writeoff', res.data.id, res.data)
+    upsertWriteoffOnline(res.data)
+  }
+  return res
 }
 
 export async function deleteStockWriteoffSafe(id: string): Promise<OfflineResult<{ id: string }>> {
@@ -672,10 +777,16 @@ export async function deleteStockWriteoffSafe(id: string): Promise<OfflineResult
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(
+  const res = await raceWarehouseOp(
     () => api.deleteStockWriteoff(id, { clientRef }),
     applyLocal,
   )
+  if (!res.offline) {
+    usePosStore.setState(s => ({
+      writeoffs: s.writeoffs.filter(w => w.id !== id),
+    }))
+  }
+  return res
 }
 
 // ── Ревизия (инвентаризация) ──
@@ -810,7 +921,10 @@ export async function createStockRevisionSafe(
   }
 
   const res = await raceWarehouseOp(() => api.createStockRevision(body as any), applyLocal)
-  if (res.data) shadowMirrorPut('stock_receipt', `rev:${res.data.id}`, res.data)
+  if (res.data) {
+    shadowMirrorPut('stock_receipt', `rev:${res.data.id}`, res.data)
+    if (!res.offline) upsertRevisionOnline(res.data)
+  }
   return res
 }
 
@@ -862,7 +976,9 @@ export async function updateStockRevisionSafe(
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(() => api.updateStockRevision(id, body as any), applyLocal)
+  const res = await raceWarehouseOp(() => api.updateStockRevision(id, body as any), applyLocal)
+  if (res.data && !res.offline) upsertRevisionOnline(res.data)
+  return res
 }
 
 export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult<{ id: string }>> {
@@ -883,7 +999,13 @@ export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult
     return { offline: true, data }
   }
 
-  return raceWarehouseOp(() => api.deleteStockRevision(id), applyLocal)
+  const res = await raceWarehouseOp(() => api.deleteStockRevision(id), applyLocal)
+  if (!res.offline) {
+    usePosStore.setState(s => ({
+      revisions: s.revisions.filter(r => r.id !== id),
+    }))
+  }
+  return res
 }
 
 export async function cancelStockRevisionSafe(id: string): Promise<OfflineResult<StockRevision>> {
@@ -902,6 +1024,15 @@ export async function cancelStockRevisionSafe(id: string): Promise<OfflineResult
   if (isLocalId(id)) {
     const data = await applyLocal()
     return { offline: true, data }
+  }
+
+  // Browser: await API only — network failure must not invent cancelled revision locally
+  if (!isTradeLocalFirst()) {
+    const data = await api.cancelStockRevision(id)
+    usePosStore.setState(s => ({
+      revisions: s.revisions.map(r => (r.id === id ? { ...r, ...data } : r)),
+    }))
+    return { offline: false, data }
   }
 
   try {
@@ -1000,7 +1131,7 @@ export async function updateStockLayerSafe(
     return { offline: true, data: dataLocal }
   }
 
-  return raceWarehouseOp(
+  const res = await raceWarehouseOp(
     () => api.updateProductStockLayer(receiptId, productId, {
       costPrice: body.costPrice,
       retailPrice: body.retailPrice,
@@ -1009,6 +1140,29 @@ export async function updateStockLayerSafe(
     }),
     applyLocal,
   )
+  if (!res.offline && Array.isArray(res.data) && res.data.length) {
+    const layer = res.data.find(l => Number(l.productId) === Number(productId)) || res.data[0]
+    usePosStore.setState(s => ({
+      receipts: s.receipts.map(r => {
+        if (r.id !== receiptId) return r
+        return {
+          ...r,
+          items: r.items.map(it => (
+            Number(it.productId) === Number(productId)
+              ? {
+                  ...it,
+                  costPrice: layer.costPrice ?? it.costPrice,
+                  retailPrice: layer.retailPrice ?? it.retailPrice,
+                  bulkPricing: layer.bulkPricing ?? it.bulkPricing,
+                  expiryDate: layer.expiryDate !== undefined ? layer.expiryDate : it.expiryDate,
+                }
+              : it
+          )),
+        }
+      }),
+    }))
+  }
+  return res
 }
 
 /** Удалить одну партию (остаток снимется со склада). */
@@ -1111,8 +1265,27 @@ export async function deleteStockLayerSafe(
     return { offline: true, data: dataLocal }
   }
 
-  return raceWarehouseOp(
+  const res = await raceWarehouseOp(
     () => api.deleteProductStockLayer(receiptId, productId, { clientRef }),
     applyLocal,
   )
+  if (!res.offline && res.data) {
+    if (res.data.deletedReceipt) {
+      usePosStore.setState(s => ({
+        receipts: s.receipts.filter(r => r.id !== receiptId),
+      }))
+    } else {
+      usePosStore.setState(s => ({
+        receipts: s.receipts.map(r => (
+          r.id !== receiptId
+            ? r
+            : {
+                ...r,
+                items: r.items.filter(it => Number(it.productId) !== Number(productId)),
+              }
+        )),
+      }))
+    }
+  }
+  return res
 }

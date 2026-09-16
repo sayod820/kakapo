@@ -268,7 +268,7 @@ export default function FinanceModule() {
       setExpAmount('')
       setExpNote('')
       setMsg(res.offline ? 'Расход сохранён · отправится при связи' : 'Расход сохранён')
-      void afterFinanceMutation(!!res.offline)
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -338,7 +338,7 @@ export default function FinanceModule() {
       setDepPayFrom('shift')
       setDepMethod('cash')
       setMsg(res.offline ? 'Движение сохранено · отправится при связи' : 'Движение сохранено')
-      void afterFinanceMutation(!!res.offline)
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -368,7 +368,7 @@ export default function FinanceModule() {
       setConvAmount('')
       setConvNote('')
       setMsg(res.offline ? 'Перевод сохранён · отправится при связи' : 'Перевод сохранён')
-      void afterFinanceMutation(!!res.offline)
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -401,12 +401,12 @@ export default function FinanceModule() {
     if (!id || savingRef.current || busy) return
     savingRef.current = true
     setBusy(true)
-    setDelMoveId(null)
     setMsg('')
     try {
       const res = await financeMoveDeleteSafe(id)
+      setDelMoveId(null)
       setMsg(res.offline ? 'Удалено · отправится при связи' : 'Удалено')
-      void afterFinanceMutation(!!res.offline)
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
@@ -420,12 +420,12 @@ export default function FinanceModule() {
     if (!id || savingRef.current || busy) return
     savingRef.current = true
     setBusy(true)
-    setDelExpId(null)
     setMsg('')
     try {
       const res = await expenseDeleteSafe(id)
+      setDelExpId(null)
       setMsg(res.offline ? 'Расход удалён · отправится при связи' : 'Расход удалён')
-      void afterFinanceMutation(!!res.offline)
+      await afterFinanceMutation(!!res.offline)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить расход')
     } finally {

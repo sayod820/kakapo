@@ -3,6 +3,7 @@ import { normalizePhone, phonesMatch, vipFromNote, debtFromNote, qualifiesForDeb
 
 export { qualifiesForDebtSection } from './clientCrm'
 import { inferLevelAssignMode, inferLevelTermDays, resolveCardAuthoritativeLevel, loyaltyLockFromCard } from './loyaltyAdminLock'
+import { resolveAuthoritativeCustomerDebt } from './debtUiProjectionCore.mjs'
 
 export type CardStatus = 'active' | 'unlinked' | 'blocked'
 
@@ -82,12 +83,16 @@ export function cardDigits(num: string | undefined): string {
   return String(num || '').replace(/\D/g, '')
 }
 
-/** Один долг: карта и клиент не должны расходиться. 0 на карте не перекрывает долг клиента. */
+/** Один долг: ledger > client.debt > card.debt. Не max() — иначе скрывается рассинхрон. */
 export function effectiveDebt(
   a?: { debt?: number | null } | null,
   b?: { debt?: number | null } | null,
 ): number {
-  return Math.max(0, Number(a?.debt) || 0, Number(b?.debt) || 0)
+  // Call sites: effectiveDebt(card, client) → prefer client, then card.
+  return resolveAuthoritativeCustomerDebt({
+    clientDebt: b?.debt,
+    cardDebt: a?.debt,
+  })
 }
 
 export function cardNumsMatch(a: string | undefined, b: string | undefined): boolean {
@@ -218,7 +223,12 @@ export function cardLoyaltyFromCard(card: AdminCard, client?: AdminClient): Card
     level,
     debtLimit: card.debtLimit ?? client?.debtLimit ?? 0,
     bonus: Math.max(Number(card.bonus) || 0, Number(client?.bonus) || 0),
-    debt: effectiveDebt(card, client),
+    debt: resolveAuthoritativeCustomerDebt({
+      clientDebt: client?.debt,
+      cardDebt: card.debt,
+      debtLedger: client?.debtLedger,
+      cardDebtLedger: (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] }).debtLedger,
+    }),
     vip: !!(card.vip ?? client?.vip),
     debtEnabled: resolveDebtEnabled(card, client),
     vipUntil: card.vipUntil || client?.vipUntil,

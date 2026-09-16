@@ -166,42 +166,114 @@ export const useClientStore = create<ClientStore>((set, get) => ({
     const next = [...clients, row]
     saveClients(next)
     markPendingClientSync(row.id)
+    set({ clients: next })
     if (USE_API && !opts?.skipApi) {
-      api.createClient(row)
-        .then(created => {
+      void (async () => {
+        try {
+          const { isTradeLocalFirst } = await import('./offlineV2')
+          if (isTradeLocalFirst()) {
+            api.createClient(row)
+              .then(created => {
+                const normalized = normalizeClient(created)
+                unmarkPhoneDeleted(normalized.phone)
+                clearPendingClientSync(row.id)
+                set(s => ({
+                  clients: filterVisibleClients(
+                    s.clients.map(c => (c.id === row.id ? normalized : c)),
+                  ),
+                }))
+                emitCrmSync()
+              })
+              .catch(console.error)
+            return
+          }
+          // Browser: await create; revert phantom on failure
+          const created = await api.createClient(row)
           const normalized = normalizeClient(created)
           unmarkPhoneDeleted(normalized.phone)
           clearPendingClientSync(row.id)
           set(s => ({
-            clients: filterVisibleClients(
-              s.clients.map(c => (c.id === row.id ? normalized : c)),
-            ),
+            clients: filterVisibleClients([
+              normalized,
+              ...s.clients.filter(c => c.id !== row.id && c.id !== normalized.id),
+            ]),
+            apiError: '',
           }))
           emitCrmSync()
-        })
-        .catch(console.error)
+        } catch (e) {
+          clearPendingClientSync(row.id)
+          const without = get().clients.filter(c => c.id !== row.id)
+          saveClients(without, { skipEmit: true })
+          set({
+            clients: filterVisibleClients(without),
+            apiError: e instanceof Error ? e.message : 'Не удалось создать клиента',
+          })
+        }
+      })()
     }
-    set({ clients: next })
     return row
   },
-  updateClient: (id, patch, opts) => set(s => {
-    const clients = s.clients.map(c => (c.id === id ? normalizeClient({ ...c, ...patch, id }) : c))
+  updateClient: (id, patch, opts) => {
+    const prev = get().clients
+    const clients = prev.map(c => (c.id === id ? normalizeClient({ ...c, ...patch, id }) : c))
     saveClients(clients, { skipEmit: opts?.skipApi })
+    set({ clients })
     // Stale Desktop CRM must never silently PATCH identity (name/phone/card) to server.
     // Explicit user/business ops pass allowIdentityWrite: true.
     if (USE_API && !opts?.skipApi) {
       const identity = patchHasClientIdentity(patch as Record<string, unknown>)
       if (!identity || opts?.allowIdentityWrite) {
-        api.updateClient(id, patch).catch(console.error)
+        void (async () => {
+          try {
+            const { isTradeLocalFirst } = await import('./offlineV2')
+            if (isTradeLocalFirst()) {
+              api.updateClient(id, patch).catch(console.error)
+              return
+            }
+            // Browser: await API; on failure revert optimistic patch (no fake success).
+            const server = await api.updateClient(id, patch)
+            const normalized = normalizeClient({ ...server, id })
+            set(s => ({
+              clients: filterVisibleClients(
+                s.clients.map(c => (c.id === id ? normalizeClient({ ...c, ...normalized, id }) : c)),
+              ),
+              apiError: '',
+            }))
+            emitCrmSync()
+          } catch (e) {
+            saveClients(prev, { skipEmit: true })
+            set({
+              clients: prev,
+              apiError: e instanceof Error ? e.message : 'Не удалось сохранить клиента',
+            })
+          }
+        })()
       }
     }
-    return { clients }
-  }),
+  },
   removeClient: id => {
-    const clients = get().clients.filter(c => c.id !== id)
+    const prev = get().clients
+    const clients = prev.filter(c => c.id !== id)
     saveClients(clients)
-    if (USE_API) api.deleteClient(id).catch(console.error)
     set({ clients })
+    if (USE_API) {
+      void (async () => {
+        try {
+          const { isTradeLocalFirst } = await import('./offlineV2')
+          if (isTradeLocalFirst()) {
+            api.deleteClient(id).catch(console.error)
+            return
+          }
+          await api.deleteClient(id)
+        } catch (e) {
+          saveClients(prev, { skipEmit: true })
+          set({
+            clients: prev,
+            apiError: e instanceof Error ? e.message : 'Не удалось удалить клиента',
+          })
+        }
+      })()
+    }
   },
   toggleBlock: id => {
     const c = get().clients.find(x => x.id === id)

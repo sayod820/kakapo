@@ -12,6 +12,7 @@ import { phoneDigits, type StoreUser } from './clientSession'
 import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
 import {
   allocateSaleRemainsToDebtBudget,
+  diagnoseDebtProjection as diagnoseDebtProjectionCore,
   resolveAuthoritativeCustomerDebt as resolveAuthoritativeCustomerDebtCore,
   sumOpenDebtLedgerRemaining,
 } from './debtUiProjectionCore.mjs'
@@ -38,6 +39,15 @@ export function resolveAuthoritativeCustomerDebt(input: {
   cardDebtLedger?: { remaining?: number }[] | null
 }): number {
   return resolveAuthoritativeCustomerDebtCore(input)
+}
+
+export function diagnoseDebtProjection(input: {
+  clientDebt?: number | null
+  cardDebt?: number | null
+  debtLedger?: { remaining?: number }[] | null
+  cardDebtLedger?: { remaining?: number }[] | null
+}) {
+  return diagnoseDebtProjectionCore(input)
 }
 
 const DEBT_HIST = ACCOUNT_NS.debtHistory

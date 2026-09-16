@@ -82,10 +82,25 @@ export async function ensureBrowserOnlineOnly(): Promise<void> {
   if (isKakapoDesktop() || isTradeAndroidNative()) return
   try { localStorage.setItem(LS_KEY, 'off') } catch { /* ignore */ }
   try {
-    const { clearAllPending } = await import('./offline')
+    const { clearAllPending, isLocalId } = await import('./offline')
     await clearAllPending()
     const { useOfflineSync } = await import('./offlineSync')
     await useOfflineSync.getState().refresh()
+    // Drop phantom offline entities so browser never mutates via isLocalId→queueOp shortcuts
+    try {
+      const { usePosStore } = await import('./posStore')
+      usePosStore.setState(s => ({
+        receipts: (s.receipts || []).filter(r => !isLocalId(r.id)),
+        writeoffs: (s.writeoffs || []).filter(w => !isLocalId(w.id)),
+        revisions: (s.revisions || []).filter(r => !isLocalId(r.id)),
+        expenses: (s.expenses || []).filter(e => !isLocalId(e.id)),
+        financeMoves: (s.financeMoves || []).filter(m => !isLocalId(m.id)),
+        sales: (s.sales || []).filter(sale => !isLocalId(sale.id)),
+        shifts: (s.shifts || []).filter(sh => !isLocalId(sh.id)),
+        posPoints: (s.posPoints || []).filter(p => !isLocalId(p.id)),
+        cashiers: (s.cashiers || []).filter(c => !isLocalId(c.id)),
+      }))
+    } catch { /* ignore */ }
   } catch { /* ignore */ }
 }
 

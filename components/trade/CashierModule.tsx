@@ -39,7 +39,7 @@ import {
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
-import { CARD_STATUS_LABELS, cardNumsMatch, effectiveDebt, type AdminCard } from '@/lib/cardCrm'
+import { CARD_STATUS_LABELS, cardNumsMatch, type AdminCard } from '@/lib/cardCrm'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   buildDebtOrderBalances,
@@ -3218,7 +3218,12 @@ export default function CashierModule({
     const qDigits = query.replace(/\s/g, '')
     const debtOf = (c: AdminClient) => {
       const card = c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined
-      return effectiveDebt(card, c)
+      return resolveAuthoritativeCustomerDebt({
+        clientDebt: c.debt,
+        cardDebt: card?.debt,
+        debtLedger: c.debtLedger,
+        cardDebtLedger: card?.debtLedger,
+      })
     }
     if (!query) {
       return [...clients]
@@ -4440,12 +4445,16 @@ export default function CashierModule({
     try {
       const name = newPosName.trim()
       if (!name) throw new Error('Укажите название точки продаж')
-      await createPosPointSafe({ name, code: newPosCode.trim() || undefined })
+      const res = await createPosPointSafe({ name, code: newPosCode.trim() || undefined })
       setCreatePosModal(false)
       setNewPosName('')
       setNewPosCode('')
-      showToast('Точка создана', `${name} · отправится в фоне`)
-      void useOfflineSync.getState().syncNow()
+      showToast(
+        'Точка создана',
+        res.offline ? `${name} · отправится в фоне` : name,
+      )
+      if (res.offline) void useOfflineSync.getState().syncNow()
+      else void softSyncPosAfterSale({ force: true })
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось создать точку')
     } finally {
@@ -4515,7 +4524,7 @@ export default function CashierModule({
     try {
       const name = editPosName.trim()
       if (!name) throw new Error('Укажите название')
-      await updatePosPointSafe(editPosId, {
+      const posRes = await updatePosPointSafe(editPosId, {
         name,
         code: editPosCode.trim(),
         note: editPosNote.trim(),
@@ -4549,8 +4558,11 @@ export default function CashierModule({
         }
       }
       setEditPosId(null)
-      showToast('Сохранено', `${name} · отправится в фоне`)
-      void useOfflineSync.getState().syncNow()
+      showToast(
+        'Сохранено',
+        posRes.offline ? `${name} · отправится в фоне` : name,
+      )
+      if (posRes.offline) void useOfflineSync.getState().syncNow()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {
@@ -4691,10 +4703,13 @@ export default function CashierModule({
     setMsg('')
     try {
       const name = posPoints.find(p => p.id === deletePosId)?.name || 'Точка'
-      await deletePosPointSafe(deletePosId)
+      const delRes = await deletePosPointSafe(deletePosId)
       setDeletePosId(null)
-      showToast('Удалено', `${name} · отправится в фоне`)
-      void useOfflineSync.getState().syncNow()
+      showToast(
+        'Удалено',
+        delRes.offline ? `${name} · отправится в фоне` : name,
+      )
+      if (delRes.offline) void useOfflineSync.getState().syncNow()
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить')
     } finally {
@@ -4782,6 +4797,7 @@ export default function CashierModule({
     shiftBusyRef.current = true
     setBusy(true)
     setMsg('')
+    let closedOk = false
     try {
       const cash = Number(closingCash)
       const card = Number(closingCard)
@@ -4798,16 +4814,18 @@ export default function CashierModule({
         closingCard: card,
         note: rec.move?.text || rec.summary.text,
       })
+      closedOk = true
+      // Do not flip cashier settings until new shift opens (avoid half-switch)
       const cashier = await ensureCashier(next.name, next.id)
-      const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
-      saveSettings(s)
-      setSettings(s)
       const opened = await openShiftSafe({
         cashierId: cashier.id,
         cashierName: cashier.name,
         openingCash: cash,
         posId: activeShift.posId || activePosPoint?.id,
       })
+      const s = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
+      saveSettings(s)
+      setSettings(s)
       if (!closed.offline && !opened.offline) void refresh()
       else void useOfflineSync.getState().syncNow()
       setShiftReconcileOpen(false)
@@ -4824,8 +4842,20 @@ export default function CashierModule({
       setGateName(cashier.name)
       showToast('Кассир сменён', `${cashier.name} · в кассе ${fmtMoney(cash)}`)
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Не удалось сменить кассира')
-      void refresh()
+      const errMsg = e instanceof Error ? e.message : 'Не удалось сменить кассира'
+      await refresh()
+      if (closedOk) {
+        // Old shift is closed on server — do not show it as open
+        setShiftReconcileOpen(false)
+        setShiftReconciled(false)
+        setCashierScreen(null)
+        setCashierMenuOpen(false)
+        setOpenShiftModal(true)
+        setMsg(`Смена закрыта, но новую открыть не удалось: ${errMsg}. Откройте смену вручную.`)
+        showToast('Смена закрыта', 'Новую смену открыть не удалось — откройте вручную')
+      } else {
+        setMsg(errMsg)
+      }
     } finally {
       shiftBusyRef.current = false
       setBusy(false)
@@ -5760,7 +5790,6 @@ export default function CashierModule({
       return
     }
     returnBusyRef.current = true
-    setReturnConfirm(null)
     setBusy(true)
     setMsg('')
     try {
@@ -5783,9 +5812,15 @@ export default function CashierModule({
         cashierId: settings.cashierId || activeShift?.cashierId,
         ...(pending.payloadItems ? { items: pending.payloadItems } : {}),
       })
+      // Close confirm only after ACK
+      setReturnConfirm(null)
       const updated = res.data
       if (!res.offline) {
-        void Promise.allSettled([refresh(), fetchProducts()])
+        await Promise.allSettled([refresh(), fetchProducts()])
+        if (debtBefore > 0.001 || Number(updated.debtAdded) >= 0) {
+          void syncClientsFromApi()
+          void syncCardsFromApi()
+        }
       } else {
         void useOfflineSync.getState().syncNow()
       }
@@ -7521,7 +7556,12 @@ export default function CashierModule({
                   }
                   setHistTick(t => t + 1)
                 }
-              } catch { /* ignore */ }
+              } catch (repayErr) {
+                showToast(
+                  'Продажа сохранена',
+                  `Погашение долга не выполнено: ${repayErr instanceof Error ? repayErr.message : 'ошибка'}`,
+                )
+              }
             }
           }
         } catch { /* фон не должен ронять пробитие */ }
@@ -10659,7 +10699,12 @@ export default function CashierModule({
             <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
               {clientHits.map(c => {
                 const sum = loyaltySummaryForClient(c, cards)
-                const debt = effectiveDebt(c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined, c)
+                const debt = resolveAuthoritativeCustomerDebt({
+                  clientDebt: c.debt,
+                  cardDebt: (c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined)?.debt,
+                  debtLedger: c.debtLedger,
+                  cardDebtLedger: (c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined)?.debtLedger,
+                })
                 return (
                   <button
                     key={c.id}

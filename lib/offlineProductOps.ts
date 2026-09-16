@@ -5,7 +5,7 @@
 // ════════════════════════════════════════════════
 import { api } from './api'
 import { cacheProducts, newClientRef } from './offline'
-import { localFirstOp, type OfflineResult } from './localFirst'
+import { racePlatformOp, type OfflineResult } from './localFirst'
 import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { useProducts } from './store'
@@ -25,12 +25,12 @@ function isLocalProductId(id: number | undefined | null): boolean {
   return Number.isFinite(n) && n <= 0
 }
 
-/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
+/** Platform-aware: browser awaits apiCall; Desktop/Android localFirst. */
 async function raceProductOp<T>(
-  _apiCall: () => Promise<T>,
+  apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
 ): Promise<OfflineResult<T>> {
-  return localFirstOp(localApply)
+  return racePlatformOp(apiCall, localApply)
 }
 
 function persistLocalCatalog(next: Product[]) {
@@ -118,15 +118,15 @@ export async function saveProductSafe(
         useProducts.getState().products.map(x => (x.id === fixed.id ? fixed : x)),
       )
       shadowMirrorPut('product', String(fixed.id), fixed)
-      return fixed
+      return fixed as Product
     }
     const { id: _id, ...createBody } = cleaned
     const p = await api.createProduct({ ...createBody, clientRef })
     const fixed = { ...p, old: null, discount: 0 }
     persistLocalCatalog([...useProducts.getState().products.filter(x => x.id !== fixed.id), fixed])
     shadowMirrorPut('product', String(fixed.id), fixed)
-    return fixed
-  }, applyLocal)
+    return fixed as Product
+  }, applyLocal as () => Promise<Product>)
 }
 
 export async function deleteProductSafe(id: number): Promise<OfflineResult<{ id: number }>> {

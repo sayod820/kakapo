@@ -5,7 +5,7 @@
 // ════════════════════════════════════════════════
 import { api } from './api'
 import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
-import { localFirstOp, type OfflineResult } from './localFirst'
+import { racePlatformOp, type OfflineResult } from './localFirst'
 import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { usePosStore } from './posStore'
@@ -39,13 +39,13 @@ export type SupplierPayload = {
   note?: string
 }
 
-/** Local-first: сразу локально, сервер в фоне. apiCall игнорируется. */
+/** Platform-aware: browser awaits apiCall; Desktop/Android localFirst. */
 async function raceOp<T>(
-  _apiCall: () => Promise<T>,
+  apiCall: () => Promise<T>,
   localApply: () => Promise<T> | T,
   _slowMsg?: string,
 ): Promise<OfflineResult<T>> {
-  return localFirstOp(localApply)
+  return racePlatformOp(apiCall, localApply)
 }
 
 function patchSuppliers(next: PosSupplier[]) {

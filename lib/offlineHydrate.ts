@@ -28,10 +28,13 @@ export function hydrateOfflineCaches(): Promise<void> {
     ])
     // After products in memory — apply durable layers → stock (no catalog rewrite)
     await hydrateStockLayers()
-    // Phase D5: warm durable debt overlay from outbox before any inbound pull
+    // Phase D5: warm durable debt overlay from outbox (Desktop/Android only)
     try {
-      const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
-      await refreshDebtOverlayFromQueue()
+      const { isTradeLocalFirst } = await import('./offlineV2')
+      if (isTradeLocalFirst()) {
+        const { refreshDebtOverlayFromQueue } = await import('./pendingDebtOverlay')
+        await refreshDebtOverlayFromQueue()
+      }
     } catch { /* ignore */ }
   })()
   return hydrating
@@ -89,7 +92,14 @@ async function hydrateClients() {
   if (!cached || !cached.length) return
   const { useClientStore } = await import('./clientStore')
   if (useClientStore.getState().clients.length) return
-  useClientStore.setState({ clients: cached, hydrated: true, apiReady: true })
+  // Browser: IDB is provisional until GET/sync — do not mark apiReady (stale debt must not look confirmed).
+  // Desktop/Android local-first: cache is valid offline source.
+  let apiReady = true
+  try {
+    const { isTradeLocalFirst } = await import('./offlineV2')
+    apiReady = isTradeLocalFirst()
+  } catch { /* default true for safety on local-first platforms */ }
+  useClientStore.setState({ clients: cached, hydrated: true, apiReady })
 }
 
 async function hydrateCards() {
@@ -97,7 +107,12 @@ async function hydrateCards() {
   if (!cached || !cached.length) return
   const { useCardStore } = await import('./cardStore')
   if (useCardStore.getState().cards.length) return
-  useCardStore.setState({ cards: cached, hydrated: true, apiReady: true })
+  let apiReady = true
+  try {
+    const { isTradeLocalFirst } = await import('./offlineV2')
+    apiReady = isTradeLocalFirst()
+  } catch { /* ignore */ }
+  useCardStore.setState({ cards: cached, hydrated: true, apiReady })
 }
 
 async function hydrateCategories() {

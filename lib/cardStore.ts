@@ -193,31 +193,71 @@ export const useCardStore = create<CardStore>((set, get) => ({
     saveCards(cards)
     set({ cards })
   },
-  updateCard: (num, patch, opts) => set(s => {
-    const cards = s.cards.map(c => (c.num === num ? normalizeCard({ ...c, ...patch, num }) : c))
+  updateCard: (num, patch, opts) => {
+    const prev = get().cards
+    const cards = prev.map(c => (c.num === num ? normalizeCard({ ...c, ...patch, num }) : c))
     saveCards(cards, { skipEmit: opts?.skipApi })
+    set({ cards })
     if (USE_API && !opts?.skipApi) {
       const identity = patchHasCardIdentity(patch as Record<string, unknown>)
       if (!identity || opts?.allowIdentityWrite) {
-        api.updateCard(num, patch).catch(console.error)
+        void (async () => {
+          try {
+            const { isTradeLocalFirst } = await import('./offlineV2')
+            if (isTradeLocalFirst()) {
+              api.updateCard(num, patch).catch(console.error)
+              return
+            }
+            const server = await api.updateCard(num, patch)
+            set(s => ({
+              cards: s.cards.map(c => (c.num === num ? normalizeCard({ ...c, ...server, num }) : c)),
+              apiError: '',
+            }))
+          } catch (e) {
+            saveCards(prev, { skipEmit: true })
+            set({
+              cards: prev,
+              apiError: e instanceof Error ? e.message : 'Не удалось сохранить карту',
+            })
+          }
+        })()
       }
     }
-    return { cards }
-  }),
-  updateCardLoyalty: (num, patch, opts) => set(s => {
+  },
+  updateCardLoyalty: (num, patch, opts) => {
+    const prev = get().cards
     const key = canonicalCardNum(num)
-    const cards = s.cards.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...patch, num: c.num }) : c))
+    const cards = prev.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...patch, num: c.num }) : c))
     saveCards(cards, { skipEmit: opts?.skipApi })
     const updated = cards.find(c => cardNumsMatch(c.num, key))
     if (updated) pushLoyaltyToClient(updated, opts?.skipApi)
+    set({ cards })
     if (USE_API && !opts?.skipApi && updated) {
       const identity = patchHasCardIdentity(patch as Record<string, unknown>)
       if (!identity || opts?.allowIdentityWrite) {
-        api.updateCard(updated.num, patch).catch(console.error)
+        void (async () => {
+          try {
+            const { isTradeLocalFirst } = await import('./offlineV2')
+            if (isTradeLocalFirst()) {
+              api.updateCard(updated.num, patch).catch(console.error)
+              return
+            }
+            const server = await api.updateCard(updated.num, patch)
+            set(s => ({
+              cards: s.cards.map(c => (cardNumsMatch(c.num, key) ? normalizeCard({ ...c, ...server, num: c.num }) : c)),
+              apiError: '',
+            }))
+          } catch (e) {
+            saveCards(prev, { skipEmit: true })
+            set({
+              cards: prev,
+              apiError: e instanceof Error ? e.message : 'Не удалось сохранить карту',
+            })
+          }
+        })()
       }
     }
-    return { cards }
-  }),
+  },
   syncIdentityFromClient: (client, opts) => {
     if (!client.card) return
     const existing = get().cards.find(c => cardNumsMatch(c.num, client.card))
@@ -301,6 +341,8 @@ export const useCardStore = create<CardStore>((set, get) => ({
   unlinkCard: num => {
     const existing = get().cards.find(c => cardNumsMatch(c.num, num))
     assertDebtCardUnlinkAllowed(existing)
+    const prevCards = get().cards
+    const prevClients = useClientStore.getState().clients
     clearClientCard(num)
     set(s => {
       const cards = s.cards.map(c => (c.num === num ? normalizeCard({
@@ -318,7 +360,25 @@ export const useCardStore = create<CardStore>((set, get) => ({
       saveCards(cards)
       return { cards }
     })
-    if (USE_API) api.updateCard(num, { unlink: true }).catch(console.error)
+    if (USE_API) {
+      void (async () => {
+        try {
+          const { isTradeLocalFirst } = await import('./offlineV2')
+          if (isTradeLocalFirst()) {
+            api.updateCard(num, { unlink: true }).catch(console.error)
+            return
+          }
+          await api.updateCard(num, { unlink: true })
+        } catch (e) {
+          saveCards(prevCards, { skipEmit: true })
+          useClientStore.setState({ clients: prevClients })
+          set({
+            cards: prevCards,
+            apiError: e instanceof Error ? e.message : 'Не удалось отвязать карту',
+          })
+        }
+      })()
+    }
   },
   toggleBlock: num => {
     const card = get().cards.find(c => c.num === num)

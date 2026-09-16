@@ -414,14 +414,24 @@ export default function WarehouseWriteoffsPanel({
       }
       if (editingId) {
         const res = await updateStockWriteoffSafe(editingId, payload)
-        resetForm()
-        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
-        else setMsg('Сохранено локально · отправится при связи')
+        if (res.offline) {
+          resetForm()
+          setMsg('Сохранено локально · отправится при связи')
+        } else {
+          await Promise.all([onRefresh(), fetchProducts()])
+          resetForm()
+          setMsg('Списание сохранено')
+        }
       } else {
         const res = await createStockWriteoffSafe(payload)
-        resetForm()
-        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
-        else setMsg('Списание сохранено · отправится при связи')
+        if (res.offline) {
+          resetForm()
+          setMsg('Списание сохранено · отправится при связи')
+        } else {
+          await Promise.all([onRefresh(), fetchProducts()])
+          resetForm()
+          setMsg('Списание сохранено')
+        }
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -439,7 +449,7 @@ export default function WarehouseWriteoffsPanel({
       const res = await deleteStockWriteoffSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+      if (!res.offline) await Promise.all([onRefresh(), fetchProducts()])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить списание')
     } finally {

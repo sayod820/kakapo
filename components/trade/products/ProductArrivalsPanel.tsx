@@ -187,8 +187,6 @@ export default function ProductArrivalsPanel({
         ...res.data,
         supplierName: res.data.supplierName || 'Ручной приход',
       }
-      initAddForm()
-      setShowAdd(false)
       if (res.offline) {
         const item = receipt.items[0]
         const layer: ProductStockLayer = {
@@ -207,14 +205,19 @@ export default function ProductArrivalsPanel({
           isActive: true,
         }
         setLayers(prev => [layer, ...prev])
+        initAddForm()
+        setShowAdd(false)
         setMsg('Приход сохранён локально · отправится при связи')
       } else {
         await loadLayers()
+        initAddForm()
+        setShowAdd(false)
         setMsg('Приход добавлен')
       }
       onUpdated?.()
       setLabelReceipt(receipt)
     } catch (e) {
+      // Форма остаётся открытой с введёнными данными
       setMsg(e instanceof Error ? e.message : 'Не удалось добавить приход')
     } finally {
       setSaving(false)
@@ -236,7 +239,6 @@ export default function ProductArrivalsPanel({
         retailPrice: Number(editRetail) || 0,
         bulkPricing: serializeBulkPricing(editBulk),
       })
-      setEditId(null)
       if (res.offline) {
         setLayers(prev => prev.map(l => (
           l.receiptId === layer.receiptId
@@ -247,9 +249,11 @@ export default function ProductArrivalsPanel({
               }
             : l
         )))
+        setEditId(null)
         setMsg('Партия обновлена локально · отправится при связи')
       } else {
         await loadLayers()
+        setEditId(null)
         setMsg('Партия обновлена')
       }
       onUpdated?.()
@@ -274,13 +278,16 @@ export default function ProductArrivalsPanel({
     setMsg('')
     try {
       const res = await deleteStockLayerSafe(layer.receiptId, product.id)
-      setEditId(null)
-      setLayers(prev => prev.filter(l => l.receiptId !== layer.receiptId))
-      setMsg(res.offline
-        ? 'Партия удалена локально · отправится при связи'
-        : 'Партия удалена')
+      if (res.offline) {
+        setEditId(null)
+        setLayers(prev => prev.filter(l => l.receiptId !== layer.receiptId))
+        setMsg('Партия удалена локально · отправится при связи')
+      } else {
+        await loadLayers()
+        setEditId(null)
+        setMsg('Партия удалена')
+      }
       onUpdated?.()
-      if (!res.offline) await loadLayers({ silent: true })
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось удалить партию')
     } finally {

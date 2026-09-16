@@ -805,17 +805,29 @@ export default function WarehouseReceiptsPanel({
       const editId = draft.editingId || editingId
       if (editId) {
         const res = await updateStockReceiptSafe(editId, payload)
-        resetForm()
-        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
-        else setMsg('Сохранено локально · отправится при связи')
+        if (res.offline) {
+          resetForm()
+          setMsg('Сохранено локально · отправится при связи')
+        } else {
+          await Promise.all([onRefresh(), fetchProducts()])
+          resetForm()
+          setMsg('Приход сохранён')
+        }
       } else {
         const res = await createStockReceiptSafe(payload)
-        resetForm()
-        setLabelReceipt(res.data)
-        if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
-        else setMsg('Приход сохранён · отправится при связи')
+        if (res.offline) {
+          resetForm()
+          setLabelReceipt(res.data)
+          setMsg('Приход сохранён · отправится при связи')
+        } else {
+          await Promise.all([onRefresh(), fetchProducts()])
+          setLabelReceipt(res.data)
+          resetForm()
+          setMsg('Приход сохранён')
+        }
       }
     } catch (e) {
+      // Форма и введённые данные остаются — только ошибка
       setMsg(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
       setSaving(false)
@@ -831,7 +843,11 @@ export default function WarehouseReceiptsPanel({
       const res = await deleteStockReceiptSafe(id)
       if (editingId === id) resetForm()
       if (expanded === id) setExpanded(null)
-      if (!res.offline) void Promise.all([onRefresh(), fetchProducts()])
+      if (res.offline) {
+        /* local-first: store already updated */
+      } else {
+        await Promise.all([onRefresh(), fetchProducts()])
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Не удалось удалить приход')
     } finally {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/lib/api'
 import OfflineNotice from './OfflineNotice'
 import { USE_API } from '@/lib/config'
-import { createStockWriteoffSafe } from '@/lib/offlineWarehouseOps'
+import { createStockWriteoffSafe, deleteStockLayerSafe } from '@/lib/offlineWarehouseOps'
 import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { useProducts } from '@/lib/store'
 import type { Product } from '@/lib/types'
@@ -54,11 +54,12 @@ export default function WarehouseModule({
     return { totalStock, low, out }
   }, [products])
 
-  const refreshAll = useCallback(() => {
-    // Сразу обновляем UI из локального; сеть — в фоне. Без reconcile (он тяжёлый и тормозит раздел).
+  const refreshAll = useCallback(async () => {
     setRefreshGen(g => g + 1)
-    void softSyncWarehouse({ expiryDays })
-    void fetchProducts()
+    await Promise.all([
+      softSyncWarehouse({ expiryDays }),
+      fetchProducts(),
+    ])
   }, [fetchProducts, expiryDays])
 
   const loadExpiry = useCallback(async (days: number) => {
@@ -86,14 +87,18 @@ export default function WarehouseModule({
   }, [tab, storeExpiry, expiry.length, expiryDays])
 
   const writeOffExpiredBatch = useCallback(async (row: ExpiryRow) => {
-    const res = await createStockWriteoffSafe({
-      reason: 'Просрочка',
-      note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
-      items: [{ productId: row.productId, qty: row.qty }],
-    })
-    void loadExpiry(expiryDays)
-    void refreshAll()
-    return res
+    // Prefer layer delete for the exact receipt batch (not FIFO generic writeoff)
+    if (row.receiptId) {
+      await deleteStockLayerSafe(row.receiptId, row.productId)
+    } else {
+      await createStockWriteoffSafe({
+        reason: 'Просрочка',
+        note: `Партия из прихода ${row.receiptId}, срок ${row.expiryDate}`,
+        items: [{ productId: row.productId, qty: row.qty }],
+      })
+    }
+    await loadExpiry(expiryDays)
+    await refreshAll()
   }, [refreshAll, loadExpiry, expiryDays])
 
   return (
