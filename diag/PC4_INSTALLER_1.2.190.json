@@ -1,0 +1,11 @@
+{
+  "version": "1.2.190",
+  "artifact": "desktop/dist/KAKAPO-Kassa-Setup-1.2.190.exe",
+  "sizeBytes": 92601064,
+  "sha256": "AF55CDA79213C8B83CBABBE17AEB4BF346D74F48DDEF16A7FF9763C68D63E7D5",
+  "builtAt": "2026-09-16T14:20:00+05:00",
+  "baseCommits": ["053ef2fc", "ca5a1c62", "eedaf6c2"],
+  "pc4Note": "Includes recovery API adapter + prep tool + sha256Pure client-safe hash",
+  "installedOnProductionCashier": false,
+  "NEED_FRESH_COPY": true
+}

@@ -1,0 +1,6 @@
+{
+  "NEED_FRESH_COPY": true,
+  "reason": "scripts/_diag_out/REAL_CASHIER_8/kakapo.sqlite not provided — operator must copy live triplet",
+  "at": "2026-09-16T09:11:50.554Z",
+  "commitHint": "eedaf6c2+"
+}
