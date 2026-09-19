@@ -25,6 +25,9 @@ import {
   debtOpRefDocId,
   IDEMPOTENCY_KEY_REUSED,
   CLIENT_REF_REQUIRED,
+  resolveDebtOpIdempotency,
+  classifyDebtOpClientRef,
+  isAckLostCompatibleReplay,
 } from './debtOpIdempotency.js'
 import { buildSyncChanges } from './syncChanges.js'
 import { recordSyncDelete } from './syncDeletes.js'
@@ -355,41 +358,33 @@ function rememberOpRef(kind, clientRef, result, fingerprint = null) {
  * @returns {boolean} true if response already sent
  */
 function replyDebtOpReplayOrConflict(res, kind, clientRef, fingerprint, extra = {}) {
-  const row = findOpRefRow(kind, clientRef)
-  if (!row) return false
-  // Incomplete claim is not a success replay (resume apply / concurrent wait)
-  if (row.result && row.result.status === 'applying') {
-    const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
-    if (!check.ok) {
-      res.status(check.status || 409).json({
-        detail: check.detail,
-        code: check.code || IDEMPOTENCY_KEY_REUSED,
-        clientRef,
-        kind,
-      })
-      return true
-    }
-    return false
+  const resolved = resolveDebtOpIdempotency(db, {
+    kind,
+    clientRef,
+    fingerprint,
+    findOpRefRow,
+  })
+  if (resolved.action === 'replay') {
+    res.json({
+      ...resolved.payload,
+      ...extra,
+      clientRef,
+      kind,
+      replayed: true,
+      duplicate: true,
+      idempotentReplay: true,
+    })
+    return true
   }
-  const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
-  if (!check.ok) {
-    res.status(check.status || 409).json({
-      detail: check.detail,
-      code: check.code || IDEMPOTENCY_KEY_REUSED,
+  if (resolved.action === 'conflict') {
+    res.status(resolved.status || 409).json({
+      ...resolved.body,
       clientRef,
       kind,
     })
     return true
   }
-  const result = row.result && typeof row.result === 'object' ? row.result : {}
-  res.json({
-    ...result,
-    ...extra,
-    clientRef,
-    replayed: true,
-    duplicate: true,
-  })
-  return true
+  return false
 }
 
 const { replyIfKnownOp, remember: rememberKnownOp } = makeIdempotency(findOpRef, rememberOpRef)
@@ -976,6 +971,31 @@ ensureNotifications()
 function nowTime() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dushanbe' })
 }
+
+/** PC-14 read-only: classify clientRef for debt-family ops (no mutations). */
+app.get('/sync/debt-op-status', (req, res) => {
+  try {
+    const kind = String(req.query.kind || '').trim()
+    const clientRef = String(req.query.clientRef || '').trim()
+    if (!clientRef || !kind) {
+      return res.status(400).json({ detail: 'kind and clientRef required' })
+    }
+    let incomingFp = null
+    if (req.query.amount != null) {
+      incomingFp = buildDebtOpFingerprint(kind, {
+        amount: req.query.amount,
+        method: req.query.method,
+        clientId: req.query.clientId,
+        cardNum: req.query.cardNum,
+        orderId: req.query.orderId,
+        shiftId: req.query.shiftId,
+      })
+    }
+    res.json(classifyDebtOpClientRef(db, kind, clientRef, incomingFp))
+  } catch (e) {
+    res.status(500).json({ detail: e?.message || 'debt-op-status failed' })
+  }
+})
 
 app.get('/health', (_req, res) => {
   const stats = getDbStats()
@@ -5226,7 +5246,7 @@ app.post('/cards/:num/cash-advance', async (req, res) => {
     if (knownLedger) {
       const ledFp = fingerprintFromMoneyLedgerCashAdvance(knownLedger)
       const check = checkIdempotencyReplay(ledFp, fp)
-      if (!check.ok) {
+      if (!check.ok && !isAckLostCompatibleReplay(ledFp, fp)) {
         return res.status(check.status || 409).json({
           detail: check.detail,
           code: check.code || IDEMPOTENCY_KEY_REUSED,
@@ -5355,7 +5375,7 @@ app.post('/cards/:num/debt-repay', async (req, res) => {
     if (knownLedger) {
       const ledFp = fingerprintFromMoneyLedgerDebtRepay(knownLedger)
       const check = checkIdempotencyReplay(ledFp, fp)
-      if (!check.ok) {
+      if (!check.ok && !isAckLostCompatibleReplay(ledFp, fp)) {
         return res.status(check.status || 409).json({
           detail: check.detail,
           code: check.code || IDEMPOTENCY_KEY_REUSED,
