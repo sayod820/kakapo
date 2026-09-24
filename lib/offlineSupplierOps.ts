@@ -30,12 +30,12 @@ export function supplierSupplyVersion(sup?: Pick<PosSupplier, 'supplyVersion' | 
 }
 
 /**
- * Подтянуть supplyVersion поставщика с сервера в локальный store.
- * Нужно перед flush create/update прихода — иначе очередь шлёт устаревший expectedSupplyVersion.
+ * Подтянуть поставщика с сервера (supplyVersion + payVersion) в локальный store.
+ * Нужно перед flush прихода/оплаты — иначе очередь шлёт устаревший expected*Version.
  */
-export async function refreshSupplierSupplyVersionFromServer(
+export async function refreshSupplierFromServer(
   supplierId: string,
-): Promise<number | null> {
+): Promise<{ supplyVersion: number; payVersion: number } | null> {
   const id = String(supplierId || '').trim()
   if (!id) return null
   try {
@@ -44,22 +44,32 @@ export async function refreshSupplierSupplyVersionFromServer(
     if (!Array.isArray(list)) return null
     const remote = list.find((s: { id?: string }) => String(s?.id || '') === id)
     if (!remote) return null
-    const ver = supplierSupplyVersion(remote as PosSupplier)
+    const supplyVersion = supplierSupplyVersion(remote as PosSupplier)
+    const payVersion = supplierPayVersion(remote as PosSupplier)
     usePosStore.setState(s => ({
       suppliers: s.suppliers.map(sup => {
         if (String(sup.id) !== id) return sup
         return {
           ...sup,
           ...remote,
-          supplyVersion: ver,
+          supplyVersion,
+          payVersion,
         }
       }),
     }))
     void persistPosSnapshot()
-    return ver
+    return { supplyVersion, payVersion }
   } catch {
     return null
   }
+}
+
+/** @deprecated use refreshSupplierFromServer */
+export async function refreshSupplierSupplyVersionFromServer(
+  supplierId: string,
+): Promise<number | null> {
+  const row = await refreshSupplierFromServer(supplierId)
+  return row ? row.supplyVersion : null
 }
 
 export type { OfflineResult }

@@ -301,7 +301,9 @@ export function reverseSupplierSettlementPayment(db, supplierId, paymentId, data
   if (idx < 0) throw new Error('Платёж не найден')
   const payment = db.supplierPayments[idx]
   const supplier = getSupplier(db, supplierId)
-  assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion, 'Удаление')
+  // Не OCC на DELETE: касса часто отменяет свою же оплату со старым expectedPayVersion
+  // (после create локальный payVersion отстаёт). Удаление по paymentId идемпотентно.
+  void data
 
   const settlementMethod = payment.settlementMethod
     || (payment.payFrom === 'book' ? SETTLEMENT_METHOD.ADJUSTMENT : (payment.method === 'card' ? SETTLEMENT_METHOD.CARD : SETTLEMENT_METHOD.CASH))

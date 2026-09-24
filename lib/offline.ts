@@ -1829,9 +1829,9 @@ async function sendOp(row: PendingOp): Promise<string> {
       let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
       if (supplierId) {
         try {
-          const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
-          const ver = await refreshSupplierSupplyVersionFromServer(String(supplierId))
-          if (ver != null) expectedSupplyVersion = ver
+          const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+          const rowSup = await refreshSupplierFromServer(String(supplierId))
+          if (rowSup) expectedSupplyVersion = rowSup.supplyVersion
         } catch { /* keep queued version */ }
       }
       const receipt = await api.createStockReceipt({
@@ -1854,9 +1854,9 @@ async function sendOp(row: PendingOp): Promise<string> {
       let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
       if (supplierId) {
         try {
-          const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
-          const ver = await refreshSupplierSupplyVersionFromServer(String(supplierId))
-          if (ver != null) expectedSupplyVersion = ver
+          const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+          const rowSup = await refreshSupplierFromServer(String(supplierId))
+          if (rowSup) expectedSupplyVersion = rowSup.supplyVersion
         } catch { /* keep queued version */ }
       }
       const receipt = await api.updateStockReceipt(String(p.id), {
@@ -1966,21 +1966,37 @@ async function sendOp(row: PendingOp): Promise<string> {
     case 'supplier_payment_create': {
       const p = row.payload || {}
       const supplierId = await ensureSupplierOnServer(p.supplierId)
+      let expectedPayVersion = p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined
+      if (supplierId) {
+        try {
+          const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+          const rowSup = await refreshSupplierFromServer(String(supplierId))
+          if (rowSup) expectedPayVersion = rowSup.payVersion
+        } catch { /* keep queued */ }
+      }
       const pay = await api.createSupplierPayment(String(supplierId), {
         amount: Number(p.amount) || 0,
         note: p.note,
         clientRef: p.clientRef,
-        expectedPayVersion: p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined,
+        expectedPayVersion,
       })
       return String((pay as any)?.id || '')
     }
     case 'supplier_payment_delete': {
       const p = await resolveRefs(row.payload, ['supplierId', 'paymentId'])
       const paymentId = String(p.paymentId || p.id || '')
+      let expectedPayVersion = p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined
+      if (p.supplierId) {
+        try {
+          const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+          const rowSup = await refreshSupplierFromServer(String(p.supplierId))
+          if (rowSup) expectedPayVersion = rowSup.payVersion
+        } catch { /* keep queued */ }
+      }
       if (paymentId && !isLocalId(paymentId)) {
         await api.deleteSupplierPayment(String(p.supplierId), paymentId, {
           clientRef: p.clientRef,
-          expectedPayVersion: p.expectedPayVersion != null ? Number(p.expectedPayVersion) : undefined,
+          expectedPayVersion,
         })
       }
       return paymentId
@@ -2540,18 +2556,52 @@ export async function flushQueue(
         const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
         if (rejectRe.test(live.lastError)) {
           try {
-            if (live.kind === 'supplier_payment_create') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
-              revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
-            } else if (live.kind === 'supplier_payment_delete') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')
-              revertLocalSupplierPaymentDeleteOnReject(
-                String(p.supplierId || ''),
-                Number(p.amount) || Number((p.payment as any)?.amount) || 0,
-                (p.payment as any) || null,
-              )
+            if (live.kind === 'supplier_payment_create' || live.kind === 'supplier_payment_delete') {
+              const err = String(live.lastError || '')
+              if (/Оплаты уже меняли|верси.*ожидали/i.test(err)) {
+                const p = (live.payload || {}) as Record<string, unknown>
+                const verTries = Number((p as any)._payVerRefreshTries) || 0
+                if (verTries < 3) {
+                  try {
+                    const sid = String(p.supplierId || '')
+                    if (sid) {
+                      const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+                      const rowSup = await refreshSupplierFromServer(sid)
+                      if (rowSup) p.expectedPayVersion = rowSup.payVersion
+                    }
+                  } catch { /* ignore */ }
+                  live.payload = { ...p, _payVerRefreshTries: verTries + 1 }
+                  live.failed = false
+                  live.lastError = ''
+                  live.nextRetryAt = Date.now() + pendingRetryDelayMs(verTries + 1)
+                  await putPending(live)
+                  liveByRef.set(live.clientRef, live)
+                  failed++
+                  done++
+                  reportProgress()
+                  continue
+                }
+              }
+              if (live.kind === 'supplier_payment_create') {
+                const p = (live.payload || {}) as Record<string, unknown>
+                const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
+                revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
+              } else {
+                const p = (live.payload || {}) as Record<string, unknown>
+                const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')
+                revertLocalSupplierPaymentDeleteOnReject(
+                  String(p.supplierId || ''),
+                  Number(p.amount) || Number((p.payment as any)?.amount) || 0,
+                  (p.payment as any) || null,
+                )
+              }
+              void persistPosSnapshot()
+              await deletePending(live.clientRef)
+              liveByRef.delete(live.clientRef)
+              failed++
+              done++
+              reportProgress()
+              continue
             } else if (live.kind === 'card_topup') {
               const p = (live.payload || {}) as Record<string, unknown>
               if (!p.clientRef) p.clientRef = live.clientRef
