@@ -104,6 +104,11 @@ export function isLabAutoAuthEnabled() {
   return String(process.env.KAKAPO_LAB_AUTO_AUTH || '') === '1'
 }
 
+/** Temporary bridge: old PC kassa without Bearer until full ONLINE login migration. */
+export function isLegacyPosWriteEnabled() {
+  return String(process.env.KAKAPO_LEGACY_POS_WRITE || '') === '1'
+}
+
 export function isProductionRuntime() {
   return String(process.env.NODE_ENV || '') === 'production'
 }
@@ -342,7 +347,19 @@ export function createAuthMiddleware(matchPolicy, opts = {}) {
         }
         return next()
       }
-      const verdict = evaluateAccess(req, policy)
+      let verdict = evaluateAccess(req, policy)
+      // Migration window: bound device + active employee may write POS sales without Bearer
+      if (!verdict.ok && verdict.code === 'AUTH_REQUIRED' && typeof opts.tryLegacyAuth === 'function') {
+        const legacy = opts.tryLegacyAuth(req, policy, { method, path })
+        if (legacy && legacy.ok) {
+          verdict = evaluateAccess(req, policy)
+        } else if (legacy && legacy.deny) {
+          return res.status(legacy.deny.status || 403).json({
+            detail: legacy.deny.detail || 'Нет доступа',
+            code: legacy.deny.code || 'AUTH_FORBIDDEN',
+          })
+        }
+      }
       if (!verdict.ok) {
         return res.status(verdict.status).json({ detail: verdict.detail, code: verdict.code })
       }

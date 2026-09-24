@@ -24,8 +24,8 @@ services:
 
   api:
     build:
-      context: ../../server/kakapo-api
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: server/kakapo-api/Dockerfile
     container_name: kakapo-api
     restart: unless-stopped
     depends_on:
@@ -37,6 +37,8 @@ services:
       DATA_DIR: /data
       DATABASE_URL: ${DATABASE_URL:-postgresql://kakapo:kakapo@postgres:5432/kakapo}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS to explicit https origins}
+      # Temporary: accept sales from old PC kassa without Bearer (bound device + employee)
+      KAKAPO_LEGACY_POS_WRITE: ${KAKAPO_LEGACY_POS_WRITE:-0}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
     volumes:

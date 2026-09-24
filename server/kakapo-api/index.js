@@ -748,6 +748,7 @@ app.use(createAuthMiddleware(matchRoutePolicy, {
   refreshStaffAuth(req) {
     const auth = req.auth
     if (!auth || auth.labAuto) return { ok: true }
+    if (auth.legacyPos) return { ok: true }
     if (!['STAFF', 'CASHIER'].includes(auth.principal)) return { ok: true }
     const emp = (db.employees || []).find((e) => String(e.id) === String(auth.subjectId))
     if (!emp || emp.active === false) {
@@ -765,6 +766,71 @@ app.use(createAuthMiddleware(matchRoutePolicy, {
     // Principal follows current role
     if (String(emp.role || '') === 'cashier') auth.principal = 'CASHIER'
     else auth.principal = 'STAFF'
+    return { ok: true }
+  },
+  /**
+   * Temporary: old PC kassa without Bearer may POST sales/shifts if
+   * KAKAPO_LEGACY_POS_WRITE=1 and device is bound + employee is active with caps.
+   * Remove after all kassas store login tokens.
+   */
+  tryLegacyAuth(req, policy, meta = {}) {
+    if (String(process.env.KAKAPO_LEGACY_POS_WRITE || '') !== '1') return null
+    if (req.auth) return null
+    // Trade UI (laptop/phone): any STAFF route — reads (suppliers/clients) + debt repay, etc.
+    // Never open ADMIN / client-store / unclassified via this bridge.
+    const access = String(policy?.access || '')
+    if (policy?.adminOnly || access === 'ADMIN' || access === 'TEST_ONLY') return null
+    if (access !== 'STAFF' && access !== 'CASHIER' && access !== 'DEVICE') return null
+    const method = String(meta.method || req.method || '').toUpperCase()
+    const path = String(meta.path || req.path || '').split('?')[0]
+
+    const decodeHdr = (v) => {
+      try { return decodeURIComponent(String(v || '')) } catch { return String(v || '') }
+    }
+    const deviceId = decodeHdr(req.headers['x-kakapo-device-id'] || '').trim()
+    const employeeId = decodeHdr(
+      req.headers['x-kakapo-employee-id']
+      || (req.body && (req.body.cashierId || req.body.employeeId))
+      || '',
+    ).trim()
+    if (!deviceId) {
+      return { deny: { status: 403, detail: 'Устройство не указано', code: 'AUTH_DEVICE_REQUIRED' } }
+    }
+    if (!checkPosDevice(db, deviceId).ok) {
+      return { deny: { status: 403, detail: 'Устройство не привязано', code: 'AUTH_DEVICE_UNBOUND' } }
+    }
+    if (!employeeId) {
+      return { deny: { status: 403, detail: 'Сотрудник не указан', code: 'AUTH_EMPLOYEE_REQUIRED' } }
+    }
+    const emp = (db.employees || []).find((e) => String(e.id) === String(employeeId))
+    if (!emp || emp.active === false) {
+      return { deny: { status: 403, detail: 'Сотрудник не найден или заблокирован', code: 'AUTH_STAFF_DISABLED' } }
+    }
+    const perms = Array.isArray(emp.permissions) ? emp.permissions.map(String) : []
+    const caps = capsFromTradePermissions(perms)
+    const need = Array.isArray(policy?.requireCaps) ? policy.requireCaps : []
+    const isAdmin = String(emp.role || '') === 'admin'
+    if (need.length && !isAdmin && !need.some((c) => caps.includes(c))) {
+      return { deny: { status: 403, detail: 'Недостаточно прав', code: 'AUTH_FORBIDDEN' } }
+    }
+    req.auth = {
+      token: 'legacy-pos',
+      principal: isAdmin ? 'ADMIN' : (String(emp.role || '') === 'cashier' ? 'CASHIER' : 'STAFF'),
+      subjectId: String(emp.id),
+      roles: [String(emp.role || 'cashier')],
+      permissions: perms,
+      caps: isAdmin
+        ? capsFromTradePermissions(['sales', 'clients', 'debts', 'products', 'warehouse', 'suppliers', 'finance', 'reports'])
+        : caps,
+      deviceId,
+      phone: '',
+      name: emp.name || '',
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 12 * 3600 * 1000,
+      legacyPos: true,
+    }
+    req.authToken = null
+    console.warn('[apiAuth] legacy trade auth', method, path, 'device=', deviceId, 'emp=', employeeId)
     return { ok: true }
   },
 }))

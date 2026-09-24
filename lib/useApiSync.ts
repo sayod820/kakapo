@@ -262,7 +262,10 @@ export function useApiSync(mode: SyncMode = 'all') {
           }
           // Один /sync/changes (дельта since=cursor) вместо полных sales/clients/warehouse/finance
           const { pullSyncChanges } = await import('./syncPull')
-          await pullSyncChanges({ forceFull: false }).catch(() => ({ ok: false as const }))
+          const { usePosStore } = await import('./posStore')
+          const warehouseEmpty = !(usePosStore.getState().suppliers?.length)
+            || !(usePosStore.getState().receipts?.length)
+          await pullSyncChanges({ forceFull: warehouseEmpty }).catch(() => ({ ok: false as const }))
           const tasks: Promise<unknown>[] = [
             syncLoyaltyStatusConfigFromApi(),
           ]
@@ -270,6 +273,10 @@ export function useApiSync(mode: SyncMode = 'all') {
           // Полный каталог только если локалка пустая (первый запуск / повреждение)
           if (localEmpty) {
             tasks.push(useProducts.getState().fetchProducts())
+          }
+          // Поставщики/долги: дельта не шлёт неизменённые строки
+          if (!(usePosStore.getState().suppliers?.length)) {
+            tasks.push(softSyncWarehouse())
           }
           // Полный POS больше не гоняем по таймеру — только дельты (шаг B)
           await Promise.allSettled(tasks)

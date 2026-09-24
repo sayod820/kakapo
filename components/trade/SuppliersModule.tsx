@@ -77,8 +77,19 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
   const payBusyRef = useRef(false)
 
   const refreshAll = useCallback(() => {
-    void softSyncWarehouse()
+    void (async () => {
+      await softSyncWarehouse()
+      if (!USE_API) return
+      try {
+        const rows = await api.getSuppliers()
+        if (Array.isArray(rows)) {
+          usePosStore.setState({ suppliers: rows, apiReady: true, apiError: '' })
+        }
+      } catch { /* offline */ }
+    })()
   }, [])
+
+  useEffect(() => { void refreshAll() }, [refreshAll])
 
   const loadPayments = useCallback(async (supplierId: string) => {
     const cacheKey = `supplier_payments_${supplierId}`

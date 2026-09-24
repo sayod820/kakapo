@@ -715,9 +715,20 @@ export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
   warehouseSoftSyncInFlight = (async () => {
     try {
       // Только дельта /sync/changes — не полные getStockReceipts/…
+      // Но пустой локальный склад + старый cursor → дельта не присылает поставщиков.
       const { pullSyncChanges } = await import('./syncPull')
-      const res = await pullSyncChanges({ forceFull: false })
+      const local = usePosStore.getState()
+      const forceFull = !(local.suppliers?.length) || !(local.receipts?.length)
+      const res = await pullSyncChanges({ forceFull })
       if (res.skipped === 'pending') return
+
+      // Авторитетный GET поставщиков (мало строк) — долги/итоги не зависят от delta cursor
+      try {
+        const suppliers = await api.getSuppliers()
+        if (Array.isArray(suppliers)) {
+          usePosStore.setState({ suppliers, apiReady: true, apiError: '' })
+        }
+      } catch { /* ignore */ }
 
       const days = opts?.expiryDays ?? 14
       try {
