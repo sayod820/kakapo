@@ -306,9 +306,18 @@ export function fingerprintFromPosSale(sale) {
   })
 }
 
-export function requireClientRef(clientRef) {
-  const ref = String(clientRef || '').trim()
+export function requireClientRef(clientRef, opts = {}) {
+  let ref = String(clientRef || '').trim()
   if (ref) return { ok: true, clientRef: ref }
+  // Migration: old PC kassa / browser builds omit clientRef. While
+  // KAKAPO_LEGACY_POS_WRITE=1, synthesize one so warehouse/sales/debt keep working.
+  // Duplicate protection still relies on O8 fingerprint / opRef collision.
+  if (String(process.env.KAKAPO_LEGACY_POS_WRITE || '') === '1') {
+    const fallback = String(opts.fallback || '').trim()
+    ref = fallback || `legacy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    console.warn('[idempotency] synthesized legacy clientRef', ref)
+    return { ok: true, clientRef: ref, legacySynthesized: true }
+  }
   return {
     ok: false,
     status: 400,

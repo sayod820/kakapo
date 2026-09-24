@@ -98,7 +98,7 @@ export async function handleO8CashTopup(req, res, ctx) {
   const card = findCardByNum(num)
   if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -248,7 +248,7 @@ export async function handleO8SupplierBookPayment(req, res, ctx) {
   const { db, createSupplierPayment, broadcastPosUpdate } = ctx
   const supplierId = req.params.id
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -348,7 +348,7 @@ export async function handleO8StockReceiptCreate(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -441,7 +441,7 @@ export async function handleO8StockReceiptUpdate(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -529,7 +529,7 @@ export async function handleO8StockReceiptDelete(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef || req.query?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef || req.query?.clientRef, { fallback: String(req.body?.localId || req.body?.id || req.query?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -601,7 +601,7 @@ export async function handleO8WriteoffCreate(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -669,7 +669,7 @@ export async function handleO8WriteoffUpdate(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -744,7 +744,7 @@ export async function handleO8WriteoffDelete(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef || req.query?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef || req.query?.clientRef, { fallback: String(req.body?.localId || req.body?.id || req.query?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -803,7 +803,7 @@ export async function handleO8WriteoffDelete(req, res, ctx) {
 export async function handleO8ExpenseCreate(req, res, ctx) {
   const { db, createExpense, broadcastPosUpdate } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -858,7 +858,7 @@ export async function handleO8ExpenseDelete(req, res, ctx) {
   const { db, deleteExpense, broadcastPosUpdate } = ctx
   const expenseId = req.params.id
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -906,7 +906,7 @@ export async function handleO8SupplierPaymentDelete(req, res, ctx) {
   const supplierId = req.params.id
   const paymentId = req.params.paymentId
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -965,7 +965,7 @@ export async function handleO8SupplierPaymentDelete(req, res, ctx) {
 
 export async function handleO8ShiftOpen(req, res, ctx) {
   const { db, openPosShift, auditFromReq, broadcastPosUpdate } = ctx
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1033,7 +1033,7 @@ export async function handleO8ShiftOpen(req, res, ctx) {
 export async function handleO8ShiftClose(req, res, ctx) {
   const { db, closePosShift, auditFromReq, broadcastPosUpdate } = ctx
   const shiftId = req.params.id
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1112,7 +1112,7 @@ export async function handleO8ShiftClose(req, res, ctx) {
 
 export async function handleO8FinanceMoveCreate(req, res, ctx) {
   const { db, createFinanceMove, auditFromReq, broadcastPosUpdate } = ctx
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1181,7 +1181,7 @@ export async function handleO8FinanceMoveCreate(req, res, ctx) {
 export async function handleO8FinanceMoveDelete(req, res, ctx) {
   const { db, deleteFinanceMove, isCardTopupFinanceMove, broadcastPosUpdate } = ctx
   const moveId = req.params.id
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1244,7 +1244,7 @@ export async function handleO8CashAdvance(req, res, ctx) {
   } = ctx
 
   const num = decodeURIComponent(req.params.num).toUpperCase()
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1351,7 +1351,7 @@ export async function handleO8DebtRepay(req, res, ctx) {
   } = ctx
 
   const num = decodeURIComponent(req.params.num).toUpperCase()
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1555,7 +1555,7 @@ export async function handleO8ClientDebtAdjustment(req, res, ctx) {
   const client = (db.clients || []).find(x => String(x.id) === String(clientId))
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1648,7 +1648,7 @@ export async function handleO8CardBonusAdjustment(req, res, ctx) {
   const card = findCardByNum(num)
   if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1720,7 +1720,7 @@ export async function handleO8CardBonusAdjustment(req, res, ctx) {
 
 export async function handleO8VaultCardToCash(req, res, ctx) {
   const { db, convertVaultCardToCash, broadcastPosUpdate } = ctx
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1761,7 +1761,7 @@ export async function handleO8VaultCardToCash(req, res, ctx) {
 
 export async function handleO8VaultCashToCard(req, res, ctx) {
   const { db, convertVaultCashToCard, broadcastPosUpdate } = ctx
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -1997,7 +1997,7 @@ export async function handleO8StockAdjustment(req, res, ctx) {
     broadcastProduct,
   } = ctx
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -2067,7 +2067,7 @@ export async function handleO8SaleReturn(req, res, ctx) {
     auditFromReq,
   } = ctx
   const saleId = req.params.id
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -2160,7 +2160,7 @@ export async function handleO8CardUnlink(req, res, ctx) {
   } = ctx
 
   const num = decodeURIComponent(req.params.num).toUpperCase()
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
@@ -2248,7 +2248,7 @@ export async function handleO8ClientCardLink(req, res, ctx) {
   const client = (db.clients || []).find(x => String(x.id) === String(clientId))
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
 
-  const refGate = requireClientRef(req.body?.clientRef)
+  const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
   if (!refGate.ok) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
