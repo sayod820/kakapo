@@ -9,6 +9,8 @@ export interface TradeEmployeeSession {
   name: string
   role: string
   permissions: TradePageId[]
+  /** Bearer token from POST /employees/login (ONLINE-O8) */
+  token?: string
 }
 
 const KEY = 'kakapo_trade_employee_session'

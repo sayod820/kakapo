@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { newClientRef } from '@/lib/offline'
 import { api, isNetworkError } from '@/lib/api'
 import { isOnline } from '@/lib/offline'
 import {
@@ -23,6 +24,7 @@ export default function TradeDeviceGate({
   const [code, setCode] = useState('')
   const [deviceName, setDeviceName] = useState(defaultDeviceName)
   const [busy, setBusy] = useState(false)
+  const bindClientRef = useRef<string | null>(null)
   const [err, setErr] = useState('')
   const [needCode, setNeedCode] = useState(false)
 
@@ -94,10 +96,12 @@ export default function TradeDeviceGate({
       }
       await ensureTradeDeviceReady()
       const deviceId = getTradeDeviceIdSync()
+      if (!bindClientRef.current) bindClientRef.current = newClientRef()
       const res = await api.bindPosDevice({
         code,
         deviceId,
         deviceName: name,
+        clientRef: bindClientRef.current,
       })
       await saveTradeDeviceBind({
         deviceId,
@@ -106,6 +110,7 @@ export default function TradeDeviceGate({
         posName: res.point.name,
         boundAtIso: new Date().toISOString(),
       })
+      bindClientRef.current = null
       onReady()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Код не принят')

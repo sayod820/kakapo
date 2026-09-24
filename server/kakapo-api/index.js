@@ -15,6 +15,104 @@ import {
   rowIdForItem,
 } from './db.js'
 import { takeClientRef, makeIdempotency } from './offlineIdempotency.js'
+import { installDurableHttpResponse, markResponseEphemeral } from './durableHttpResponse.js'
+import {
+  useDurableMasterCreate,
+  masterCreateFingerprint,
+  runDurableMasterCreate,
+  finishDurableMasterJson,
+  respondMasterTxError,
+  replyMasterCreateReplayOrConflict,
+} from './masterDataCreateTx.js'
+import {
+  fingerprintProductCreate,
+  mutateCreateProduct,
+  fingerprintSupplierCreate,
+  mutateCreateSupplier,
+  fingerprintCategoryCreate,
+  mutateCreateCategory,
+  fingerprintEmployeeCreate,
+  mutateCreateEmployee,
+  fingerprintPromoCreate,
+  mutateCreatePromo,
+  fingerprintProductDelete,
+  mutateDeleteProduct,
+} from './masterDataCreateMutations.js'
+import {
+  FIN_OP_KINDS,
+  CRM_OP_KINDS,
+  WH_OP_KINDS,
+  stockProductAdvisoryLocks,
+  orderResourceAdvisoryLocks,
+  touchedFromWarehouse,
+} from './pg/businessMutationTx.js'
+import {
+  buildOrderStatusFingerprint,
+  mutateOrderStatusUpdate,
+} from './orderStatusDurable.js'
+import { isPostgresEnabled, withClient } from './pg/client.js'
+import {
+  mutateCreateClient,
+  mutateCreateOrder,
+  mutateCreatePosPoint,
+  mutateBindDevice,
+  mutateEnsureCard,
+  fingerprintClientCreate,
+  fingerprintOrderCreate,
+  fingerprintPosPointCreate,
+  fingerprintDeviceBind,
+  fingerprintCardEnsure,
+  buildO6Fingerprint,
+} from './o6OperationalMutations.js'
+import {
+  handleO8CashTopup,
+  handleO8SupplierBookPayment,
+  handleO8StockReceiptCreate,
+  handleO8StockReceiptUpdate,
+  handleO8StockReceiptDelete,
+  handleO8WriteoffCreate,
+  handleO8WriteoffUpdate,
+  handleO8WriteoffDelete,
+  handleO8SupplierPaymentDelete,
+  handleO8ExpenseCreate,
+  handleO8ExpenseDelete,
+  handleO8ShiftOpen,
+  handleO8ShiftClose,
+  handleO8FinanceMoveCreate,
+  handleO8FinanceMoveDelete,
+  handleO8VaultCardToCash,
+  handleO8VaultCashToCard,
+  handleO8SaleReturn,
+  handleO8PosSaleCreate,
+  handleO8StockAdjustment,
+  handleO8ClientDebtAdjustment,
+  handleO8CardBonusAdjustment,
+  handleO8CashAdvance,
+  handleO8DebtRepay,
+  handleO8CardUnlink,
+  handleO8ClientCardLink,
+} from './onlineO8Handlers.js'
+import { registerO8TestRoutes } from './o8TestRoutes.js'
+import {
+  createSession,
+  createAuthMiddleware,
+  assertSafeAuthEnvOrThrow,
+  isProductionRuntime,
+  authSubjectKey,
+  revokeSession,
+  parseBearer,
+  resolveWsAuth,
+  isWsStaffRole,
+  isLabAutoAuthEnabled,
+  isLoopbackReq,
+  extractWsToken,
+  capsFromTradePermissions,
+} from './apiAuth.js'
+import {
+  matchRoutePolicy,
+  countMountedTestRoutes,
+  routeCoverageStats,
+} from './routeAccessInventory.js'
 import {
   buildDebtOpFingerprint,
   checkIdempotencyReplay,
@@ -25,6 +123,9 @@ import {
   debtOpRefDocId,
   IDEMPOTENCY_KEY_REUSED,
   CLIENT_REF_REQUIRED,
+  resolveDebtOpIdempotency,
+  classifyDebtOpClientRef,
+  isAckLostCompatibleReplay,
 } from './debtOpIdempotency.js'
 import { buildSyncChanges } from './syncChanges.js'
 import { recordSyncDelete } from './syncDeletes.js'
@@ -160,6 +261,7 @@ import {
   createStockWriteoff,
   updateStockWriteoff,
   deleteStockWriteoff,
+  createStockAdjustment,
   listStockRevisions,
   createStockRevision,
   updateStockRevision,
@@ -184,6 +286,7 @@ import {
 } from './financeTruth.js'
 import {
   listEmployees,
+  listEmployeesDirectory,
   listEmployeesLocalAuth,
   createEmployee,
   updateEmployee,
@@ -195,7 +298,13 @@ import {
   askAdminAi,
   getAdminAiStatus,
 } from './adminAiAssistant.js'
-import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
+import { createOtpChallenge, verifyOtpChallenge } from './otpChallenges.js'
+import { rateLimitCheck, rateLimitReset, clientIp } from './authRateLimit.js'
+import {
+  verifyAndMaybeMigrateCredential,
+  applyPasswordMigration,
+  setPasswordOnRow,
+} from './passwordHash.js'
 import {
   buildDebtLedgerResponse,
   canTakeNewDebt,
@@ -213,6 +322,7 @@ import {
   CardOwnershipConflict,
   bindCardToClient,
 } from './cardCanonical.js'
+import { buildEnsureExistingCardPatch, buildEnsureNewCardRow } from './crmEnsureCard.js'
 import {
   ensureAuditLog,
   pruneAuditLog,
@@ -221,6 +331,8 @@ import {
   diffBrief,
   AUDIT_RETENTION_DAYS,
 } from './auditLog.js'
+import { ymdBusiness } from './kakapoTime.js'
+import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
 
 loadLocalEnv()
 
@@ -239,6 +351,87 @@ const loyaltyHooks = () => ({
   ensureCardRowForClient,
   syncClientFromCardRow,
 })
+
+function o6ClientDeps() {
+  return {
+    normalizeClientRow,
+    ensureCardRowForClient,
+    runAccountLifecycleMaintenance,
+    forgetDeletedPhone,
+    reconcileClientBonuses: (dbRef, phone) => reconcileClientBonuses(dbRef, phone, loyaltyHooks()),
+    ensureLoyaltySettings,
+    nextAccountGeneration,
+    isRecoveryExpired,
+    recoveryExpiresAtIso,
+    loyaltyHooks,
+    clearPersonalNotificationsOnServer,
+  }
+}
+
+function o6OrderDeps() {
+  return {
+    nowTime,
+    loyaltyHooks,
+    findClientByPhone,
+    stampOrderForClient,
+    consumePromoStockOnOrder,
+    applyBonusSpendOnOrder,
+  }
+}
+
+function o6OrderStatusHooks() {
+  return {
+    loyaltyHooks,
+    findClientByPhone,
+    nowTime,
+  }
+}
+
+function afterOrderStatusCommitted(db, fx, updated) {
+  const { prev, stockTouchedIds = [], commissionResult, bonusChanged, phone } = fx || {}
+  if (bonusChanged && phone) {
+    const client = findClientByPhone(db, phone)
+    if (client) {
+      broadcastLoyalty({
+        phone: client.phone,
+        bonus: client.bonus,
+        card: client.card || '',
+      })
+    }
+  }
+  for (const pid of stockTouchedIds) {
+    const p = db.products.find(x => Number(x.id) === Number(pid))
+    if (p) broadcastProduct(p)
+  }
+  if (stockTouchedIds.length) {
+    broadcastPosUpdate({ reason: 'order-stock', productIds: stockTouchedIds })
+  }
+  if (commissionResult?.courierId && Number(commissionResult.commission) > 0) {
+    broadcastCourierWallet(commissionResult)
+  }
+  if (updated.status === 'cancelled' && prev?.status !== 'cancelled') {
+    const refundedId = updated.courierCommissionCourierId
+    if (refundedId && updated.courierCommissionRefunded) {
+      const c = (db.couriers || []).find(x => x.id === refundedId)
+      if (c) {
+        broadcastCourierWallet({
+          courierId: c.id,
+          account: normalizeCourierAccount(c.account, c.id),
+          balance: Math.max(0, Math.round((Number(c.balance) || 0) * 100) / 100),
+        })
+      }
+    }
+  }
+  if (prev && (fx?.transitionApplied !== false)) onOrderStatusChangeServer(prev, updated)
+  broadcast('order_update', updated)
+}
+
+function o6CardDeps() {
+  return {
+    findCardByNum,
+    normalizeCardRow,
+  }
+}
 
 const PORT = Number(process.env.PORT) || 8000
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
@@ -291,6 +484,56 @@ if (!db._stockLayerSyncVersion || db._stockLayerSyncVersion < 2) {
 function persist() {
   scheduleSaveDb()
 }
+
+const o8HandlerCtx = () => ({
+  db,
+  findCardByNum,
+  findClientByPhone,
+  ensureLoyaltySettings,
+  createFinanceMove,
+  deleteFinanceMove,
+  isCardTopupFinanceMove,
+  openPosShift,
+  closePosShift,
+  convertVaultCardToCash,
+  convertVaultCashToCard,
+  returnPosSale,
+  reconcileClientBonuses,
+  loyaltyHooks: loyaltyHooks(),
+  syncClientFromCardRow,
+  auditFromReq,
+  broadcastPosUpdate,
+  broadcastLoyalty,
+  createSupplierPayment,
+  deleteSupplierPayment,
+  createExpense,
+  deleteExpense,
+  createStockReceipt,
+  updateStockReceipt,
+  deleteStockReceipt,
+  createStockWriteoff,
+  updateStockWriteoff,
+  deleteStockWriteoff,
+  createStockAdjustment,
+  createPosSale,
+  createClientOrderFromPosSale,
+  completePosSaleOnlineLoyalty,
+  deliverDebtNotifications,
+  handleClientDebtDelta,
+  alignPosCashBonusToTarget,
+  ensureCardRowForClient,
+  createCashAdvance,
+  applyDebtRepayToShift,
+  normalizeCardRow,
+  normalizeClientRow,
+  normalizePhoneDigits,
+  assertCardAssignableToClient,
+  unlinkNonCanonicalSiblingCards,
+  assertDebtCardUnlinkAllowed,
+  notifyCrmChange,
+  broadcast,
+  broadcastProduct,
+})
 
 // ── Идемпотентность офлайн-кассы ──
 // Касса без интернета копит операции и отправляет их пачкой. Отправка может
@@ -355,41 +598,33 @@ function rememberOpRef(kind, clientRef, result, fingerprint = null) {
  * @returns {boolean} true if response already sent
  */
 function replyDebtOpReplayOrConflict(res, kind, clientRef, fingerprint, extra = {}) {
-  const row = findOpRefRow(kind, clientRef)
-  if (!row) return false
-  // Incomplete claim is not a success replay (resume apply / concurrent wait)
-  if (row.result && row.result.status === 'applying') {
-    const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
-    if (!check.ok) {
-      res.status(check.status || 409).json({
-        detail: check.detail,
-        code: check.code || IDEMPOTENCY_KEY_REUSED,
-        clientRef,
-        kind,
-      })
-      return true
-    }
-    return false
+  const resolved = resolveDebtOpIdempotency(db, {
+    kind,
+    clientRef,
+    fingerprint,
+    findOpRefRow,
+  })
+  if (resolved.action === 'replay') {
+    res.json({
+      ...resolved.payload,
+      ...extra,
+      clientRef,
+      kind,
+      replayed: true,
+      duplicate: true,
+      idempotentReplay: true,
+    })
+    return true
   }
-  const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
-  if (!check.ok) {
-    res.status(check.status || 409).json({
-      detail: check.detail,
-      code: check.code || IDEMPOTENCY_KEY_REUSED,
+  if (resolved.action === 'conflict') {
+    res.status(resolved.status || 409).json({
+      ...resolved.body,
       clientRef,
       kind,
     })
     return true
   }
-  const result = row.result && typeof row.result === 'object' ? row.result : {}
-  res.json({
-    ...result,
-    ...extra,
-    clientRef,
-    replayed: true,
-    duplicate: true,
-  })
-  return true
+  return false
 }
 
 const { replyIfKnownOp, remember: rememberKnownOp } = makeIdempotency(findOpRef, rememberOpRef)
@@ -494,7 +729,11 @@ function ensureReviews() {
 ensureReviews()
 
 const app = express()
+app.set('trust proxy', 1)
 app.use(cors({
+  // Bearer Authorization header auth — no ambient cookies → credentials:false
+  // (wildcard + credentials:true would be unsafe; we never enable that).
+  credentials: false,
   origin(origin, cb) {
     if (!origin) return cb(null, true)
     if (CORS_ORIGINS.length === 1 && CORS_ORIGINS[0] === '*') return cb(null, true)
@@ -505,6 +744,31 @@ app.use(cors({
   },
 }))
 app.use(express.json({ limit: '2mb' }))
+app.use(createAuthMiddleware(matchRoutePolicy, {
+  refreshStaffAuth(req) {
+    const auth = req.auth
+    if (!auth || auth.labAuto) return { ok: true }
+    if (!['STAFF', 'CASHIER'].includes(auth.principal)) return { ok: true }
+    const emp = (db.employees || []).find((e) => String(e.id) === String(auth.subjectId))
+    if (!emp || emp.active === false) {
+      return {
+        ok: false,
+        status: 401,
+        detail: 'Сотрудник заблокирован',
+        code: 'AUTH_STAFF_DISABLED',
+      }
+    }
+    const perms = Array.isArray(emp.permissions) ? emp.permissions.map(String) : []
+    auth.permissions = perms
+    auth.caps = capsFromTradePermissions(perms)
+    auth.name = emp.name || auth.name
+    // Principal follows current role
+    if (String(emp.role || '') === 'cashier') auth.principal = 'CASHIER'
+    else auth.principal = 'STAFF'
+    return { ok: true }
+  },
+}))
+installDurableHttpResponse(app)
 
 ensureUploadDirs()
 app.use('/uploads', express.static(UPLOAD_ROOT, {
@@ -652,13 +916,16 @@ app.post('/restaurants/photo', (req, res) => {
 const clients = new Set()
 
 function broadcast(event, order) {
+  // Order events are staff-scoped (not anonymous catalog sockets).
   const msg = JSON.stringify({ event, order })
   for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(msg)
+    if (ws.readyState !== 1) continue
+    if (isWsStaffRole(ws.wsRole)) ws.send(msg)
   }
 }
 
 function broadcastProduct(product) {
+  // Catalog invalidation remains receivable by public/catalog + staff + client.
   const msg = JSON.stringify({ event: 'product_update', product: stripHeavyPhotoFields(product) })
   for (const ws of clients) {
     if (ws.readyState === 1) ws.send(msg)
@@ -707,9 +974,11 @@ function broadcastRestaurant(restaurant) {
 }
 
 function broadcastPosUpdate(payload = {}) {
+  // POS/CRM/finance invalidation hints — staff/pos only (never anonymous).
   const msg = JSON.stringify({ event: 'pos_update', payload })
   for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(msg)
+    if (ws.readyState !== 1) continue
+    if (ws.wsRole === 'admin' || ws.wsRole === 'pos') ws.send(msg)
   }
 }
 
@@ -804,12 +1073,17 @@ function notifyCrmChange(clientOrCard = {}) {
   })
 }
 
-function parseWsMeta(url) {
+function parseWsMeta(url, req) {
   const raw = String(url || '')
   const path = raw.split('?')[0]
   const role = path.replace(/^\/ws\//, '') || 'client'
   const params = new URLSearchParams(raw.includes('?') ? raw.split('?')[1] : '')
-  return { role, phone: phoneKey(params.get('phone') || '') }
+  const qToken = String(params.get('token') || '').trim()
+  return {
+    role,
+    phone: phoneKey(params.get('phone') || ''),
+    token: extractWsToken(req, qToken),
+  }
 }
 
 function pushAutoEnabled(eventId) {
@@ -977,6 +1251,31 @@ function nowTime() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dushanbe' })
 }
 
+/** PC-14 read-only: classify clientRef for debt-family ops (no mutations). */
+app.get('/sync/debt-op-status', (req, res) => {
+  try {
+    const kind = String(req.query.kind || '').trim()
+    const clientRef = String(req.query.clientRef || '').trim()
+    if (!clientRef || !kind) {
+      return res.status(400).json({ detail: 'kind and clientRef required' })
+    }
+    let incomingFp = null
+    if (req.query.amount != null) {
+      incomingFp = buildDebtOpFingerprint(kind, {
+        amount: req.query.amount,
+        method: req.query.method,
+        clientId: req.query.clientId,
+        cardNum: req.query.cardNum,
+        orderId: req.query.orderId,
+        shiftId: req.query.shiftId,
+      })
+    }
+    res.json(classifyDebtOpClientRef(db, kind, clientRef, incomingFp))
+  } catch (e) {
+    res.status(500).json({ detail: e?.message || 'debt-op-status failed' })
+  }
+})
+
 app.get('/health', (_req, res) => {
   const stats = getDbStats()
   const persistent = stats.persistent
@@ -997,6 +1296,26 @@ app.get('/health', (_req, res) => {
       ? 'Подключите постоянный диск (DATA_DIR=/data) — иначе клиенты удаляются при каждом деплое'
       : undefined,
   })
+})
+
+/** Readiness: process + PostgreSQL reachable (non-destructive). */
+app.get('/ready', async (_req, res) => {
+  try {
+    if (!isPostgresEnabled()) {
+      return res.status(503).json({ ok: false, ready: false, detail: 'DATABASE_URL missing', code: 'READY_NO_DB' })
+    }
+    await withClient(async (c) => {
+      await c.query('SELECT 1')
+    })
+    res.json({ ok: true, ready: true, engine: 'postgres' })
+  } catch (e) {
+    res.status(503).json({
+      ok: false,
+      ready: false,
+      detail: 'PostgreSQL unavailable',
+      code: 'READY_DB_DOWN',
+    })
+  }
 })
 
 /** Двусторонний синк: дельты после outbox flush на кассе.
@@ -1034,39 +1353,91 @@ h1{color:#1FD760}a{color:#1FD760}code{background:#0C1C0F;padding:2px 8px;border-
 </body></html>`)
 })
 
-app.post('/auth/otp/send', (_req, res) => res.json({ ok: true, demo: true }))
+app.post('/auth/otp/send', (req, res) => {
+  const ip = clientIp(req)
+  const rl = rateLimitCheck(`otp-send:${ip}`, { windowMs: 60_000, max: 10, blockMs: 60_000 })
+  if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
+  try {
+    const out = createOtpChallenge({ phone: req.body?.phone || req.body?.clientPhone })
+    res.json(out)
+  } catch (e) {
+    res.status(e?.status || 400).json({ detail: e?.message || 'OTP недоступен', code: e?.code })
+  }
+})
 app.post('/auth/otp/verify', (req, res) => {
-  if (String(req.body.code) !== '1234') return res.status(400).json({ detail: 'Неверный код · Демо: 1234' })
-  res.json({ access_token: 'demo-client-token', role: 'client', user_id: 1, name: 'Клиент' })
+  const ip = clientIp(req)
+  const rl = rateLimitCheck(`otp-verify:${ip}`, { windowMs: 60_000, max: 20, blockMs: 120_000 })
+  if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
+  try {
+    const verified = verifyOtpChallenge({
+      challengeId: req.body?.challengeId,
+      phone: req.body?.phone || req.body?.clientPhone,
+      code: req.body?.code,
+    })
+    const phone = String(verified.phone || '').replace(/\D/g, '')
+    rateLimitReset(`otp-verify:${ip}`)
+    const session = createSession({
+      principal: 'CLIENT',
+      subjectId: phone || 'client',
+      phone: phone || '',
+      name: String(req.body.name || 'Клиент'),
+      roles: ['client'],
+    })
+    res.json({
+      access_token: session.token,
+      role: 'client',
+      user_id: 1,
+      name: session.name,
+      phone: session.phone,
+    })
+  } catch (e) {
+    res.status(e?.status || 400).json({ detail: e?.message || 'Неверный код', code: e?.code })
+  }
 })
 app.post('/auth/login', (req, res) => {
   ensureAdminAuth()
+  const ip = clientIp(req)
+  const rl = rateLimitCheck(`admin-login:${ip}`, { windowMs: 60_000, max: 12, blockMs: 120_000 })
+  if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
   const loginRaw = String(req.body.login || req.body.email || '').trim()
   const loginKey = loginRaw.toLowerCase()
   const password = String(req.body.password || '')
   if (!loginKey || !password) {
     return res.status(400).json({ detail: 'Укажите логин и пароль' })
   }
-  const user = (db.users || []).find(u => {
-    if (u.role !== 'admin') return false
-    const email = String(u.email || '').toLowerCase()
-    const login = String(u.login || '').toLowerCase()
-    return (email === loginKey || login === loginKey) && String(u.password || '') === password
+  const admin = findAdminUser()
+  if (!admin) return res.status(401).json({ detail: 'Неверный логин или пароль' })
+  const email = String(admin.email || '').toLowerCase()
+  const login = String(admin.login || '').toLowerCase()
+  const loginOk = (email === loginKey || login === loginKey)
+    || (loginKey === 'admin' && email === 'admin@kakapo.tj')
+  if (!loginOk) return res.status(401).json({ detail: 'Неверный логин или пароль' })
+  const verified = verifyAndMaybeMigrateCredential(admin, password)
+  if (!verified.ok) return res.status(401).json({ detail: 'Неверный логин или пароль' })
+  if (verified.migrated) {
+    applyPasswordMigration(admin, verified.passwordHash)
+    syncAdminAuthMirror(admin)
+    persist()
+  }
+  rateLimitReset(`admin-login:${ip}`)
+  const session = createSession({
+    principal: 'ADMIN',
+    subjectId: String(admin.id),
+    name: admin.name || 'Админ',
+    roles: ['admin'],
   })
-  // Обратная совместимость: старый email admin@kakapo.tj при логине "admin"
-  const userOrLegacy = user || (db.users || []).find(u => {
-    if (u.role !== 'admin') return false
-    if (loginKey !== 'admin') return false
-    return String(u.email || '').toLowerCase() === 'admin@kakapo.tj'
-      && String(u.password || '') === password
-  })
-  if (!userOrLegacy) return res.status(401).json({ detail: 'Неверный логин или пароль' })
   res.json({
-    access_token: `token-${userOrLegacy.role}-${userOrLegacy.id}`,
-    role: userOrLegacy.role,
-    user_id: userOrLegacy.id,
-    name: userOrLegacy.name || 'Админ',
+    access_token: session.token,
+    role: admin.role,
+    user_id: admin.id,
+    name: admin.name || 'Админ',
   })
+})
+app.post('/auth/logout', (req, res) => {
+  const token = parseBearer(req)
+  if (!token) return res.status(401).json({ detail: 'Требуется авторизация', code: 'AUTH_REQUIRED' })
+  revokeSession(token)
+  res.json({ ok: true })
 })
 app.get('/auth/admin', (_req, res) => {
   const auth = ensureAdminAuth()
@@ -1074,33 +1445,40 @@ app.get('/auth/admin', (_req, res) => {
 })
 
 app.patch('/auth/admin', (req, res) => {
-  const auth = ensureAdminAuth()
+  ensureAdminAuth()
   const body = req.body || {}
   const currentPassword = String(body.currentPassword || '')
-  if (!currentPassword || currentPassword !== auth.password) {
+  const admin = findAdminUser()
+  if (!admin || !verifyAndMaybeMigrateCredential(admin, currentPassword).ok) {
     return res.status(401).json({ detail: 'Неверный текущий пароль' })
   }
 
-  let nextLogin = String(body.login != null ? body.login : auth.login).trim()
+  let nextLogin = String(body.login != null ? body.login : (admin.login || 'admin')).trim()
   if (!nextLogin) return res.status(400).json({ detail: 'Логин не может быть пустым' })
   if (nextLogin.length < 3) return res.status(400).json({ detail: 'Логин минимум 3 символа' })
 
-  let nextPassword = auth.password
+  const prevLogin = String(admin.login || '')
+  admin.login = nextLogin
+  admin.email = nextLogin.includes('@') ? nextLogin : `${nextLogin}@kakapo.tj`
   if (body.newPassword != null && String(body.newPassword).length > 0) {
-    nextPassword = String(body.newPassword)
-    if (nextPassword.length < 4) {
-      return res.status(400).json({ detail: 'Новый пароль минимум 4 символа' })
+    try {
+      setPasswordOnRow(admin, String(body.newPassword))
+    } catch (e) {
+      return res.status(400).json({ detail: e?.message || 'Пароль некорректен' })
     }
+  } else {
+    // Migrate legacy plaintext if still present after successful verify
+    const v = verifyAndMaybeMigrateCredential(admin, currentPassword)
+    if (v.migrated) applyPasswordMigration(admin, v.passwordHash)
   }
-
-  applyAdminAuth({ login: nextLogin, password: nextPassword })
+  syncAdminAuthMirror(admin)
   auditFromReq(db, req, {
     action: 'update',
     entity: 'settings',
     entityId: 'auth',
     entityName: 'Доступ админки',
-    summary: nextLogin !== auth.login
-      ? `Сменён логин админа: ${auth.login} → ${nextLogin}`
+    summary: nextLogin !== prevLogin
+      ? `Сменён логин админа: ${prevLogin} → ${nextLogin}`
       : (body.newPassword ? 'Сменён пароль админа' : 'Обновлены данные входа админа'),
   })
   persist()
@@ -1120,6 +1498,36 @@ app.get('/products/next-codes', (_req, res) => {
 app.post('/products', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
+    const fingerprint = masterCreateFingerprint(
+      FIN_OP_KINDS.PRODUCT_UPSERT,
+      fingerprintProductCreate(req.body),
+    )
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.PRODUCT_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+      try {
+        const { replay, result: p } = await runDurableMasterCreate(db, {
+          clientRef,
+          operationKind: FIN_OP_KINDS.PRODUCT_UPSERT,
+          fingerprint,
+          mutate: () => mutateCreateProduct(db, { ...req.body, clientRef }),
+        })
+        if (!replay) {
+          auditFromReq(db, req, {
+            action: 'create',
+            entity: 'product',
+            entityId: p.id,
+            entityName: p.name,
+            summary: `Создан товар «${p.name}» · цена ${p.price}`,
+            after: { name: p.name, price: p.price, stock: p.stock, art: p.art },
+          })
+          await convertProductPhotoIfNeeded(p)
+          broadcastProduct(p)
+        }
+        return finishDurableMasterJson(res, stripHeavyPhotoFields(p), replay)
+      } catch (e) {
+        return respondMasterTxError(res, e, 'Не удалось создать товар')
+      }
+    }
     if (replyIfKnownOp(res, 'product_upsert', clientRef)) return
     const id = ++db._seq.product
     const sellType = req.body.sellType || 'piece'
@@ -1226,18 +1634,17 @@ app.patch('/products/:id', async (req, res) => {
     }
     // Остаток живёт в партиях — прямая запись stock иначе расходится со складом
     const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')
-    const nextStock = stockTouched ? Math.max(0, Number(body.stock) || 0) : null
     delete body.stock
     delete body.docVersion
+    if (stockTouched) {
+      return res.status(400).json({
+        detail: 'Остаток нельзя менять через карточку товара. Используйте POST /stock/adjustments',
+        code: 'STOCK_REQUIRES_ADJUSTMENT_OPERATION',
+      })
+    }
     Object.assign(p, body)
     p.docVersion = (Number(p.docVersion) || 0) + 1
     p.updatedAtIso = new Date().toISOString()
-    if (stockTouched && Math.abs(nextStock - sumProductLayers(db, p.id)) > 0.0001) {
-      setProductStockExact(db, p.id, nextStock, {
-        reason: 'Правка остатка',
-        createdBy: req.body?.createdBy || '',
-      })
-    }
     const after = { name: p.name, price: p.price, stock: p.stock, costPrice: p.costPrice, cat: p.cat }
     auditFromReq(db, req, {
       action: 'update',
@@ -1299,12 +1706,46 @@ app.post('/stock/reconcile', (req, res) => {
   }
 })
 
-app.post('/products/:id/stock-layers', (req, res) => {
+app.post('/products/:id/stock-layers', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'stock_receipt_create', clientRef)) return
     const id = Number(req.params.id)
-    const result = addProductStockLayer(db, id, req.body || {})
+    const body = req.body || {}
+    const qty = Number(body.qty ?? body.quantity) || 0
+    const fingerprint = buildO6Fingerprint(WH_OP_KINDS.STOCK_LAYER_CREATE, {
+      productId: id,
+      qty,
+      costPrice: Number(body.costPrice) || 0,
+      reason: String(body.reason || '').trim(),
+    })
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, WH_OP_KINDS.STOCK_LAYER_CREATE, clientRef, fingerprint, findOpRefRow)) return
+      const { replay, result } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: WH_OP_KINDS.STOCK_LAYER_CREATE,
+        fingerprint,
+        advisoryLocks: stockProductAdvisoryLocks([id]),
+        mutate: () => {
+          const layerResult = addProductStockLayer(db, id, { ...body, clientRef })
+          if (layerResult.receipt) layerResult.receipt.clientRef = clientRef
+          return {
+            result: layerResult,
+            touched: touchedFromWarehouse(db, {
+              productIds: [id],
+              receipt: layerResult.receipt,
+            }),
+            meta: { _seq: JSON.parse(JSON.stringify(db._seq || {})) },
+          }
+        },
+      })
+      if (!replay) {
+        broadcastPosUpdate({ kind: 'receipt', id: result.receipt.id })
+        broadcastProduct({ id, reason: 'stock-layer' })
+      }
+      return finishDurableMasterJson(res, result, replay)
+    }
+    if (replyIfKnownOp(res, 'stock_receipt_create', clientRef)) return
+    const result = addProductStockLayer(db, id, body)
     if (clientRef) {
       if (result.receipt) result.receipt.clientRef = clientRef
       rememberKnownOp('stock_receipt_create', clientRef, result)
@@ -1314,28 +1755,97 @@ app.post('/products/:id/stock-layers', (req, res) => {
     broadcastProduct({ id, reason: 'stock-layer' })
     res.json(result)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось добавить приход' })
+    respondMasterTxError(res, e, 'Не удалось добавить приход')
   }
 })
 
-app.patch('/stock/layers/:receiptId/:productId', (req, res) => {
+app.patch('/stock/layers/:receiptId/:productId', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
+    const receiptId = req.params.receiptId
+    const productId = Number(req.params.productId)
+    const body = req.body || {}
+    const fingerprint = buildO6Fingerprint(WH_OP_KINDS.STOCK_LAYER_UPDATE, {
+      receiptId,
+      productId,
+      costPrice: body.costPrice,
+      retailPrice: body.retailPrice,
+      bulkPricing: body.bulkPricing,
+      expiryDate: body.expiryDate,
+    })
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, WH_OP_KINDS.STOCK_LAYER_UPDATE, clientRef, fingerprint, findOpRefRow)) return
+      const { replay, result: layers } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: WH_OP_KINDS.STOCK_LAYER_UPDATE,
+        fingerprint,
+        advisoryLocks: stockProductAdvisoryLocks([productId]),
+        mutate: () => {
+          const updated = updateProductStockLayer(db, receiptId, productId, body)
+          return {
+            result: updated,
+            touched: touchedFromWarehouse(db, { productIds: [productId] }),
+            meta: { _seq: JSON.parse(JSON.stringify(db._seq || {})) },
+          }
+        },
+      })
+      if (!replay) broadcastProduct({ id: productId, reason: 'stock-layer' })
+      markResponseEphemeral(res)
+      return res.json(layers)
+    }
     if (replyIfKnownOp(res, 'stock_layer_update', clientRef)) return
-    const layers = updateProductStockLayer(db, req.params.receiptId, Number(req.params.productId), req.body || {})
+    const layers = updateProductStockLayer(db, receiptId, productId, body)
     if (clientRef) rememberKnownOp('stock_layer_update', clientRef, layers)
     persist()
-    broadcastProduct({ id: Number(req.params.productId), reason: 'stock-layer' })
+    broadcastProduct({ id: productId, reason: 'stock-layer' })
     res.json(layers)
   } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось обновить партию' })
+    respondMasterTxError(res, e, 'Не удалось обновить партию')
   }
 })
-app.delete('/stock/layers/:receiptId/:productId', (req, res) => {
+app.delete('/stock/layers/:receiptId/:productId', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
+    const receiptId = req.params.receiptId
+    const productId = Number(req.params.productId)
+    const fingerprint = buildO6Fingerprint(WH_OP_KINDS.STOCK_LAYER_DELETE, { receiptId, productId })
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, WH_OP_KINDS.STOCK_LAYER_DELETE, clientRef, fingerprint, findOpRefRow)) return
+      const { replay, result } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: WH_OP_KINDS.STOCK_LAYER_DELETE,
+        fingerprint,
+        advisoryLocks: stockProductAdvisoryLocks([productId]),
+        mutate: () => {
+          const deleted = deleteProductStockLayer(db, receiptId, productId)
+          return {
+            result: deleted,
+            touched: touchedFromWarehouse(db, { productIds: [productId], receipt: { id: deleted.receiptId } }),
+            meta: { _seq: JSON.parse(JSON.stringify(db._seq || {})) },
+          }
+        },
+      })
+      if (!replay) {
+        auditFromReq(db, req, {
+          action: 'delete',
+          entity: 'stock',
+          entityId: result.receiptId,
+          entityName: `layer:${result.productId}`,
+          summary: result.deletedReceipt
+            ? `Удалена партия (весь приход) · товар #${result.productId}`
+            : `Удалена партия · товар #${result.productId}`,
+        })
+        broadcastPosUpdate({
+          kind: 'receipt',
+          id: result.receiptId,
+          deleted: result.deletedReceipt,
+        })
+        broadcastProduct({ id: productId, reason: 'stock-layer' })
+      }
+      return finishDurableMasterJson(res, result, replay)
+    }
     if (replyIfKnownOp(res, 'stock_layer_delete', clientRef)) return
-    const result = deleteProductStockLayer(db, req.params.receiptId, Number(req.params.productId))
+    const result = deleteProductStockLayer(db, receiptId, productId)
     if (clientRef) rememberKnownOp('stock_layer_delete', clientRef, result)
     auditFromReq(db, req, {
       action: 'delete',
@@ -1359,10 +1869,37 @@ app.delete('/stock/layers/:receiptId/:productId', (req, res) => {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить партию' })
   }
 })
-app.delete('/products/:id', (req, res) => {
+app.delete('/products/:id', async (req, res) => {
   const clientRef = takeClientRef(req)
-  if (replyIfKnownOp(res, 'product_delete', clientRef)) return
   const id = Number(req.params.id)
+  const fingerprint = masterCreateFingerprint(FIN_OP_KINDS.PRODUCT_DELETE, fingerprintProductDelete(id))
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.PRODUCT_DELETE, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const existing = db.products.find(x => x.id === id)
+      const { replay, result } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.PRODUCT_DELETE,
+        fingerprint,
+        mutate: () => mutateDeleteProduct(db, id, { deleteManagedProductPhotoFn: deleteManagedProductPhoto }),
+      })
+      if (!replay && existing) {
+        auditFromReq(db, req, {
+          action: 'delete',
+          entity: 'product',
+          entityId: id,
+          entityName: existing.name,
+          summary: `Удалён товар «${existing.name}»`,
+          before: { name: existing.name, price: existing.price, stock: existing.stock, art: existing.art },
+        })
+        broadcastProduct({ id, deleted: true })
+      }
+      return finishDurableMasterJson(res, result, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось удалить товар')
+    }
+  }
+  if (replyIfKnownOp(res, 'product_delete', clientRef)) return
   const existing = db.products.find(x => x.id === id)
   if (!existing) return res.status(404).json({ detail: 'Не найдено' })
   try {
@@ -1441,8 +1978,28 @@ app.get('/categories/tree', (_req, res) => {
   const withChildren = cat => ({ ...cat, children: childrenOf(cat.id).map(withChildren) })
   res.json(roots.map(withChildren))
 })
-app.post('/categories', (req, res) => {
+app.post('/categories', async (req, res) => {
   const clientRef = takeClientRef(req)
+  const slugPreview = String(req.body.slug || '').trim() || slugifyCategory(req.body.name)
+  const fingerprint = masterCreateFingerprint(
+    FIN_OP_KINDS.CATEGORY_UPSERT,
+    fingerprintCategoryCreate(req.body, slugPreview),
+  )
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.CATEGORY_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const { replay, result: c } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.CATEGORY_UPSERT,
+        fingerprint,
+        mutate: () => mutateCreateCategory(db, req.body, { slugifyCategory }),
+      })
+      if (!replay) broadcastCategory(c)
+      return finishDurableMasterJson(res, c, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось создать категорию')
+    }
+  }
   if (replyIfKnownOp(res, 'category_upsert', clientRef)) return
   const id = ++db._seq.category
   const slug = String(req.body.slug || '').trim() || slugifyCategory(req.body.name)
@@ -1739,7 +2296,26 @@ function consumePromoStockOnOrder(order) {
   }
 }
 
-app.post('/promos', (req, res) => {
+app.post('/promos', async (req, res) => {
+  const clientRef = takeClientRef(req)
+  const fingerprint = masterCreateFingerprint(
+    FIN_OP_KINDS.PROMO_UPSERT,
+    fingerprintPromoCreate(req.body),
+  )
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.PROMO_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const { replay, result: p } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.PROMO_UPSERT,
+        fingerprint,
+        mutate: () => mutateCreatePromo(db, req.body, { resolvePromoStockLimitUnit }),
+      })
+      return finishDurableMasterJson(res, p, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось создать акцию')
+    }
+  }
   const id = ++db._seq.promo
   const p = {
     id,
@@ -1812,10 +2388,48 @@ function findDuplicateRecentOrder(db, order) {
   }) || null
 }
 
-app.post('/orders', (req, res) => {
-  const body = req.body
+app.post('/orders', async (req, res) => {
+  const body = req.body || {}
+  const clientRef = takeClientRef(req)
+  const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+  if (!refGate.ok) {
+    return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+  }
+  const otypePreview = inferType({ type: body.type, items: body.items || [] })
+  const fingerprint = buildO6Fingerprint(FIN_OP_KINDS.ORDER_CREATE, fingerprintOrderCreate(body, { type: otypePreview }))
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.ORDER_CREATE, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const payload = { ...body, clientRef }
+      const { replay, result: order } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.ORDER_CREATE,
+        fingerprint,
+        mutate: () => mutateCreateOrder(db, payload, o6OrderDeps()),
+      })
+      if (!replay) {
+        const reservedProducts = (order.items || []).map(it => ({ productId: Number(it.product_id ?? it.id) }))
+        for (const line of reservedProducts) {
+          const p = db.products.find(x => Number(x.id) === Number(line.productId))
+          if (p) broadcastProduct(p)
+        }
+        const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
+        if (bonusSpendReq > 0) {
+          const orderClient = findClientByPhone(db, order.client?.phone || '')
+          if (orderClient) {
+            broadcastLoyalty({ phone: orderClient.phone, bonus: orderClient.bonus, card: orderClient.card || '' })
+          }
+        }
+        broadcast('new_order', order)
+      }
+      return finishDurableMasterJson(res, order, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось создать заказ')
+    }
+  }
+
   const client = body.client || { name: body.client_name, phone: body.client_phone, addr: body.address, lat: body.lat, lng: body.lng }
-  const otype = inferType({ type: body.type, items: body.items || [] })
+  const otype = otypePreview
   const order = {
     id: nextOrderId(db),
     type: otype,
@@ -1883,125 +2497,55 @@ app.post('/orders', (req, res) => {
   broadcast('new_order', order)
   res.json(order)
 })
-app.patch('/orders/:id/status', (req, res) => {
-  const idx = db.orders.findIndex(o => o.id === req.params.id)
-  if (idx < 0) return res.status(404).json({ detail: 'Заказ не найден' })
-  const prev = db.orders[idx]
-
-  const commissionResult = applyCourierCommissionOnAccept(db, prev, req.body)
-  if (!commissionResult.ok) {
-    return res.status(400).json({ detail: commissionResult.error })
+app.patch('/orders/:id/status', async (req, res) => {
+  const clientRef = takeClientRef(req)
+  const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+  if (!refGate.ok) {
+    return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
   }
+  const orderId = req.params.id
+  const body = { ...(req.body || {}), clientRef }
+  const fingerprint = buildOrderStatusFingerprint(orderId, body)
+  const productIdsHint = (body.items || [])
+    .map(it => Number(it.product_id ?? it.id))
+    .filter(n => n > 0)
 
-  // Склад: правка состава → пересчёт резерва; иначе дорезерв старых заказов без stockReserved
-  let stockTouchedIds = []
-  const nextStatus = req.body?.status || prev.status
-  const willCancel = nextStatus === 'cancelled' && prev.status !== 'cancelled'
-  try {
-    if (!willCancel && Array.isArray(req.body?.items)) {
-      const sync = syncOrderStockReserve(db, prev, req.body.items)
-      if (sync.changed) stockTouchedIds = sync.productIds
-    } else if (
-      !willCancel
-      && !prev.stockFromPos
-      && !prev.stockReserved
-      && !['cancelled', 'delivered'].includes(prev.status)
-    ) {
-      // Заказы, оформленные до резерва склада: списываем один раз, пока они в работе
-      const sync = syncOrderStockReserve(db, prev, prev.items)
-      if (sync.changed) stockTouchedIds = sync.productIds
-    }
-  } catch (e) {
-    return res.status(400).json({ detail: e?.message || 'Недостаточно остатка на складе' })
-  }
-
-  const updated = applyStatusPatch({ ...prev }, req.body)
-  // переносим поля резерва, которые sync менял на prev
-  updated.stockReserved = prev.stockReserved
-  updated.stockReserveLines = prev.stockReserveLines
-  updated.stockFromPos = prev.stockFromPos
-
-  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
-    const released = releaseOrderStock(db, updated, 'Отмена заказа')
-    stockTouchedIds = [...new Set([...stockTouchedIds, ...released.map(l => Number(l.productId))])]
-  } else if (prev.status === 'cancelled' && updated.status !== 'cancelled') {
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.ORDER_STATUS_UPDATE, clientRef, fingerprint, findOpRefRow)) return
     try {
-      const reserved = reserveOrderStock(db, updated)
-      stockTouchedIds = [...new Set([...stockTouchedIds, ...reserved.map(l => Number(l.productId))])]
+      let committedFx = null
+      const { replay, result: updated } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.ORDER_STATUS_UPDATE,
+        fingerprint,
+        advisoryLocks: orderResourceAdvisoryLocks(orderId, productIdsHint),
+        mutate: () => {
+          const out = mutateOrderStatusUpdate(db, orderId, body, o6OrderStatusHooks())
+          committedFx = out.fx
+          return {
+            result: out.result,
+            touched: out.touched,
+            meta: out.meta,
+          }
+        },
+      })
+      if (!replay) afterOrderStatusCommitted(db, committedFx, updated)
+      return finishDurableMasterJson(res, updated, replay)
     } catch (e) {
-      return res.status(400).json({ detail: e?.message || 'Недостаточно остатка на складе' })
+      return respondMasterTxError(res, e, 'Не удалось обновить заказ')
     }
   }
 
-  stampCourierCommissionOnOrder(updated, commissionResult)
-
-  // Бонусы: Отменён → вернуть; любой другой статус из отмены → снова списать
-  const bonusSync = syncOrderBonusOnStatusChange(db, prev, updated, loyaltyHooks())
-  if (bonusSync.changed) {
-    const phone = updated.client?.phone || prev.client?.phone || ''
-    if (phone) {
-      const client = findClientByPhone(db, phone)
-      if (client) {
-        broadcastLoyalty({
-          phone: client.phone,
-          bonus: client.bonus,
-          card: client.card || '',
-        })
-      }
-    }
+  if (replyIfKnownOp(res, 'order_status_update', clientRef)) return
+  try {
+    const out = mutateOrderStatusUpdate(db, orderId, body, o6OrderStatusHooks())
+    persist()
+    afterOrderStatusCommitted(db, out.fx, out.result)
+    if (clientRef) rememberKnownOp('order_status_update', clientRef, out.result)
+    return res.json(out.result)
+  } catch (e) {
+    return respondMasterTxError(res, e, 'Не удалось обновить заказ')
   }
-
-  if (updated.status === 'delivered' && prev.status !== 'delivered') {
-    updated.deliveredAtIso = new Date().toISOString()
-    if (!updated.deliveredAt) {
-      updated.deliveredAt = nowTime()
-    }
-    lockOrderDeliveryFee(updated, db.settings.pricing)
-    creditDeliveredOrder(db, updated)
-    const phone = updated.client?.phone || ''
-    applyClientLoyaltyAfterDelivery(db, updated, loyaltyHooks())
-    if (phone) {
-      const client = findClientByPhone(db, phone)
-      if (client) {
-        broadcastLoyalty({
-          phone: client.phone,
-          bonus: client.bonus,
-          card: client.card || '',
-        })
-      }
-    }
-  }
-  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
-    refundCourierCommission(db, updated)
-  }
-  db.orders[idx] = updated
-  persist()
-  for (const pid of stockTouchedIds) {
-    const p = db.products.find(x => Number(x.id) === Number(pid))
-    if (p) broadcastProduct(p)
-  }
-  if (stockTouchedIds.length) {
-    broadcastPosUpdate({ reason: 'order-stock', productIds: stockTouchedIds })
-  }
-  if (commissionResult.courierId && Number(commissionResult.commission) > 0) {
-    broadcastCourierWallet(commissionResult)
-  }
-  if (updated.status === 'cancelled' && prev.status !== 'cancelled') {
-    const refundedId = updated.courierCommissionCourierId
-    if (refundedId && updated.courierCommissionRefunded) {
-      const c = (db.couriers || []).find(x => x.id === refundedId)
-      if (c) {
-        broadcastCourierWallet({
-          courierId: c.id,
-          account: normalizeCourierAccount(c.account, c.id),
-          balance: Math.max(0, Math.round((Number(c.balance) || 0) * 100) / 100),
-        })
-      }
-    }
-  }
-  onOrderStatusChangeServer(prev, db.orders[idx])
-  broadcast('order_update', db.orders[idx])
-  res.json(db.orders[idx])
 })
 
 function removeOrderRecord(orderId) {
@@ -2459,16 +3003,11 @@ app.patch('/cashiers/:id', (req, res) => {
 app.get('/employees', (_req, res) => {
   res.json(listEmployees(db))
 })
-/** Для экрана входа в Торговлю — без паролей */
+/** Для экрана входа в Торговлю — только id + name */
 app.get('/employees/directory', (_req, res) => {
-  res.json(listEmployees(db).filter(e => e.active !== false).map(e => ({
-    id: e.id,
-    name: e.name,
-    role: e.role,
-    roleLabel: e.roleLabel,
-  })))
+  res.json(listEmployeesDirectory(db))
 })
-/** Для локальной кассы (офлайн): сотрудники с паролями — только привязанное устройство */
+/** Для локальной кассы (офлайн): сотрудники с хешами — только привязанное устройство */
 app.get('/employees/local-auth', (req, res) => {
   const deviceId = readTradeDeviceId(req)
   const check = checkPosDevice(db, deviceId)
@@ -2477,8 +3016,37 @@ app.get('/employees/local-auth', (req, res) => {
   }
   res.json(listEmployeesLocalAuth(db))
 })
-app.post('/employees', (req, res) => {
+app.post('/employees', async (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    const fingerprint = masterCreateFingerprint(
+      FIN_OP_KINDS.EMPLOYEE_UPSERT,
+      fingerprintEmployeeCreate(req.body || {}),
+    )
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.EMPLOYEE_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+      try {
+        const { replay, result: row } = await runDurableMasterCreate(db, {
+          clientRef,
+          operationKind: FIN_OP_KINDS.EMPLOYEE_UPSERT,
+          fingerprint,
+          mutate: () => mutateCreateEmployee(db, req.body || {}),
+        })
+        if (!replay) {
+          auditFromReq(db, req, {
+            action: 'create',
+            entity: 'employee',
+            entityId: row.id,
+            entityName: row.name,
+            summary: `Создан сотрудник «${row.name}» · ${row.role || row.roleLabel || ''}`,
+            after: { name: row.name, role: row.role, active: row.active },
+          })
+        }
+        return finishDurableMasterJson(res, row, replay)
+      } catch (e) {
+        return respondMasterTxError(res, e, 'Не удалось создать сотрудника')
+      }
+    }
     const row = createEmployee(db, req.body || {})
     auditFromReq(db, req, {
       action: 'create',
@@ -2543,11 +3111,23 @@ function readTradeDeviceId(req) {
 
 app.post('/employees/login', (req, res) => {
   try {
+    const ip = clientIp(req)
+    const rl = rateLimitCheck(`emp-login:${ip}`, { windowMs: 60_000, max: 20, blockMs: 120_000 })
+    if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
     const deviceId = readTradeDeviceId(req)
     if (!checkPosDevice(db, deviceId).ok) {
       return res.status(403).json({ detail: 'Устройство не привязано' })
     }
     const row = loginEmployee(db, req.body || {})
+    rateLimitReset(`emp-login:${ip}`)
+    const session = createSession({
+      principal: row.role === 'cashier' ? 'CASHIER' : 'STAFF',
+      subjectId: String(row.id),
+      name: row.name,
+      roles: [String(row.role || 'staff')],
+      permissions: Array.isArray(row.permissions) ? row.permissions : [],
+      deviceId,
+    })
     auditFromReq(db, req, {
       app: 'trade',
       action: 'login',
@@ -2558,7 +3138,12 @@ app.post('/employees/login', (req, res) => {
       actor: { name: row.name, employeeId: row.id, role: row.role },
     })
     persist()
-    res.json(row)
+    const { _passwordMigrated, ...safe } = row
+    res.json({
+      ...safe,
+      token: session.token,
+      access_token: session.token,
+    })
   } catch (e) {
     res.status(401).json({ detail: e?.message || 'Ошибка входа' })
   }
@@ -2567,8 +3152,25 @@ app.post('/employees/login', (req, res) => {
 app.get('/pos/points', (_req, res) => {
   res.json(listPosPoints(db))
 })
-app.post('/pos/points', (req, res) => {
+app.post('/pos/points', async (req, res) => {
   try {
+    const clientRef = takeClientRef(req)
+    const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+    if (!refGate.ok) {
+      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+    }
+    const fingerprint = buildO6Fingerprint(FIN_OP_KINDS.POS_POINT_UPSERT, fingerprintPosPointCreate(req.body || {}))
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.POS_POINT_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+      const { replay, result: row } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.POS_POINT_UPSERT,
+        fingerprint,
+        mutate: () => mutateCreatePosPoint(db, req.body || {}),
+      })
+      if (!replay) broadcastPosUpdate({ kind: 'pos', id: row.id })
+      return finishDurableMasterJson(res, row, replay)
+    }
     const row = createPosPoint(db, req.body || {})
     persist()
     broadcastPosUpdate({ kind: 'pos', id: row.id })
@@ -2653,9 +3255,29 @@ app.get('/pos/devices/status', (_req, res) => {
   }
 })
 
-app.post('/pos/devices/bind', (req, res) => {
+app.post('/pos/devices/bind', async (req, res) => {
   try {
-    const row = bindPosDevice(db, req.body || {})
+    const clientRef = takeClientRef(req)
+    const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+    if (!refGate.ok) {
+      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+    }
+    const body = req.body || {}
+    const fingerprint = buildO6Fingerprint(FIN_OP_KINDS.DEVICE_BIND, fingerprintDeviceBind(body))
+    const deviceId = String(body.deviceId || '').trim()
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.DEVICE_BIND, clientRef, fingerprint, findOpRefRow)) return
+      const { replay, result: row } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: FIN_OP_KINDS.DEVICE_BIND,
+        fingerprint,
+        advisoryLocks: deviceId ? [{ ns: 'pos_device', key: deviceId }] : [],
+        mutate: () => mutateBindDevice(db, body),
+      })
+      if (!replay && row?.point?.id) broadcastPosUpdate({ kind: 'pos', id: row.point.id })
+      return finishDurableMasterJson(res, row, replay)
+    }
+    const row = bindPosDevice(db, body)
     persist()
     if (row?.point?.id) broadcastPosUpdate({ kind: 'pos', id: row.point.id })
     res.json(row)
@@ -2676,416 +3298,55 @@ app.get('/pos/shifts', (_req, res) => {
   res.json(listPosShifts(db))
 })
 app.post('/pos/shifts/open', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.posShifts || []).find(s => s.clientRef === clientRef)
-      if (known) return res.json(known)
-    }
-    const row = openPosShift(db, req.body || {})
-    if (clientRef) row.clientRef = clientRef
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'shift_open',
-      entity: 'shift',
-      entityId: row.id,
-      entityName: row.cashierName || row.posId,
-      summary: `Открыта смена · ${row.cashierName || 'кассир'} · касса ${row.openingCash ?? 0}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'shift', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось открыть смену' })
-  }
+  void handleO8ShiftOpen(req, res, o8HandlerCtx())
 })
 app.patch('/pos/shifts/:id/close', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.posShifts || []).find(s => s.closeClientRef === clientRef)
-      if (known) return res.json(known)
-    }
-    const row = closePosShift(db, req.params.id, req.body || {})
-    if (clientRef) row.closeClientRef = clientRef
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'shift_close',
-      entity: 'shift',
-      entityId: row.id,
-      entityName: row.cashierName || row.posId,
-      summary: `Закрыта смена · ${row.cashierName || 'кассир'}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'shift', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось закрыть смену' })
-  }
+  void handleO8ShiftClose(req, res, o8HandlerCtx())
 })
 
-app.get('/pos/sales', (_req, res) => {
+app.get('/pos/sales', (req, res) => {
   if (ensurePosSaleNumbers(db)) persist()
-  res.json(listPosSales(db))
-})
-app.post('/pos/sales', async (req, res) => {
-  try {
-    const body = req.body || {}
-    // Идемпотентность офлайн-синхронизации: если чек с таким clientRef уже проведён — возвращаем его
-    const clientRef = body.clientRef ? String(body.clientRef).trim() : ''
-    const skipBalances = !!(body.appliedLocal || body.skipBalances)
-    const debtAddedEarly = Math.round((Number(body.debtAdded) || 0) * 100) / 100
-    // Phase D4: credit / local-first sale must carry clientRef
-    if ((skipBalances || debtAddedEarly > 0.001) && !clientRef) {
-      return res.status(400).json({
-        detail: 'clientRef обязателен для идемпотентной продажи в долг / local-first',
-        code: CLIENT_REF_REQUIRED,
-      })
-    }
-    const saleFp = buildDebtOpFingerprint('pos_sale', {
-      amount: body.total,
-      debtAdded: debtAddedEarly,
-      clientId: body.clientId,
-      cardNum: body.cardNum,
-      method: body.paymentMethod,
-      shiftId: body.shiftId,
-      // orderId intentionally omitted — may remap after sync
-    })
-    const bonusSpendReq = Math.max(0, Math.floor(Number(body.bonusSpent) || 0))
-    const loyaltyCreateOrder = (d, sale, b) => createClientOrderFromPosSale(d, sale, b)
-
-    const finishLoyalty = async (sale, { broadcastNewOrder = false } = {}) => {
-      const lr = await completePosSaleOnlineLoyalty(db, sale, body, loyaltyHooks(), {
-        createOrder: loyaltyCreateOrder,
-      })
-      if (!lr.ok) return lr
-      if (lr.broadcastLoyalty && lr.order?.client?.phone) {
-        const client = findClientByPhone(db, lr.order.client.phone)
-        if (client) {
-          broadcastLoyalty({
-            phone: client.phone,
-            bonus: client.bonus,
-            card: client.card || '',
-          })
-        }
-      }
-      if (broadcastNewOrder && lr.broadcastOrder && lr.order) {
-        broadcast('new_order', lr.order)
-      }
-      return lr
-    }
-
-    if (clientRef) {
-      const opRow = findOpRefRow('pos_sale', clientRef)
-      if (opRow) {
-        const check = checkIdempotencyReplay(opRow.fingerprint, saleFp)
-        if (!check.ok) {
-          return res.status(check.status || 409).json({
-            detail: check.detail,
-            code: check.code || IDEMPOTENCY_KEY_REUSED,
-            clientRef,
-          })
-        }
-      }
-      const dup = (db.posSales || []).find(s => s.clientRef === clientRef)
-      if (dup) {
-        const dupFp = fingerprintFromPosSale(dup)
-        const check = checkIdempotencyReplay(dupFp || opRow?.fingerprint, saleFp)
-        if (!check.ok) {
-          return res.status(check.status || 409).json({
-            detail: check.detail,
-            code: check.code || IDEMPOTENCY_KEY_REUSED,
-            clientRef,
-          })
-        }
-        // FIX A: existing sale replay — дозавершить missing loyalty (earn/spend) ровно один раз
-        if (dup.clientPhone) {
-          const lr = await finishLoyalty(dup, { broadcastNewOrder: true })
-          if (!lr.ok) {
-            return res.status(400).json({ detail: lr.error || 'Не удалось дозавершить бонусы' })
-          }
-          if (lr.completedNow || lr.order) persist()
-        }
-        return res.json({ ...dup, replayed: true, duplicate: true, clientRef })
-      }
-      if (replyDebtOpReplayOrConflict(res, 'pos_sale', clientRef, saleFp)) return
-    }
-    if (bonusSpendReq > 0 && !skipBalances) {
-      const phone = String(body.clientPhone || '').trim()
-      if (!phone) return res.status(400).json({ detail: 'Для списания бонусов нужен клиент' })
-      const client = findClientByPhone(db, phone)
-      if (!client) return res.status(400).json({ detail: 'Клиент не найден' })
-      const card = client.card ? findCardByNum(client.card) : ensureCardRowForClient(client)
-      const bal = Number(card?.bonus) || 0
-      if (bal < bonusSpendReq) {
-        return res.status(400).json({ detail: `Недостаточно бонусов (доступно ${bal})` })
-      }
-    }
-
-    const row = createPosSale(db, body)
-    const saleReplay = !!row._idempotentReplay
-    if (saleReplay) delete row._idempotentReplay
-    deliverDebtNotifications(saleReplay ? [] : (row._debtNotifications || []))
-
-    if (row.clientPhone) {
-      // First create + concurrent replay: единый путь completion (markers prevent dup)
-      const lr = await finishLoyalty(row, { broadcastNewOrder: !saleReplay })
-      if (!lr.ok) {
-        if (!saleReplay && lr.order) {
-          db.orders = (db.orders || []).filter(o => o.id !== lr.order.id)
-          queueDocDelete('orders', String(lr.order.id))
-          row.orderId = undefined
-        }
-        return res.status(400).json({ detail: lr.error || 'Не удалось списать бонусы' })
-      }
-    }
-    // FIX D: await flush so 23505 reconcile can replace loser before response
-    await flushDbAsync()
-    const canonical = clientRef
-      ? (db.posSales || []).find(s => String(s.clientRef || '').trim() === clientRef) || row
-      : row
-    if (clientRef) {
-      rememberOpRef('pos_sale', clientRef, { id: canonical.id, orderId: canonical.orderId }, saleFp)
-    }
-    const wasReplay = saleReplay || (canonical && canonical.id !== row.id)
-    if (!wasReplay) {
-      broadcastPosUpdate({ kind: 'sale', id: canonical.id })
-      broadcastProduct({ reason: 'sale' })
-    }
-    // Обычные продажи в историю не пишем — только «махинации» (скидка и т.п.)
-    const discAmt = Math.round((Number(canonical.discountAmount) || 0) * 100) / 100
-    if (!wasReplay && discAmt > 0.001) {
-      auditFromReq(db, req, {
-        app: 'trade',
-        action: 'discount',
-        entity: 'sale',
-        entityId: canonical.id,
-        entityName: canonical.saleNumber || canonical.id,
-        summary: `Скидка на чеке ${canonical.saleNumber || canonical.id} · −${discAmt} ЅМ · итог ${canonical.total} ЅМ`,
-        after: {
-          discountAmount: discAmt,
-          total: canonical.total,
-          paymentMethod: canonical.paymentMethod,
-          cashierName: canonical.cashierName,
-        },
-      })
-    }
-    res.json(wasReplay
-      ? { ...canonical, replayed: true, duplicate: true, clientRef: clientRef || canonical.clientRef }
-      : canonical)
-  } catch (e) {
-    res.status(400).json({
-      detail: e?.message || 'Не удалось провести продажу',
-      code: e?.code || undefined,
-    })
+  const q = {
+    from: req.query.from || null,
+    to: req.query.to || null,
+    limit: req.query.limit != null ? req.query.limit : null,
+    offset: req.query.offset != null ? req.query.offset : 0,
   }
+  res.json(listPosSales(db, q))
+})
+app.post('/pos/sales', (req, res) => {
+  void handleO8PosSaleCreate(req, res, o8HandlerCtx())
 })
 app.post('/pos/sales/:id/return', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.posSales || []).find(s => (s.returns || []).some(r => r.clientRef === clientRef))
-      if (known) return res.json(known)
-      if (replyIfKnownOp(res, 'sale_return', clientRef)) return
-    }
-    const row = returnPosSale(db, req.params.id, req.body || {})
-    if (clientRef) {
-      const last = Array.isArray(row.returns) ? row.returns[row.returns.length - 1] : null
-      if (last && !last.clientRef) last.clientRef = clientRef
-      rememberOpRef('sale_return', clientRef, { id: row.id, status: row.status })
-    }
-    const bonusRefund = Number(row._bonusRefunded) || 0
-    const bonusPhone = String(row._bonusRefundPhone || row.clientPhone || '').trim()
-    delete row._bonusRefunded
-    delete row._bonusRefundPhone
-    if (bonusRefund > 0 && bonusPhone) {
-      reconcileClientBonuses(db, bonusPhone, loyaltyHooks())
-      const client = findClientByPhone(db, bonusPhone)
-      if (client) {
-        broadcastLoyalty({
-          phone: client.phone,
-          bonus: client.bonus,
-          card: client.card || '',
-        })
-      }
-    }
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'return',
-      entity: 'sale',
-      entityId: row.id,
-      entityName: row.saleNumber || row.id,
-      summary: `Возврат по чеку ${row.saleNumber || row.id}`
-        + (bonusRefund > 0 ? ` · бонусы +${bonusRefund}` : ''),
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'sale-return', id: row.id })
-    broadcastProduct({ reason: 'sale-return' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось оформить возврат' })
-  }
+  void handleO8SaleReturn(req, res, o8HandlerCtx())
 })
 
 app.get('/stock/receipts', (_req, res) => {
   res.json(listStockReceipts(db))
 })
 app.post('/stock/receipts', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_receipt_create', clientRef)
-      if (known) return res.json(known)
-      const existing = (db.stockReceipts || []).find(r => r.clientRef === clientRef)
-      if (existing) return res.json(existing)
-    }
-    const row = createStockReceipt(db, req.body || {})
-    if (clientRef) {
-      row.clientRef = clientRef
-      rememberOpRef('stock_receipt_create', clientRef, row)
-    }
-    auditFromReq(db, req, {
-      action: 'create',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.supplierName || row.id,
-      summary: `Приход товара · ${row.supplierName || row.id}` + (row.items?.length ? ` · ${row.items.length} поз.` : ''),
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'receipt', id: row.id })
-    broadcastProduct({ reason: 'receipt' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести приход' })
-  }
+  void handleO8StockReceiptCreate(req, res, o8HandlerCtx())
 })
 app.put('/stock/receipts/:id', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_receipt_update', clientRef)
-      if (known) return res.json(known)
-    }
-    const row = updateStockReceipt(db, req.params.id, req.body || {})
-    if (clientRef) rememberOpRef('stock_receipt_update', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'update',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.supplierName || row.id,
-      summary: `Изменён приход · ${row.supplierName || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'receipt', id: row.id, updated: true })
-    broadcastProduct({ reason: 'receipt-update' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось изменить приход' })
-  }
+  void handleO8StockReceiptUpdate(req, res, o8HandlerCtx())
 })
 app.delete('/stock/receipts/:id', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_receipt_delete', clientRef)
-      if (known) return res.json(known)
-    }
-    const row = deleteStockReceipt(db, req.params.id)
-    if (clientRef) rememberOpRef('stock_receipt_delete', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'delete',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.supplierName || row.id,
-      summary: `Удалён приход · ${row.supplierName || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'receipt', id: row.id, deleted: true })
-    broadcastProduct({ reason: 'receipt-delete' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить приход' })
-  }
+  void handleO8StockReceiptDelete(req, res, o8HandlerCtx())
 })
 app.get('/stock/writeoffs', (_req, res) => {
   res.json(listStockWriteoffs(db))
 })
+app.post('/stock/adjustments', (req, res) => {
+  void handleO8StockAdjustment(req, res, o8HandlerCtx())
+})
 app.post('/stock/writeoffs', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_writeoff_create', clientRef)
-      if (known) return res.json(known)
-      const existing = (db.writeOffs || []).find(w => w.clientRef === clientRef)
-      if (existing) return res.json(existing)
-    }
-    const row = createStockWriteoff(db, req.body || {})
-    if (clientRef) {
-      row.clientRef = clientRef
-      rememberOpRef('stock_writeoff_create', clientRef, row)
-    }
-    auditFromReq(db, req, {
-      action: 'create',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.reason || row.id,
-      summary: `Списание · ${row.reason || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'writeoff', id: row.id })
-    broadcastProduct({ reason: 'writeoff' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести списание' })
-  }
+  void handleO8WriteoffCreate(req, res, o8HandlerCtx())
 })
 app.put('/stock/writeoffs/:id', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_writeoff_update', clientRef)
-      if (known) return res.json(known)
-    }
-    const row = updateStockWriteoff(db, req.params.id, req.body || {})
-    if (clientRef) rememberOpRef('stock_writeoff_update', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'update',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.reason || row.id,
-      summary: `Изменено списание · ${row.reason || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'writeoff', id: row.id, updated: true })
-    broadcastProduct({ reason: 'writeoff-update' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось изменить списание' })
-  }
+  void handleO8WriteoffUpdate(req, res, o8HandlerCtx())
 })
 app.delete('/stock/writeoffs/:id', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
-    if (clientRef) {
-      const known = findOpRef('stock_writeoff_delete', clientRef)
-      if (known) return res.json(known)
-    }
-    const row = deleteStockWriteoff(db, req.params.id)
-    if (clientRef) rememberOpRef('stock_writeoff_delete', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'delete',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.reason || row.id,
-      summary: `Удалено списание · ${row.reason || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'writeoff', id: row.id, deleted: true })
-    broadcastProduct({ reason: 'writeoff-delete' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить списание' })
-  }
+  void handleO8WriteoffDelete(req, res, o8HandlerCtx())
 })
 app.get('/stock/revisions', (_req, res) => {
   res.json(listStockRevisions(db))
@@ -3186,9 +3447,28 @@ app.get('/stock/expiry', (req, res) => {
 app.get('/suppliers', (_req, res) => {
   res.json(listSuppliers(db))
 })
-app.post('/suppliers', (req, res) => {
+app.post('/suppliers', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
+    const fingerprint = masterCreateFingerprint(
+      FIN_OP_KINDS.SUPPLIER_UPSERT,
+      fingerprintSupplierCreate(req.body || {}),
+    )
+    if (useDurableMasterCreate(clientRef)) {
+      if (replyMasterCreateReplayOrConflict(res, FIN_OP_KINDS.SUPPLIER_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+      try {
+        const { replay, result: row } = await runDurableMasterCreate(db, {
+          clientRef,
+          operationKind: FIN_OP_KINDS.SUPPLIER_UPSERT,
+          fingerprint,
+          mutate: () => mutateCreateSupplier(db, { ...(req.body || {}), clientRef }),
+        })
+        if (!replay) broadcastPosUpdate({ kind: 'supplier', id: row.id })
+        return finishDurableMasterJson(res, row, replay)
+      } catch (e) {
+        return respondMasterTxError(res, e, 'Не удалось создать поставщика')
+      }
+    }
     if (replyIfKnownOp(res, 'supplier_upsert', clientRef)) return
     const row = createSupplier(db, req.body || {})
     if (clientRef) { row.clientRef = clientRef; rememberKnownOp('supplier_upsert', clientRef, row) }
@@ -3233,119 +3513,30 @@ app.get('/suppliers/:id/payments', (req, res) => {
   }
 })
 app.post('/suppliers/:id/payments', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'supplier_payment_create', clientRef)) return
-    const row = createSupplierPayment(db, req.params.id, req.body || {})
-    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('supplier_payment_create', clientRef, row) }
-    persist()
-    broadcastPosUpdate({ kind: 'supplier_payment', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось провести оплату поставщику' })
-  }
+  void handleO8SupplierBookPayment(req, res, o8HandlerCtx())
 })
 app.delete('/suppliers/:id/payments/:paymentId', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'supplier_payment_delete', clientRef)) return
-    const row = deleteSupplierPayment(db, req.params.id, req.params.paymentId, req.body || {})
-    if (clientRef) rememberKnownOp('supplier_payment_delete', clientRef, row)
-    persist()
-    broadcastPosUpdate({ kind: 'supplier_payment', id: row.id, deleted: true })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить платёж' })
-  }
+  void handleO8SupplierPaymentDelete(req, res, o8HandlerCtx())
 })
 
 app.get('/expenses', (_req, res) => {
   res.json(listExpenses(db))
 })
 app.post('/expenses', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'expense_create', clientRef)) return
-    const row = createExpense(db, req.body || {})
-    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('expense_create', clientRef, row) }
-    persist()
-    broadcastPosUpdate({ kind: 'expense', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось добавить расход' })
-  }
+  void handleO8ExpenseCreate(req, res, o8HandlerCtx())
 })
 app.delete('/expenses/:id', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'expense_delete', clientRef)) return
-    const row = deleteExpense(db, req.params.id)
-    if (clientRef) rememberKnownOp('expense_delete', clientRef, row)
-    persist()
-    broadcastPosUpdate({ kind: 'expense', id: row.id, deleted: true })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить расход' })
-  }
+  void handleO8ExpenseDelete(req, res, o8HandlerCtx())
 })
 
 app.get('/finance/moves', (_req, res) => {
   res.json(listFinanceMoves(db))
 })
-app.post('/finance/moves', async (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.financeMoves || []).find(m => m.clientRef === clientRef)
-      if (known) return res.json(known)
-    }
-    const row = createFinanceMove(db, req.body || {})
-    if (row && row._replay) {
-      return res.json(row)
-    }
-    if (clientRef) {
-      row.clientRef = clientRef
-      const stored = (db.financeMoves || []).find(m => m.id === row.id)
-      if (stored) stored.clientRef = clientRef
-    }
-    const isIn = row.type !== 'withdraw'
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: isIn ? 'cash_in' : 'cash_out',
-      entity: 'cash',
-      entityId: row.id,
-      entityName: row.supplierName || row.createdBy || row.id,
-      summary: (isIn ? `Внесение в кассу · ${row.amount} ЅМ` : `Снятие из кассы · ${row.amount} ЅМ`)
-        + (row.note ? ` · ${row.note}` : '')
-        + (row.supplierName ? ` · ${row.supplierName}` : ''),
-      after: { type: row.type, amount: row.amount, note: row.note, shiftId: row.shiftId },
-    })
-    await flushDbAsync()
-    const canonical = clientRef
-      ? (db.financeMoves || []).find(m => String(m.clientRef || '').trim() === clientRef) || row
-      : row
-    broadcastPosUpdate({ kind: 'finance-move', id: canonical.id })
-    res.json(canonical)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось сохранить движение' })
-  }
+app.post('/finance/moves', (req, res) => {
+  void handleO8FinanceMoveCreate(req, res, o8HandlerCtx())
 })
 app.delete('/finance/moves/:id', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'finance_move_delete', clientRef)) return
-    const existing = (db.financeMoves || []).find(r => String(r.id) === String(req.params.id))
-    if (existing && isCardTopupFinanceMove(existing)) {
-      return res.status(409).json({ detail: 'Пополнение бонусов нельзя удалить' })
-    }
-    const row = deleteFinanceMove(db, req.params.id)
-    if (clientRef) rememberKnownOp('finance_move_delete', clientRef, row)
-    persist()
-    broadcastPosUpdate({ kind: 'finance-move', id: row.id, deleted: true })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
-  }
+  void handleO8FinanceMoveDelete(req, res, o8HandlerCtx())
 })
 
 /** Единый источник правды: цифры только из БД */
@@ -3377,34 +3568,10 @@ app.get('/finance/vault', (_req, res) => {
   res.json(getCashVault(db))
 })
 app.post('/finance/vault/card-to-cash', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.cashVault?.converts || []).find(c => c.clientRef === clientRef)
-      if (known) return res.json(known)
-    }
-    const row = convertVaultCardToCash(db, req.body || {})
-    persist()
-    broadcastPosUpdate({ kind: 'vault-convert', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось перевести' })
-  }
+  void handleO8VaultCardToCash(req, res, o8HandlerCtx())
 })
 app.post('/finance/vault/cash-to-card', (req, res) => {
-  try {
-    const clientRef = String(req.body?.clientRef || '').trim()
-    if (clientRef) {
-      const known = (db.cashVault?.converts || []).find(c => c.clientRef === clientRef)
-      if (known) return res.json(known)
-    }
-    const row = convertVaultCashToCard(db, req.body || {})
-    persist()
-    broadcastPosUpdate({ kind: 'vault-convert', id: row.id })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось перевести' })
-  }
+  void handleO8VaultCashToCard(req, res, o8HandlerCtx())
 })
 app.get('/finance/cashbox', (req, res) => {
   res.json(getCashBoxSnapshot(db, financeTruthQuery(req)))
@@ -3633,14 +3800,35 @@ app.get('/clients', (_req, res) => {
   runDebtMaintenanceAndNotify()
   res.json(listVisibleClients())
 })
-app.post('/clients', (req, res) => {
+app.post('/clients', async (req, res) => {
   if (!db.clients) db.clients = []
   const clientRef = takeClientRef(req)
+  const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+  if (!refGate.ok) {
+    return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+  }
+  const fingerprint = buildO6Fingerprint(CRM_OP_KINDS.CLIENT_UPSERT, fingerprintClientCreate(req.body))
+  const digits = normalizePhoneDigits(req.body?.phone || '')
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, CRM_OP_KINDS.CLIENT_UPSERT, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const { replay, result: row } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: CRM_OP_KINDS.CLIENT_UPSERT,
+        fingerprint,
+        advisoryLocks: digits ? [{ ns: 'crm_client_phone', key: digits }] : [],
+        mutate: () => mutateCreateClient(db, req.body, clientRef, o6ClientDeps()),
+      })
+      if (!replay) notifyCrmChange(row)
+      return finishDurableMasterJson(res, row, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось создать клиента')
+    }
+  }
   if (replyIfKnownOp(res, 'client_upsert', clientRef)) return
   runAccountLifecycleMaintenance()
 
   const phone = req.body?.phone || ''
-  const digits = normalizePhoneDigits(phone)
   if (digits) {
     const existing = db.clients.find(c => normalizePhoneDigits(c.phone) === digits)
     if (existing) {
@@ -3693,6 +3881,10 @@ app.post('/clients', (req, res) => {
   res.json(row)
 })
 app.patch('/clients/:id', (req, res) => {
+  const body = req.body || {}
+  if (body.card != null && String(body.card).trim()) {
+    return void handleO8ClientCardLink(req, res, o8HandlerCtx())
+  }
   const clientRef = takeClientRef(req)
   if (replyIfKnownOp(res, 'client_upsert', clientRef)) return
   const c = (db.clients || []).find(x => x.id === req.params.id)
@@ -3764,6 +3956,12 @@ app.patch('/clients/:id', (req, res) => {
   // Долг НЕ присваиваем напрямую — проводим через единую логику (ledger + лимит + карта).
   const debtRequested = patch.debt != null ? Number(patch.debt) || 0 : null
   const debtNoteReq = patch.debtNote
+  if (debtRequested != null) {
+    return res.status(400).json({
+      detail: 'Изменение долга только через POST /clients/:id/debt-adjustments',
+      code: 'DEBT_REQUIRES_ADJUSTMENT_OPERATION',
+    })
+  }
   delete patch.debt
   delete patch.debtNote
   delete patch.docVersion
@@ -3775,12 +3973,13 @@ app.patch('/clients/:id', (req, res) => {
       return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
     }
   }
-  if (patch.bonus != null && !allowBonusDecrease) {
-    const next = Number(patch.bonus) || 0
-    const prev = Number(c.bonus) || 0
-    if (next < prev) delete patch.bonus
+  if (patch.bonus != null) {
+    return res.status(400).json({
+      detail: 'Изменение бонусов только через POST /cards/:num/bonus-adjustments',
+      code: 'BONUS_REQUIRES_ADJUSTMENT_OPERATION',
+    })
   }
-  const bonusManuallySet = patch.bonus != null
+  const bonusManuallySet = false
   const vipChanged = patch.vip !== undefined && !!patch.vip !== !!c.vip
   const levelChanged = patch.level != null && patch.level !== c.level
   const loyaltyTouched = vipChanged || levelChanged
@@ -3817,52 +4016,11 @@ app.patch('/clients/:id', (req, res) => {
   Object.assign(c, normalizeClientRow({ ...c, ...patch, id: c.id }))
   c.docVersion = (Number(c.docVersion) || 0) + 1
   c.updatedAtIso = new Date().toISOString()
-  syncCardIdentityFromClient(c)
   if (c.card) {
+    ensureCardRowForClient(c)
     unlinkNonCanonicalSiblingCards(db, c, c.card, normalizeCardRow)
-  }
-  // Долг: единая логика — запись в ledger, проверка лимита, синхронизация карты.
-  // В связке «карта+клиент» (saveCardLoyalty) карта обновляется первой, поэтому
-  // здесь дельта будет 0 и второй записи в ledger не появится.
-  if (debtRequested != null) {
-    const prevDebt = Number(beforeSnap.debt) || 0
-    if (Math.abs(debtRequested - prevDebt) > 0.001) {
-      const linkedCard = c.card ? findCardByNum(c.card) : null
-      try {
-        const { notifications } = handleClientDebtDelta(db, c, linkedCard, prevDebt, debtRequested, {
-          source: 'admin',
-          desc: debtNoteReq || 'Изменение долга',
-          enforceLimit: !isStaffRequest(req), // лимит только для приложения клиента
-        })
-        c.debt = debtRequested
-        if (debtRequested > prevDebt) c.debtEnabled = true
-        if (linkedCard) {
-          linkedCard.debt = debtRequested
-          if (debtRequested > prevDebt) linkedCard.debtEnabled = true
-          // Ручная правка → лента погашений (риск 2.3)
-          linkedCard.debtPayVersion = (Number(linkedCard.debtPayVersion) || 0) + 1
-          linkedCard.updatedAtIso = c.updatedAtIso
-          linkedCard.serverAtIso = c.updatedAtIso
-        }
-        deliverDebtNotifications(notifications)
-      } catch (e) {
-        c.debt = prevDebt
-        return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
-      }
-    } else {
-      c.debt = debtRequested
-    }
-  }
-  // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
-  if (bonusManuallySet && patch.bonus != null) {
-    alignPosCashBonusToTarget(db, c.phone, Number(c.bonus) || 0, loyaltyHooks())
-    const linkedCard = (db.cards || []).find(card =>
-      (c.card && String(card.num || '').toUpperCase() === String(c.card).toUpperCase())
-      || (c.phone && normalizePhoneDigits(card.phone) === normalizePhoneDigits(c.phone)),
-    )
-    if (linkedCard) {
-      linkedCard.bonusPayVersion = (Number(linkedCard.bonusPayVersion) || 0) + 1
-    }
+  } else {
+    syncCardIdentityFromClient(c)
   }
   const afterSnap = {
     name: c.name, phone: c.phone, vip: !!c.vip, level: c.level,
@@ -4202,61 +4360,102 @@ const DEFAULT_ADMIN_SETTINGS = {
   },
   auth: {
     login: 'admin',
-    password: 'admin123',
+    // password never stored here in durable form after O8B — passwordHash on users[]
   },
 }
 
-function applyAdminAuth({ login, password }) {
-  const a = ensureAdminSettings()
-  const nextLogin = String(login || 'admin').trim() || 'admin'
-  const nextPass = String(password || '')
-  a.auth = { login: nextLogin, password: nextPass }
+function findAdminUser() {
   if (!Array.isArray(db.users)) db.users = []
-  let admin = db.users.find(u => u.role === 'admin')
+  return db.users.find(u => u.role === 'admin') || null
+}
+
+/** Mirror login only into settings.admin.auth (never password/plaintext). */
+function syncAdminAuthMirror(admin) {
+  const a = ensureAdminSettings()
+  a.auth = {
+    login: String(admin?.login || a.auth?.login || 'admin').trim() || 'admin',
+  }
+  return a.auth
+}
+
+function applyAdminAuth({ login, password }) {
+  const nextLogin = String(login || 'admin').trim() || 'admin'
+  if (!Array.isArray(db.users)) db.users = []
+  let admin = findAdminUser()
   if (!admin) {
     const maxId = db.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0)
     admin = {
       id: maxId + 1,
       email: nextLogin.includes('@') ? nextLogin : `${nextLogin}@kakapo.tj`,
       login: nextLogin,
-      password: nextPass,
       role: 'admin',
       name: 'Админ КАКАПО',
     }
     db.users.push(admin)
   } else {
     admin.login = nextLogin
-    admin.password = nextPass
     admin.email = nextLogin.includes('@') ? nextLogin : `${nextLogin}@kakapo.tj`
     if (!admin.name) admin.name = 'Админ КАКАПО'
   }
-  return a.auth
+  if (password != null && String(password).length > 0) {
+    setPasswordOnRow(admin, String(password))
+  }
+  return syncAdminAuthMirror(admin)
 }
 
 function ensureAdminAuth() {
   const a = ensureAdminSettings()
   if (!a.auth || typeof a.auth !== 'object') {
-    a.auth = { ...DEFAULT_ADMIN_SETTINGS.auth }
+    a.auth = { login: DEFAULT_ADMIN_SETTINGS.auth.login }
   }
   if (!a.auth.login) a.auth.login = DEFAULT_ADMIN_SETTINGS.auth.login
-  if (a.auth.password == null || a.auth.password === '') {
-    a.auth.password = DEFAULT_ADMIN_SETTINGS.auth.password
+  // Strip any legacy plaintext from settings mirror
+  if (Object.prototype.hasOwnProperty.call(a.auth, 'password')) {
+    delete a.auth.password
+  }
+  if (Object.prototype.hasOwnProperty.call(a.auth, 'passwordHash')) {
+    delete a.auth.passwordHash
   }
 
   if (!Array.isArray(db.users)) db.users = []
-  const admin = db.users.find(u => u.role === 'admin')
-  if (admin) {
-    if (!admin.login) {
-      const email = String(admin.email || '').toLowerCase()
-      admin.login = email === 'admin@kakapo.tj' ? 'admin' : (String(admin.email || 'admin').trim() || 'admin')
+  let admin = findAdminUser()
+  const envPass = String(process.env.KAKAPO_ADMIN_PASSWORD || '').trim()
+  const labDefault = isProductionRuntime() ? '' : 'admin123'
+
+  if (!admin) {
+    const bootstrap = envPass || labDefault
+    if (!bootstrap) {
+      throw new Error('Admin credential missing: set KAKAPO_ADMIN_PASSWORD')
     }
-    // users — источник правды, если уже есть пароль
-    if (admin.password != null && String(admin.password).length > 0) {
-      a.auth.password = String(admin.password)
-    }
-    a.auth.login = String(admin.login).trim() || a.auth.login
+    return applyAdminAuth({ login: a.auth.login || 'admin', password: bootstrap })
   }
-  return applyAdminAuth({ login: a.auth.login, password: a.auth.password })
+
+  if (!admin.login) {
+    const email = String(admin.email || '').toLowerCase()
+    admin.login = email === 'admin@kakapo.tj' ? 'admin' : (String(admin.email || 'admin').trim() || 'admin')
+  }
+
+  // Prefer auth.login from user row
+  a.auth.login = String(admin.login).trim() || a.auth.login
+
+  // Bootstrap hash if neither hash nor legacy plaintext exists
+  if (!admin.passwordHash && (admin.password == null || String(admin.password) === '')) {
+    const bootstrap = envPass || labDefault
+    if (!bootstrap) {
+      throw new Error('Admin credential missing: set KAKAPO_ADMIN_PASSWORD')
+    }
+    setPasswordOnRow(admin, bootstrap)
+  }
+
+  // Production must not keep hardcoded demo password without env override
+  if (isProductionRuntime() && !envPass) {
+    // If only legacy plaintext equals demoword — refuse until env set / rotated
+    if (!admin.passwordHash && String(admin.password || '') === 'admin123') {
+      throw new Error('Production refuses default admin123 — set KAKAPO_ADMIN_PASSWORD')
+    }
+  }
+
+  return syncAdminAuthMirror(admin)
 }
 
 function ensureAdminSettings() {
@@ -4268,7 +4467,10 @@ function ensureAdminSettings() {
   if (a.gbs) delete a.gbs
   if (!a.sms) a.sms = { ...DEFAULT_ADMIN_SETTINGS.sms }
   if (!a.store) a.store = { ...DEFAULT_ADMIN_SETTINGS.store }
-  if (!a.auth) a.auth = { ...DEFAULT_ADMIN_SETTINGS.auth }
+  if (!a.auth) a.auth = { login: DEFAULT_ADMIN_SETTINGS.auth.login }
+  if (a.auth && Object.prototype.hasOwnProperty.call(a.auth, 'password')) {
+    delete a.auth.password
+  }
   return a
 }
 
@@ -4547,6 +4749,7 @@ function ensureCardRowForClient(client) {
       card.clientId = client.id
       card.phone = client.phone || card.phone
       card.client = client.name || card.client
+      card.bonus = Number(client.bonus) || 0
       if (!(Number(card.debt) > 0.001)) {
         card.debt = Number(client.debt) || 0
         card.debtLimit = Number(client.debtLimit) || 0
@@ -4653,7 +4856,13 @@ function syncClientFromCardRow(card) {
     client.name = cardName
   }
   client.level = cardLevelToBasic(card.level)
-  client.bonus = Number(card.bonus) || 0
+  {
+    const cardBonus = Math.round((Number(card.bonus) || 0) * 100) / 100
+    const clientBonus = Math.round((Number(client.bonus) || 0) * 100) / 100
+    // ONLINE-O4C: client.bonus is canonical; active card mirrors client (never wipe on rebind).
+    if (cardBonus + 0.001 < clientBonus) card.bonus = clientBonus
+    else client.bonus = cardBonus
+  }
   client.wallet = Math.max(0, Math.round((Number(card.wallet) || 0) * 100) / 100)
   // Debt/ledger only when card.clientId matches this client (no cross-client adoption)
   if (!ownerId || ownerId === cid) {
@@ -4774,10 +4983,30 @@ function runLoyaltyBackfill() {
   }
 }
 
-app.post('/cards/ensure', (req, res) => {
+app.post('/cards/ensure', async (req, res) => {
   const body = req.body || {}
+  const clientRef = takeClientRef(req)
+  const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
+  if (!refGate.ok) {
+    return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
+  }
   const num = String(body.num || '').toUpperCase()
   if (!num) return res.status(400).json({ detail: 'Укажите номер карты' })
+  const fingerprint = buildO6Fingerprint(CRM_OP_KINDS.CARD_ENSURE, fingerprintCardEnsure(body))
+  if (useDurableMasterCreate(clientRef)) {
+    if (replyMasterCreateReplayOrConflict(res, CRM_OP_KINDS.CARD_ENSURE, clientRef, fingerprint, findOpRefRow)) return
+    try {
+      const { replay, result: card } = await runDurableMasterCreate(db, {
+        clientRef,
+        operationKind: CRM_OP_KINDS.CARD_ENSURE,
+        fingerprint,
+        mutate: () => mutateEnsureCard(db, body, o6CardDeps()),
+      })
+      return finishDurableMasterJson(res, card, replay)
+    } catch (e) {
+      return respondMasterTxError(res, e, 'Не удалось сохранить карту')
+    }
+  }
   let card = findCardByNum(num)
   const client = body.clientId
     ? (db.clients || []).find(c => c.id === body.clientId)
@@ -4806,47 +5035,39 @@ app.post('/cards/ensure', (req, res) => {
         conflict: { cardNum: num, ownerClientId: card.clientId, attemptedClientId: body.clientId },
       })
     }
-    const patch = { ...body, num: card.num }
-    delete patch.unlink
-    const vipChanged = patch.vip !== undefined && !!patch.vip !== !!card.vip
-    const levelChanged = patch.level != null && patch.level !== card.level
+    const { patch, vipChanged, levelChanged } = buildEnsureExistingCardPatch(body, card)
     if (vipChanged || levelChanged) {
       patch.loyaltyPeriod = currentLoyaltyPeriod()
       patch.bonusEligibleFrom = new Date().toISOString()
     }
     Object.assign(card, normalizeCardRow({ ...card, ...patch, num: card.num }))
-    syncClientFromCardRow(card)
   } else {
-    const baseClient = client || (body.phone
+    const phoneClient = body.phone
       ? (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(body.phone))
-      : undefined)
-    card = normalizeCardRow({
-      num,
-      client: body.client || baseClient?.name || '',
-      phone: body.phone || baseClient?.phone || '',
-      clientId: body.clientId || baseClient?.id,
-      status: body.status || 'active',
-      level: body.level || baseClient?.level || '',
-      bonus: Number(body.bonus ?? baseClient?.bonus) || 0,
-      debt: Number(body.debt ?? baseClient?.debt) || 0,
-      debtLimit: Number(body.debtLimit ?? baseClient?.debtLimit) || 0,
-      vip: !!(body.vip ?? baseClient?.vip),
-      debtEnabled: body.debtEnabled !== undefined ? body.debtEnabled === true : baseClient?.debtEnabled === true,
-      loyaltyPeriod: body.loyaltyPeriod || baseClient?.loyaltyPeriod,
-      issued: new Date().toISOString().slice(0, 10),
-    })
+      : undefined
+    const idClient = body.clientId
+      ? (db.clients || []).find(c => String(c.id) === String(body.clientId))
+      : undefined
+    if (phoneClient && idClient && String(phoneClient.id) !== String(idClient.id)) {
+      return res.status(409).json({
+        detail: `clientId не совпадает с телефоном клиента`,
+        code: 'ENSURE_CLIENT_ID_PHONE_MISMATCH',
+        conflict: { attemptedClientId: body.clientId, phoneClientId: phoneClient.id },
+      })
+    }
+    const baseClient = idClient || phoneClient || client
+    card = buildEnsureNewCardRow(body, baseClient, normalizeCardRow)
     if (!db.cards) db.cards = []
     db.cards.push(card)
-    if (baseClient) {
-      baseClient.card = card.num
-      syncClientFromCardRow(card)
-    }
   }
   persist()
   res.json(card)
 })
 
 app.patch('/cards/:num', (req, res) => {
+  if (req.body?.unlink) {
+    return void handleO8CardUnlink(req, res, o8HandlerCtx())
+  }
   const clientRef = takeClientRef(req)
   if (replyIfKnownOp(res, 'card_loyalty_patch', clientRef)) return
   const num = decodeURIComponent(req.params.num).toUpperCase()
@@ -4871,38 +5092,7 @@ app.patch('/cards/:num', (req, res) => {
     client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
     level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
   }
-  if (req.body.unlink) {
-    try {
-      assertDebtCardUnlinkAllowed(card, { allowDebtDestroy: req.body.allowDebtDestroy === true })
-    } catch (e) {
-      if (e instanceof CardOwnershipConflict) {
-        return res.status(409).json({ detail: e.message, code: e.code, conflict: e.details })
-      }
-      throw e
-    }
-    const prevClient = db.clients?.find(x => x.card === num)
-    if (prevClient) prevClient.card = ''
-    Object.assign(card, normalizeCardRow({
-      num,
-      client: '',
-      phone: '',
-      status: 'unlinked',
-      level: '',
-      bonus: 0,
-      debt: 0,
-      debtLimit: 0,
-    }))
-    auditFromReq(db, req, {
-      action: 'update',
-      entity: 'card',
-      entityId: num,
-      entityName: beforeSnap.client || num,
-      summary: `Отвязана карта ${num}` + (beforeSnap.client ? ` · ${beforeSnap.client}` : ''),
-      before: beforeSnap,
-      after: { status: 'unlinked' },
-    })
-  } else {
-    const body = { ...req.body }
+  const body = { ...req.body }
     const allowDecrease = body.allowBonusDecrease === true
     delete body.allowBonusDecrease
     // Версию погашений / бонусов ставит только сервер
@@ -4951,16 +5141,17 @@ app.patch('/cards/:num', (req, res) => {
         })
       }
     }
-    if (body.debt != null && enforceDebtLimit) {
-      const nextDebt = Number(body.debt) || 0
-      if (nextDebt > prevDebt + 0.001) {
-        const linkedClient = (db.clients || []).find(c =>
-          c.card === num
-          || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-        )
-        const gate = canTakeNewDebt(linkedClient || card, card, nextDebt - prevDebt)
-        if (!gate.ok) return res.status(gate.blocked ? 403 : 400).json({ detail: gate.reason })
-      }
+    if (body.debt != null) {
+      return res.status(400).json({
+        detail: 'Изменение долга только через POST /clients/:id/debt-adjustments',
+        code: 'DEBT_REQUIRES_ADJUSTMENT_OPERATION',
+      })
+    }
+    if (body.bonus != null) {
+      return res.status(400).json({
+        detail: 'Изменение бонусов только через POST /cards/:num/bonus-adjustments',
+        code: 'BONUS_REQUIRES_ADJUSTMENT_OPERATION',
+      })
     }
     if (body.debtEnabled === false && (Number(card.debt) || 0) > 0.001) {
       // Если одновременно поднимаем/оставляем долг — не отклоняем, а включим раздел ниже
@@ -4971,12 +5162,7 @@ app.patch('/cards/:num', (req, res) => {
         return res.status(409).json({ detail: 'Нельзя выключить раздел долга, пока есть непогашенный долг' })
       }
     }
-    if (body.bonus != null && !allowDecrease) {
-      const next = Number(body.bonus) || 0
-      const prev = Number(card.bonus) || 0
-      if (next < prev) delete body.bonus
-    }
-    const bonusManuallySet = body.bonus != null
+    const bonusManuallySet = false
     const vipChanged = body.vip !== undefined && !!body.vip !== !!card.vip
     const levelChanged = body.level != null && body.level !== card.level
     if (body.vip !== undefined || body.level != null || body.levelAssignMode != null) {
@@ -5023,43 +5209,7 @@ app.patch('/cards/:num', (req, res) => {
     // внутренняя проверка лимита (canTakeNewDebt) увидит уже увеличенный долг и
     // прибавит дельту повторно (двойной учёт) — операция ошибочно отклонится,
     // сервер откатит долг, и он не попадёт в профиль клиента.
-    if (body.debt != null) {
-      const linkedClient = (db.clients || []).find(c =>
-        c.card === num
-        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-      )
-      if (linkedClient) {
-        try {
-          const { notifications } = handleClientDebtDelta(db, linkedClient, card, prevDebt, Number(card.debt) || 0, {
-            source: 'admin',
-            desc: body.debtNote || 'Изменение долга',
-            enforceLimit: enforceDebtLimit,
-          })
-          deliverDebtNotifications(notifications)
-        } catch (e) {
-          card.debt = prevDebt
-          linkedClient.debt = prevDebt
-          syncClientFromCardRow(card)
-          return res.status(e?.status || 400).json({ detail: e?.message || 'Не удалось изменить долг' })
-        }
-      }
-      // Пока долг > 0 — раздел долга всегда включён (иначе следующий sync/UI его «выключит»)
-      if ((Number(card.debt) || 0) > 0.001) {
-        card.debtEnabled = true
-        if (linkedClient) linkedClient.debtEnabled = true
-      }
-      // Ручная правка долга → та же лента, что у погашения с кассы (риск 2.3)
-      if (Math.abs((Number(card.debt) || 0) - prevDebt) > 0.001) {
-        card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
-      }
-    }
     syncClientFromCardRow(card)
-    // Ручная смена бонуса: подогнать posCashBonus, иначе reconcile вернёт старую сумму
-    if (bonusManuallySet && body.bonus != null && card.phone) {
-      alignPosCashBonusToTarget(db, card.phone, Number(card.bonus) || 0, loyaltyHooks())
-      // Риск 3.3: ручная правка ⭐ → та же лента, что у пополнения
-      card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
-    }
     const afterSnap = {
       client: card.client, phone: card.phone, debt: card.debt, bonus: card.bonus,
       level: card.level, vip: !!card.vip, status: card.status, debtEnabled: card.debtEnabled,
@@ -5079,7 +5229,6 @@ app.patch('/cards/:num', (req, res) => {
         after: afterSnap,
       })
     }
-  }
   if (clientRef) rememberKnownOp('card_loyalty_patch', clientRef, card)
   persist()
   notifyCrmChange({
@@ -5105,468 +5254,26 @@ function calcCashDepositBonusServer(cash, loyalty) {
   return Math.round((amt * pct) / 100 * 100) / 100
 }
 
+app.post('/clients/:id/debt-adjustments', (req, res) => {
+  void handleO8ClientDebtAdjustment(req, res, o8HandlerCtx())
+})
+
+app.post('/cards/:num/bonus-adjustments', (req, res) => {
+  void handleO8CardBonusAdjustment(req, res, o8HandlerCtx())
+})
+
 app.post('/cards/:num/cash-topup', (req, res) => {
-  try {
-    const num = decodeURIComponent(req.params.num).toUpperCase()
-    const card = findCardByNum(num)
-    if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
-    const clientRef = String(req.body?.clientRef || '').trim()
-    const dup = findOpRef('card_topup', clientRef)
-    if (dup) return res.json({ ...dup, card })
-    // Если opRef уже вычистили, а finance move с тем же clientRef есть — не плюсуем бонусы снова
-    if (clientRef) {
-      const existingMove = (db.financeMoves || []).find(m => String(m.clientRef || '') === clientRef)
-      if (existingMove) {
-        rememberOpRef('card_topup', clientRef, { financeMove: existingMove, bonusEarned: 0, addToBonus: 0 })
-        return res.json({ card, financeMove: existingMove, bonusEarned: 0, addToBonus: 0, replay: true })
-      }
-    }
-    // cash — внесённые деньги. credit — устаревшее поле (игнор для баланса).
-    const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
-    const cash = Math.round((Number(req.body?.cash) || 0) * 100) / 100
-    if (!(cash > 0)) {
-      return res.status(400).json({ detail: 'Укажите сумму пополнения' })
-    }
-
-    // Риск 3.1: версия пополнений бонусов
-    const expectedPayVer = req.body?.expectedBonusPayVersion ?? req.body?.bonusPayVersion
-    if (expectedPayVer != null && expectedPayVer !== '') {
-      const exp = Math.max(0, Number(expectedPayVer) || 0)
-      const current = Number(card.bonusPayVersion) || 0
-      if (exp !== current) {
-        return res.status(409).json({
-          detail: `Бонусы уже меняли на другой кассе (версия ${current}, ожидали ${exp}). Пополнение не приняли — обновите данные.`,
-        })
-      }
-    }
-
-    const loyalty = ensureLoyaltySettings(db)
-    const bonusEarned = calcCashDepositBonusServer(cash, loyalty)
-    const addToBonus = Math.round((cash + bonusEarned) * 100) / 100
-
-    const move = createFinanceMove(db, {
-      type: 'deposit',
-      amount: cash,
-      note: String(req.body?.note || `Пополнение бонусов · ${card.client || card.phone || card.num}`),
-      reason: 'Пополнение бонусов клиента',
-      refType: 'card_topup',
-      cardNum: num,
-      createdBy: req.body?.cashierName,
-      cashierId: req.body?.cashierId,
-      cashierName: req.body?.cashierName,
-      shiftId: req.body?.shiftId,
-      posId: req.body?.posId,
-      clientRef,
-      createdAtIso: req.body?.createdAtIso,
-    })
-    // Phase 9: financeMove dedupe ≠ bonus side-effect — на replay не плюсуем бонусы снова
-    if (move && move._replay) {
-      rememberOpRef('card_topup', clientRef, { financeMove: move, bonusEarned: 0, addToBonus: 0, replay: true })
-      return res.json({ card, financeMove: move, bonusEarned: 0, addToBonus: 0, replay: true })
-    }
-
-    // Риск 3.2: сервер всегда плюсует сам, не берёт bonusAfter с кассы
-    card.posCashBonus = Math.round((Math.max(0, Number(card.posCashBonus) || 0) + addToBonus) * 100) / 100
-    card.bonus = Math.round((Math.max(0, Number(card.bonus) || 0) + addToBonus) * 100) / 100
-    card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
-    card.wallet = 0
-    {
-      const stamp = new Date().toISOString()
-      card.updatedAtIso = stamp
-      card.serverAtIso = stamp
-    }
-    syncClientFromCardRow(card)
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'update',
-      entity: 'card',
-      entityId: num,
-      entityName: card.client || num,
-      summary: `Пополнение бонусов ${num} · +${addToBonus}⭐`
-        + (bonusEarned > 0 ? ` (деньги +${cash} + бонус +${bonusEarned})` : ` (деньги +${cash})`)
-        + ` · касса +${cash}`,
-      after: { cash, bonusEarned, addToBonus, bonus: card.bonus, bonusPayVersion: card.bonusPayVersion },
-    })
-    rememberOpRef('card_topup', clientRef, { financeMove: move, bonusEarned, addToBonus })
-    persist()
-    broadcastPosUpdate({ kind: 'client-cash-topup', id: move.id })
-    res.json({ card, financeMove: move, bonusEarned, addToBonus })
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось пополнить бонусы' })
-  }
+  void handleO8CashTopup(req, res, o8HandlerCtx())
 })
 
 /** Выдача наличных клиенту в долг: касса −amount, canonicalDebt += amount (не absolute PATCH). */
-app.post('/cards/:num/cash-advance', async (req, res) => {
-  try {
-    const num = decodeURIComponent(req.params.num).toUpperCase()
-    const card = findCardByNum(num)
-    if (!card) return res.status(404).json({ detail: 'Карта не найдена', code: 'CARD_NOT_FOUND' })
-
-    const refGate = requireClientRef(req.body?.clientRef)
-    if (!refGate.ok) {
-      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
-    }
-    const clientRef = refGate.clientRef
-    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
-    const fp = buildDebtOpFingerprint('cash_advance', {
-      amount,
-      method: 'cash',
-      clientId: req.body?.clientId,
-      cardNum: num,
-      shiftId: req.body?.shiftId,
-    })
-
-    if (replyDebtOpReplayOrConflict(res, 'cash_advance', clientRef, fp, { card })) return
-
-    const knownLedger = (db.moneyLedger || []).find(r =>
-      String(r.refType || '') === 'cash_advance'
-      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
-    )
-    if (knownLedger) {
-      const ledFp = fingerprintFromMoneyLedgerCashAdvance(knownLedger)
-      const check = checkIdempotencyReplay(ledFp, fp)
-      if (!check.ok) {
-        return res.status(check.status || 409).json({
-          detail: check.detail,
-          code: check.code || IDEMPOTENCY_KEY_REUSED,
-          clientRef,
-        })
-      }
-      const linkedClient = (db.clients || []).find(c =>
-        c.card === num
-        || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-      )
-      const result = {
-        client: linkedClient || null,
-        amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-        prevDebt: Math.max(0, Number(card.debt) || 0),
-        nextDebt: Math.max(0, Number(card.debt) || 0),
-        till: {
-          shiftId: knownLedger.shiftId || null,
-          posId: knownLedger.posId || '',
-          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-          expenseTotal: null,
-          replay: true,
-        },
-        replay: true,
-        replayed: true,
-        duplicate: true,
-        clientRef,
-        debtLedgerEntryId: knownLedger.meta?.debtLedgerEntryId || null,
-      }
-      rememberOpRef('cash_advance', clientRef, result, fp)
-      return res.json({ card, ...result })
-    }
-
-    // Claim opRef before mutation (closes same-process double-apply window)
-    rememberOpRef('cash_advance', clientRef, { status: 'applying', clientRef }, fp)
-
-    const linkedClient = (db.clients || []).find(c =>
-      c.card === num
-      || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-    )
-
-    const outcome = createCashAdvance(db, {
-      card,
-      linkedClient,
-      clientRef,
-      amount: req.body?.amount,
-      shiftId: req.body?.shiftId,
-      posId: req.body?.posId,
-      cashierId: req.body?.cashierId,
-      cashierName: req.body?.cashierName,
-      note: req.body?.note,
-      createdAtIso: req.body?.createdAtIso,
-      expectedDebtPayVersion: req.body?.expectedDebtPayVersion ?? req.body?.debtPayVersion,
-      cardNum: num,
-    })
-    if (!outcome.ok) {
-      // Drop pending claim so a corrected retry can proceed
-      const rows = ensureOpRefs()
-      const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'cash_advance')
-      if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
-      return res.status(outcome.status || 400).json({
-        detail: outcome.detail,
-        code: outcome.code,
-        currentDebtPayVersion: outcome.currentDebtPayVersion,
-        expectedDebtPayVersion: outcome.expectedDebtPayVersion,
-      })
-    }
-
-    Object.assign(card, normalizeCardRow(card))
-    syncClientFromCardRow(card)
-
-    const { result } = outcome
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'update',
-      entity: 'debt',
-      entityId: num,
-      entityName: card.client || num,
-      summary: `Выдача наличных ${num}: ${result.prevDebt} → ${result.nextDebt} · из кассы −${result.amount}`,
-      before: { debt: result.prevDebt },
-      after: { debt: result.nextDebt, amount: result.amount, till: result.till },
-    })
-    rememberOpRef('cash_advance', clientRef, { ...result, clientRef }, fp)
-    persist()
-    await flushDbAsync()
-    broadcastPosUpdate({ kind: 'cash-advance', cardNum: num, amount: result.amount })
-    if (linkedClient?.phone) {
-      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
-    }
-    res.json({ card, ...result, clientRef, replayed: !!result.replay, duplicate: !!result.replay })
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось выдать наличные', code: 'CASH_ADVANCE_FAILED' })
-  }
+app.post('/cards/:num/cash-advance', (req, res) => {
+  void handleO8CashAdvance(req, res, o8HandlerCtx())
 })
 
 /** Погашение долга с кассы: нал → в ожидаемую кассу смены */
-app.post('/cards/:num/debt-repay', async (req, res) => {
-  try {
-    const num = decodeURIComponent(req.params.num).toUpperCase()
-    const card = findCardByNum(num)
-    if (!card) return res.status(404).json({ detail: 'Карта не найдена' })
-
-    const refGate = requireClientRef(req.body?.clientRef)
-    if (!refGate.ok) {
-      return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code })
-    }
-    const clientRef = refGate.clientRef
-    const amount = Math.round((Number(req.body?.amount) || 0) * 100) / 100
-    const method = String(req.body?.method || 'cash').toLowerCase() === 'card' ? 'card' : 'cash'
-    const orderId = String(req.body?.orderId || '').trim() || undefined
-    const fp = buildDebtOpFingerprint('debt_repay', {
-      amount,
-      method,
-      clientId: req.body?.clientId,
-      cardNum: num,
-      orderId,
-      shiftId: req.body?.shiftId,
-    })
-
-    if (replyDebtOpReplayOrConflict(res, 'debt_repay', clientRef, fp, { card })) return
-
-    // Entity-idempotency: ledger уже есть по clientRef (opRef протух) — не крутим долг/кассу
-    const knownLedger = (db.moneyLedger || []).find(r =>
-      String(r.refType || '') === 'debt_repay'
-      && (String(r.clientRef || '') === clientRef || String(r.meta?.clientRef || '') === clientRef),
-    )
-    if (knownLedger) {
-      const ledFp = fingerprintFromMoneyLedgerDebtRepay(knownLedger)
-      const check = checkIdempotencyReplay(ledFp, fp)
-      if (!check.ok) {
-        return res.status(check.status || 409).json({
-          detail: check.detail,
-          code: check.code || IDEMPOTENCY_KEY_REUSED,
-          clientRef,
-        })
-      }
-      const result = {
-        client: (db.clients || []).find(c =>
-          c.card === num
-          || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-        ) || null,
-        amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-        method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
-        prevDebt: Math.max(0, Number(card.debt) || 0),
-        nextDebt: Math.max(0, Number(card.debt) || 0),
-        bonusEarned: 0,
-        till: {
-          shiftId: knownLedger.shiftId || null,
-          posId: knownLedger.posId || '',
-          method: knownLedger.meta?.method === 'card' ? 'card' : 'cash',
-          amount: Math.round((Number(knownLedger.amount) || 0) * 100) / 100,
-          salesCash: null,
-          replay: true,
-        },
-        replay: true,
-        replayed: true,
-        duplicate: true,
-        clientRef,
-      }
-      rememberOpRef('debt_repay', clientRef, result, fp)
-      return res.json({ card, ...result })
-    }
-
-    const appliedLocal = !!(req.body?.appliedLocal || req.body?.skipBalances)
-    if (!(amount > 0)) return res.status(400).json({ detail: 'Укажите сумму погашения' })
-
-    if (method === 'cash' && !String(req.body?.shiftId || '').trim()) {
-      return res.status(400).json({ detail: 'Откройте смену, чтобы принять наличные в кассу' })
-    }
-    const linkedClient = (db.clients || []).find(c =>
-      c.card === num
-      || (card.phone && normalizePhoneDigits(c.phone) === normalizePhoneDigits(card.phone)),
-    )
-    const prevDebt = Math.max(
-      Number(card.debt) || 0,
-      Number(linkedClient?.debt) || 0,
-    )
-    const expectedPayVer = req.body?.expectedDebtPayVersion ?? req.body?.debtPayVersion
-    if (expectedPayVer !== undefined && expectedPayVer !== null && expectedPayVer !== '') {
-      const exp = Number(expectedPayVer)
-      if (Number.isFinite(exp)) {
-        const current = Number(card.debtPayVersion) || 0
-        if (exp !== current) {
-          return res.status(400).json({
-            detail: `Долг клиента уже погашали на другой кассе (версия ${current}, ожидали ${exp}). Погашение не приняли — обновите данные.`,
-          })
-        }
-      }
-    }
-    if (!appliedLocal && amount > prevDebt + 0.001) {
-      return res.status(400).json({ detail: `Долг клиента ${prevDebt.toFixed(2)} ЅМ` })
-    }
-    // Всегда от текущего долга на сервере − сумма. nextDebt с кассы не берём:
-    // иначе офлайн «долг=0» сотрёт параллельную продажу в долг (риск 2.2).
-    const nextDebt = Math.round(Math.max(0, prevDebt - amount) * 100) / 100
-    const repaidTowardDebt = Math.round(Math.max(0, prevDebt - nextDebt) * 100) / 100
-
-    // D4 case 18: different clientRef against already-paid selected receipt → business reject
-    // (same clientRef already returned via opRef / moneyLedger backstops above)
-    if (orderId && linkedClient) {
-      const target = resolveDebtRepaymentTarget(linkedClient, orderId, amount)
-      if (target && Math.round((Number(target.remaining) || 0) * 100) / 100 <= 0.001) {
-        return res.status(400).json({
-          detail: `Чек долга уже погашен (${orderId})`,
-          code: 'DEBT_RECEIPT_ALREADY_PAID',
-        })
-      }
-    }
-
-    // Дубль из очереди после уже погашенного долга — не крутим кассу и debtPayVersion
-    if (appliedLocal && repaidTowardDebt < 0.001) {
-      const result = {
-        client: linkedClient || null,
-        amount: 0,
-        method,
-        prevDebt,
-        nextDebt: prevDebt,
-        bonusEarned: 0,
-        till: null,
-        noop: true,
-        replayed: true,
-        clientRef,
-      }
-      rememberOpRef('debt_repay', clientRef, result, fp)
-      persist()
-      await flushDbAsync()
-      return res.json({ card, ...result })
-    }
-
-    // Claim before mutation
-    rememberOpRef('debt_repay', clientRef, { status: 'applying', clientRef }, fp)
-
-    // Погашение по конкретному чеку: списываем с этой записи ленты, не общим FIFO
-    const repayOrderId = orderId
-    if (linkedClient) {
-      if (!appliedLocal) {
-        try {
-          handleClientDebtDelta(db, linkedClient, card, prevDebt, nextDebt, {
-            enforceLimit: false,
-            source: 'pos',
-            orderId: repayOrderId,
-            desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
-          })
-        } catch (e) {
-          const rows = ensureOpRefs()
-          const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'debt_repay')
-          if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
-          // Different clientRef against already-paid target → business reject (D4 case 18).
-          // Same clientRef after successful apply is handled by opRef / moneyLedger backstops above.
-          return res.status(e?.status || 400).json({
-            detail: e?.message || 'Не удалось погасить долг',
-            code: e?.code || undefined,
-          })
-        }
-      } else if (repaidTowardDebt > 0.001) {
-        try {
-          applyDebtRepayment(linkedClient, card, repaidTowardDebt, {
-            orderId: repayOrderId,
-            desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
-          })
-        } catch (e) {
-          if (repayOrderId && e?.code) {
-            const rows = ensureOpRefs()
-            const idx = rows.findIndex(r => r.clientRef === clientRef && r.kind === 'debt_repay')
-            if (idx >= 0 && rows[idx]?.result?.status === 'applying') rows.splice(idx, 1)
-            return res.status(e.status || 400).json({
-              detail: e.message || 'Не удалось погасить долг',
-              code: e.code,
-            })
-          }
-        }
-      }
-      linkedClient.debt = nextDebt
-      card.debt = nextDebt
-      syncDebtLedgerToCard(linkedClient, card)
-    } else {
-      card.debt = nextDebt
-    }
-    card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
-    {
-      const stamp = new Date().toISOString()
-      card.updatedAtIso = stamp
-      card.serverAtIso = stamp
-      if (linkedClient) {
-        linkedClient.updatedAtIso = stamp
-        linkedClient.serverAtIso = stamp
-      }
-    }
-    Object.assign(card, normalizeCardRow(card))
-
-    const bonusEarned = 0
-    syncClientFromCardRow(card)
-
-    const till = applyDebtRepayToShift(db, {
-      amount: repaidTowardDebt,
-      method,
-      shiftId: req.body?.shiftId,
-      posId: req.body?.posId,
-      cashierId: req.body?.cashierId,
-      cashierName: req.body?.cashierName,
-      cardNum: num,
-      clientName: card.client || linkedClient?.name || '',
-      note: String(req.body?.note || '').trim(),
-      clientRef,
-      orderId: repayOrderId,
-      clientId: linkedClient?.id || req.body?.clientId,
-    })
-
-    auditFromReq(db, req, {
-      app: 'trade',
-      action: 'update',
-      entity: 'debt',
-      entityId: num,
-      entityName: card.client || num,
-      summary: `Погашение долга ${num}: ${prevDebt} → ${nextDebt}`
-        + (method === 'cash' ? ` · нал +${amount} в кассу` : ' · карта')
-        + (bonusEarned > 0 ? ` · +${bonusEarned}⭐` : ''),
-      before: { debt: prevDebt },
-      after: { debt: nextDebt, method, amount, bonusEarned, till },
-    })
-    const result = {
-      client: linkedClient || null,
-      amount,
-      method,
-      prevDebt,
-      nextDebt,
-      bonusEarned,
-      till,
-      clientRef,
-    }
-    rememberOpRef('debt_repay', clientRef, result, fp)
-    persist()
-    await flushDbAsync()
-    broadcastPosUpdate({ kind: 'debt-repay', cardNum: num, amount, method })
-    if (linkedClient?.phone) {
-      broadcastLoyalty({ phone: linkedClient.phone, bonus: linkedClient.bonus, card: num })
-    }
-    res.json({ card, ...result })
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось погасить долг' })
-  }
+app.post('/cards/:num/debt-repay', (req, res) => {
+  void handleO8DebtRepay(req, res, o8HandlerCtx())
 })
 
 app.get('/reviews', (req, res) => {
@@ -5669,7 +5376,10 @@ app.post('/push/send', (req, res) => {
 
 app.get('/notifications', (req, res) => {
   ensureNotifications()
-  const key = phoneKey(String(req.query.phone || ''))
+  let key = phoneKey(String(req.query.phone || ''))
+  if (req.auth?.principal === 'CLIENT') {
+    key = phoneKey(req.auth.phone || '')
+  }
   let list = db.notifications || []
   if (!key) return res.json([])
   list = list.filter(n => n.broadcast === true || (n.targetPhone && n.targetPhone === key))
@@ -5707,7 +5417,10 @@ app.post('/notifications/deliver', (req, res) => {
 
 app.patch('/notifications/read-all', (req, res) => {
   ensureNotifications()
-  const key = phoneKey(String(req.query.phone || req.body.phone || ''))
+  let key = phoneKey(String(req.query.phone || req.body.phone || ''))
+  if (req.auth?.principal === 'CLIENT') {
+    key = phoneKey(req.auth.phone || '')
+  }
   db.notifications = (db.notifications || []).map(n => {
     if (!key) return n
     if (n.broadcast === true || n.targetPhone === key) return { ...n, read: true }
@@ -5720,7 +5433,13 @@ app.patch('/notifications/read-all', (req, res) => {
 app.patch('/notifications/:id/read', (req, res) => {
   ensureNotifications()
   const n = (db.notifications || []).find(x => x.id === req.params.id)
-  if (!n) return res.status(404).json({ detail: 'Не найдено' })
+  if (!n) return res.status(404).json({ detail: 'Not found' })
+  if (req.auth?.principal === 'CLIENT') {
+    const self = phoneKey(req.auth.phone || '')
+    if (n.targetPhone && n.targetPhone !== self && n.broadcast !== true) {
+      return res.status(403).json({ detail: 'Нет доступа к чужим данным', code: 'AUTH_HORIZONTAL' })
+    }
+  }
   n.read = true
   persist()
   res.json(n)
@@ -5876,12 +5595,13 @@ app.post('/audit/:id/restore', (req, res) => {
 })
 
 app.get('/admin/dashboard', (_req, res) => {
-
+  const today = ymdBusiness(new Date())
+  const ordersToday = (db.orders || []).filter(o => ymdBusiness(o.createdAtIso || o.createdAt) === today)
   res.json({
-    ordersToday: db.orders.length,
-    revenueToday: db.orders.reduce((s, o) => s + bonusEligibleTotal(o), 0),
-    activeCouriers: 2,
-    activeRestaurants: db.restaurants.length,
+    ordersToday: ordersToday.length,
+    revenueToday: ordersToday.reduce((s, o) => s + bonusEligibleTotal(o), 0),
+    activeCouriers: (db.couriers || []).filter(c => c.active !== false).length,
+    activeRestaurants: (db.restaurants || []).length,
   })
 })
 
@@ -5898,9 +5618,19 @@ app.post('/admin/reset-operational', async (req, res) => {
   }
   const auth = ensureAdminAuth()
   const currentPassword = String(body.currentPassword || '')
-  if (!currentPassword || currentPassword !== auth.password) {
+  const admin = findAdminUser()
+  if (!admin || !verifyAndMaybeMigrateCredential(admin, currentPassword).ok) {
     return res.status(401).json({ detail: 'Неверный пароль админа' })
   }
+  // migrate if needed
+  {
+    const v = verifyAndMaybeMigrateCredential(admin, currentPassword)
+    if (v.migrated) {
+      applyPasswordMigration(admin, v.passwordHash)
+      syncAdminAuthMirror(admin)
+    }
+  }
+  void auth
 
   let backupPath = null
   try {
@@ -5965,8 +5695,21 @@ app.use((err, _req, res, next) => {
   res.status(500).json({ detail: 'Внутренняя ошибка сервера' })
 })
 
+registerO8TestRoutes(app, { db })
+
 const httpServer = createServer(app)
-const wss = new WebSocketServer({ noServer: true })
+const wss = new WebSocketServer({
+  noServer: true,
+  handleProtocols(protocols) {
+    // Echo first kakapo/token protocol so browsers complete the handshake.
+    const list = [...protocols]
+    if (!list.length) return false
+    const tokenish = list.find((p) => /^(admin|staff|cashier|client|device)_/i.test(p))
+    if (tokenish) return tokenish
+    if (list.includes('kakapo')) return 'kakapo'
+    return list[0]
+  },
+})
 const WS_HEARTBEAT_MS = 30_000
 
 const wsHeartbeat = setInterval(() => {
@@ -5982,6 +5725,11 @@ wsHeartbeat.unref()
 
 async function shutdown(signal) {
   console.error(`[shutdown] ${signal}`)
+  try { clearInterval(wsHeartbeat) } catch { /* */ }
+  for (const ws of [...clients]) {
+    try { ws.close(1001, 'shutdown') } catch { /* */ }
+    clients.delete(ws)
+  }
   try {
     await flushDbAsync()
     await shutdownDb()
@@ -6007,10 +5755,27 @@ httpServer.on('upgrade', (req, socket, head) => {
     socket.destroy()
     return
   }
+  const meta = parseWsMeta(req.url, req)
+  let resolved = resolveWsAuth(meta)
+  // Lab auto-auth (O1–O7): loopback may claim staff WS roles without Bearer —
+  // never in production (assertSafeAuthEnvOrThrow refuses the flag).
+  if (!resolved.ok && isLabAutoAuthEnabled() && isLoopbackReq(req) && isWsStaffRole(meta.role)) {
+    resolved = {
+      ok: true,
+      wsRole: String(meta.role || 'admin').toLowerCase(),
+      clientPhone: '',
+      principal: 'ADMIN',
+    }
+  }
+  if (!resolved.ok) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
+  }
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const { role, phone } = parseWsMeta(req.url)
-    ws.wsRole = role
-    ws.clientPhone = phone
+    ws.wsRole = resolved.wsRole
+    ws.clientPhone = resolved.clientPhone
+    ws.wsPrincipal = resolved.principal
     clients.add(ws)
     ws.on('message', (data) => { if (String(data) === 'ping') ws.send('pong') })
     ws.on('close', () => clients.delete(ws))
@@ -6018,8 +5783,21 @@ httpServer.on('upgrade', (req, socket, head) => {
 })
 
 httpServer.listen(PORT, '0.0.0.0', () => {
+  try {
+    assertSafeAuthEnvOrThrow()
+  } catch (e) {
+    console.error('\n❌ AUTH ENV:', e?.message || e)
+    process.exit(1)
+  }
+  const testRoutes = countMountedTestRoutes()
+  if (isProductionRuntime() && testRoutes > 0) {
+    console.error(`\n❌ TEST_ROUTE_COUNT=${testRoutes} in production — refusing start\n`)
+    process.exit(1)
+  }
+  const authStats = routeCoverageStats()
   const stats = getDbStats()
   console.log(`\n✅ КАКАПО Backend: http://0.0.0.0:${PORT}`)
+  console.log(`   Auth routes: ${authStats.PRODUCTION_ROUTES_TOTAL} · public ${authStats.PUBLIC_ROUTES} · unknown ${authStats.UNKNOWN_AUTH_ROUTES} · testMount ${testRoutes}`)
   console.log(`   Движок БД: ${stats.engine}`)
   console.log(`   База: ${stats.path}`)
   console.log(`   DATA_DIR: ${stats.dataDir} | persistent: ${stats.persistent ? 'yes' : 'NO'}`)

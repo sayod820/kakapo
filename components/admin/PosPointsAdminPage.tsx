@@ -63,7 +63,8 @@ export default function PosPointsAdminPage() {
     if (!n) return
     setBusy(true)
     try {
-      await api.createPosPoint({ name: n, code: code.trim() || undefined })
+      const { newClientRef } = await import('@/lib/offline')
+      await api.createPosPoint({ name: n, code: code.trim() || undefined, clientRef: newClientRef() })
       setName('')
       setCode('')
       setShowAdd(false)

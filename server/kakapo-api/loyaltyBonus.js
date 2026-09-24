@@ -8,6 +8,7 @@ import {
   vipUntilAfterDays,
   isAutoLevelActive,
 } from './loyaltyLock.js'
+import { recordEntityUpsert } from './syncChangeLog.js'
 
 export const DEFAULT_LOYALTY = {
   welcomeBonus: 10,
@@ -720,7 +721,164 @@ export function applyClientLoyaltyAfterDelivery(db, order, hooks) {
 }
 
 /**
+ * L11E: apply POS sale loyalty INSIDE the sale business mutation (same memory/PG TX).
+ * Synchronous — no separate effect TX / no post-commit mutation.
+ *
+ * Preserves legacy numerical rules via applyBonusSpendOnOrder + applyClientLoyaltyAfterDelivery.
+ * Strict insufficient-balance: requested spend must be available (matches HTTP pre-check).
+ *
+ * @param {object} opts.createOrder — (db, sale, body) => order | null
+ * @returns {{ ok: boolean, skipped?: boolean, error?: string, order?: object|null, client?: object|null, card?: object|null, spendAppliedNow?: boolean, earnAppliedNow?: boolean, broadcastOrder?: boolean, broadcastLoyalty?: boolean, completedNow?: boolean }}
+ */
+export function applyPosSaleLoyaltyInTx(db, sale, body = {}, hooks, opts = {}) {
+  const skipBalances = !!(body.appliedLocal || body.skipBalances || opts.skipBalances)
+  if (skipBalances) return { ok: true, skipped: true, order: null }
+  if (!sale) return { ok: true, skipped: true, order: null }
+
+  const phone = String(sale.clientPhone || body.clientPhone || '').trim()
+  if (!phone) return { ok: true, skipped: true, order: null }
+
+  const saleId = String(sale.id || '').trim()
+  const saleRef = String(sale.clientRef || body.clientRef || '').trim()
+
+  let order = (db.orders || []).find(o =>
+    (saleId && String(o.posSaleId || '') === saleId)
+    || (saleRef && String(o.posSaleClientRef || '') === saleRef),
+  ) || null
+  let createdOrder = false
+  if (!order && typeof opts.createOrder === 'function') {
+    order = opts.createOrder(db, sale, body)
+    createdOrder = !!order
+  }
+  if (!order) return { ok: true, skipped: true, order: null }
+
+  const bonusSpendReq = Math.max(
+    0,
+    Math.floor(Number(body.bonusSpent != null ? body.bonusSpent : sale.bonusSpent) || 0),
+  )
+
+  // Resolve card before spend for version + balance checks
+  let client = findClientForOrder(db, order, hooks) || findClientByPhone(db, phone)
+  let card = null
+  if (client) {
+    card = client.card ? hooks.findCardByNum(client.card) : null
+    if (!card) card = hooks.ensureCardRowForClient(client)
+  }
+  if (!card) {
+    return { ok: false, error: 'Карта клиента не найдена', order }
+  }
+
+  const expectedPayVer = body.expectedBonusPayVersion ?? body.bonusPayVersion
+  if (expectedPayVer != null && expectedPayVer !== '' && bonusSpendReq > 0) {
+    const current = Number(card.bonusPayVersion) || 0
+    const want = Number(expectedPayVer)
+    if (Number.isFinite(want) && want !== current) {
+      return {
+        ok: false,
+        error: `Конфликт версии бонусов (ожидали ${want}, сейчас ${current})`,
+        order,
+        code: 'BONUS_PAY_VERSION_CONFLICT',
+      }
+    }
+  }
+
+  if (bonusSpendReq > 0) {
+    const bal = Number(card.bonus) || 0
+    if (bal < bonusSpendReq) {
+      return {
+        ok: false,
+        error: `Недостаточно бонусов (доступно ${bal})`,
+        order,
+        code: 'INSUFFICIENT_BONUS',
+      }
+    }
+  }
+
+  let spendAppliedNow = false
+  if (!order.bonusSpendApplied) {
+    const spendResult = applyBonusSpendOnOrder(db, order, bonusSpendReq, hooks)
+    if (!spendResult.ok) {
+      return { ok: false, error: spendResult.error || 'Не удалось списать бонусы', order }
+    }
+    // Strict: if caller asked to spend N and we applied less (race/cap), reject whole sale TX
+    if (bonusSpendReq > 0 && Number(spendResult.bonusSpent || 0) < bonusSpendReq && !spendResult.replay) {
+      return {
+        ok: false,
+        error: `Недостаточно бонусов (списано ${spendResult.bonusSpent || 0} из ${bonusSpendReq})`,
+        order,
+        code: 'INSUFFICIENT_BONUS',
+      }
+    }
+    spendAppliedNow = !spendResult.replay
+  }
+
+  let earnAppliedNow = false
+  if (!order.bonusCredited) {
+    applyClientLoyaltyAfterDelivery(db, order, hooks)
+    earnAppliedNow = !!order.bonusCredited
+  }
+
+  // Re-resolve after mutations
+  client = findClientForOrder(db, order, hooks) || findClientByPhone(db, phone) || client
+  if (client) {
+    card = client.card ? hooks.findCardByNum(client.card) : card
+    if (!card) card = hooks.ensureCardRowForClient(client)
+  }
+  if (card && client) {
+    client.bonus = Number(card.bonus) || 0
+  }
+
+  // Align online path with skipBalances: bump bonusPayVersion when loyalty balances changed
+  if ((spendAppliedNow || earnAppliedNow) && card) {
+    card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
+  }
+
+  // Mirror earn onto sale receipt metadata (authoritative after in-TX earn)
+  if (order && sale) {
+    if (order.id) sale.orderId = order.id
+    if (order.bonusEarned != null) sale.bonusEarned = Math.max(0, Math.floor(Number(order.bonusEarned) || 0))
+    if (order.bonusSpent != null) sale.bonusSpent = Math.max(0, Math.floor(Number(order.bonusSpent) || 0))
+    const balAfter = Number(card?.bonus)
+    if (Number.isFinite(balAfter)) sale.bonusBalanceAfter = balAfter
+  }
+
+  // Journal Desktop-visible CRM + order + sale for same TX sync_changes
+  try {
+    const ref = saleRef || undefined
+    if (order?.id) recordEntityUpsert(db, 'order', order.id, order, { sourceClientRef: ref })
+    if (client?.id) {
+      recordEntityUpsert(db, 'client', client.id, client, {
+        sourceClientRef: ref,
+        revision: client.docVersion ?? client.debtPayVersion ?? client.bonusPayVersion,
+      })
+    }
+    if (card?.num) {
+      recordEntityUpsert(db, 'card', card.num, card, {
+        sourceClientRef: ref,
+        revision: card.docVersion ?? card.debtPayVersion ?? card.bonusPayVersion,
+      })
+    }
+    if (sale?.id) recordEntityUpsert(db, 'sale', sale.id, sale, { sourceClientRef: ref })
+  } catch { /* changelog must not break sale */ }
+
+  return {
+    ok: true,
+    order,
+    client: client || null,
+    card: card || null,
+    spendAppliedNow,
+    earnAppliedNow,
+    completedNow: spendAppliedNow || earnAppliedNow || createdOrder,
+    broadcastOrder: createdOrder,
+    broadcastLoyalty: spendAppliedNow || earnAppliedNow,
+  }
+}
+
+/**
  * FIX A / FIX E.2: дозавершить online loyalty для POS-sale ровно один раз.
+ *
+ * Prefer applyPosSaleLoyaltyInTx inside sale runBusinessMutationTx (L11E).
+ * This helper remains for repair/tests / non-sale contexts.
  *
  * When opts.effectBackend is set OR PostgreSQL is enabled:
  * order / spend / earn complete inside one PG (or memory) transaction each —
@@ -757,10 +915,18 @@ export async function completePosSaleOnlineLoyalty(db, sale, body = {}, hooks, o
     reconcileEffectCache,
   } = await import('./pg/effectTxn.js')
 
-  const findOrder = () => (db.orders || []).find(o =>
-    (saleId && String(o.posSaleId || '') === saleId)
-    || (saleRef && String(o.posSaleClientRef || '') === saleRef),
-  ) || null
+  const findOrder = () => {
+    const rows = db.orders || []
+    if (saleId) {
+      const bySale = rows.find(o => String(o.posSaleId || '') === saleId)
+      if (bySale) return bySale
+    }
+    if (saleRef) {
+      const byRef = rows.filter(o => String(o.posSaleClientRef || '') === saleRef)
+      if (byRef.length) return byRef[byRef.length - 1]
+    }
+    return null
+  }
 
   /** FIX E.2.1: after reconcileEffectCache, never keep pre-txn object refs. */
   const resolveCanonicalLoyaltyRows = (ord, hint = {}) => {
@@ -835,6 +1001,7 @@ export async function completePosSaleOnlineLoyalty(db, sale, body = {}, hooks, o
       saleRef,
       amount: bonusSpendReq,
       goodsCap: Math.floor(bonusEligibleTotal(order)),
+      expectedBonusPayVersion: body.expectedBonusPayVersion ?? body.bonusPayVersion,
       card,
       client,
       order,
@@ -1116,6 +1283,12 @@ export function alignPosCashBonusToTarget(db, phone, targetBonus, hooks) {
 /**
  * Пересчёт бонусов по доставленным заказам (допускает уменьшение при отмене).
  */
+function clientHasActiveBonusMirror(client, card) {
+  if (!client?.card || !card) return false
+  if (card.status !== 'active') return false
+  return String(card.num || '').toUpperCase() === String(client.card || '').toUpperCase()
+}
+
 export function reconcileClientBonuses(db, phone, hooks) {
   const key = normalizePhoneDigits(phone)
   if (!key) return { credited: 0, bonus: 0, orders: 0 }
@@ -1124,6 +1297,12 @@ export function reconcileClientBonuses(db, phone, hooks) {
   if (!client) return { credited: 0, bonus: 0, orders: 0 }
 
   let card = client.card ? hooks.findCardByNum(client.card) : null
+  const activeMirror = clientHasActiveBonusMirror(client, card)
+  // ONLINE-O4C: clients.bonus is canonical when card is unlinked or not the active mirror.
+  if (!activeMirror) {
+    const keep = Math.max(0, Math.round((Number(client.bonus) || 0) * 100) / 100)
+    return { credited: 0, bonus: keep, orders: 0, skipped: true }
+  }
   if (!card) card = hooks.ensureCardRowForClient(client)
   if (!card) return { credited: 0, bonus: 0, orders: 0 }
 

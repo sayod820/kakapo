@@ -20,6 +20,14 @@ server {
         proxy_set_header Host $host;
     }
 
+    location /ready {
+        set $api_upstream http://api:8000;
+        proxy_pass $api_upstream/ready;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 30s;
+        proxy_set_header Host $host;
+    }
+
     location /ws/ {
         set $api_upstream http://api:8000;
         proxy_pass $api_upstream;

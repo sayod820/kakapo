@@ -17,6 +17,12 @@ server {
         proxy_set_header Host $host;
     }
 
+    location /ready {
+        set $api_upstream http://api:8000;
+        proxy_pass $api_upstream/ready;
+        proxy_set_header Host $host;
+    }
+
     location /ws/ {
         set $api_upstream http://api:8000;
         proxy_pass $api_upstream;
@@ -67,6 +73,12 @@ server {
     location /health {
         set $api_upstream http://api:8000;
         proxy_pass $api_upstream/health;
+        proxy_set_header Host $host;
+    }
+
+    location /ready {
+        set $api_upstream http://api:8000;
+        proxy_pass $api_upstream/ready;
         proxy_set_header Host $host;
     }
 

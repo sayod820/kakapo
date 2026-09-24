@@ -71,6 +71,205 @@ export function checkIdempotencyReplay(storedFingerprint, incomingFingerprint) {
   }
 }
 
+/**
+ * PC-14: committed ledger exists but retry fingerprint drifted (shiftId / missing optional fields).
+ * Same business op — not a different action.
+ */
+export function isAckLostCompatibleReplay(storedFingerprint, incomingFingerprint) {
+  if (!storedFingerprint || !incomingFingerprint) return false
+  if (fingerprintsEqual(storedFingerprint, incomingFingerprint)) return true
+  const a = storedFingerprint
+  const b = incomingFingerprint
+  if (String(a.kind || '') !== String(b.kind || '')) return false
+  if (round2(a.amount) !== round2(b.amount)) return false
+  if (String(a.method || '') !== String(b.method || '')) return false
+  if (String(a.cardNum || '').toUpperCase() !== String(b.cardNum || '').toUpperCase()) return false
+  const aCid = String(a.clientId || '').trim()
+  const bCid = String(b.clientId || '').trim()
+  if (aCid && bCid && aCid !== bCid) return false
+  const aOid = String(a.orderId || '').trim()
+  const bOid = String(b.orderId || '').trim()
+  if (aOid && bOid && aOid !== bOid) return false
+  return true
+}
+
+const DEBT_LEDGER_REF_TYPES = Object.freeze({
+  debt_repay: 'debt_repay',
+  cash_advance: 'cash_advance',
+})
+
+export function findMoneyLedgerForDebtKind(db, kind, clientRef) {
+  const ref = String(clientRef || '').trim()
+  const refType = DEBT_LEDGER_REF_TYPES[String(kind || '').trim()]
+  if (!ref || !refType) return null
+  return (db.moneyLedger || []).find((r) =>
+    String(r.refType || '') === refType
+    && (String(r.clientRef || '') === ref || String(r.meta?.clientRef || '') === ref),
+  ) || null
+}
+
+export function findFinanceMoveByClientRef(db, clientRef) {
+  const ref = String(clientRef || '').trim()
+  if (!ref) return null
+  return (db.financeMoves || []).find((m) => String(m.clientRef || '') === ref) || null
+}
+
+/** Same clientRef already used for a different committed operation kind. */
+export function findCrossKindOpRefConflict(db, kind, clientRef) {
+  const ref = String(clientRef || '').trim()
+  const k = String(kind || '').trim()
+  if (!ref || !k) return null
+  for (const row of db.opRefs || []) {
+    if (String(row.clientRef || '').trim() !== ref) continue
+    if (String(row.kind || '').trim() === k) continue
+    if (row.result != null && row.result.status !== 'applying') return row
+  }
+  return null
+}
+
+export function fingerprintFromLedgerKind(kind, row) {
+  if (!row) return null
+  if (kind === 'debt_repay') return fingerprintFromMoneyLedgerDebtRepay(row)
+  if (kind === 'cash_advance') return fingerprintFromMoneyLedgerCashAdvance(row)
+  return null
+}
+
+/**
+ * PC-14 central resolver for debt-family routes.
+ * @returns {{ action: 'continue' } | { action: 'replay', payload: object } | { action: 'conflict', status: number, body: object }}
+ */
+export function resolveDebtOpIdempotency(db, opts = {}) {
+  const kind = String(opts.kind || '').trim()
+  const clientRef = String(opts.clientRef || '').trim()
+  const fingerprint = opts.fingerprint
+  const findOpRefRow = typeof opts.findOpRefRow === 'function' ? opts.findOpRefRow : () => null
+
+  const cross = findCrossKindOpRefConflict(db, kind, clientRef)
+  if (cross) {
+    return {
+      action: 'conflict',
+      status: 409,
+      body: {
+        detail: 'Операция с этим идентификатором уже была использована для другого действия.',
+        code: IDEMPOTENCY_KEY_REUSED,
+        clientRef,
+        kind,
+        otherKind: cross.kind,
+      },
+    }
+  }
+
+  const ledger = findMoneyLedgerForDebtKind(db, kind, clientRef)
+  const ledgerFp = fingerprintFromLedgerKind(kind, ledger)
+  const row = findOpRefRow(kind, clientRef)
+
+  const canReplay = (storedFp, incomingFp) => {
+    if (!incomingFp) return false
+    if (!storedFp) return !!ledger
+    const strict = checkIdempotencyReplay(storedFp, incomingFp)
+    if (strict.ok) return true
+    return ledger && isAckLostCompatibleReplay(storedFp, incomingFp)
+      && isAckLostCompatibleReplay(ledgerFp, incomingFp)
+  }
+
+  if (row && row.result && row.result.status === 'applying') {
+    const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
+    if (!check.ok) {
+      return { action: 'conflict', status: check.status || 409, body: { ...check, clientRef, kind } }
+    }
+    return { action: 'continue' }
+  }
+
+  if (row && row.result != null) {
+    if (canReplay(row.fingerprint, fingerprint)) {
+      const result = row.result && typeof row.result === 'object' ? row.result : {}
+      return {
+        action: 'replay',
+        payload: {
+          ...result,
+          clientRef,
+          kind,
+          replayed: true,
+          duplicate: true,
+          idempotentReplay: true,
+        },
+      }
+    }
+    if (ledger && isAckLostCompatibleReplay(ledgerFp, fingerprint)) {
+      return {
+        action: 'replay',
+        payload: {
+          ...row.result,
+          clientRef,
+          kind,
+          replayed: true,
+          duplicate: true,
+          idempotentReplay: true,
+          ackLostBackstop: true,
+        },
+      }
+    }
+    const check = checkIdempotencyReplay(row.fingerprint, fingerprint)
+    return {
+      action: 'conflict',
+      status: check.status || 409,
+      body: {
+        detail: check.detail || 'Операция с этим идентификатором уже была использована для другого действия.',
+        code: check.code || IDEMPOTENCY_KEY_REUSED,
+        clientRef,
+        kind,
+      },
+    }
+  }
+
+  if (ledger) {
+    const check = checkIdempotencyReplay(ledgerFp, fingerprint)
+    if (check.ok || isAckLostCompatibleReplay(ledgerFp, fingerprint)) {
+      return { action: 'continue', ledgerBackstop: true, ledger, ledgerFp }
+    }
+    return {
+      action: 'conflict',
+      status: check.status || 409,
+      body: { ...check, clientRef, kind },
+    }
+  }
+
+  return { action: 'continue' }
+}
+
+/** Read-only status for client reconcile (PC-14). */
+export function classifyDebtOpClientRef(db, kind, clientRef, incomingFingerprint = null) {
+  const ref = String(clientRef || '').trim()
+  const k = String(kind || '').trim()
+  if (!ref || !k) return { classification: 'INVALID' }
+  const cross = findCrossKindOpRefConflict(db, k, ref)
+  if (cross) {
+    return {
+      classification: 'DIFFERENT_OPERATION',
+      clientRef: ref,
+      kind: k,
+      otherKind: cross.kind,
+    }
+  }
+  const ledger = findMoneyLedgerForDebtKind(db, k, ref)
+  const ledgerFp = fingerprintFromLedgerKind(k, ledger)
+  if (ledger) {
+    if (!incomingFingerprint
+      || checkIdempotencyReplay(ledgerFp, incomingFingerprint).ok
+      || isAckLostCompatibleReplay(ledgerFp, incomingFingerprint)) {
+      return {
+        classification: 'EXACT_COMMITTED',
+        clientRef: ref,
+        kind: k,
+        ledgerAmount: round2(ledger.amount),
+        fingerprint: ledgerFp,
+      }
+    }
+    return { classification: 'SEMANTIC_MISMATCH', clientRef: ref, kind: k, fingerprint: ledgerFp }
+  }
+  return { classification: 'NOT_FOUND', clientRef: ref, kind: k }
+}
+
 export function fingerprintFromMoneyLedgerDebtRepay(row) {
   if (!row) return null
   return buildDebtOpFingerprint('debt_repay', {

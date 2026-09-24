@@ -70,12 +70,14 @@ export function orderBelongsToClientAccount(order, client) {
 }
 
 /** Истёкший recovery → полное удаление профиля (заказы остаются) */
-export function expireRecoveryClients(db, { unlinkCardsForClient, persist }) {
+export function expireRecoveryClients(db, { unlinkCardsForClient, persist, recordClientDelete }) {
   let expired = 0
   for (const client of [...(db.clients || [])]) {
     if (client.accountStatus !== 'recovery') continue
     if (!isRecoveryExpired(client)) continue
+    const id = client.id
     hardDeleteClientProfile(db, client, { unlinkCardsForClient, rememberDeleted: false })
+    try { recordClientDelete?.(db, id) } catch { /* sync tombstone best-effort */ }
     expired += 1
   }
   if (expired > 0) persist()

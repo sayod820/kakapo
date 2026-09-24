@@ -1,7 +1,12 @@
 /**
  * Единый источник правды по деньгам (ledger + автоотчёты).
  * Все цифры считаются только из db — приложения только запрашивают.
+ *
+ * Time policy: storage = UTC ISO; business calendar / day buckets = Asia/Dushanbe
+ * via kakapoTime.parseReportRange ([fromInclusive, toExclusive)).
  */
+
+import { parseReportRange, inReportRange, ymdBusiness } from './kakapoTime.js'
 
 export const CASH_DIFF_ALERT_SOM = 50
 
@@ -26,27 +31,14 @@ function nextId(prefix) {
 }
 
 function ymd(iso) {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return ymdBusiness(iso)
 }
 
-function inRange(iso, fromIso, toIso) {
-  if (!iso) return false
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return false
-  if (fromIso) {
-    const f = new Date(fromIso).getTime()
-    if (!Number.isNaN(f) && t < f) return false
-  }
-  if (toIso) {
-    const to = new Date(toIso).getTime()
-    if (!Number.isNaN(to) && t > to) return false
-  }
-  return true
+/** Apply from/to once as a single half-open range (never split filters). */
+function filterByReportRange(rows, getIso, q = {}) {
+  if (!q?.from && !q?.to) return rows
+  const range = parseReportRange(q.from || null, q.to || null)
+  return rows.filter((r) => inReportRange(getIso(r), range))
 }
 
 /** Запись в неизменяемый журнал денег */
@@ -92,9 +84,7 @@ export function appendMoneyLedger(db, data = {}) {
 
 export function listMoneyLedger(db, q = {}) {
   ensureLedger(db)
-  let rows = [...db.moneyLedger]
-  if (q.from) rows = rows.filter(r => inRange(r.createdAtIso, q.from, null))
-  if (q.to) rows = rows.filter(r => inRange(r.createdAtIso, null, q.to))
+  let rows = filterByReportRange([...db.moneyLedger], (r) => r.createdAtIso, q)
   if (q.posId) rows = rows.filter(r => r.posId === q.posId)
   if (q.cashierId) rows = rows.filter(r => r.cashierId === q.cashierId || r.cashierName === q.cashierId)
   if (q.type) rows = rows.filter(r => r.type === q.type)
@@ -144,7 +134,7 @@ export function getCashBook(db, q = {}) {
   }
 }
 
-function shiftExpectedCash(shift) {
+export function shiftExpectedCash(shift) {
   return round2(
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
@@ -156,9 +146,11 @@ function shiftExpectedCash(shift) {
 /** Ожидаемое vs факт по сменам/кассам */
 export function getExpectedVsActual(db, q = {}) {
   ensureLedger(db)
-  let shifts = (db.posShifts || []).filter(s => s.status === 'closed')
-  if (q.from) shifts = shifts.filter(s => inRange(s.closedAtIso || s.openedAtIso, q.from, null))
-  if (q.to) shifts = shifts.filter(s => inRange(s.closedAtIso || s.openedAtIso, null, q.to))
+  let shifts = filterByReportRange(
+    (db.posShifts || []).filter(s => s.status === 'closed'),
+    (s) => s.closedAtIso || s.openedAtIso,
+    q,
+  )
   if (q.posId) shifts = shifts.filter(s => s.posId === q.posId)
 
   const rows = shifts.map(s => {
@@ -236,9 +228,7 @@ function saleCogs(sale, db) {
 /** Прибыль: выручка − себестоимость (FIFO/слои) */
 export function getProfitReport(db, q = {}) {
   ensureLedger(db)
-  let sales = [...(db.posSales || [])]
-  if (q.from) sales = sales.filter(s => inRange(s.createdAtIso, q.from, null))
-  if (q.to) sales = sales.filter(s => inRange(s.createdAtIso, null, q.to))
+  let sales = filterByReportRange([...(db.posSales || [])], (s) => s.createdAtIso, q)
   if (q.posId) sales = sales.filter(s => (s.posId || '') === q.posId)
 
   let revenue = 0

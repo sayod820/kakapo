@@ -696,10 +696,14 @@ await test('source wiring: routes + flush + fingerprint', () => {
   expect(/CLIENT_REF_REQUIRED/.test(idx), 'ref required')
   expect((idx.match(/app\.post\('\/cards\/:num\/debt-repay'/g) || []).length === 1, 'one repay route')
   expect((idx.match(/app\.post\('\/cards\/:num\/cash-advance'/g) || []).length === 1, 'one ca route')
-  expect(/await flushDbAsync\(\)/.test(idx), 'flush')
-  expect(/buildDebtOpFingerprint\('cash_advance'/.test(idx), 'ca fp')
-  expect(/buildDebtOpFingerprint\('debt_repay'/.test(idx), 'rp fp')
-  expect(/buildDebtOpFingerprint\('pos_sale'/.test(idx), 'sale fp')
+  expect(/handleO8PosSaleCreate/.test(idx), 'sale O8 handler')
+  expect(/handleO8CashAdvance/.test(idx), 'ca O8 handler')
+  expect(/handleO8DebtRepay/.test(idx), 'repay O8 handler')
+  const o8 = fs.readFileSync(path.join(apiRoot, 'onlineO8Handlers.js'), 'utf8')
+  expect(/buildDebtOpFingerprint\(SALE_OP_KIND/.test(o8), 'sale fp')
+  expect(/buildDebtOpFingerprint\('cash_advance'/.test(o8), 'ca fp')
+  expect(/buildDebtOpFingerprint\('debt_repay'/.test(o8), 'rp fp')
+  expect(/runBusinessMutationTx/.test(o8), 'O8 durable tx')
 })
 
 await test('addDebtCharge clientRef backstop', () => {

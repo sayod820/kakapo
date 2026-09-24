@@ -42,6 +42,69 @@ function orderDocId(order) {
   return String(order?.id || '')
 }
 
+function round2(v) {
+  return Math.round((Number(v) || 0) * 100) / 100
+}
+
+/**
+ * Nested loyalty PG tx may read rows before the outer sale/debt mutation commits.
+ * Never clobber in-memory / in-flight debt with a stale PG snapshot.
+ */
+function overlayCrmDebtFromMemory(target, memoryRow) {
+  if (!target || !memoryRow) return target
+  const memDebt = round2(Number(memoryRow.debt) || 0)
+  const tgtDebt = round2(Number(target.debt) || 0)
+  const memVer = Number(memoryRow.debtPayVersion) || 0
+  const tgtVer = Number(target.debtPayVersion) || 0
+  if (memDebt > tgtDebt + 0.001 || memVer > tgtVer) {
+    target.debt = memoryRow.debt
+    if (Array.isArray(memoryRow.debtLedger)) target.debtLedger = memoryRow.debtLedger
+    if (memoryRow.debtPayVersion != null) target.debtPayVersion = memoryRow.debtPayVersion
+    if (memoryRow.debtEnabled != null) target.debtEnabled = memoryRow.debtEnabled
+    if (memoryRow.debtCreditBlocked != null) target.debtCreditBlocked = memoryRow.debtCreditBlocked
+    if (memoryRow.debtOverdueStrikes != null) target.debtOverdueStrikes = memoryRow.debtOverdueStrikes
+  }
+  return target
+}
+
+/** Same stale-PG pattern as debt — in-flight sale/adj may not be visible to nested loyalty tx yet. */
+function overlayCrmBonusFromMemory(target, memoryRow) {
+  if (!target || !memoryRow) return target
+  const memB = Number(memoryRow.bonus) || 0
+  const tgtB = Number(target.bonus) || 0
+  const memVer = Number(memoryRow.bonusPayVersion) || 0
+  const tgtVer = Number(target.bonusPayVersion) || 0
+  if (memB > tgtB + 0.001 || memVer > tgtVer) {
+    target.bonus = memoryRow.bonus
+    if (memoryRow.bonusPayVersion != null) target.bonusPayVersion = memoryRow.bonusPayVersion
+  }
+  return target
+}
+
+function syncClientBonusFromCardInDb(db, card) {
+  if (!card || !Array.isArray(db?.clients)) return
+  const bonus = Number(card.bonus) || 0
+  const cid = String(card.clientId || '').trim()
+  if (cid) {
+    const cl = db.clients.find(c => String(c.id) === cid)
+    if (cl) cl.bonus = bonus
+  }
+  const phone = String(card.phone || '').trim()
+  if (phone) {
+    const digits = phone.replace(/\D/g, '').slice(-9)
+    const cl = db.clients.find(c => String(c.phone || '').replace(/\D/g, '').slice(-9) === digits)
+    if (cl) cl.bonus = bonus
+  }
+}
+
+function mergeCrmRowWithMemoryProjection(prev, incoming) {
+  if (!incoming) return prev
+  if (!prev) return structuredClone(incoming)
+  const out = { ...prev, ...structuredClone(incoming) }
+  overlayCrmDebtFromMemory(out, prev)
+  return out
+}
+
 /** Shared in-memory docs + serialized txns (simulates PG atomicity for tests). */
 export function createMemoryEffectBackend() {
   /** @type {Map<string, { collection: string, id: string, data: any, sort_idx: number }>} */
@@ -299,7 +362,22 @@ export async function completeBonusSpendEffect(opts = {}) {
 
     const cardData = structuredClone(cardRow.data)
     const clientData = clientRow ? structuredClone(clientRow.data) : (client ? structuredClone(client) : null)
+    overlayCrmDebtFromMemory(cardData, card)
+    overlayCrmDebtFromMemory(clientData, client)
+    overlayCrmBonusFromMemory(cardData, card)
+    overlayCrmBonusFromMemory(clientData, client)
     const orderData = structuredClone(orderRow.data)
+
+    const expectedPayVer = opts.expectedBonusPayVersion ?? opts.bonusPayVersion
+    if (expectedPayVer !== undefined && expectedPayVer !== null && expectedPayVer !== '') {
+      const exp = Number(expectedPayVer)
+      const cur = Number(cardData.bonusPayVersion) || 0
+      if (Number.isFinite(exp) && exp !== cur) {
+        throw new Error(
+          `Бонусы клиента уже меняли на другой кассе (версия ${cur}, ожидали ${exp}). Чек не приняли — обновите данные.`,
+        )
+      }
+    }
 
     if (orderData.bonusSpendApplied) {
       const donePayload = buildPosEffectPayload(POS_EFFECT_KINDS.BONUS_SPEND, saleRef, {
@@ -337,6 +415,7 @@ export async function completeBonusSpendEffect(opts = {}) {
 
     if (deduct > 0) {
       cardData.bonus = Math.max(0, balance - deduct)
+      cardData.bonusPayVersion = (Number(cardData.bonusPayVersion) || 0) + 1
       if (clientData) clientData.bonus = cardData.bonus
     }
     orderData.bonusSpent = deduct
@@ -410,6 +489,10 @@ export async function completeBonusEarnEffect(opts = {}) {
 
     const cardData = structuredClone(cardRow.data)
     const clientData = clientRow ? structuredClone(clientRow.data) : (client ? structuredClone(client) : null)
+    overlayCrmDebtFromMemory(cardData, card)
+    overlayCrmDebtFromMemory(clientData, client)
+    overlayCrmBonusFromMemory(cardData, card)
+    overlayCrmBonusFromMemory(clientData, client)
     const orderData = structuredClone(orderRow.data)
 
     let earned = earnedIn
@@ -478,13 +561,14 @@ export function reconcileEffectCache(db, { order, card, client, claim } = {}) {
   if (card?.num) {
     if (!Array.isArray(db.cards)) db.cards = []
     const i = db.cards.findIndex(c => String(c.num) === String(card.num))
-    if (i >= 0) db.cards[i] = { ...db.cards[i], ...structuredClone(card) }
+    if (i >= 0) db.cards[i] = mergeCrmRowWithMemoryProjection(db.cards[i], card)
     else db.cards.push(structuredClone(card))
+    syncClientBonusFromCardInDb(db, db.cards.find(c => String(c.num) === String(card.num)) || card)
   }
   if (client?.id) {
     if (!Array.isArray(db.clients)) db.clients = []
     const i = db.clients.findIndex(c => String(c.id) === String(client.id))
-    if (i >= 0) db.clients[i] = { ...db.clients[i], ...structuredClone(client) }
+    if (i >= 0) db.clients[i] = mergeCrmRowWithMemoryProjection(db.clients[i], client)
     else db.clients.push(structuredClone(client))
   }
   if (claim?.id) {

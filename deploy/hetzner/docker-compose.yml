@@ -36,7 +36,7 @@ services:
       NODE_ENV: production
       DATA_DIR: /data
       DATABASE_URL: ${DATABASE_URL:-postgresql://kakapo:kakapo@postgres:5432/kakapo}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS to explicit https origins}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
     volumes:

@@ -9,6 +9,12 @@ import type {
   StockRevision,
   StockWriteoff,
 } from '@/lib/types'
+import {
+  ymdBusiness,
+  businessDayStartMs,
+  addCalendarDays,
+  KAKAPO_TZ,
+} from '@/lib/kakapoTime'
 
 export type ReportPeriod = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'all' | 'custom'
 export type ReportTab =
@@ -53,17 +59,17 @@ export const REPORT_TABS: { id: ReportTab; label: string; icon: string; hint: st
   { id: 'products', label: 'Товары', icon: '📦', hint: 'Топ за период · залежались за 30 дней · заказ по 7 дням · поставщик по последней поставке' },
 ]
 
-/** Query-параметры периода для API /finance/* */
+/** Query-параметры периода для API /finance/* — date-only → Asia/Dushanbe business day */
 export function periodToApiQuery(
   period: ReportPeriod,
   customFrom?: string,
   customTo?: string,
   extra?: { posId?: string; cashierId?: string; type?: string },
 ): Record<string, string> {
-  const { from, to } = periodRange(period, customFrom, customTo)
+  const { fromYmd, toYmd } = periodRangeYmd(period, customFrom, customTo)
   const q: Record<string, string> = {}
-  if (from != null) q.from = new Date(from).toISOString()
-  if (to != null) q.to = new Date(to).toISOString()
+  if (fromYmd) q.from = fromYmd
+  if (toYmd) q.to = toYmd
   if (extra?.posId) q.posId = extra.posId
   if (extra?.cashierId) q.cashierId = extra.cashierId
   if (extra?.type) q.type = extra.type
@@ -120,18 +126,43 @@ export function round2(n: number) {
 }
 
 export function ymdLocal(d = new Date()) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return ymdBusiness(d) || ''
 }
 
-function startOfLocalDay(d: Date, dayOffset = 0) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset).getTime()
+function startOfBusinessDayMs(ymd: string) {
+  return businessDayStartMs(ymd)
 }
 
-function endOfLocalDay(d: Date, dayOffset = 0) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset, 23, 59, 59, 999).getTime()
+function endOfBusinessDayInclusiveMs(ymd: string) {
+  // Inclusive end for client-side inPeriod (legacy ≤ to); server uses exclusive next day.
+  return businessDayStartMs(addCalendarDays(ymd, 1)) - 1
+}
+
+/** Business-local YYYY-MM-DD range for API (preferred). */
+export function periodRangeYmd(
+  period: ReportPeriod,
+  customFrom?: string,
+  customTo?: string,
+): { fromYmd: string | null; toYmd: string | null } {
+  const today = ymdBusiness(new Date())
+  if (period === 'custom') {
+    return {
+      fromYmd: customFrom ? String(customFrom).slice(0, 10) : null,
+      toYmd: customTo ? String(customTo).slice(0, 10) : today,
+    }
+  }
+  if (period === 'all') return { fromYmd: null, toYmd: null }
+  if (period === 'today') return { fromYmd: today, toYmd: today }
+  if (period === 'yesterday') {
+    const y = addCalendarDays(today, -1)
+    return { fromYmd: y, toYmd: y }
+  }
+  if (period === 'month') {
+    const [y, m] = today.split('-')
+    return { fromYmd: `${y}-${m}-01`, toYmd: today }
+  }
+  const days = period === '7d' ? 7 : 30
+  return { fromYmd: addCalendarDays(today, -(days - 1)), toYmd: today }
 }
 
 export function periodRange(
@@ -139,39 +170,21 @@ export function periodRange(
   customFrom?: string,
   customTo?: string,
 ): { from: number | null; to: number | null } {
-  const now = new Date()
-  if (period === 'custom') {
-    const from = customFrom ? new Date(`${customFrom}T00:00:00`).getTime() : null
-    const to = customTo ? new Date(`${customTo}T23:59:59.999`).getTime() : endOfLocalDay(now)
-    return {
-      from: from != null && !Number.isNaN(from) ? from : null,
-      to: to != null && !Number.isNaN(to) ? to : null,
-    }
-  }
-  if (period === 'all') return { from: null, to: null }
-  if (period === 'today') {
-    return { from: startOfLocalDay(now), to: endOfLocalDay(now) }
-  }
-  if (period === 'yesterday') {
-    return { from: startOfLocalDay(now, -1), to: endOfLocalDay(now, -1) }
-  }
-  if (period === 'month') {
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), to: endOfLocalDay(now) }
-  }
-  const days = period === '7d' ? 7 : 30
+  const { fromYmd, toYmd } = periodRangeYmd(period, customFrom, customTo)
   return {
-    from: startOfLocalDay(now, -(days - 1)),
-    to: endOfLocalDay(now),
+    from: fromYmd ? startOfBusinessDayMs(fromYmd) : null,
+    to: toYmd ? endOfBusinessDayInclusiveMs(toYmd) : null,
   }
 }
 
-/** Последние N календарных дней, включая сегодня. Не зависит от фильтра периода. */
+/** Последние N календарных дней (Asia/Dushanbe), включая сегодня. */
 export function lookbackRange(days: number): { from: number; to: number } {
-  const now = new Date()
+  const today = ymdBusiness(new Date())
   const n = Math.max(1, Math.floor(Number(days) || 1))
+  const fromYmd = addCalendarDays(today, -(n - 1))
   return {
-    from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1)).getTime(),
-    to: now.getTime(),
+    from: startOfBusinessDayMs(fromYmd),
+    to: Date.now(),
   }
 }
 
@@ -751,21 +764,28 @@ export function previousPeriodRange(
   customTo?: string,
 ): { from: number | null; to: number | null } {
   const now = new Date()
+  const today = ymdBusiness(now)
   if (period === 'all') return { from: null, to: null }
   if (period === 'today') {
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-    const yStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()
+    const y = addCalendarDays(today, -1)
+    const todayStart = startOfBusinessDayMs(today)
+    const yStart = startOfBusinessDayMs(y)
     return { from: yStart, to: yStart + (now.getTime() - todayStart) }
   }
   if (period === 'yesterday') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2).getTime()
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime() - 1
-    return { from: start, to: end }
+    const day = addCalendarDays(today, -2)
+    return {
+      from: startOfBusinessDayMs(day),
+      to: endOfBusinessDayInclusiveMs(day),
+    }
   }
   if (period === 'month') {
+    const [y, m] = today.split('-').map(Number)
+    const prevMonthEnd = addCalendarDays(`${y}-${String(m).padStart(2, '0')}-01`, -1)
+    const [py, pm] = prevMonthEnd.split('-')
     return {
-      from: new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(),
-      to: new Date(now.getFullYear(), now.getMonth(), 1).getTime() - 1,
+      from: startOfBusinessDayMs(`${py}-${pm}-01`),
+      to: endOfBusinessDayInclusiveMs(prevMonthEnd),
     }
   }
   const { from, to } = periodRange(period, customFrom, customTo)
@@ -862,11 +882,19 @@ export function hourlyBreakdown(sales: PosSale[]): HourRow[] {
   const acc = Array.from({ length: 24 }, (_, hour) => ({
     hour, checks: 0, revenue: 0, cash: 0, card: 0, credit: 0,
   }))
+  const hourFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: KAKAPO_TZ,
+    hour: 'numeric',
+    hourCycle: 'h23',
+  })
   for (const s of sales) {
     if (isSaleFullyReturned(s)) continue
     const d = new Date(s.createdAtIso)
     if (Number.isNaN(d.getTime())) continue
-    const row = acc[d.getHours()]
+    const hourPart = hourFmt.formatToParts(d).find(p => p.type === 'hour')?.value
+    const hour = Number(hourPart)
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) continue
+    const row = acc[hour]
     row.checks += 1
     row.revenue = round2(row.revenue + (Number(s.total) || 0))
     row.cash = round2(row.cash + (Number(s.paidCash) || 0))

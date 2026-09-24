@@ -1,7 +1,11 @@
 /**
  * Удаления для pull-синка. Без этого локальная касса вечно держит
  * товар/клиента, который уже стёрли на сервере.
+ *
+ * L9: also emits changeSeq tombstone via recordEntityDelete (sync).
  */
+
+import { recordEntityDelete } from './syncChangeLog.js'
 
 const TTL_MS = 30 * 24 * 60 * 60 * 1000
 const LIMIT = 8000
@@ -11,7 +15,7 @@ export function ensureSyncDeletes(db) {
   return db.syncDeletes
 }
 
-export function recordSyncDelete(db, kind, id) {
+export function recordSyncDelete(db, kind, id, opts = {}) {
   const k = String(kind || '').trim()
   const i = String(id ?? '').trim()
   if (!k || !i) return
@@ -21,6 +25,13 @@ export function recordSyncDelete(db, kind, id) {
   if (idx >= 0) rows.splice(idx, 1)
   rows.push({ kind: k, id: i, atIso })
   pruneSyncDeletes(db)
+  try {
+    recordEntityDelete(db, k, i, {
+      updatedAt: atIso,
+      sourceClientRef: opts.sourceClientRef,
+      revision: opts.revision,
+    })
+  } catch { /* never block delete path on changelog */ }
 }
 
 export function pruneSyncDeletes(db) {

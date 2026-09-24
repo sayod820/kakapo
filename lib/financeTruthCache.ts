@@ -4,6 +4,7 @@
 import { cacheData, readCachedData } from './offline'
 import type { CashBoxSnapshot, CashVault, FinanceTruthBundle, MoneyLedgerEntry, PosPoint } from './types'
 import type { PosShift } from './types'
+import { ymdBusiness } from './kakapoTime'
 
 const CACHE_PREFIX = 'finance_truth:'
 
@@ -25,12 +26,7 @@ function round2(n: number) {
 
 function ymd(iso?: string) {
   if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return ymdBusiness(iso)
 }
 
 function inRange(iso: string | undefined, fromMs?: number | null, toMs?: number | null) {
@@ -39,6 +35,7 @@ function inRange(iso: string | undefined, fromMs?: number | null, toMs?: number 
   const t = Date.parse(iso)
   if (!Number.isFinite(t)) return false
   if (fromMs != null && Number.isFinite(fromMs) && t < fromMs) return false
+  // Prefer exclusive end when toMs is next-day midnight; keep ≤ for legacy inclusive 23:59:59.999
   if (toMs != null && Number.isFinite(toMs) && t > toMs) return false
   return true
 }

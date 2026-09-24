@@ -1,8 +1,14 @@
 /**
  * Сотрудники приложения «Торговля» — доступ к разделам по паролю.
+ * ONLINE-O8B: bcrypt passwordHash + legacy plaintext migration.
  */
 
-import { createHash } from 'crypto'
+import {
+  setPasswordOnRow,
+  verifyAndMaybeMigrateCredential,
+  applyPasswordMigration,
+  offlinePinHash,
+} from './passwordHash.js'
 
 export const TRADE_PAGE_IDS = [
   'sales',
@@ -80,11 +86,19 @@ export function listEmployees(db) {
     .map(publicEmployee)
 }
 
-function hashEmployeePassword(password) {
-  return createHash('sha256').update('kakapo-emp-v1:' + String(password || '')).digest('hex')
+/** Login picker — id + name only (no role/permissions/phone/secrets). */
+export function listEmployeesDirectory(db) {
+  ensureEmployees(db)
+  return [...db.employees]
+    .filter(e => e && e.active !== false)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'))
+    .map(e => ({
+      id: e.id,
+      name: e.name,
+    }))
 }
 
-/** Для офлайн-кассы: сотрудники с отпечатком пароля (не сам пароль) */
+/** Для офлайн-кассы: bcrypt hash + offline SHA pin (только привязанное устройство). */
 export function listEmployeesLocalAuth(db) {
   ensureEmployees(db)
   return [...db.employees]
@@ -97,7 +111,10 @@ export function listEmployeesLocalAuth(db) {
       roleLabel: EMPLOYEE_ROLE_PRESETS[e.role]?.label || 'Свой набор',
       permissions: Array.isArray(e.permissions) ? [...e.permissions] : [],
       active: e.active !== false,
-      passwordHash: hashEmployeePassword(e.password),
+      // Server auth hash (bcrypt). Offline clients prefer offlinePinHash when present.
+      passwordHash: e.passwordHash || null,
+      offlinePinHash: e.offlinePinHash || null,
+      passwordHashVersion: e.passwordHashVersion || null,
     }))
 }
 
@@ -115,12 +132,13 @@ export function createEmployee(db, data = {}) {
   const row = {
     id: nextId('EMP'),
     name,
-    password,
     role,
     permissions,
     active: data.active !== false,
     createdAtIso: nowIso(),
   }
+  setPasswordOnRow(row, password)
+  row.offlinePinHash = offlinePinHash(password)
   db.employees.unshift(row)
   return publicEmployee(row)
 }
@@ -139,8 +157,10 @@ export function updateEmployee(db, id, patch = {}) {
   }
   if (patch.password != null || patch.pin != null) {
     const password = String(patch.password ?? patch.pin ?? '').trim()
-    if (password && password.length < 4) throw new Error('Пароль не короче 4 символов')
-    if (password) row.password = password
+    if (password) {
+      setPasswordOnRow(row, password)
+      row.offlinePinHash = offlinePinHash(password)
+    }
   }
   if (patch.role != null) {
     row.role = EMPLOYEE_ROLE_PRESETS[patch.role] ? patch.role : 'custom'
@@ -176,16 +196,27 @@ export function loginEmployee(db, data = {}) {
     const name = String(data.name).trim().toLowerCase()
     row = db.employees.find(e => e.name.toLowerCase() === name)
   } else {
-    const matches = db.employees.filter(e => e.active !== false && e.password === password)
+    // Ambiguous password-only login: try hash then legacy plaintext matches
+    const matches = db.employees.filter((e) => {
+      if (e.active === false) return false
+      return verifyAndMaybeMigrateCredential(e, password).ok
+    })
     if (matches.length > 1) throw new Error('Несколько сотрудников с этим паролем — выберите имя')
     row = matches[0] || null
   }
-  if (!row) throw new Error('Сотрудник не найден')
+  if (!row) throw new Error('Неверный логин или пароль')
   if (row.active === false) throw new Error('Сотрудник заблокирован')
-  if (String(row.password) !== password) throw new Error('Неверный пароль')
+  const verified = verifyAndMaybeMigrateCredential(row, password)
+  if (!verified.ok) throw new Error('Неверный логин или пароль')
+  if (verified.migrated) {
+    applyPasswordMigration(row, verified.passwordHash)
+    row.offlinePinHash = offlinePinHash(password)
+    row.updatedAtIso = nowIso()
+  }
   return {
     ...publicEmployee(row),
     token: `emp-${row.id}`,
+    _passwordMigrated: !!verified.migrated,
   }
 }
 
@@ -200,6 +231,7 @@ export function publicEmployee(row) {
     active: row.active !== false,
     createdAtIso: row.createdAtIso,
     updatedAtIso: row.updatedAtIso,
+    // Never expose password / passwordHash / offlinePinHash
   }
 }
 
@@ -207,14 +239,16 @@ export function publicEmployee(row) {
 export function ensureDefaultEmployees(db) {
   ensureEmployees(db)
   if (db.employees.length) return false
-  db.employees.push({
+  const row = {
     id: 'EMP-DEFAULT',
     name: 'Админ магазина',
-    password: '1234',
     role: 'manager',
     permissions: [...TRADE_PAGE_IDS],
     active: true,
     createdAtIso: nowIso(),
-  })
+  }
+  setPasswordOnRow(row, '1234')
+  row.offlinePinHash = offlinePinHash('1234')
+  db.employees.push(row)
   return true
 }

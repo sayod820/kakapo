@@ -161,6 +161,9 @@ export default function TradeLoginPage({
           name: row.name,
           role: row.role,
           permissions: (row.permissions || []) as TradeEmployeeSession['permissions'],
+          token: String((row as { access_token?: string; token?: string }).access_token
+            || (row as { token?: string }).token
+            || ''),
         })
         // запомним пароль локально — следующий вход без интернета
         const prev = (await readCachedEmployeesAuth()) || []

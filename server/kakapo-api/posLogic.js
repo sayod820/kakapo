@@ -9,7 +9,16 @@ import {
   syncDebtLedgerToCard,
 } from './debtLedger.js'
 import { recordSyncDelete } from './syncDeletes.js'
+import { recordEntityUpsert } from './syncChangeLog.js'
 import { queueDocDelete, rowIdForItem } from './db.js'
+import {
+  syncSupplierLedger,
+  reconcileSupplierLedgerAfterSupplyChange,
+  applySupplierSettlement,
+  reverseSupplierSettlementPayment,
+  SETTLEMENT_METHOD,
+} from './supplierSettlement.js'
+import { parseReportRange, inReportRange } from './kakapoTime.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -41,12 +50,27 @@ function touchShift(shift) {
   return shift
 }
 
-/** Клиент/карта попадут в /sync/changes только с свежей меткой */
-function touchCrmRow(row) {
+/** Клиент/карта попадут в /sync/changes только с свежей меткой.
+ *  L9: optional db + entityType emits changeSeq upsert in same turn. */
+function touchCrmRow(row, db = null, entityType = '') {
   if (!row) return row
   const stamp = nowIso()
   row.updatedAtIso = stamp
   row.serverAtIso = stamp
+  if (db && entityType) {
+    try {
+      const id = entityType === 'card'
+        ? String(row.num || row.id || '')
+        : String(row.id || '')
+      if (id) {
+        recordEntityUpsert(db, entityType, id, row, {
+          sourceClientRef: row.clientRef,
+          revision: row.docVersion ?? row.debtPayVersion ?? row.bonusPayVersion,
+          updatedAt: stamp,
+        })
+      }
+    } catch { /* changelog must not break CRM */ }
+  }
   return row
 }
 
@@ -100,6 +124,7 @@ export function ensurePosCollections(db) {
   if (!Array.isArray(db.stockReceipts)) db.stockReceipts = []
   if (!Array.isArray(db.writeOffs)) db.writeOffs = []
   if (!Array.isArray(db.stockRevisions)) db.stockRevisions = []
+  if (!Array.isArray(db.stockAdjustments)) db.stockAdjustments = []
   if (!Array.isArray(db.suppliers)) db.suppliers = []
   if (!Array.isArray(db.supplierPayments)) db.supplierPayments = []
   if (!Array.isArray(db.expenses)) db.expenses = []
@@ -217,6 +242,7 @@ export function createPosPoint(db, data = {}) {
     updatedAtIso: nowIso(),
   }
   db.posPoints.push(row)
+  try { recordEntityUpsert(db, 'pos_point', row.id, publicPosPoint(row)) } catch { /* ignore */ }
   return publicPosPoint(row)
 }
 
@@ -234,6 +260,7 @@ export function updatePosPoint(db, id, data = {}) {
   if (data.receiptPhone != null) row.receiptPhone = String(data.receiptPhone).trim()
   if (data.active != null) row.active = !!data.active
   row.updatedAtIso = nowIso()
+  try { recordEntityUpsert(db, 'pos_point', row.id, publicPosPoint(row)) } catch { /* ignore */ }
   return publicPosPoint(row)
 }
 
@@ -614,17 +641,17 @@ function resolveSaleClientAndCard(db, sale) {
   return { client, card }
 }
 
-function applyDebtToPair(client, card, nextDebt) {
+function applyDebtToPair(client, card, nextDebt, db = null) {
   const d = Math.max(0, round2(nextDebt))
   if (client) {
     client.debt = d
     if (d > 0) client.debtEnabled = true
-    touchCrmRow(client)
+    touchCrmRow(client, db, 'client')
   }
   if (card) {
     card.debt = d
     if (d > 0) card.debtEnabled = true
-    touchCrmRow(card)
+    touchCrmRow(card, db, 'card')
   }
 }
 
@@ -660,9 +687,7 @@ function assertCardBonusPayVersion(card, expected) {
 }
 
 function syncSupplierPayable(supplier) {
-  if (!supplier) return supplier
-  supplier.payableAmount = round2(Math.max(0, (supplier.totalSupplied || 0) - (supplier.totalPaid || 0)))
-  return supplier
+  return syncSupplierLedger(supplier)
 }
 
 /** Версия ленты оплат (оплата / удаление оплаты / оплата с кассы). */
@@ -724,12 +749,11 @@ function assertSupplierSupplyVersion(supplier, expected) {
   }
 }
 
-function updateSupplierDebt(db, supplierId, receiptTotal, paidNow) {
+function updateSupplierDebt(db, supplierId, receiptTotal, _paidNow) {
   if (!supplierId) return null
   const supplier = (db.suppliers || []).find(s => s.id === supplierId)
   if (!supplier) throw new Error('Поставщик не найден')
   supplier.totalSupplied = round2((supplier.totalSupplied || 0) + receiptTotal)
-  supplier.totalPaid = round2((supplier.totalPaid || 0) + Math.max(0, round2(paidNow)))
   syncSupplierPayable(supplier)
   bumpSupplierSupplyVersion(supplier)
   supplier.lastDeliveryAtIso = nowIso()
@@ -921,7 +945,10 @@ export function setProductStockExact(db, productId, targetQty, meta = {}) {
   const current = sumProductLayers(db, product.id)
   const diff = round2(target - current)
   if (diff > 0) restoreReceiptBalances(db, product.id, diff, meta)
-  else if (diff < 0) consumeReceiptBalances(db, product.id, Math.abs(diff))
+  else if (diff < 0) {
+    const out = consumeReceiptBalances(db, product.id, Math.abs(diff))
+    void out
+  }
   return syncProductStock(db, product.id)
 }
 
@@ -942,6 +969,54 @@ export function reconcileAllProductStock(db, meta = {}) {
     }
   }
   return fixed
+}
+
+export function createStockAdjustment(db, data = {}) {
+  ensurePosCollections(db)
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const known = (db.stockAdjustments || []).find(a => a.clientRef === clientRef)
+    if (known) return known
+  }
+  const productId = Number(data.productId)
+  if (!productId) throw new Error('Укажите товар')
+  const product = getProduct(db, productId)
+  const reason = String(data.reason || '').trim() || 'Корректировка остатка'
+  const stockBefore = round2(sumProductLayers(db, product.id))
+  let targetQty
+  if (data.targetQty != null && Number.isFinite(Number(data.targetQty))) {
+    targetQty = round2(Math.max(0, Number(data.targetQty)))
+  } else if (data.deltaQty != null && Number.isFinite(Number(data.deltaQty))) {
+    targetQty = round2(Math.max(0, stockBefore + Number(data.deltaQty)))
+  } else {
+    throw new Error('Укажите targetQty или deltaQty')
+  }
+  setProductStockExact(db, product.id, targetQty, {
+    reason,
+    createdBy: data.createdBy || '',
+    clientRef,
+  })
+  const stockAfter = round2(sumProductLayers(db, product.id))
+  const row = {
+    id: nextId('STKA'),
+    productId: product.id,
+    productName: product.name,
+    createdAtIso: nowIso(),
+    serverAtIso: nowIso(),
+    createdBy: String(data.createdBy || '').trim(),
+    clientRef: clientRef || undefined,
+    reason,
+    stockBefore,
+    stockAfter,
+    targetQty,
+    deltaQty: round2(stockAfter - stockBefore),
+  }
+  db.stockAdjustments.unshift(row)
+  try {
+    recordEntityUpsert(db, 'stock_adjustment', row.id, row, { sourceClientRef: clientRef || row.clientRef })
+    recordEntityUpsert(db, 'product', product.id, product)
+  } catch { /* ignore */ }
+  return row
 }
 
 export function addProductStockLayer(db, productId, data = {}) {
@@ -974,6 +1049,19 @@ export function addProductStockLayer(db, productId, data = {}) {
   }
   db.stockReceipts.unshift(receipt)
   syncProductStock(db, product.id)
+  try {
+    const layerId = `${receipt.id}:${product.id}`
+    recordEntityUpsert(db, 'stock_layer', layerId, {
+      receiptId: receipt.id,
+      productId: product.id,
+      qty,
+      remainingQty: qty,
+      costPrice,
+      retailPrice,
+    })
+    recordEntityUpsert(db, 'receipt', receipt.id, receipt)
+    recordEntityUpsert(db, 'product', product.id, product)
+  } catch { /* ignore */ }
   return { receipt, layers: listProductStockLayers(db, product.id) }
 }
 
@@ -993,6 +1081,13 @@ export function updateProductStockLayer(db, receiptId, productId, patch = {}) {
   }
   if (patch.expiryDate !== undefined) item.expiryDate = patch.expiryDate || null
   syncProductPricingFromActiveLayer(db, productId)
+  try {
+    const layerId = `${receiptId}:${productId}`
+    recordEntityUpsert(db, 'stock_layer', layerId, { ...item, receiptId, productId })
+    recordEntityUpsert(db, 'receipt', receipt.id, receipt)
+    const p = getProduct(db, productId)
+    if (p) recordEntityUpsert(db, 'product', p.id, p)
+  } catch { /* ignore */ }
   return listProductStockLayers(db, productId)
 }
 
@@ -1009,6 +1104,12 @@ export function deleteProductStockLayer(db, receiptId, productId) {
   const itemsLeft = (receipt.items || []).filter((_, i) => i !== itemIdx)
   if (!itemsLeft.length) {
     reverseStockReceipt(db, receipt)
+    try {
+      recordSyncDelete(db, 'stock_layer', `${receiptId}:${productId}`)
+      recordSyncDelete(db, 'receipt', receiptId)
+      const p = (db.products || []).find(x => Number(x.id) === Number(productId))
+      if (p) recordEntityUpsert(db, 'product', p.id, p)
+    } catch { /* ignore */ }
     return {
       receiptId,
       productId: Number(productId),
@@ -1040,6 +1141,12 @@ export function deleteProductStockLayer(db, receiptId, productId) {
 
   syncProductStock(db, productId)
   syncProductPricingFromActiveLayer(db, productId)
+  try {
+    recordSyncDelete(db, 'stock_layer', `${receiptId}:${productId}`)
+    recordEntityUpsert(db, 'receipt', receipt.id, receipt)
+    const p = (db.products || []).find(x => Number(x.id) === Number(productId))
+    if (p) recordEntityUpsert(db, 'product', p.id, p)
+  } catch { /* ignore */ }
   return {
     receiptId,
     productId: Number(productId),
@@ -1051,6 +1158,8 @@ export function deleteProductStockLayer(db, receiptId, productId) {
 function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', preferRetailPrice = null) {
   let left = round2(qty)
   let cogs = 0
+  /** @type {{ receiptId: string, productId: number, qty: number, unitCost: number }[]} */
+  const consumedLayers = []
   const retailKey = preferRetailPrice != null && Number.isFinite(Number(preferRetailPrice))
     ? round2(preferRetailPrice)
     : null
@@ -1133,6 +1242,12 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', prefer
       if (!(take > 0)) continue
       const unitCost = Number(item.costPrice) || 0
       cogs = round2(cogs + take * unitCost)
+      consumedLayers.push({
+        receiptId: receipt.id,
+        productId: pid,
+        qty: round2(take),
+        unitCost: round2(unitCost),
+      })
       item.remainingQty = round2((Number(item.remainingQty) || 0) - take)
       left = round2(left - take)
     }
@@ -1146,7 +1261,36 @@ function consumeReceiptBalances(db, productId, qty, preferReceiptId = '', prefer
     throw new Error(`${hint}: недостаточно остатка по партиям`)
   }
   syncProductPricingFromActiveLayer(db, productId)
-  return cogs
+  return { cogs, consumedLayers }
+}
+
+/** Восстановить на склад по сохранённому следу списания (новые продажи O3B+). */
+export function restoreConsumedLayersTrace(db, consumedLayers, qty, meta = {}) {
+  const add = round2(qty)
+  if (!(add > 0)) return { restored: 0, legacy: false }
+  const layers = Array.isArray(consumedLayers) ? consumedLayers : []
+  if (!layers.length) return { restored: 0, legacy: true }
+  let left = add
+  for (const slice of layers) {
+    if (left <= 0) break
+    const sliceQty = round2(Number(slice.qty) || 0)
+    const already = round2(Number(slice.returnedQty) || 0)
+    const available = round2(sliceQty - already)
+    if (!(available > 0)) continue
+    const take = Math.min(available, left)
+    const receipt = (db.stockReceipts || []).find(r => r.id === slice.receiptId)
+    const item = receipt?.items?.find(i => Number(i.productId) === Number(slice.productId))
+    if (item) {
+      item.remainingQty = round2((Number(item.remainingQty) || 0) + take)
+      slice.returnedQty = round2(already + take)
+      syncProductStock(db, slice.productId)
+      left = round2(left - take)
+    }
+  }
+  if (left > 0.0001) {
+    throw new Error(`Не удалось восстановить ${add} по следу партий (осталось ${left})`)
+  }
+  return { restored: add, legacy: false, reason: meta.reason }
 }
 
 function restoreReceiptBalance(db, productId, qty, receiptId = '') {
@@ -1209,19 +1353,43 @@ function consumeStock(db, items) {
     const preferRetailPrice = raw.preferRetailPrice != null && Number.isFinite(Number(raw.preferRetailPrice))
       ? round2(raw.preferRetailPrice)
       : null
-    return { product, qty, cogs: 0, receiptId, preferRetailPrice }
+    return { product, qty, cogs: 0, consumedLayers: [], receiptId, preferRetailPrice }
   })
   // Всё или ничего: иначе первая позиция уже списана, а на второй ошибка
   const snapshot = snapshotProductLayers(db, normalized.map(r => r.product.id))
   try {
     for (const row of normalized) {
-      row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
+      const out = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
+      row.cogs = out.cogs
+      row.consumedLayers = out.consumedLayers || []
       syncProductStock(db, row.product.id)
     }
   } catch (e) {
     rollbackProductLayers(db, snapshot)
     throw e
   }
+  // L10: stock projection + layer side-effects visible to Desktop v2
+  try {
+    const seen = new Set()
+    for (const row of normalized) {
+      const pid = row.product.id
+      if (seen.has(pid)) continue
+      seen.add(pid)
+      recordEntityUpsert(db, 'product', pid, row.product)
+      for (const receipt of db.stockReceipts || []) {
+        for (const it of receipt.items || []) {
+          if (Number(it.productId) !== Number(pid)) continue
+          const lid = `${receipt.id}:${pid}`
+          recordEntityUpsert(db, 'stock_layer', lid, {
+            ...it,
+            receiptId: receipt.id,
+            productId: pid,
+            productName: it.productName || row.product.name,
+          })
+        }
+      }
+    }
+  } catch { /* changelog must not break stock */ }
   return normalized
 }
 
@@ -1239,6 +1407,29 @@ export function restoreStockLines(db, items, reason = 'Возврат на ск�
     if (!productId) continue
     restoreReceiptBalances(db, productId, qty, { reason })
   }
+  // L10: restored stock must enter change stream
+  try {
+    const seen = new Set()
+    for (const raw of items || []) {
+      const productId = Number(raw.productId)
+      if (!productId || seen.has(productId)) continue
+      seen.add(productId)
+      const p = getProduct(db, productId)
+      if (!p) continue
+      syncProductStock(db, productId)
+      recordEntityUpsert(db, 'product', p.id, p)
+      for (const receipt of db.stockReceipts || []) {
+        for (const it of receipt.items || []) {
+          if (Number(it.productId) !== productId) continue
+          recordEntityUpsert(db, 'stock_layer', `${receipt.id}:${productId}`, {
+            ...it,
+            receiptId: receipt.id,
+            productId,
+          })
+        }
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 export function listCashiers(db) {
@@ -1262,6 +1453,7 @@ export function createCashier(db, data = {}) {
     createdAtIso: nowIso(),
   }
   db.cashiers.unshift(row)
+  try { recordEntityUpsert(db, 'cashier', row.id, row) } catch { /* ignore */ }
   return row
 }
 
@@ -1272,6 +1464,7 @@ export function updateCashier(db, id, patch = {}) {
   Object.assign(row, patch)
   row.name = String(row.name || '').trim()
   row.pin = String(row.pin || '').trim()
+  try { recordEntityUpsert(db, 'cashier', row.id, row) } catch { /* ignore */ }
   return row
 }
 
@@ -1342,6 +1535,9 @@ export function openPosShift(db, data = {}) {
     note: row.note,
     createdAtIso: openedAtIso,
   })
+  try {
+    recordEntityUpsert(db, 'shift', row.id, row, { sourceClientRef: row.clientRef })
+  } catch { /* ignore */ }
   return row
 }
 
@@ -1446,6 +1642,9 @@ export function closePosShift(db, id, data = {}) {
     createdAtIso: row.closedAtIso,
   })
   transferClosedShiftToVault(db, row)
+  try {
+    recordEntityUpsert(db, 'shift', row.id, row)
+  } catch { /* ignore */ }
   return row
 }
 
@@ -1591,6 +1790,7 @@ export function convertVaultCardToCash(db, data = {}) {
     note: row.note,
     refType: 'vault_convert',
     refId: row.id,
+    clientRef: clientRef || undefined,
     meta: { fromMain, fromShifts },
   })
   return row
@@ -1681,6 +1881,7 @@ export function convertVaultCashToCard(db, data = {}) {
     note: row.note,
     refType: 'vault_convert',
     refId: row.id,
+    clientRef: clientRef || undefined,
     meta: { fromMain, fromShifts },
   })
   return row
@@ -1710,6 +1911,9 @@ export function createSupplier(db, data = {}) {
     lastDeliveryAtIso: null,
   }
   db.suppliers.unshift(row)
+  try {
+    recordEntityUpsert(db, 'supplier', row.id, { ...row, updatedAtIso: nowIso() })
+  } catch { /* ignore */ }
   return row
 }
 
@@ -1733,47 +1937,64 @@ export function updateSupplier(db, id, patch = {}) {
 
 export function createSupplierPayment(db, supplierId, data = {}) {
   ensurePosCollections(db)
-  const supplier = db.suppliers.find(s => s.id === supplierId)
-  if (!supplier) throw new Error('Поставщик не найден')
-  const amount = round2(data.amount)
-  if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
-  assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion)
-  supplier.totalPaid = round2((supplier.totalPaid || 0) + amount)
-  syncSupplierPayable(supplier)
-  bumpSupplierPayVersion(supplier)
-  const payment = {
-    id: nextId('SPAY'),
-    supplierId: supplier.id,
-    supplierName: supplier.name,
-    amount,
-    paidAtIso: nowIso(),
-    note: String(data.note || '').trim(),
+  const method = String(data.settlementMethod || data.method || SETTLEMENT_METHOD.ADJUSTMENT).toLowerCase()
+  if (method === 'cash' || method === 'card') {
+    const { payment } = applySupplierSettlement(db, {
+      supplierId,
+      amount: data.amount,
+      note: data.note,
+      expectedPayVersion: data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion,
+      clientRef: data.clientRef,
+      settlementMethod: method === 'card' ? SETTLEMENT_METHOD.CARD : SETTLEMENT_METHOD.CASH,
+      payFrom: data.payFrom,
+      shiftId: data.shiftId,
+      posId: data.posId,
+      cashierId: data.cashierId,
+      cashierName: data.cashierName,
+      createdAtIso: data.createdAtIso,
+      reason: data.reason,
+    })
+    return payment
   }
-  db.supplierPayments.unshift(payment)
+  const { payment } = applySupplierSettlement(db, {
+    supplierId,
+    amount: data.amount,
+    note: data.note,
+    expectedPayVersion: data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion,
+    clientRef: data.clientRef,
+    settlementMethod: SETTLEMENT_METHOD.ADJUSTMENT,
+  })
   return payment
 }
 
 export function listSupplierPayments(db, supplierId) {
   ensurePosCollections(db)
-  return (db.supplierPayments || [])
+  const rows = (db.supplierPayments || [])
     .filter(p => !supplierId || p.supplierId === supplierId)
     .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
+  // Canonical supplier history: one row per settlement (finance_move is linked via financeMoveId, not a second payment).
+  return rows
+}
+
+/** Sum of listed supplier payments — must match supplier.totalPaid when ledger is consistent. */
+export function sumSupplierPayments(db, supplierId) {
+  return round2(
+    listSupplierPayments(db, supplierId).reduce((s, p) => s + (Number(p.amount) || 0), 0),
+  )
 }
 
 export function deleteSupplierPayment(db, supplierId, paymentId, data = {}) {
   ensurePosCollections(db)
-  const idx = (db.supplierPayments || []).findIndex(p => p.id === paymentId && p.supplierId === supplierId)
-  if (idx < 0) throw new Error('Платёж не найден')
-  const payment = db.supplierPayments[idx]
-  const supplier = db.suppliers.find(s => s.id === supplierId)
-  if (supplier) {
-    assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion, 'Удаление')
-    supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - payment.amount))
-    syncSupplierPayable(supplier)
-    bumpSupplierPayVersion(supplier)
-  }
-  db.supplierPayments.splice(idx, 1)
-  return { id: paymentId }
+  const result = reverseSupplierSettlementPayment(db, supplierId, paymentId, data)
+  recordSyncDelete(db, 'supplier_payment', paymentId)
+  const finId = String(result.payment?.financeMoveId || '')
+  if (finId) recordSyncDelete(db, 'finance_move', finId)
+  try {
+    if (result.supplier) {
+      recordEntityUpsert(db, 'supplier', result.supplier.id, { ...result.supplier, updatedAtIso: nowIso() })
+    }
+  } catch { /* ignore */ }
+  return result
 }
 
 export function deleteSupplier(db, id) {
@@ -1887,10 +2108,14 @@ export function createExpense(db, data = {}) {
     cashierName: row.createdBy || shift?.cashierName || '',
     refType: 'expense',
     refId: row.id,
+    clientRef: clientRef || undefined,
     reason: `Расход · ${row.category} · ${fromLabel} · ${methodLabel}`,
     note: row.note,
     meta: { payFrom, method },
   })
+  try {
+    recordEntityUpsert(db, 'expense', row.id, row, { sourceClientRef: row.clientRef })
+  } catch { /* ignore */ }
   return row
 }
 
@@ -1924,7 +2149,7 @@ export function deleteExpense(db, id) {
   }
   filterMoneyLedger(db, e => !(e.refType === 'expense' && String(e.refId) === String(id)))
   recordSyncDelete(db, 'expense', id)
-  return { id }
+  return { id, shiftId: row.shiftId, payFrom: row.payFrom, method: row.method, amount }
 }
 
 /** Вклады / снятия — с открытой смены списывают/вносят наличные в кассу */
@@ -1944,6 +2169,15 @@ export function createFinanceMove(db, data = {}) {
   const type = data.type === 'withdraw' ? 'withdraw' : 'deposit'
   const amount = round2(data.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму')
+  const supplierIdEarly = String(data.supplierId || '').trim()
+  if (type === 'withdraw' && supplierIdEarly && !data.legacyFinanceSupplierSync) {
+    const err = new Error(
+      'Оплата поставщику проводится через раздел «Поставщики → Оплата». Прямое снятие кассы с supplierId отключено.',
+    )
+    err.status = 409
+    err.code = 'SUPPLIER_PAY_USE_SUPPLIERS_ENDPOINT'
+    throw err
+  }
   const payFrom = data.payFrom === 'vault' ? 'vault' : 'shift'
   const method = data.method === 'card' ? 'card' : 'cash'
   if (payFrom === 'vault') assertVaultVersion(db, data.expectedVaultVersion)
@@ -1991,14 +2225,40 @@ export function createFinanceMove(db, data = {}) {
   const cashierName = String(data.createdBy || data.cashierName || shift?.cashierName || '').trim()
   const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
   const supplierId = String(data.supplierId || '').trim()
-  let supplier = null
-  let payment = null
 
   if (type === 'withdraw' && supplierId) {
-    supplier = db.suppliers.find(s => s.id === supplierId)
-    if (!supplier) throw new Error('Поставщик не найден')
-    assertSupplierPayVersion(supplier, data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion)
+    const finId = nextId('FIN')
+    const fromLabel = payFrom === 'vault' ? 'основной ящик' : 'касса смены'
+    const methodLabel = method === 'card' ? 'карта' : 'нал'
+    const reason = String(data.reason || '').trim()
+      || `Оплата поставщику · ${fromLabel} · ${methodLabel}`
+    const { payment, financeMove } = applySupplierSettlement(db, {
+      supplierId,
+      amount,
+      note: String(data.note || '').trim(),
+      expectedPayVersion: data.expectedPayVersion ?? data.expectedDebtVersion ?? data.debtVersion,
+      clientRef,
+      settlementMethod: method === 'card' ? SETTLEMENT_METHOD.CARD : SETTLEMENT_METHOD.CASH,
+      payFrom,
+      shiftId: shift?.id,
+      posId: data.posId || shift?.posId,
+      cashierId,
+      cashierName,
+      createdAtIso: stampFromClient(data, 'createdAtIso'),
+      reason,
+      financeMoveId: finId,
+    })
+    try {
+      recordEntityUpsert(db, 'finance_move', financeMove.id, financeMove, { sourceClientRef: clientRef })
+      recordEntityUpsert(db, 'supplier_payment', payment.id, payment, { sourceClientRef: clientRef })
+      const supplier = (db.suppliers || []).find(s => s.id === supplierId)
+      if (supplier) recordEntityUpsert(db, 'supplier', supplier.id, supplier, { sourceClientRef: clientRef })
+    } catch { /* ignore */ }
+    return { ...financeMove, payment }
   }
+
+  let supplier = null
+  let payment = null
 
   const note = String(data.note || '').trim()
   const fromLabel = payFrom === 'vault' ? 'основной ящик' : 'касса смены'
@@ -2089,6 +2349,7 @@ export function createFinanceMove(db, data = {}) {
     cashierName,
     refType: 'finance_move',
     refId: row.id,
+    clientRef: clientRef || undefined,
     reason,
     note,
     meta: {
@@ -2097,6 +2358,9 @@ export function createFinanceMove(db, data = {}) {
       ...(supplier ? { supplierId: supplier.id, supplierName: supplier.name, paymentId: payment?.id } : {}),
     },
   })
+  try {
+    recordEntityUpsert(db, 'finance_move', row.id, row, { sourceClientRef: row.clientRef })
+  } catch { /* ignore */ }
   return { ...row, payment }
 }
 
@@ -2383,8 +2647,8 @@ export function createCashAdvance(db, data = {}) {
 
   if (!debtChargeReplay) {
     card.debtPayVersion = (Number(card.debtPayVersion) || 0) + 1
-    touchCrmRow(card)
-    if (linkedClient) touchCrmRow(linkedClient)
+    touchCrmRow(card, db, 'card')
+    if (linkedClient) touchCrmRow(linkedClient, db, 'client')
   } else {
     // Already applied — keep versions; till path may still need moneyLedger replay
   }
@@ -2458,13 +2722,21 @@ export function isCardTopupFinanceMove(row) {
   return /пополнение бонусов/i.test(reason) || /пополнение бонусов/i.test(note)
 }
 
-export function deleteFinanceMove(db, id) {
+export function deleteFinanceMove(db, id, data = {}) {
   ensurePosCollections(db)
   const idx = db.financeMoves.findIndex(r => r.id === id)
   if (idx < 0) throw new Error('Запись не найдена')
   const row = db.financeMoves[idx]
   if (isCardTopupFinanceMove(row)) {
     throw new Error('Пополнение бонусов нельзя удалить')
+  }
+  const linkedPay = (db.supplierPayments || []).find(p => String(p.financeMoveId || '') === String(id))
+  if (linkedPay && row.supplierId && row.type === 'withdraw') {
+    reverseSupplierSettlementPayment(db, row.supplierId, linkedPay.id, data)
+    db.financeMoves = (db.financeMoves || []).filter(m => String(m.id) !== String(id))
+    queueDocDelete('financeMoves', String(id))
+    recordSyncDelete(db, 'finance_move', id)
+    return { id }
   }
   const amount = round2(row.amount)
   const type = row.type === 'withdraw' ? 'withdraw' : 'deposit'
@@ -2504,15 +2776,6 @@ export function deleteFinanceMove(db, id) {
     }
   }
 
-  if (row.supplierId) {
-    const supplier = (db.suppliers || []).find(s => s.id === row.supplierId)
-    if (supplier) {
-      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - amount))
-      syncSupplierPayable(supplier)
-      bumpSupplierPayVersion(supplier)
-    }
-  }
-
   db.supplierPayments = (db.supplierPayments || []).filter(
     p => String(p.financeMoveId || '') !== String(id),
   )
@@ -2528,114 +2791,14 @@ export function listStockReceipts(db) {
   return [...db.stockReceipts].sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
 }
 
-/**
- * После снятия прихода totalPaid может остаться больше totalSupplied
- * (отдельные оплаты долга). Убираем лишние оплаты с конца, как будто их не было:
- * книга — просто стереть; с кассы — вернуть деньги.
- */
-function trimSupplierOverpayAfterSupplyChange(db, supplierId) {
-  if (!supplierId) return
-  const supplier = (db.suppliers || []).find(s => s.id === supplierId)
-  if (!supplier) return
-  let changed = false
-
-  const restorePaymentCash = (payment) => {
-    const amount = round2(payment.amount)
-    if (!(amount > 0.001)) return
-    const payFrom = payment.payFrom === 'vault' ? 'vault' : 'shift'
-    const method = payment.method === 'card' ? 'card' : 'cash'
-    if (payFrom === 'vault') {
-      if (!db.cashVault) db.cashVault = { cashTotal: 0, cardTotal: 0, transfers: [] }
-      if (method === 'card') {
-        db.cashVault.cardTotal = round2((Number(db.cashVault.cardTotal) || 0) + amount)
-      } else {
-        db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
-      }
-    } else if (payment.shiftId) {
-      const shift = (db.posShifts || []).find(s => s.id === payment.shiftId)
-      if (shift) {
-        if (method === 'card') {
-          shift.salesCard = round2((Number(shift.salesCard) || 0) + amount)
-        } else {
-          shift.expenseTotal = round2(Math.max(0, (Number(shift.expenseTotal) || 0) - amount))
-        }
-        touchShift(shift)
-      }
-    }
-    const finId = String(payment.financeMoveId || '')
-    if (finId) {
-      const removedMoves = (db.financeMoves || []).filter(m => String(m.id) === finId)
-      db.financeMoves = (db.financeMoves || []).filter(m => String(m.id) !== finId)
-      for (const m of removedMoves) queueDocDelete('financeMoves', String(m.id))
-      filterMoneyLedger(db, e => !(e.refType === 'finance_move' && String(e.refId) === finId))
-    }
-  }
-
-  while (true) {
-    const excess = round2((Number(supplier.totalPaid) || 0) - (Number(supplier.totalSupplied) || 0))
-    if (!(excess > 0.001)) break
-
-    const payments = (db.supplierPayments || [])
-      .filter(p => String(p.supplierId) === String(supplierId))
-      .sort((a, b) => String(b.paidAtIso || '').localeCompare(String(a.paidAtIso || '')))
-
-    if (!payments.length) {
-      supplier.totalPaid = round2(Math.max(0, Number(supplier.totalSupplied) || 0))
-      changed = true
-      break
-    }
-
-    const payment = payments[0]
-    const amt = round2(payment.amount)
-    if (!(amt > 0.001)) {
-      db.supplierPayments = (db.supplierPayments || []).filter(p => p.id !== payment.id)
-      changed = true
-      continue
-    }
-
-    if (amt <= excess + 0.009) {
-      // целиком убрать оплату
-      if (payment.payFrom && payment.payFrom !== 'book') {
-        restorePaymentCash(payment)
-      } else if (payment.financeMoveId) {
-        restorePaymentCash(payment)
-      }
-      db.supplierPayments = (db.supplierPayments || []).filter(p => p.id !== payment.id)
-      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - amt))
-      changed = true
-    } else {
-      // уменьшить последнюю оплату на excess
-      const leave = round2(amt - excess)
-      payment.amount = leave
-      supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - excess))
-      // частичный возврат кассы по доле
-      if ((payment.payFrom && payment.payFrom !== 'book') || payment.financeMoveId) {
-        const slice = { ...payment, amount: excess }
-        restorePaymentCash(slice)
-        if (payment.financeMoveId) {
-          const move = (db.financeMoves || []).find(m => String(m.id) === String(payment.financeMoveId))
-          if (move) move.amount = leave
-        }
-      }
-      changed = true
-      break
-    }
-  }
-
-  syncSupplierPayable(supplier)
-  if (changed) bumpSupplierPayVersion(supplier)
-}
-
-function reverseSupplierDebt(db, supplierId, receiptTotal, debtAdded) {
+function reverseSupplierDebt(db, supplierId, receiptTotal, _debtAdded) {
   if (!supplierId) return null
   const supplier = (db.suppliers || []).find(s => s.id === supplierId)
   if (!supplier) throw new Error('Поставщик не найден')
-  const paidNow = Math.max(0, round2(receiptTotal - debtAdded))
   supplier.totalSupplied = round2(Math.max(0, (supplier.totalSupplied || 0) - receiptTotal))
-  supplier.totalPaid = round2(Math.max(0, (supplier.totalPaid || 0) - paidNow))
   syncSupplierPayable(supplier)
   bumpSupplierSupplyVersion(supplier)
-  trimSupplierOverpayAfterSupplyChange(db, supplierId)
+  reconcileSupplierLedgerAfterSupplyChange(db, supplierId)
   return supplier
 }
 
@@ -2670,11 +2833,27 @@ function restoreReceiptBalances(db, productId, qty, meta = {}) {
 
 function reverseStockReceipt(db, receipt) {
   const productIds = (receipt.items || []).map(item => Number(item.productId))
+  const paid = round2(receipt.paidNow)
+  let legacyPaidNowOnly = false
   if (receipt.supplierId) {
+    const linked = (db.supplierPayments || []).filter(
+      p => String(p.receiptId || '') === String(receipt.id) && String(p.supplierId) === String(receipt.supplierId),
+    )
+    const hadLinkedPay = linked.length > 0
+    legacyPaidNowOnly = paid > 0.001 && !hadLinkedPay
+    for (const p of linked) {
+      reverseSupplierSettlementPayment(db, receipt.supplierId, p.id, {})
+    }
     reverseSupplierDebt(db, receipt.supplierId, receipt.totalCost, receipt.debtAdded)
   }
-  const paid = round2(receipt.paidNow)
-  if (paid > 0.001) {
+  if (legacyPaidNowOnly) {
+    if (receipt.supplierId) {
+      const supplier = (db.suppliers || []).find(s => String(s.id) === String(receipt.supplierId))
+      if (supplier) {
+        supplier.totalPaid = round2(Math.max(0, (Number(supplier.totalPaid) || 0) - paid))
+        syncSupplierPayable(supplier)
+      }
+    }
     const payFrom = receipt.payFrom === 'vault' ? 'vault' : 'shift'
     const method = receipt.method === 'card' ? 'card' : 'cash'
     if (payFrom === 'vault') {
@@ -2756,6 +2935,9 @@ function buildStockReceipt(db, data = {}, meta = {}) {
     totalCost = round2(totalCost + (row.purchaseTotal || row.qty * row.costPrice))
   }
   const paidNow = round2(data.paidNow)
+  if (paidNow > totalCost + 0.009) {
+    throw new Error('Оплата при приходе не может превышать сумму прихода')
+  }
   const supplier = updateSupplierDebt(db, data.supplierId || '', totalCost, paidNow)
   const receipt = {
     id: meta.id || nextId('REC'),
@@ -2790,67 +2972,27 @@ function buildStockReceipt(db, data = {}, meta = {}) {
 function applyReceiptPaidNow(db, receipt, data = {}) {
   const paid = round2(Number(receipt.paidNow) || 0)
   if (!(paid > 0.001)) return receipt
+  if (!receipt.supplierId) throw new Error('Укажите поставщика для оплаты при приходе')
   const payFrom = receipt.payFrom === 'vault' ? 'vault' : 'shift'
   const method = receipt.method === 'card' ? 'card' : 'cash'
-  let shift = null
-  if (payFrom === 'vault') {
-    const have = method === 'card'
-      ? round2(Number(db.cashVault.cardTotal) || 0)
-      : round2(Number(db.cashVault.cashTotal) || 0)
-    if (paid > have + 0.009) {
-      throw new Error(
-        method === 'card'
-          ? `В основном ящике на карте только ${have.toFixed(2)} сом`
-          : `В основном ящике наличных только ${have.toFixed(2)} сом`,
-      )
-    }
-    if (method === 'card') {
-      db.cashVault.cardTotal = round2(have - paid)
-    } else {
-      db.cashVault.cashTotal = round2(have - paid)
-    }
-  } else {
-    if (data.shiftId) {
-      shift = db.posShifts.find(s => s.id === data.shiftId && s.status === 'open') || null
-    }
-    if (!shift) shift = findOpenShift(db, data.posId)
-    if (!shift) {
-      throw new Error('Нет открытой смены — откройте смену или оплатите из основного ящика')
-    }
-    const expected = method === 'card'
-      ? round2(Number(shift.salesCard) || 0)
-      : shiftExpectedCash(shift)
-    if (paid > expected + 0.009) {
-      throw new Error(
-        method === 'card'
-          ? `На карте смены только ${expected.toFixed(2)} сом`
-          : `В кассе недостаточно наличных для оплаты закупа (доступно ${expected.toFixed(2)} сом)`,
-      )
-    }
-    if (method === 'card') {
-      shift.salesCard = round2(expected - paid)
-    } else {
-      shift.expenseTotal = round2((Number(shift.expenseTotal) || 0) + paid)
-    }
-    touchShift(shift)
-    receipt.shiftId = shift.id
-    receipt.posId = shift.posId || ''
-  }
-  appendMoneyLedger(db, {
-    type: 'purchase_pay',
+  const { payment } = applySupplierSettlement(db, {
+    supplierId: receipt.supplierId,
     amount: paid,
-    direction: 'out',
-    cashAffect: method === 'cash',
-    posId: receipt.posId || shift?.posId || data.posId || '',
-    shiftId: shift?.id || '',
-    cashierName: receipt.createdBy || shift?.cashierName || '',
-    cashierId: shift?.cashierId || '',
-    refType: 'receipt',
-    refId: receipt.id,
-    reason: `Оплата закупа · ${receipt.supplierName || 'поставщик'} · ${payFrom === 'vault' ? 'основной' : 'касса'} · ${method === 'card' ? 'карта' : 'нал'}`,
-    note: '',
-    meta: { payFrom, method },
+    settlementMethod: method === 'card' ? SETTLEMENT_METHOD.CARD : SETTLEMENT_METHOD.CASH,
+    payFrom,
+    shiftId: data.shiftId,
+    posId: data.posId,
+    cashierName: receipt.createdBy,
+    skipFinanceMove: true,
+    receiptId: receipt.id,
+    sourceType: 'receipt_paid_now',
+    reason: `Оплата закупа при приходе · ${receipt.supplierName || ''}`,
+    clientRef: data.clientRef || receipt.clientRef,
   })
+  if (payment.shiftId) {
+    receipt.shiftId = payment.shiftId
+    receipt.posId = payment.posId || receipt.posId
+  }
   return receipt
 }
 
@@ -2879,13 +3021,87 @@ export function createStockReceipt(db, data = {}) {
     reverseStockReceipt(db, receipt)
     throw e
   }
+  if (!clientRef || !receipt._idempotentReplay) {
+    try {
+      recordEntityUpsert(db, 'receipt', receipt.id, receipt, { sourceClientRef: clientRef || receipt.clientRef })
+      for (const it of receipt.items || []) {
+        if (it.productId != null) {
+          const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+          if (p) recordEntityUpsert(db, 'product', p.id, p)
+          recordEntityUpsert(db, 'stock_layer', `${receipt.id}:${it.productId}`, {
+            receiptId: receipt.id,
+            productId: it.productId,
+            remainingQty: it.remainingQty,
+            qty: it.qty,
+          })
+        }
+      }
+      if (receipt.supplierId) {
+        const supplier = (db.suppliers || []).find(s => String(s.id) === String(receipt.supplierId))
+        if (supplier) recordEntityUpsert(db, 'supplier', supplier.id, { ...supplier, updatedAtIso: nowIso() })
+      }
+    } catch { /* ignore */ }
+  }
   return receipt
+}
+
+/** Сколько уже списано с прихода (продажи/списания), по productId. */
+function receiptConsumedByProduct(receipt) {
+  const map = new Map()
+  for (const it of receipt.items || []) {
+    const pid = Number(it.productId)
+    const consumed = round2(Math.max(0, (Number(it.qty) || 0) - (Number(it.remainingQty) || 0)))
+    if (consumed > 0) map.set(pid, round2((map.get(pid) || 0) + consumed))
+  }
+  return map
+}
+
+function assertNewReceiptQtysCoverConsumed(rawItems, consumedByProduct) {
+  const newByProduct = new Map()
+  for (const raw of rawItems) {
+    const pid = Number(raw.productId)
+    if (!pid) continue
+    const qty = round2(raw.qty)
+    newByProduct.set(pid, round2((newByProduct.get(pid) || 0) + qty))
+  }
+  for (const [pid, consumed] of consumedByProduct) {
+    const newTotal = newByProduct.get(pid) ?? 0
+    if (newTotal + 0.0001 < consumed) {
+      throw new Error(
+        `Нельзя уменьшить приход: по товару #${pid} уже использовано ${consumed}, указано ${newTotal}`,
+      )
+    }
+  }
+}
+
+function applyReceiptRemainingAfterEdit(items, consumedByProduct) {
+  const left = new Map(consumedByProduct)
+  for (const it of items || []) {
+    const pid = Number(it.productId)
+    const need = left.get(pid) || 0
+    const alloc = Math.min(need, round2(it.qty))
+    it.remainingQty = round2(it.qty - alloc)
+    left.set(pid, round2(need - alloc))
+  }
+}
+
+function assertReceiptDeletable(receipt) {
+  for (const it of receipt.items || []) {
+    const consumed = round2(Math.max(0, (Number(it.qty) || 0) - (Number(it.remainingQty) || 0)))
+    if (consumed > 0.0001) {
+      const name = it.productName || `#${it.productId}`
+      throw new Error(`Нельзя удалить приход: по «${name}» уже использовано ${consumed}`)
+    }
+  }
 }
 
 export function updateStockReceipt(db, id, data = {}) {
   ensurePosCollections(db)
   const receipt = (db.stockReceipts || []).find(r => r.id === id)
   if (!receipt) throw new Error('Приход не найден')
+  const consumedByProduct = receiptConsumedByProduct(receipt)
+  const rawItems = Array.isArray(data.items) ? data.items : []
+  if (rawItems.length) assertNewReceiptQtysCoverConsumed(rawItems, consumedByProduct)
   // Проверка версии до отката: иначе reverse уже сдвинет счётчик
   const supplierIdForCheck = String(data.supplierId || receipt.supplierId || '').trim()
   if (supplierIdForCheck) {
@@ -2904,12 +3120,27 @@ export function updateStockReceipt(db, id, data = {}) {
   }
   reverseStockReceipt(db, receipt)
   const next = buildStockReceipt(db, data, meta)
+  applyReceiptRemainingAfterEdit(next.items, consumedByProduct)
+  for (const it of next.items || []) syncProductStock(db, it.productId)
   try {
     applyReceiptPaidNow(db, next, data)
   } catch (e) {
     reverseStockReceipt(db, next)
     throw e
   }
+  try {
+    recordEntityUpsert(db, 'receipt', next.id, next, { sourceClientRef: next.clientRef })
+    for (const it of next.items || []) {
+      if (it.productId != null) {
+        const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+        if (p) recordEntityUpsert(db, 'product', p.id, p)
+      }
+    }
+    if (next.supplierId) {
+      const supplier = (db.suppliers || []).find(s => String(s.id) === String(next.supplierId))
+      if (supplier) recordEntityUpsert(db, 'supplier', supplier.id, { ...supplier, updatedAtIso: nowIso() })
+    }
+  } catch { /* ignore */ }
   return next
 }
 
@@ -2917,9 +3148,24 @@ export function deleteStockReceipt(db, id) {
   ensurePosCollections(db)
   const receipt = (db.stockReceipts || []).find(r => r.id === id)
   if (!receipt) throw new Error('Приход не найден')
+  assertReceiptDeletable(receipt)
+  const supplierId = receipt.supplierId
+  const snapshot = {
+    id: receipt.id,
+    supplierId: receipt.supplierId,
+    supplierName: receipt.supplierName,
+    totalCost: receipt.totalCost,
+    paidNow: receipt.paidNow,
+  }
   reverseStockReceipt(db, receipt)
   recordSyncDelete(db, 'receipt', id)
-  return { id }
+  if (supplierId) {
+    try {
+      const supplier = (db.suppliers || []).find(s => String(s.id) === String(supplierId))
+      if (supplier) recordEntityUpsert(db, 'supplier', supplier.id, { ...supplier, updatedAtIso: nowIso() })
+    } catch { /* ignore */ }
+  }
+  return snapshot
 }
 
 function buildStockWriteoff(db, data = {}, meta = {}) {
@@ -2963,7 +3209,19 @@ export function createStockWriteoff(db, data = {}) {
   const meta = {}
   if (data.createdAtIso) meta.createdAtIso = data.createdAtIso
   if (clientRef) meta.clientRef = clientRef
-  return buildStockWriteoff(db, data, meta)
+  const row = buildStockWriteoff(db, data, meta)
+  if (!row._idempotentReplay) {
+    try {
+      recordEntityUpsert(db, 'writeoff', row.id, row, { sourceClientRef: clientRef || row.clientRef })
+      for (const it of row.items || []) {
+        if (it.productId != null) {
+          const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+          if (p) recordEntityUpsert(db, 'product', p.id, p)
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  return row
 }
 
 export function updateStockWriteoff(db, id, data = {}) {
@@ -2978,7 +3236,17 @@ export function updateStockWriteoff(db, id, data = {}) {
   }
   reverseStockWriteoff(db, old)
   db.writeOffs.splice(idx, 1)
-  return buildStockWriteoff(db, data, meta)
+  const row = buildStockWriteoff(db, data, meta)
+  try {
+    recordEntityUpsert(db, 'writeoff', row.id, row, { sourceClientRef: row.clientRef })
+    for (const it of row.items || []) {
+      if (it.productId != null) {
+        const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+        if (p) recordEntityUpsert(db, 'product', p.id, p)
+      }
+    }
+  } catch { /* ignore */ }
+  return row
 }
 
 export function deleteStockWriteoff(db, id) {
@@ -3045,6 +3313,13 @@ function buildStockRevision(db, data = {}, meta = {}) {
     posCuts: Array.isArray(meta.posCuts) ? meta.posCuts : snapshotPosCuts(db),
   }
   db.stockRevisions.unshift(row)
+  try {
+    recordEntityUpsert(db, 'revision', row.id, row, { sourceClientRef: data.clientRef })
+    for (const it of items) {
+      const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+      if (p) recordEntityUpsert(db, 'product', p.id, p)
+    }
+  } catch { /* ignore */ }
   return row
 }
 
@@ -3121,15 +3396,26 @@ export function listExpiryItems(db, days = 14) {
   return out.sort((a, b) => a.daysLeft - b.daysLeft)
 }
 
-export function listPosSales(db) {
+export function listPosSales(db, q = {}) {
   ensurePosCollections(db)
   ensurePosSaleNumbers(db)
-  return [...db.posSales].sort((a, b) => {
+  let rows = [...db.posSales]
+  if (q.from || q.to) {
+    const range = parseReportRange(q.from, q.to)
+    rows = rows.filter(s => inReportRange(s.createdAtIso, range))
+  }
+  rows.sort((a, b) => {
     const nb = Number(b.number) || 0
     const na = Number(a.number) || 0
     if (nb !== na) return nb - na
-    return String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+    const tc = String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || ''))
+    if (tc !== 0) return tc
+    return String(b.id || '').localeCompare(String(a.id || ''))
   })
+  const offset = Math.max(0, Number(q.offset) || 0)
+  const limit = q.limit != null ? Math.min(5000, Math.max(1, Number(q.limit) || 0)) : null
+  if (limit != null) rows = rows.slice(offset, offset + limit)
+  return rows
 }
 
 export function createPosSale(db, data = {}) {
@@ -3243,6 +3529,9 @@ export function createPosSale(db, data = {}) {
       unitCost,
       lineCost,
       receiptId: row.receiptId || undefined,
+      consumedLayers: Array.isArray(row.consumedLayers) && row.consumedLayers.length
+        ? row.consumedLayers.map(s => ({ ...s }))
+        : undefined,
     }
   })
   const itemsTotal = round2(items.reduce((sum, item) => sum + item.lineTotal, 0))
@@ -3353,11 +3642,11 @@ export function createPosSale(db, data = {}) {
     }
     if (walletCard) {
       walletCard.wallet = round2(Math.max(0, (Number(walletCard.wallet) || 0) - paidWallet))
-      touchCrmRow(walletCard)
+      touchCrmRow(walletCard, db, 'card')
     }
     if (walletClient) {
       walletClient.wallet = round2(Math.max(0, (Number(walletClient.wallet) || 0) - paidWallet))
-      touchCrmRow(walletClient)
+      touchCrmRow(walletClient, db, 'client')
     }
   }
   if (debtAdded > 0 && !skipBalances) {
@@ -3370,7 +3659,7 @@ export function createPosSale(db, data = {}) {
     }
     assertCardDebtPayVersion(card, data.expectedDebtPayVersion)
     const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
-    applyDebtToPair(client, card, nextDebt)
+    applyDebtToPair(client, card, nextDebt, db)
     bumpCardDebtPayVersion(card)
     if (client) {
       const itemsSummary = items.slice(0, 5).map(it => `${it.productName} ×${it.qty}`).join(', ')
@@ -3393,7 +3682,7 @@ export function createPosSale(db, data = {}) {
     if (debtAdded > 0) {
       assertCardDebtPayVersion(card, data.expectedDebtPayVersion)
       const nextDebt = round2(effectiveDebt(client, card) + debtAdded)
-      applyDebtToPair(client, card, nextDebt)
+      applyDebtToPair(client, card, nextDebt, db)
       bumpCardDebtPayVersion(card)
     }
     if (paidWallet > 0) {
@@ -3407,11 +3696,11 @@ export function createPosSale(db, data = {}) {
       const nextW = round2(Math.max(0, balance - paidWallet))
       if (card) {
         card.wallet = nextW
-        touchCrmRow(card)
+        touchCrmRow(card, db, 'card')
       }
       if (client) {
         client.wallet = nextW
-        touchCrmRow(client)
+        touchCrmRow(client, db, 'client')
       }
     }
     if (bonusSpent > 0 || bonusEarned > 0) {
@@ -3424,21 +3713,21 @@ export function createPosSale(db, data = {}) {
           card.posCashBonus = Math.max(0, Math.floor(Number(card.posCashBonus) || 0) - bonusSpent)
         }
         card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
-        touchCrmRow(card)
+        touchCrmRow(card, db, 'card')
       }
       if (client) {
         client.bonus = nextB
-        touchCrmRow(client)
+        touchCrmRow(client, db, 'client')
       }
     } else if (data.bonusAfter != null || data.bonusBalanceAfter != null) {
       const b = Math.max(0, Math.floor(Number(data.bonusAfter ?? data.bonusBalanceAfter)))
       if (card) {
         card.bonus = b
-        touchCrmRow(card)
+        touchCrmRow(card, db, 'card')
       }
       if (client) {
         client.bonus = b
-        touchCrmRow(client)
+        touchCrmRow(client, db, 'client')
       }
     }
     if (debtAdded > 0 && client) {
@@ -3506,6 +3795,20 @@ export function createPosSale(db, data = {}) {
       cashAffect: false,
       reason: `Продажа с кошелька · ${sale.clientName || sale.clientPhone || ''}`,
     })
+  }
+  if (!sale._idempotentReplay) {
+    try {
+      recordEntityUpsert(db, 'sale', sale.id, sale, { sourceClientRef: sale.clientRef })
+      if (sale.shiftId) {
+        const sh = (db.posShifts || []).find(x => String(x.id) === String(sale.shiftId))
+        if (sh) recordEntityUpsert(db, 'shift', sh.id, sh)
+      }
+      // CRM side-effects (debt/bonus/wallet) already emitted via touchCrmRow/applyDebtToPair.
+      // Re-touch if balances changed but touch was skipped (skipBalances false paths that mutate without touch).
+      const { client: sideClient, card: sideCard } = resolveSaleClientAndCard(db, sale)
+      if (sideClient) touchCrmRow(sideClient, db, 'client')
+      if (sideCard) touchCrmRow(sideCard, db, 'card')
+    } catch { /* changelog must not break sale */ }
   }
   return sale
 }
@@ -3703,7 +4006,14 @@ export function returnPosSale(db, saleId, meta = {}) {
     // appliedLocal / skipStock из очереди игнорируем — иначе остаток на сервере не растёт.
     const skipStockRestore = !!sale.stockSkipped
     if (!skipStockRestore) {
-      restoreReceiptBalance(db, item.productId, p.qty, item.receiptId || '')
+      const trace = item.consumedLayers
+      const traced = restoreConsumedLayersTrace(db, trace, p.qty, { reason: 'Возврат по чеку' })
+      if (traced.legacy) {
+        restoreReceiptBalances(db, item.productId, p.qty, {
+          reason: 'Возврат по чеку (legacy)',
+          legacyReturnRestore: true,
+        })
+      }
     }
     returnLines.push({
       productId: item.productId,
@@ -3803,7 +4113,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     const { client, card } = resolveSaleClientAndCard(db, sale)
     if (cutDebt > 0) {
       assertCardDebtPayVersion(card, meta.expectedDebtPayVersion)
-      applyDebtToPair(client, card, Math.max(0, round2(effectiveDebt(client, card) - cutDebt)))
+      applyDebtToPair(client, card, Math.max(0, round2(effectiveDebt(client, card) - cutDebt)), db)
       bumpCardDebtPayVersion(card)
       if (client) {
         applyDebtRepayment(client, card, cutDebt, {
@@ -3816,11 +4126,11 @@ export function returnPosSale(db, saleId, meta = {}) {
     if (cutWallet > 0) {
       if (card) {
         card.wallet = round2((Number(card.wallet) || 0) + cutWallet)
-        touchCrmRow(card)
+        touchCrmRow(card, db, 'card')
       }
       if (client) {
         client.wallet = round2((Number(client.wallet) || 0) + cutWallet)
-        touchCrmRow(client)
+        touchCrmRow(client, db, 'client')
       }
     }
     if (cutBonus > 0) {
@@ -3829,13 +4139,13 @@ export function returnPosSale(db, saleId, meta = {}) {
         card.bonus = round2((Number(card.bonus) || 0) + cutBonus)
         card.posCashBonus = round2((Number(card.posCashBonus) || 0) + cutBonus)
         card.bonusPayVersion = (Number(card.bonusPayVersion) || 0) + 1
-        touchCrmRow(card)
+        touchCrmRow(card, db, 'card')
       }
       if (client) {
         client.bonus = card
           ? card.bonus
           : round2((Number(client.bonus) || 0) + cutBonus)
-        touchCrmRow(client)
+        touchCrmRow(client, db, 'client')
       }
       const order = (db.orders || []).find(o => String(o.id) === String(sale.orderId || ''))
       if (order) {
@@ -3940,6 +4250,30 @@ export function returnPosSale(db, saleId, meta = {}) {
       note: String(meta.note || '').trim(),
     })
   }
+  try {
+    recordEntityUpsert(db, 'sale', sale.id, sale, { sourceClientRef: retClientRef || sale.clientRef })
+    // L11C: restored stock must enter change stream (return previously only upserted sale)
+    const seen = new Set()
+    for (const line of returnLines) {
+      const productId = Number(line.productId)
+      if (!productId || seen.has(productId)) continue
+      seen.add(productId)
+      const p = (db.products || []).find(x => Number(x.id) === productId)
+      if (!p) continue
+      syncProductStock(db, productId)
+      recordEntityUpsert(db, 'product', p.id, p)
+      for (const receipt of db.stockReceipts || []) {
+        for (const it of receipt.items || []) {
+          if (Number(it.productId) !== productId) continue
+          recordEntityUpsert(db, 'stock_layer', `${receipt.id}:${productId}`, {
+            ...it,
+            receiptId: receipt.id,
+            productId,
+          })
+        }
+      }
+    }
+  } catch { /* ignore */ }
   return sale
   } catch (e) {
     if (retClientRef && Array.isArray(sale.returns)) {
@@ -3951,23 +4285,94 @@ export function returnPosSale(db, saleId, meta = {}) {
   }
 }
 
+function isSaleFullyReturnedRow(sale) {
+  if (String(sale?.status || '') === 'returned') return true
+  const items = sale?.items || []
+  return items.length > 0 && items.every(it => {
+    const left = round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0))
+    return left <= 0.0001
+  })
+}
+
+function saleLineLeftQty(it) {
+  return Math.max(0, round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)))
+}
+
+/** Canonical POS report summary — net of returns; COGS from sales (not purchase receipts). */
 export function getPosFinanceSummary(db) {
   ensurePosCollections(db)
   const sales = db.posSales || []
-  const receipts = db.stockReceipts || []
   const expenses = db.expenses || []
   const supplierPayments = db.supplierPayments || []
+  const receipts = db.stockReceipts || []
+
+  let revenue = 0
+  let cashRevenue = 0
+  let cardRevenue = 0
+  let creditIssued = 0
+  let returnTotal = 0
+  let salesCount = 0
+  let returnedCount = 0
+  let cogs = 0
+
+  for (const row of sales) {
+    const full = isSaleFullyReturnedRow(row)
+    if (full) {
+      returnedCount += 1
+      returnTotal = round2(
+        returnTotal
+        + (Number(row.originalTotal) || Number(row.lastReturnTotal) || Number(row.total) || 0),
+      )
+      continue
+    }
+    salesCount += 1
+    revenue = round2(revenue + (Number(row.total) || 0))
+    cashRevenue = round2(cashRevenue + (Number(row.paidCash) || 0))
+    cardRevenue = round2(cardRevenue + (Number(row.paidCard) || 0))
+    creditIssued = round2(creditIssued + (Number(row.debtAdded) || 0))
+    if (row.totalCost != null) {
+      cogs = round2(cogs + (Number(row.totalCost) || 0))
+    } else {
+      for (const it of row.items || []) {
+        const left = saleLineLeftQty(it)
+        if (!(left > 0)) continue
+        if (it.lineCost != null && Number(it.qty) > 0) {
+          cogs = round2(cogs + (Number(it.lineCost) || 0) * (left / Number(it.qty)))
+        } else {
+          const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
+          const unit = Number(it.unitCost) || Number(p?.costPrice) || 0
+          cogs = round2(cogs + unit * left)
+        }
+      }
+    }
+    const partialReturn = (row.items || []).some(it => (Number(it.returnedQty) || 0) > 0)
+    if (partialReturn) {
+      returnedCount += 1
+      returnTotal = round2(returnTotal + (Number(row.lastReturnTotal) || 0))
+    }
+  }
+
+  const stockPurchases = round2(
+    receipts.reduce((sum, row) => sum + (row.stockAdjustment ? 0 : Number(row.totalCost) || 0), 0),
+  )
+
   return {
-    revenue: round2(sales.reduce((sum, row) => sum + (Number(row.total) || 0), 0)),
-    cashRevenue: round2(sales.reduce((sum, row) => sum + (Number(row.paidCash) || 0), 0)),
-    cardRevenue: round2(sales.reduce((sum, row) => sum + (Number(row.paidCard) || 0), 0)),
-    creditIssued: round2(sales.reduce((sum, row) => sum + (Number(row.debtAdded) || 0), 0)),
-    cogs: round2(receipts.reduce((sum, row) => sum + (row.stockAdjustment ? 0 : Number(row.totalCost) || 0), 0)),
+    revenue,
+    cashRevenue,
+    cardRevenue,
+    creditIssued,
+    returnTotal,
+    netSales: revenue,
+    grossSales: round2(revenue + returnTotal),
+    cogs,
+    stockPurchases,
     expenses: round2(expenses.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
     supplierPayments: round2(supplierPayments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
     supplierDebt: round2((db.suppliers || []).reduce((sum, row) => sum + (Number(row.payableAmount) || 0), 0)),
     clientDebt: round2((db.clients || []).reduce((sum, row) => sum + (Number(row.debt) || 0), 0)),
-    salesCount: sales.length,
+    salesCount,
+    returnedCount,
+    receiptsCount: sales.length,
   }
 }
 
@@ -3976,11 +4381,17 @@ export function getPosReport(db) {
   return {
     summary: getPosFinanceSummary(db),
     topProducts: Object.values((db.posSales || []).reduce((acc, sale) => {
+      if (isSaleFullyReturnedRow(sale)) return acc
       for (const item of sale.items || []) {
+        const left = saleLineLeftQty(item)
+        if (!(left > 0)) continue
         const key = String(item.productId)
+        const unitRev = Number(item.qty) > 0
+          ? (Number(item.lineTotal) || 0) / Number(item.qty)
+          : Number(item.price) || 0
         const prev = acc[key] || { productId: item.productId, productName: item.productName, qty: 0, revenue: 0 }
-        prev.qty = round2(prev.qty + (Number(item.qty) || 0))
-        prev.revenue = round2(prev.revenue + (Number(item.lineTotal) || 0))
+        prev.qty = round2(prev.qty + left)
+        prev.revenue = round2(prev.revenue + unitRev * left)
         acc[key] = prev
       }
       return acc

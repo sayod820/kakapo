@@ -81,7 +81,21 @@ export const setToken = (t: string | null) => {
 }
 export const getToken = (): string | null => {
   if (_token) return _token
-  if (typeof window !== 'undefined') _token = localStorage.getItem('kakapo_token')
+  if (typeof window !== 'undefined') {
+    _token = localStorage.getItem('kakapo_token')
+    if (_token) return _token
+    // Trade employee Bearer (ONLINE-O8)
+    try {
+      const path = window.location.pathname || ''
+      if (path.includes('/trade') || path.includes('/pos')) {
+        const raw = localStorage.getItem('kakapo_trade_employee_session')
+        if (raw) {
+          const s = JSON.parse(raw) as { token?: string }
+          if (s?.token) return s.token
+        }
+      }
+    } catch { /* ignore */ }
+  }
   return _token
 }
 
@@ -507,6 +521,7 @@ export const api = {
     retailPrice?: number
     bulkPricing?: { minQty: number; price: number }[]
     expiryDate?: string | null
+    clientRef?: string
   }) => request<ProductStockLayer[]>(`/stock/layers/${receiptId}/${productId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -603,7 +618,7 @@ export const api = {
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
   getCourierOrders: () => request<Order[]>('/orders/courier'),
-  updateOrderStatus: (id: string | number, status: string, extra?: Record<string, unknown>) =>
+  updateOrderStatus: (id: string | number, status: string, extra?: Record<string, unknown> & { clientRef?: string }) =>
     request<Order>(`/orders/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status, ...extra }),
@@ -703,7 +718,7 @@ export const api = {
   },
   purgeDemoClients: () =>
     request<{ ok: boolean; removed: number }>('/clients/purge-demo', { method: 'POST' }),
-  createClient: (data: Partial<AdminClient>) =>
+  createClient: (data: Partial<AdminClient> & { clientRef?: string }) =>
     request<AdminClient>('/clients', { method: 'POST', body: JSON.stringify(data) }),
   updateClient: (id: string, data: Partial<AdminClient> & { expectedDocVersion?: number; clientRef?: string }) =>
     request<AdminClient>(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -791,9 +806,9 @@ export const api = {
   getCards: () => requestLongList<AdminCard[]>('/cards'),
   generateCards: (count: number) =>
     request<{ ok: boolean; count: number; cards: AdminCard[] }>(`/cards/generate?count=${count}`, { method: 'POST' }),
-  ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string }) =>
+  ensureCard: (data: Partial<AdminCard> & { num: string; clientId?: string; clientRef?: string }) =>
     request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
-  updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean }) =>
+  updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean; clientRef?: string }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getDebtLedger: (phone: string) =>
     request<import('./clientVipCredit').DebtLedgerResponse>(
@@ -819,6 +834,35 @@ export const api = {
     `/cards/${encodeURIComponent(num.trim())}/cash-topup`,
     { method: 'POST', body: JSON.stringify(data) },
   ),
+  /** PC-14 read-only idempotency classify (no mutations). */
+  getDebtOpStatus: (q: {
+    kind: string
+    clientRef: string
+    amount?: number
+    method?: string
+    clientId?: string
+    cardNum?: string
+    orderId?: string
+    shiftId?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.set('kind', q.kind)
+    params.set('clientRef', q.clientRef)
+    if (q.amount != null) params.set('amount', String(q.amount))
+    if (q.method) params.set('method', q.method)
+    if (q.clientId) params.set('clientId', q.clientId)
+    if (q.cardNum) params.set('cardNum', q.cardNum)
+    if (q.orderId) params.set('orderId', q.orderId)
+    if (q.shiftId) params.set('shiftId', q.shiftId)
+    return request<{
+      classification: 'EXACT_COMMITTED' | 'NOT_FOUND' | 'DIFFERENT_OPERATION' | 'SEMANTIC_MISMATCH' | 'INVALID'
+      clientRef?: string
+      kind?: string
+      otherKind?: string
+      ledgerAmount?: number
+      fingerprint?: Record<string, unknown>
+    }>(`/sync/debt-op-status?${params.toString()}`)
+  },
   debtRepayCard: (num: string, data: {
     clientRef?: string
     amount: number
@@ -1046,7 +1090,7 @@ export const api = {
   updateCashier: (id: string, data: Partial<PosCashier>) =>
     request<PosCashier>(`/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getPosPoints: () => request<PosPoint[]>('/pos/points'),
-  createPosPoint: (data: { name: string; code?: string; note?: string; receiptPhone?: string }) =>
+  createPosPoint: (data: { name: string; code?: string; note?: string; receiptPhone?: string; clientRef?: string }) =>
     request<PosPoint>('/pos/points', { method: 'POST', body: JSON.stringify(data) }),
   updatePosPoint: (id: string, data: Partial<Pick<PosPoint, 'name' | 'code' | 'note' | 'receiptPhone' | 'active'>>) =>
     request<PosPoint>(`/pos/points/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -1076,7 +1120,7 @@ export const api = {
       `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
       { method: 'PATCH', body: JSON.stringify(data) },
     ),
-  bindPosDevice: (data: { code: string; deviceId: string; deviceName?: string }) =>
+  bindPosDevice: (data: { code: string; deviceId: string; deviceName?: string; clientRef?: string }) =>
     request<{
       point: PosPoint
       device: { id: string; name: string; boundAtIso: string }
@@ -1273,6 +1317,15 @@ export const api = {
     clientRef?: string
     /** Снимок payVersion; сервер отклонит, если оплаты уже меняли */
     expectedPayVersion?: number
+    /** adjustment (книга) | cash | card */
+    settlementMethod?: 'adjustment' | 'cash' | 'card'
+    method?: 'cash' | 'card'
+    payFrom?: 'shift' | 'vault'
+    shiftId?: string
+    posId?: string
+    cashierId?: string
+    cashierName?: string
+    reason?: string
   }) =>
     request<SupplierPayment>(`/suppliers/${id}/payments`, { method: 'POST', body: JSON.stringify(data) }),
   deleteSupplierPayment: (id: string, paymentId: string, data?: {

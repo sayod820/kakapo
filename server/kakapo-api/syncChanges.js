@@ -7,6 +7,13 @@
 import { listAllOpenStockLayers } from './posLogic.js'
 import { listSyncDeletesSince } from './syncDeletes.js'
 import { stripHeavyPhotoFields } from './productPhotoPipeline.js'
+import {
+  buildSyncChangesV2,
+  buildSyncChangesV2Sync,
+  getServerHeadCursorSync,
+  ensureSyncChangeLog,
+  noteSyncProtocolRequest,
+} from './syncChangeLog.js'
 
 function asIso(v) {
   const s = String(v || '').trim()
@@ -99,12 +106,25 @@ function cursorFromPayload(payload, since) {
 
 /**
  * @param {object} db
- * @param {{ since?: string, historyDays?: number, scope?: string }} opts
+ * @param {{ since?: string, historyDays?: number, scope?: string, v?: number|string, cursor?: string|number, limit?: number }} opts
  * scope:
  *  - '' | 'full' — всё (как раньше)
  *  - 'pos-lite' — только чеки/смены + клиенты/карты (частый фон кассы, без каталога/склада)
+ * v=2 | protocol=changeSeq — monotonic changeSeq stream (L9); v1 timestamp feed unchanged
  */
 export function buildSyncChanges(db, opts = {}) {
+  const ver = Number(opts.v) || (String(opts.protocol || '').toLowerCase() === 'changeseq' ? 2 : 1)
+  if (ver >= 2) {
+    ensureSyncChangeLog(db)
+    // Sync path for callers that cannot await; prefer buildSyncChangesAsync for HTTP
+    return buildSyncChangesV2Sync(db, {
+      cursor: opts.cursor != null ? opts.cursor : opts.since,
+      limit: opts.limit,
+      scope: opts.scope,
+    })
+  }
+  noteSyncProtocolRequest(1)
+
   const since = asIso(opts.since || '')
   const full = !since
   const scope = String(opts.scope || '').trim().toLowerCase()
@@ -156,6 +176,12 @@ export function buildSyncChanges(db, opts = {}) {
       },
     }
     payload.cursor = cursorFromPayload(payload, since)
+    try {
+      ensureSyncChangeLog(db)
+      payload.serverHeadCursor = getServerHeadCursorSync(db)
+      payload.protocol = 'timestamp'
+      payload.version = 1
+    } catch { /* ignore */ }
     return payload
   }
 
@@ -208,5 +234,25 @@ export function buildSyncChanges(db, opts = {}) {
     },
   }
   payload.cursor = cursorFromPayload(payload, since)
+  // L9 additive: expose head for Desktop dual-run watermark (does not change v1 cursor)
+  try {
+    ensureSyncChangeLog(db)
+    payload.serverHeadCursor = getServerHeadCursorSync(db)
+    payload.protocol = 'timestamp'
+    payload.version = 1
+  } catch { /* ignore */ }
   return payload
+}
+
+/** Async v2 — durable PG journal when DATABASE_URL set. */
+export async function buildSyncChangesAsync(db, opts = {}) {
+  const ver = Number(opts.v) || (String(opts.protocol || '').toLowerCase() === 'changeseq' ? 2 : 1)
+  if (ver >= 2) {
+    return buildSyncChangesV2(db, {
+      cursor: opts.cursor != null ? opts.cursor : opts.since,
+      limit: opts.limit,
+      scope: opts.scope,
+    })
+  }
+  return buildSyncChanges(db, opts)
 }

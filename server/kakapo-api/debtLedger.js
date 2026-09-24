@@ -1,5 +1,7 @@
 'use strict'
 
+import { ymdBusiness, businessDayStartMs, KAKAPO_TZ } from './kakapoTime.js'
+
 /** Срок погашения каждого отдельного долга (дней) */
 export const DEBT_TERM_DAYS = 30
 /** За сколько дней до срока напомнить */
@@ -65,19 +67,25 @@ function addDaysIso(iso, days) {
 function fmtDueRu(iso) {
   const t = parseIso(iso)
   if (t == null) return '—'
-  return new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+  return new Date(t).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: KAKAPO_TZ,
+  })
 }
 
 function startOfDayMs(iso = new Date().toISOString()) {
-  const d = new Date(parseIso(iso) ?? Date.now())
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
+  const ymd = ymdBusiness(iso)
+  if (!ymd) return Number.NaN
+  return businessDayStartMs(ymd)
 }
 
 function daysUntilDue(dueAtIso, nowIso = new Date().toISOString()) {
   const due = startOfDayMs(dueAtIso)
   const now = startOfDayMs(nowIso)
-  return Math.ceil((due - now) / 864e5)
+  if (Number.isNaN(due) || Number.isNaN(now)) return 0
+  return Math.round((due - now) / 864e5)
 }
 
 export function ensureDebtLedger(client) {

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
@@ -10,6 +13,7 @@
     "export:pg-to-json": "node exportPgToJson.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^2.2.0",

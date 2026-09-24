@@ -1,4 +1,10 @@
 /**
+ * CRM bonus authority (ONLINE-O4C):
+ * - BONUS_CANONICAL_ENTITY: client row (`clients.bonus`) — economic truth, survives unlink.
+ * - BONUS_MIRROR_ENTITY: active linked card (`cards.bonus` when status=active and client.card matches).
+ * - UNLINK: clear client.card pointer; card row tombstoned (bonus/debt zeroed on card); canonical stays on client.
+ * - RELINK: ensureCardRowForClient copies client.bonus/debt onto reactivated card mirror.
+ *
  * Keep exactly one canonical active card for a client.
  *
  * Ownership guards (post Holov/Sayod collision):

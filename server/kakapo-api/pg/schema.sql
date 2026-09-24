@@ -27,3 +27,28 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 INSERT INTO schema_meta (key, value)
 VALUES ('version', '1')
 ON CONFLICT (key) DO NOTHING;
+
+-- L10: sync_changes is the durable authoritative journal for v2 when DATABASE_URL is set.
+-- Retention: ~90 days by time (preferred). Row cap must cover 90d at ~50k events/day
+-- (≥4.5M rows) — do NOT use 500k as primary bound (~10 days only).
+CREATE TABLE IF NOT EXISTS sync_changes (
+  change_seq BIGSERIAL PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  revision BIGINT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  data JSONB NULL,
+  source_client_ref TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sync_changes_seq_idx ON sync_changes (change_seq);
+CREATE INDEX IF NOT EXISTS sync_changes_entity_seq_idx ON sync_changes (entity_type, change_seq);
+CREATE INDEX IF NOT EXISTS sync_changes_entity_id_idx ON sync_changes (entity_type, entity_id);
+CREATE UNIQUE INDEX IF NOT EXISTS sync_changes_idempotency_idx
+  ON sync_changes (source_client_ref, entity_type, entity_id, action)
+  WHERE source_client_ref IS NOT NULL AND source_client_ref <> '';
+
+-- L10 retention note: keep ~90 days of events (do NOT use 500k row cap as primary —
+-- at ~50k events/day that is only ~10 days). Prefer time-based prune jobs.

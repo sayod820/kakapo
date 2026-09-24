@@ -23,6 +23,7 @@ import type { ManualLoyaltySnapshot } from './loyaltySaveGuard'
 import { clearManualLoyaltyOverride } from './loyaltySaveGuard'
 import { USE_API } from './config'
 import { api } from './api'
+import { newClientRef } from './offline'
 import { unmarkPhoneDeleted } from './clientTombstones'
 import { getRegistrationWelcomeBonus, getTierDefaultDebtLimit, type LoyaltyStatusConfig } from './loyaltyStatusConfig'
 import { endOfLoyaltyPeriodIso, earnedLevelForPeriod, qualifiesAutoVip, resolveLevelLockFromTerm, inferLevelAssignMode, resolveCardAuthoritativeLevel, normalizeLoyaltyLevel, VIP_PERMANENT_DAYS } from './loyaltyAdminLock'
@@ -125,9 +126,25 @@ async function persistLoyaltyToApi(
       return saved
     } catch (e) {
       if (!isCardMissingOnServer(e)) throw e
-      await api.ensureCard({ num, clientId, ...cardPatch })
+      const { newClientRef: mkRef } = await import('./offline')
+      await api.ensureCard({ num, clientId, ...cardPatch, clientRef: mkRef() })
       return api.updateCard(num, cardPatch)
     }
+  }
+
+  const { newClientRef } = await import('./offline')
+  const linkClientRef = clientPatch.card ? newClientRef() : undefined
+
+  let clientSaved = false
+  try {
+    if (clientPatch.card && linkClientRef) {
+      savedClient = await api.updateClient(clientId, { ...clientPatch, clientRef: linkClientRef })
+    } else {
+      savedClient = await api.updateClient(clientId, clientPatch)
+    }
+    clientSaved = true
+  } catch (e) {
+    throw e
   }
 
   try {
@@ -137,14 +154,6 @@ async function persistLoyaltyToApi(
     cardNum = String(saved?.num || cardNum)
   } catch (e) {
     if (!isMissingApiRoute(e)) throw e
-  }
-
-  let clientSaved = false
-  try {
-    savedClient = await api.updateClient(clientId, clientPatch)
-    clientSaved = true
-  } catch (e) {
-    throw e
   }
 
   if (!cardSaved) {
@@ -228,7 +237,7 @@ export async function registerClientAccount(
   if (USE_API) {
     try {
       const { bonus: _drop, ...forApi } = { ...local, ...registration }
-      const remote = await api.createClient(forApi)
+      const remote = await api.createClient({ ...forApi, clientRef: newClientRef() })
       const merged = normalizeClient({
         ...local,
         ...remote,
@@ -254,7 +263,17 @@ export async function registerClientAccount(
       })
       client = useClientStore.getState().clients.find(c => c.id === merged.id || phonesMatch(c.phone, merged.phone)) || merged
       if (client.card) {
-        await useCardStore.getState().fetchFromApi()
+        try {
+          const { isTradeLocalFirst } = await import('./offlineV2')
+          if (isTradeLocalFirst()) {
+            const { fetchAndPatchCardByNum } = await import('./crmIncrementalSync')
+            await fetchAndPatchCardByNum(client.card).catch(() => {})
+          } else {
+            await useCardStore.getState().fetchFromApi()
+          }
+        } catch {
+          await useCardStore.getState().fetchFromApi()
+        }
       }
       await resetClientNotificationsForAccount(client.phone)
     } catch (e) {

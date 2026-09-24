@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════
 // KAKAPO — WebSocket (real-time заказы) с авто-переподключением
+// ONLINE-O10: auth via Sec-WebSocket-Protocol (not query string).
 // ════════════════════════════════════════════════
 import { useEffect, useRef, useState } from 'react'
 import { getToken } from './api'
@@ -43,10 +44,12 @@ export function useWebSocket(
       if (stopped) return
       const token = getToken() || ''
       const phoneDigits = (phoneRef.current || '').replace(/\D/g, '').slice(-9)
-      const phoneQuery = role === 'client' && phoneDigits ? `&phone=${encodeURIComponent(phoneDigits)}` : ''
+      // phone only — never put Bearer token in the URL (proxy/access logs)
+      const phoneQuery = role === 'client' && phoneDigits ? `?phone=${encodeURIComponent(phoneDigits)}` : ''
+      const protocols = token ? ['kakapo', token] : ['kakapo']
       let ws: WebSocket
       try {
-        ws = new WebSocket(`${getWsUrl()}/ws/${role}?token=${token}${phoneQuery}`)
+        ws = new WebSocket(`${getWsUrl()}/ws/${role}${phoneQuery}`, protocols)
       } catch {
         scheduleReconnect()
         return

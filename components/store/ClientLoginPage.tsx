@@ -24,7 +24,15 @@ import {
 } from '@/lib/clientAddresses'
 import { migrateLegacyClientData } from '@/lib/clientAccountStorage'
 import { setCurrentClientPhone, resetClientNotificationsForAccount } from '@/lib/clientNotifications'
+import {
+  isDemoCustomerOtpAllowed,
+  isCustomerSmsLoginDeferred,
+  CUSTOMER_SMS_DEFERRED_MESSAGE,
+} from '@/lib/storeCustomerAuth'
+import { api } from '@/lib/api'
+import { USE_API } from '@/lib/config'
 
+/** Dev-only demo code — never used when NODE_ENV=production (see storeCustomerAuth). */
 const DEMO_OTP = '1234'
 
 const LOGIN_CSS = `
@@ -127,9 +135,31 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
     go('profile')
   }
 
-  const sendOtp = () => {
+  const sendOtp = async () => {
     if (!phone.trim()) { setErr('Введите номер телефона'); return }
     if (normalizePhone(phone).length < 9) { setErr('Введите полный номер (9 цифр)'); return }
+
+    // Production / default: SMS provider deferred — do not pretend SMS was sent,
+    // do not advance to OTP step, do not create a local session.
+    if (isCustomerSmsLoginDeferred()) {
+      setLoad(true)
+      setErr('')
+      try {
+        if (USE_API) {
+          try {
+            await api.sendOTP(formatTjPhone(phone) || phone)
+          } catch {
+            /* expected: OTP_UNAVAILABLE / network — user message below */
+          }
+        }
+        setErr(CUSTOMER_SMS_DEFERRED_MESSAGE)
+      } finally {
+        setLoad(false)
+      }
+      return
+    }
+
+    // Explicit NEXT_PUBLIC_KAKAPO_DEMO_CUSTOMER_OTP=1 in non-production only
     findStoreClientByPhone(phone).then(match => {
       if (match?.blocked) { setErr('Доступ заблокирован администратором'); return }
       setErr('')
@@ -142,6 +172,13 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
 
   const verifyWithCode = (code: string) => {
     if (code.length < 4 || load) return
+    // Hard stop: production / deferred mode must never accept local codes
+    if (!isDemoCustomerOtpAllowed()) {
+      setErr(CUSTOMER_SMS_DEFERRED_MESSAGE)
+      setOtp(['', '', '', ''])
+      setStep('phone')
+      return
+    }
     setErr('')
     setLoad(true)
     setTimeout(async () => {
@@ -190,6 +227,11 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   const verify = () => verifyWithCode(otp.join(''))
 
   const confirmRestore = async () => {
+    if (!isDemoCustomerOtpAllowed()) {
+      setErr(CUSTOMER_SMS_DEFERRED_MESSAGE)
+      setStep('phone')
+      return
+    }
     if (!recoveryClient || load) return
     setLoad(true)
     setErr('')
@@ -255,6 +297,11 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
   }
 
   const saveRegister = async () => {
+    if (!isDemoCustomerOtpAllowed()) {
+      setErr(CUSTOMER_SMS_DEFERRED_MESSAGE)
+      setStep('phone')
+      return
+    }
     if (!reg.firstName.trim()) { setErr('Укажите имя'); return }
     if (!reg.lastName.trim()) { setErr('Укажите фамилию'); return }
     if (!savedAddr.saved || !savedAddr.coords) { setErr('Добавьте адрес доставки'); openAddrSheet(); return }
@@ -418,7 +465,9 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
             <div key="phone-step">
               <div className="sl-ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4, color: 'var(--t1)' }}>Номер телефона</div>
               <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 18, lineHeight: 1.45 }}>
-                Один номер для входа и регистрации — пришлём SMS с кодом
+                {isCustomerSmsLoginDeferred()
+                  ? CUSTOMER_SMS_DEFERRED_MESSAGE
+                  : 'Один номер для входа и регистрации — пришлём SMS с кодом'}
               </div>
 
               {fieldLabel('Номер телефона')}
@@ -440,24 +489,34 @@ export default function ClientLoginPage({ go, setUser }: ClientLoginPageProps) {
                   type="tel"
                   autoComplete="tel"
                   autoFocus
+                  disabled={isCustomerSmsLoginDeferred()}
                   style={{
                     width: '100%', padding: '14px 14px 14px 88px', borderRadius: 14,
                     background: 'var(--l3)', border: '1.5px solid var(--b1)',
                     color: 'var(--t1)', fontSize: 16, letterSpacing: .5,
+                    opacity: isCustomerSmsLoginDeferred() ? 0.65 : 1,
                   }}
                 />
               </div>
 
-              <button type="button" onClick={sendOtp} disabled={load} className="sl-btn sl-ub"
+              <button type="button" onClick={sendOtp} disabled={load || isCustomerSmsLoginDeferred()} className="sl-btn sl-ub"
                 style={{
                   width: '100%', padding: 16, borderRadius: 16,
-                  background: 'linear-gradient(135deg,#17B34E 0%,#1FD760 50%,#17B34E 100%)',
-                  border: 'none', color: '#030B05', fontWeight: 800, fontSize: 14,
+                  background: isCustomerSmsLoginDeferred()
+                    ? 'var(--l3)'
+                    : 'linear-gradient(135deg,#17B34E 0%,#1FD760 50%,#17B34E 100%)',
+                  border: isCustomerSmsLoginDeferred() ? '1.5px solid var(--b1)' : 'none',
+                  color: isCustomerSmsLoginDeferred() ? 'var(--t2)' : '#030B05',
+                  fontWeight: 800, fontSize: 14,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                  boxShadow: '0 8px 28px rgba(31,215,96,.4)',
+                  boxShadow: isCustomerSmsLoginDeferred() ? 'none' : '0 8px 28px rgba(31,215,96,.4)',
                   opacity: load ? .75 : 1,
                 }}>
-                {load ? <Spinner /> : <><span style={{ fontSize: 18 }}>📱</span> Получить код SMS</>}
+                {load
+                  ? <Spinner />
+                  : isCustomerSmsLoginDeferred()
+                    ? CUSTOMER_SMS_DEFERRED_MESSAGE
+                    : <><span style={{ fontSize: 18 }}>📱</span> Получить код SMS</>}
               </button>
             </div>
           )}

@@ -10,6 +10,7 @@ import { productCatSlug } from "@/lib/enrichCatalog";
 import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
 import { useOrders, USE_API, usePromos } from "@/lib/store";
 import { api } from "@/lib/api";
+import { newClientRef } from "@/lib/offline";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
 import {
   resolveClientOrderContacts,
@@ -2336,6 +2337,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [addrEditorSession, setAddrEditorSession] = useState(0);
   const checkoutFooterRef = useRef(null);
   const submitLockRef = useRef(false);
+  const orderSubmitClientRef = useRef<string | null>(null);
   const [checkoutFooterPad, setCheckoutFooterPad] = useState(160);
 
   useLayoutEffect(() => {
@@ -2496,6 +2498,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     submitLockRef.current = true;
     setLoading(true);
     setSubmitErr("");
+    if (!orderSubmitClientRef.current) orderSubmitClientRef.current = newClientRef();
 
     const hasMarket = prodItems.length > 0;
     const hasRest = restItems.length > 0;
@@ -2543,6 +2546,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       creditAmount: useCreditPay ? creditGoods : undefined,
       vip: !!user?.vip,
       bonusSpent: bonusUsable > 0 ? bonusUsable : 0,
+      clientRef: orderSubmitClientRef.current,
     };
 
     let order = null;

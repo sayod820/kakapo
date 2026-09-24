@@ -13,6 +13,7 @@ import {
   buildDebtLedgerResponse,
   ensureDebtLedger,
 } from './debtLedger.js'
+import { ymdBusiness, businessDayStartMs } from './kakapoTime.js'
 
 loadLocalEnv()
 
@@ -21,12 +22,13 @@ function round2(n) {
 }
 
 function daysUntilDueDay(dueAtIso, nowIso = new Date().toISOString()) {
-  const due = new Date(dueAtIso)
-  const now = new Date(nowIso)
-  if (Number.isNaN(due.getTime()) || Number.isNaN(now.getTime())) return null
-  due.setHours(0, 0, 0, 0)
-  now.setHours(0, 0, 0, 0)
-  return Math.ceil((due.getTime() - now.getTime()) / 864e5)
+  const dueY = ymdBusiness(dueAtIso)
+  const nowY = ymdBusiness(nowIso)
+  if (!dueY || !nowY) return null
+  const dueMs = businessDayStartMs(dueY)
+  const nowMs = businessDayStartMs(nowY)
+  if (Number.isNaN(dueMs) || Number.isNaN(nowMs)) return null
+  return Math.round((dueMs - nowMs) / 864e5)
 }
 
 /** Сводка по долгам и просрочкам для ИИ (без телефонов) */
@@ -166,16 +168,10 @@ function buildDebtRiskSnapshot(clients) {
   }
 }
 
-function startOfToday() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
-}
-
 function inToday(iso) {
   if (!iso) return false
-  const t = new Date(iso).getTime()
-  return !Number.isNaN(t) && t >= startOfToday()
+  const day = ymdBusiness(iso)
+  return !!day && day === ymdBusiness(new Date())
 }
 
 function daysAgoIso(days) {

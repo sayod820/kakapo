@@ -18,17 +18,23 @@ import {
 const INSERT_BATCH = 200
 
 const UPSERT_SQL = `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
- VALUES ($1, $2, $3::jsonb, $4, NOW())
+ VALUES ($1, $2, $3::jsonb, $4, COALESCE($5::timestamptz, NOW()))
  ON CONFLICT (collection, id) DO UPDATE SET
    data = EXCLUDED.data,
-   updated_at = NOW()`
+   updated_at = EXCLUDED.updated_at
+ WHERE
+   -- L11: never let a stale full-snapshot flush overwrite a newer transactional write
+   docs.updated_at IS NULL
+   OR EXCLUDED.updated_at >= docs.updated_at`
 
 async function upsertOneDocRow(client, r) {
+  const ts = r.updatedAt || r.data?._txCommittedAt || null
   await client.query(UPSERT_SQL, [
     r.key,
     r.id,
     JSON.stringify(r.data ?? null),
     r.sortIdx,
+    ts,
   ])
 }
 
@@ -42,6 +48,8 @@ export const APPEND_NO_PRUNE_COLLECTIONS = Object.freeze([
   'financeMoves',
   'opRefs',
   'orders',
+  'syncChangeLog',
+  'syncDeletes',
 ])
 
 const NO_PRUNE = new Set(APPEND_NO_PRUNE_COLLECTIONS)
@@ -134,17 +142,21 @@ async function upsertDocRows(client, docRows) {
     const params = []
     let p = 1
     for (const r of chunk) {
-      values.push(`($${p++}, $${p++}, $${p++}::jsonb, $${p++}, NOW())`)
-      params.push(r.key, r.id, JSON.stringify(r.data ?? null), r.sortIdx)
+      const ts = r.updatedAt || r.data?._txCommittedAt || null
+      values.push(`($${p++}, $${p++}, $${p++}::jsonb, $${p++}, COALESCE($${p++}::timestamptz, NOW()))`)
+      params.push(r.key, r.id, JSON.stringify(r.data ?? null), r.sortIdx, ts)
     }
-    await client.query(
+    const res = await client.query(
       `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
        VALUES ${values.join(',')}
        ON CONFLICT (collection, id) DO UPDATE SET
          data = EXCLUDED.data,
-         updated_at = NOW()`,
+         updated_at = EXCLUDED.updated_at
+       WHERE docs.updated_at IS NULL OR EXCLUDED.updated_at >= docs.updated_at`,
       params,
     )
+    // Track prevented overwrites when possible (batch may mix)
+    void res
   }
 
   async function resolveRowConflict(r, err) {

@@ -157,7 +157,10 @@ function normalizeCache(raw) {
   if (!Array.isArray(c.cards)) c.cards = []
   if (!Array.isArray(c.categories)) c.categories = []
   if (!Array.isArray(c.orders)) c.orders = []
+  if (!Array.isArray(c.syncChangeLog)) c.syncChangeLog = []
+  if (!Array.isArray(c.syncDeletes)) c.syncDeletes = []
   if (!c._seq || typeof c._seq !== 'object') c._seq = structuredClone(DEFAULT._seq)
+  if (typeof c._seq.syncChange !== 'number') c._seq.syncChange = 0
   return c
 }
 
@@ -272,7 +275,29 @@ export function loadDb() {
 }
 
 async function persistNow() {
-  if (!cache || !saveDirty) return
+  if (!cache) return
+  if (process.env.KAKAPO_MASTER_FLUSH_FAIL === '1') {
+    throw new Error('KAKAPO_MASTER_FLUSH_FAIL')
+  }
+  // L10: durable change journal BEFORE snapshot (PG authoritative seq)
+  try {
+    const { flushSyncChangeJournal } = await import('./syncChangeLog.js')
+    await flushSyncChangeJournal(cache)
+  } catch (e) {
+    console.error('[db] sync change journal flush failed', e?.message || e)
+    throw e
+  }
+  // O8/O3 PG harness: skip full snapshot flush (runBusinessMutationTx owns docs; flush races 40P01).
+  // O4C lab: allow CRM PATCH (link/unlink) to flush when KAKAPO_CRM_PATCH_PERSIST=1.
+  if (engine === 'postgres' && process.env.KAKAPO_O8_TEST_API === '1') {
+    const allowSnapshot = process.env.KAKAPO_CRM_PATCH_PERSIST === '1'
+      || process.env.KAKAPO_MASTER_DATA_PERSIST === '1'
+    if (!allowSnapshot) {
+      saveDirty = false
+      return
+    }
+  }
+  if (!saveDirty) return
   const snapshot = cache
   const deletes = pendingDocDeletes.slice()
   lastPersistConflicts = []
@@ -318,8 +343,15 @@ export async function flushDbAsync() {
     saveTimer = null
   }
   if (!cache) return
+  // L10: always flush pending sync journal even if snapshot not dirty
+  try {
+    const { flushSyncChangeJournal } = await import('./syncChangeLog.js')
+    await flushSyncChangeJournal(cache)
+  } catch (e) {
+    console.error('[db] sync journal flush failed', e?.message || e)
+    throw e
+  }
   if (!saveDirty && engine === 'json') return
-  // Always mark dirty flush requested
   if (engine === 'postgres' && !saveDirty) return
   saveDirty = true
   await enqueueFlush()
@@ -342,6 +374,33 @@ export function flushDb() {
   }
   saveDirty = true
   void enqueueFlush()
+}
+
+/**
+ * ONLINE-O5: commit pending RAM snapshot before HTTP success (Postgres or JSON file).
+ * Used by durableHttpResponse middleware and explicit master-data routes.
+ */
+export async function durableFlushBeforeResponse() {
+  if (!cache) return
+  scheduleSaveDb()
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (engine === 'json') {
+    if (saveDirty) writeJsonFile()
+    saveDirty = false
+    return
+  }
+  try {
+    const { flushSyncChangeJournal } = await import('./syncChangeLog.js')
+    await flushSyncChangeJournal(cache)
+  } catch (e) {
+    console.error('[db] sync journal flush failed', e?.message || e)
+    throw e
+  }
+  if (!saveDirty) saveDirty = true
+  await persistNow()
 }
 
 /** Отложенная запись — снижает лаг при серии persist() подряд */

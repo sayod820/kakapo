@@ -27,6 +27,38 @@ import { findCourierByPhone } from './courierTeam'
 import { canCourierAffordOrder, getCourierBalance, isNewCourierAssignment } from './courierWallet'
 import { DEFAULT_PRICING } from './courierData'
 import { isPerfEnabled, perfCount } from './devTelemetry'
+import { newClientRef } from './offline'
+
+/** One clientRef per in-flight order status action — retries reuse until success. */
+const pendingOrderStatusRefs = new Map<string, string>()
+
+function orderStatusPendingKey(id: string, status: string, fields: Record<string, unknown>) {
+  const keys = Object.keys(fields).sort()
+  const body = keys.map(k => `${k}:${JSON.stringify(fields[k])}`).join('|')
+  return `${id}\0${status}\0${body}`
+}
+
+function attachOrderStatusClientRef(id: string, status: string, patch: Record<string, unknown> = {}) {
+  const { clientRef: explicit, ...fields } = patch as Record<string, unknown> & { clientRef?: string }
+  const key = orderStatusPendingKey(id, status, fields)
+  let clientRef = String(explicit || '').trim()
+  if (!clientRef) {
+    clientRef = pendingOrderStatusRefs.get(key) || newClientRef()
+    pendingOrderStatusRefs.set(key, clientRef)
+  }
+  return { clientRef, payload: { ...fields, clientRef }, pendingKey: key }
+}
+
+async function callOrderStatusApi(id: string, status: string, patch: Record<string, unknown> = {}) {
+  const { payload, pendingKey } = attachOrderStatusClientRef(id, status, patch)
+  try {
+    const updated = await api.updateOrderStatus(id, status, payload)
+    pendingOrderStatusRefs.delete(pendingKey)
+    return updated
+  } catch (e) {
+    throw e
+  }
+}
 
 function applyBonusLoyaltySync(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -358,7 +390,8 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   },
 
   createOrder: async (data) => {
-    const prepared = initMixedOrderFields(data)
+    const clientRef = String((data as { clientRef?: string })?.clientRef || '').trim() || newClientRef()
+    const prepared = { ...initMixedOrderFields(data), clientRef }
     if (USE_API) {
       try {
         const order = await api.createOrder(prepared)
@@ -445,7 +478,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, status, patch)
+        const updated = await callOrderStatusApi(id, status, patch)
         const nextStatus = (updated.status ?? status) as OrderStatus
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== id) return o
@@ -486,7 +519,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     if (nextAfter?.status === 'cancelled' && !USE_API) applyCancelLoyalty(set, get, id, prev)
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, status, patch)
+        const updated = await callOrderStatusApi(id, status, patch)
         const merged = normalizeOrder({ ...(get().orders.find(o => o.id === id) || {}), ...updated, status: (updated.status ?? status) as OrderStatus })
         if (!orderMatchesAdminPin(merged, pin)) {
           set({ orderAdminPins: { ...get().orderAdminPins, [id]: pin } })
@@ -530,7 +563,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, courier: courier ?? undefined } : o)))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, order.status, { courier: courier ?? null })
+        const updated = await callOrderStatusApi(id, order.status, { courier: courier ?? null })
         patchOrders(set, get, s => s.map(o => (o.id === id ? normalizeOrder({ ...o, ...updated }) : o)))
       } catch (e) { console.error(e) }
     }
@@ -542,7 +575,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => (o.id === id ? { ...o, assembler: assembler ?? undefined } : o)))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, order.status, { assembler: assembler ?? null })
+        const updated = await callOrderStatusApi(id, order.status, { assembler: assembler ?? null })
         patchOrders(set, get, s => s.map(o => (o.id === id ? normalizeOrder({ ...o, ...updated }) : o)))
       } catch (e) { console.error(e) }
     }
@@ -588,7 +621,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === id ? next : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, order.status, { assembler })
+        const updated = await callOrderStatusApi(id, order.status, { assembler })
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, assembler }) : o))
       } catch (e) {
         console.error(e)
@@ -615,7 +648,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const extra = isMixedOrder(normalizeOrder(order))
           ? { marketStatus: 'assembling', ...(assembler ? { assembler } : {}) }
           : { ...(assembler ? { assembler } : {}) }
-        const updated = await api.updateOrderStatus(id, status, extra)
+        const updated = await callOrderStatusApi(id, status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) { console.error(e) }
     }
@@ -635,7 +668,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const extra = isMixedOrder(normalizeOrder(order))
           ? { marketStatus: 'done', restParts: withAssembler.restParts, assembler }
           : { assembler, marketStatus: 'done' }
-        const updated = await api.updateOrderStatus(id, withAssembler.status, extra)
+        const updated = await callOrderStatusApi(id, withAssembler.status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...withAssembler }) : o))
       } catch (e) { console.error(e) }
     }
@@ -667,7 +700,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
         const extra = isMixedOrder(normalized)
           ? { restParts: next.restParts, marketStatus: next.marketStatus }
           : { restParts: next.restParts }
-        const updated = await api.updateOrderStatus(id, next.status, extra)
+        const updated = await callOrderStatusApi(id, next.status, extra)
         patchOrders(set, get, s => s.map(o => o.id === id ? normalizeOrder({ ...o, ...updated, ...next }) : o))
       } catch (e) {
         console.error(e)
@@ -683,7 +716,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, pickedUpIds } : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, order.status, { pickedUpIds })
+        const updated = await callOrderStatusApi(id, order.status, { pickedUpIds })
         patchOrders(set, get, s => s.map(o => o.id === id
           ? normalizeOrder({ ...o, ...updated, pickedUpIds: updated.pickedUpIds ?? pickedUpIds })
           : o))
@@ -700,7 +733,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === id ? { ...o, courierRoute: route } : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(id, order.status, { courierRoute: route })
+        const updated = await callOrderStatusApi(id, order.status, { courierRoute: route })
         patchOrders(set, get, s => s.map(o => o.id === id
           ? normalizeOrder({ ...o, ...updated, courierRoute: updated.courierRoute ?? route })
           : o))
@@ -721,7 +754,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === orderId ? { ...o, items } : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(orderId, order.status, { items })
+        const updated = await callOrderStatusApi(orderId, order.status, { items })
         const mergedItems = updated.items ?? items
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== orderId) return o
@@ -756,7 +789,7 @@ export const useOrders = create<OrdersStore>((set, get) => ({
     patchOrders(set, get, s => s.map(o => o.id === orderId ? { ...o, ...patch } : o))
     if (USE_API) {
       try {
-        const updated = await api.updateOrderStatus(orderId, order.status, patch)
+        const updated = await callOrderStatusApi(orderId, order.status, patch)
         patchOrders(set, get, s => s.map(o => {
           if (o.id !== orderId) return o
           return normalizeOrder({ ...o, ...updated, items: updated.items ?? normalizedItems, total: updated.total ?? total, goodsTotal: updated.goodsTotal ?? itemsSubtotal })
@@ -833,6 +866,14 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         } catch { /* дальше сервер */ }
       }
       const raw = ensureArray<Product>(await api.getProducts(), 'products')
+      try {
+        const { recordFullPull, expectedFullPullReason } = await import('./syncDiagnostics')
+        recordFullPull({
+          kind: 'products',
+          reason: expectedFullPullReason({ emptyLocal: !get().products.length }),
+          caller: 'useProducts.fetchProducts',
+        })
+      } catch { /* ignore */ }
       const { sanitizeProductForLocalCache, cacheProducts, getPending } = await import('./offline')
       let products = raw.map(sanitizeProductForLocalCache)
       try {
