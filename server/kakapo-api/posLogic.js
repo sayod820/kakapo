@@ -3110,17 +3110,11 @@ export function updateStockReceipt(db, id, data = {}) {
   const consumedByProduct = receiptConsumedByProduct(receipt)
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (rawItems.length) assertNewReceiptQtysCoverConsumed(rawItems, consumedByProduct)
-  // Проверка версии до отката: иначе reverse уже сдвинет счётчик
-  const supplierIdForCheck = String(data.supplierId || receipt.supplierId || '').trim()
-  if (supplierIdForCheck) {
-    const supplierRow = (db.suppliers || []).find(s => s.id === supplierIdForCheck)
-    if (supplierRow) {
-      assertSupplierSupplyVersion(
-        supplierRow,
-        data.expectedSupplyVersion ?? data.expectedDebtVersion ?? data.debtVersion,
-      )
-    }
-  }
+  // Не проверяем expectedSupplyVersion на UPDATE:
+  // касса часто правит свой же приход сразу после create, а локальный
+  // supplyVersion отстаёт (ждали 2, на сервере уже 5) — OCC здесь
+  // ломает легитимную правку. reverse+rebuild и так пересчитывает долг.
+  // OCC остаётся на createStockReceipt.
   const meta = {
     id: receipt.id,
     createdAtIso: receipt.createdAtIso,
