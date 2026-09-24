@@ -1826,6 +1826,14 @@ async function sendOp(row: PendingOp): Promise<string> {
       const p = row.payload || {}
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
+      let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
+      if (supplierId) {
+        try {
+          const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
+          const ver = await refreshSupplierSupplyVersionFromServer(String(supplierId))
+          if (ver != null) expectedSupplyVersion = ver
+        } catch { /* keep queued version */ }
+      }
       const receipt = await api.createStockReceipt({
         clientRef: p.clientRef,
         supplierId: supplierId || undefined,
@@ -1835,7 +1843,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         method: p.method,
         items,
         createdAtIso: p.createdAtIso,
-        expectedSupplyVersion: p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined,
+        expectedSupplyVersion,
       } as any)
       return String((receipt as any)?.id || '')
     }
@@ -1843,6 +1851,14 @@ async function sendOp(row: PendingOp): Promise<string> {
       const p = await resolveRefs(row.payload, ['id'])
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
+      let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
+      if (supplierId) {
+        try {
+          const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
+          const ver = await refreshSupplierSupplyVersionFromServer(String(supplierId))
+          if (ver != null) expectedSupplyVersion = ver
+        } catch { /* keep queued version */ }
+      }
       const receipt = await api.updateStockReceipt(String(p.id), {
         clientRef: p.clientRef,
         supplierId: supplierId || undefined,
@@ -1850,7 +1866,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         payFrom: p.payFrom,
         method: p.method,
         items,
-        expectedSupplyVersion: p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined,
+        expectedSupplyVersion,
       } as any)
       return String((receipt as any)?.id || '')
     }
@@ -2678,13 +2694,47 @@ export async function flushQueue(
               done++
               reportProgress()
               continue
-            } else if (live.kind === 'stock_receipt_create') {
-              const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
-              const id = String(live.localId || '')
-              if (id) await revertLocalStockReceiptCreateOnReject(id)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              liveByRef.delete(live.clientRef)
+            } else if (live.kind === 'stock_receipt_create' || live.kind === 'stock_receipt_update') {
+              const err = String(live.lastError || '')
+              // Устаревший expectedSupplyVersion после других приходов/касс — обновить и повторить
+              if (/Приходы уже меняли|верси.*ожидали/i.test(err)) {
+                const p = (live.payload || {}) as Record<string, unknown>
+                const verTries = Number((p as any)._supplyVerRefreshTries) || 0
+                if (verTries < 3) {
+                  try {
+                    const sid = String(p.supplierId || '')
+                    if (sid) {
+                      const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
+                      const ver = await refreshSupplierSupplyVersionFromServer(sid)
+                      if (ver != null) p.expectedSupplyVersion = ver
+                    }
+                  } catch { /* ignore */ }
+                  live.payload = { ...p, _supplyVerRefreshTries: verTries + 1 }
+                  live.failed = false
+                  live.lastError = ''
+                  live.nextRetryAt = Date.now() + pendingRetryDelayMs(verTries + 1)
+                  await putPending(live)
+                  liveByRef.set(live.clientRef, live)
+                  failed++
+                  done++
+                  reportProgress()
+                  continue
+                }
+              }
+              if (live.kind === 'stock_receipt_create') {
+                const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
+                const id = String(live.localId || '')
+                if (id) await revertLocalStockReceiptCreateOnReject(id)
+                void persistPosSnapshot()
+                await deletePending(live.clientRef)
+                liveByRef.delete(live.clientRef)
+              } else {
+                // update: локальный приход уже изменён — оставляем в очереди с паузой
+                live.failed = true
+                live.nextRetryAt = Date.now() + 120_000
+                await putPending(live)
+                liveByRef.set(live.clientRef, live)
+              }
               failed++
               done++
               reportProgress()

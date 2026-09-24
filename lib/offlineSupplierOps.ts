@@ -29,6 +29,39 @@ export function supplierSupplyVersion(sup?: Pick<PosSupplier, 'supplyVersion' | 
   return Number(sup.debtVersion) || 0
 }
 
+/**
+ * Подтянуть supplyVersion поставщика с сервера в локальный store.
+ * Нужно перед flush create/update прихода — иначе очередь шлёт устаревший expectedSupplyVersion.
+ */
+export async function refreshSupplierSupplyVersionFromServer(
+  supplierId: string,
+): Promise<number | null> {
+  const id = String(supplierId || '').trim()
+  if (!id) return null
+  try {
+    const { api } = await import('./api')
+    const list = await api.getSuppliers()
+    if (!Array.isArray(list)) return null
+    const remote = list.find((s: { id?: string }) => String(s?.id || '') === id)
+    if (!remote) return null
+    const ver = supplierSupplyVersion(remote as PosSupplier)
+    usePosStore.setState(s => ({
+      suppliers: s.suppliers.map(sup => {
+        if (String(sup.id) !== id) return sup
+        return {
+          ...sup,
+          ...remote,
+          supplyVersion: ver,
+        }
+      }),
+    }))
+    void persistPosSnapshot()
+    return ver
+  } catch {
+    return null
+  }
+}
+
 export type { OfflineResult }
 
 export type SupplierPayload = {

@@ -539,6 +539,15 @@ export async function updateStockReceiptSafe(
   const supplierName = payload.supplierId
     ? (usePosStore.getState().suppliers.find(s => s.id === payload.supplierId)?.name || '')
     : ''
+  const supplierIdForVer = payload.supplierId || findReceipt(id)?.supplierId || ''
+  // Перед правкой подтянуть версию с сервера — иначе после своего же прихода
+  // локальный supplyVersion часто отстаёт (ждали 2, на сервере уже 5).
+  if (supplierIdForVer) {
+    try {
+      const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
+      await refreshSupplierSupplyVersionFromServer(String(supplierIdForVer))
+    } catch { /* offline — возьмём локальную */ }
+  }
   const body = {
     ...payload,
     clientRef,
@@ -547,12 +556,10 @@ export async function updateStockReceiptSafe(
     payFrom: payload.payFrom === 'vault' ? 'vault' : 'shift',
     method: payload.method === 'card' ? 'card' : 'cash',
     supplierName,
-    ...(payload.supplierId || findReceipt(id)?.supplierId
+    ...(supplierIdForVer
       ? {
           expectedSupplyVersion: supplierSupplyVersion(
-            usePosStore.getState().suppliers.find(
-              s => s.id === (payload.supplierId || findReceipt(id)?.supplierId || ''),
-            ),
+            usePosStore.getState().suppliers.find(s => s.id === supplierIdForVer),
           ),
         }
       : {}),
