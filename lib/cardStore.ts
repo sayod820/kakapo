@@ -364,11 +364,13 @@ export const useCardStore = create<CardStore>((set, get) => ({
       void (async () => {
         try {
           const { isTradeLocalFirst } = await import('./offlineV2')
+          const { newClientRef } = await import('./offline')
+          const unlinkBody = { unlink: true as const, clientRef: newClientRef() }
           if (isTradeLocalFirst()) {
-            api.updateCard(num, { unlink: true }).catch(console.error)
+            api.updateCard(num, unlinkBody).catch(console.error)
             return
           }
-          await api.updateCard(num, { unlink: true })
+          await api.updateCard(num, unlinkBody)
         } catch (e) {
           saveCards(prevCards, { skipEmit: true })
           useClientStore.setState({ clients: prevClients })

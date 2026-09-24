@@ -8,6 +8,7 @@ import { softSyncWarehouse, usePosStore } from '@/lib/posStore'
 import { guardMutation, useCanMutate, OFFLINE_BLOCK_MESSAGE } from '@/lib/offlineGuard'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
 import { deleteSupplierSafe, saveSupplierSafe, createSupplierPaymentSafe, deleteSupplierPaymentSafe } from '@/lib/offlineSupplierOps'
+import { newClientRef } from '@/lib/offline'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import type { PosSupplier, SupplierPayment } from '@/lib/types'
 import { fmtDateTime, fmtMoney, sanitizeDecimalInput } from './warehouse/warehouseShared'
@@ -75,6 +76,7 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
   const [form, setForm] = useState<SupplierFormState>(emptySupplierForm)
   const [payForm, setPayForm] = useState<PaymentFormState>(emptyPaymentForm)
   const payBusyRef = useRef(false)
+  const payClientRefRef = useRef('')
 
   const refreshAll = useCallback(() => {
     void (async () => {
@@ -280,7 +282,8 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
     })
   }
 
-  function closePayForm() {
+  function closePayForm(clearStickyRef = true) {
+    if (clearStickyRef) payClientRefRef.current = ''
     setPayForm(emptyPaymentForm())
   }
 
@@ -296,10 +299,13 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
     payBusyRef.current = true
     setPayForm(prev => ({ ...prev, saving: true, msg: '' }))
     try {
+      const clientRef = payClientRefRef.current || newClientRef()
+      if (!payClientRefRef.current) payClientRefRef.current = clientRef
       if (payForm.mode === 'book') {
         const res = await createSupplierPaymentSafe(payForm.supplierId, {
           amount,
           note: payForm.note.trim() || undefined,
+          clientRef,
         })
         if (res.offline) {
           setPayments(prev => {
@@ -331,7 +337,7 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
           void loadPayments(payForm.supplierId)
         }
       }
-      closePayForm()
+      closePayForm(true)
     } catch (e) {
       setPayForm(prev => ({ ...prev, saving: false, msg: e instanceof Error ? e.message : 'Ошибка оплаты' }))
     } finally {

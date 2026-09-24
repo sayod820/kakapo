@@ -200,7 +200,7 @@ export async function deleteSupplierSafe(id: string): Promise<OfflineResult<{ id
 /** Оплата долга поставщику (без движения по кассе). При V2=on — без сети. */
 export async function createSupplierPaymentSafe(
   supplierId: string,
-  input: { amount: number; note?: string },
+  input: { amount: number; note?: string; clientRef?: string },
 ): Promise<OfflineResult<SupplierPayment>> {
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
@@ -210,11 +210,14 @@ export async function createSupplierPaymentSafe(
     return supplierPayVersion(s)
   }
 
+  // Browser online: O8 requires clientRef on every debt-family mutation
   if (!isTradeLocalFirst()) {
+    const clientRef = input.clientRef || newClientRef()
     const pay = await api.createSupplierPayment(supplierId, {
       amount,
       note: input.note,
       expectedPayVersion: snapPayVersion(),
+      clientRef,
     })
     return { offline: false, data: pay }
   }
@@ -324,14 +327,15 @@ export async function deleteSupplierPaymentSafe(
     return supplierPayVersion(s)
   }
 
+  const clientRef = newClientRef()
   if (!isTradeLocalFirst()) {
     await api.deleteSupplierPayment(supplierId, paymentId, {
       expectedPayVersion: snapPay(),
+      clientRef,
     })
     return { offline: false, data: { id: paymentId } }
   }
 
-  const clientRef = newClientRef()
   const expectedPayVersion = snapPay()
   const amount = round2(Number(amountHint) || 0)
   let paymentSnap: Partial<SupplierPayment> | undefined

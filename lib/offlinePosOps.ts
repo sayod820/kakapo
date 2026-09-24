@@ -3637,7 +3637,7 @@ export async function expenseDeleteSafe(id: string): Promise<OfflineResult<{ id:
   const hideIds = [id, mapped]
 
   if (!isTradeLocalFirst()) {
-    await api.deleteExpense(mapped || id)
+    await api.deleteExpense(mapped || id, { clientRef })
     reverseExpenseLocal(id, hideIds)
     void persistPosSnapshot()
     return { offline: false, data: { id } }
@@ -3845,7 +3845,7 @@ export async function financeMoveDeleteSafe(id: string): Promise<OfflineResult<{
     : (serverTwin ? '' : (mapped && !isLocalId(mapped) ? mapped : ''))
 
   if (!isTradeLocalFirst()) {
-    await api.deleteFinanceMove(queueServerId || id)
+    await api.deleteFinanceMove(queueServerId || id, { clientRef: deleteRef })
     reverseFinanceMoveLocal(id, [mapped, queueServerId])
     void persistPosSnapshot()
     return { offline: false, data: { id } }
@@ -3918,6 +3918,7 @@ export async function createPosPointSafe(input: {
         code: point.code,
         note: point.note,
         receiptPhone: point.receiptPhone,
+        clientRef,
       })
       usePosStore.setState(s => ({
         posPoints: [saved, ...s.posPoints.filter(p => p.id !== saved.id)],

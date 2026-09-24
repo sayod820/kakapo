@@ -171,8 +171,10 @@ export const useClientStore = create<ClientStore>((set, get) => ({
       void (async () => {
         try {
           const { isTradeLocalFirst } = await import('./offlineV2')
+          const { newClientRef } = await import('./offline')
+          const createBody = { ...row, clientRef: newClientRef() }
           if (isTradeLocalFirst()) {
-            api.createClient(row)
+            api.createClient(createBody)
               .then(created => {
                 const normalized = normalizeClient(created)
                 unmarkPhoneDeleted(normalized.phone)
@@ -188,7 +190,7 @@ export const useClientStore = create<ClientStore>((set, get) => ({
             return
           }
           // Browser: await create; revert phantom on failure
-          const created = await api.createClient(row)
+          const created = await api.createClient(createBody)
           const normalized = normalizeClient(created)
           unmarkPhoneDeleted(normalized.phone)
           clearPendingClientSync(row.id)
@@ -226,12 +228,17 @@ export const useClientStore = create<ClientStore>((set, get) => ({
         void (async () => {
           try {
             const { isTradeLocalFirst } = await import('./offlineV2')
+            const { newClientRef } = await import('./offline')
+            // Card link/unlink on PG requires clientRef (CRM_CLIENT_CARD_LINK)
+            const apiPatch = patch.card != null
+              ? { ...patch, clientRef: newClientRef() }
+              : patch
             if (isTradeLocalFirst()) {
-              api.updateClient(id, patch).catch(console.error)
+              api.updateClient(id, apiPatch).catch(console.error)
               return
             }
             // Browser: await API; on failure revert optimistic patch (no fake success).
-            const server = await api.updateClient(id, patch)
+            const server = await api.updateClient(id, apiPatch)
             const normalized = normalizeClient({ ...server, id })
             set(s => ({
               clients: filterVisibleClients(
