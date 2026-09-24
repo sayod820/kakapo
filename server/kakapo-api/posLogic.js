@@ -901,9 +901,17 @@ function hasStockLayerHistory(db, productId) {
 export function syncProductStock(db, productId) {
   const product = (db.products || []).find(p => Number(p.id) === Number(productId))
   if (!product) return 0
+  const before = round2(Number(product.stock) || 0)
   const sum = sumProductLayers(db, productId)
   product.stock = sum
   syncProductPricingFromActiveLayer(db, productId)
+  // Без метки товар не попадает в /sync/changes delta → старые кассы
+  // не видят остаток после онлайн-прихода (слои в дельте тоже не едут).
+  if (Math.abs(before - sum) > 0.0001 || !product.updatedAtIso || !product.serverAtIso) {
+    const stamp = nowIso()
+    product.updatedAtIso = stamp
+    product.serverAtIso = stamp
+  }
   return sum
 }
 
