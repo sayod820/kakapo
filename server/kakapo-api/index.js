@@ -100,6 +100,8 @@ import {
 import { registerO8TestRoutes } from './o8TestRoutes.js'
 import {
   createSession,
+  setSessionBackend,
+  loadPersistedSessions,
   createAuthMiddleware,
   assertSafeAuthEnvOrThrow,
   isProductionRuntime,
@@ -446,6 +448,17 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '*')
   .filter(Boolean)
 
 await initDb()
+if (isPostgresEnabled()) {
+  try {
+    const { createPgSessionBackend, loadActiveSessionsFromPg } = await import('./pg/sessionStore.js')
+    const restored = loadPersistedSessions(await loadActiveSessionsFromPg())
+    setSessionBackend(createPgSessionBackend())
+    console.log(`[sessions] restored ${restored} active session(s) from Postgres`)
+  } catch (e) {
+    // Without the table logins still work in memory (old behaviour)
+    console.error('[sessions] durable sessions unavailable', e?.message || e)
+  }
+}
 const db = seedIfEmpty()
 setRevisionCoordinator(revisionCoordinator)
 ensurePosCollections(db)

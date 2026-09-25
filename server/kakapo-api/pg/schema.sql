@@ -52,3 +52,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS sync_changes_idempotency_idx
 
 -- L10 retention note: keep ~90 days of events (do NOT use 500k row cap as primary —
 -- at ~50k events/day that is only ~10 days). Prefer time-based prune jobs.
+
+-- API sessions survive restarts. Only sha256(token) is stored, never the token itself.
+CREATE TABLE IF NOT EXISTS api_sessions (
+  token_hash TEXT PRIMARY KEY,
+  principal TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  data JSONB NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS api_sessions_expires_idx ON api_sessions (expires_at);

@@ -84,8 +84,33 @@ export function capsFromTradePermissions(permissions = []) {
   return [...set]
 }
 
-/** @type {Map<string, object>} */
+/** Keyed by sha256(token): the durable backend never sees raw tokens. @type {Map<string, object>} */
 const sessions = new Map()
+
+/** @type {{ save(hash: string, row: object): void, remove(hash: string): void, clear?(): void } | null} */
+let sessionBackend = null
+
+export function setSessionBackend(backend) {
+  sessionBackend = backend || null
+}
+
+export function hashSessionToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex')
+}
+
+/** Restore sessions persisted before a restart (rows without raw token). */
+export function loadPersistedSessions(rows = []) {
+  const t = nowMs()
+  let n = 0
+  for (const r of rows || []) {
+    const data = r?.data
+    if (!r?.hash || !data || typeof data !== 'object') continue
+    if (!(Number(data.expiresAtMs) > t)) continue
+    sessions.set(String(r.hash), { ...data })
+    n++
+  }
+  return n
+}
 
 function nowMs() {
   return Date.now()
@@ -173,23 +198,30 @@ export function createSession(data) {
     // Allow ttlMs < 60s for lab expiry tests (O8B); production callers use SESSION_TTL_MS defaults.
     expiresAtMs: nowMs() + Math.max(1, ttlSafe),
   }
-  sessions.set(token, row)
+  const hash = hashSessionToken(token)
+  sessions.set(hash, row)
+  sessionBackend?.save(hash, row)
   return row
 }
 
 export function revokeSession(token) {
-  sessions.delete(String(token || ''))
+  if (!token) return
+  const hash = hashSessionToken(token)
+  sessions.delete(hash)
+  sessionBackend?.remove(hash)
 }
 
 export function getSession(token) {
   if (!token) return null
   pruneExpiredSessions()
-  const s = sessions.get(String(token))
+  const hash = hashSessionToken(token)
+  const s = sessions.get(hash)
   if (!s) return null
   if (s.expiresAtMs && s.expiresAtMs <= nowMs()) {
-    sessions.delete(String(token))
+    sessions.delete(hash)
     return null
   }
+  if (!s.token) s.token = String(token)
   return s
 }
 
@@ -390,6 +422,7 @@ export function sessionCount() {
 /** Test helper */
 export function _clearAllSessionsForTests() {
   sessions.clear()
+  sessionBackend?.clear?.()
 }
 
 const WS_STAFF_ROLES = new Set(['admin', 'pos', 'courier', 'assembler', 'restaurant'])
