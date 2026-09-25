@@ -1034,7 +1034,7 @@ export async function runO8RevisionCoordinatorTx(ctx) {
       const applied = pending.filter(r => String(r.status) === 'done')
       const productIds = revisionProductIds(...applied.map(r => r.items))
       try {
-        for (const rev of pending) recordEntityUpsert(db, 'revision', rev.id, rev, { sourceClientRef: rev.clientRef })
+        for (const rev of pending) recordEntityUpsert(db, 'revision', rev.id, rev)
         for (const pid of productIds) {
           const p = (db.products || []).find(x => Number(x.id) === Number(pid))
           if (p) recordEntityUpsert(db, 'product', p.id, p)

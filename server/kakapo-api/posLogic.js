@@ -3200,7 +3200,7 @@ export function updateStockReceipt(db, id, data = {}) {
     throw e
   }
   try {
-    recordEntityUpsert(db, 'receipt', next.id, next, { sourceClientRef: next.clientRef })
+    recordEntityUpsert(db, 'receipt', next.id, next)
     for (const it of next.items || []) {
       if (it.productId != null) {
         const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
@@ -3309,7 +3309,7 @@ export function updateStockWriteoff(db, id, data = {}) {
   db.writeOffs.splice(idx, 1)
   const row = buildStockWriteoff(db, data, meta)
   try {
-    recordEntityUpsert(db, 'writeoff', row.id, row, { sourceClientRef: row.clientRef })
+    recordEntityUpsert(db, 'writeoff', row.id, row)
     for (const it of row.items || []) {
       if (it.productId != null) {
         const p = (db.products || []).find(x => Number(x.id) === Number(it.productId))
@@ -4338,7 +4338,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     })
   }
   try {
-    recordEntityUpsert(db, 'sale', sale.id, sale, { sourceClientRef: retClientRef || sale.clientRef })
+    recordEntityUpsert(db, 'sale', sale.id, sale, { sourceClientRef: retClientRef || null })
     // L11C: restored stock must enter change stream (return previously only upserted sale)
     const seen = new Set()
     for (const line of returnLines) {

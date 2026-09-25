@@ -19,6 +19,7 @@ loadLocalEnv()
 import { ensureSchema, closePool, isPostgresEnabled, withClient } from '../server/kakapo-api/pg/client.js'
 import { assertTestDatabaseAllowed, truncateTestLabDatabase } from './online-test-db-cleanup.mjs'
 import { fetchInboundDelta } from '../lib/syncPullV2Core.mjs'
+import { changesToDeltaBags } from '../lib/syncChangeLogCore.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const P = 'L13-'
@@ -319,6 +320,31 @@ try {
   await send('POST', '/pos/sales', beforeCount)
   await send('POST', '/pos/sales', afterCount)
   expect(await productStock(P2) === expectP2, 'replay after revision does not change stock')
+  // Status change of the revision (queued → done) must reach kassas via v2, not only its creation
+  const qRevRef = cref('qrev')
+  const qRev = await send('POST', '/stock/revisions', {
+    clientRef: qRevRef, note: `${P}queued`, waitDevices: [{ deviceId: B.dev, posId: B.posId }],
+    items: [{ productId: P2, countedStock: expectP2, systemStock: expectP2 }],
+  })
+  expect(qRev.ok, `queued revision posted, waits for kassa B queue (${qRev.status})`)
+  await sleep(300)
+  const pendingStatus = ((await get('/stock/revisions')).body || []).find(r => r.clientRef === qRevRef)?.status
+  expect(pendingStatus === 'pending_queues', `revision waits for kassa B (${pendingStatus})`)
+  const hb = await send('POST', '/pos/devices/heartbeat', { deviceId: B.dev, posId: B.posId, queueLen: 0, queueFlushed: true })
+  expect(hb.ok, `kassa B reports empty queue (${hb.status})`)
+  let srvRevStatus = null
+  let journalRevStatus = null
+  for (let i = 0; i < 40; i++) {
+    const srvRev = ((await get('/stock/revisions')).body || []).find(r => r.clientRef === qRevRef)
+    const revId = srvRev?.id
+    srvRevStatus = srvRev?.status || null
+    const feed = (await get('/sync/changes?v=2&cursor=0&limit=5000')).body?.changes || []
+    journalRevStatus = changesToDeltaBags(feed).pos.revisions.find(r => r.id === revId)?.status || null
+    if (srvRevStatus && srvRevStatus === journalRevStatus && !/queue|pending/i.test(srvRevStatus)) break
+    await sleep(500)
+  }
+  expect(srvRevStatus === 'done' && journalRevStatus === 'done', `queued revision: status "done" reaches v2 journal (${journalRevStatus} / ${srvRevStatus})`)
+  expect(await productStock(P2) === expectP2, 'zero-diff queued revision keeps P2')
 
   // ── B: two kassas at once, convergence via v2 ──
   console.log('\n--- B  two kassas, convergence through /sync/changes v2 ---')
