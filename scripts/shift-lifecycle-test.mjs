@@ -14,14 +14,20 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const results = []
 
+const queue = []
 function test(name, fn) {
-  try {
-    fn()
-    results.push({ name, status: 'PASS' })
-    console.log(`PASS  ${name}`)
-  } catch (e) {
-    results.push({ name, status: 'FAIL', error: String(e?.message || e) })
-    console.error(`FAIL  ${name}:`, e?.message || e)
+  queue.push([name, fn])
+}
+async function runAll() {
+  for (const [name, fn] of queue) {
+    try {
+      await fn()
+      results.push({ name, status: 'PASS' })
+      console.log(`PASS  ${name}`)
+    } catch (e) {
+      results.push({ name, status: 'FAIL', error: String(e?.message || e) })
+      console.error(`FAIL  ${name}:`, e?.message || e)
+    }
   }
 }
 function expect(cond, msg) {
@@ -73,8 +79,68 @@ test('T6 sale on closed/not-found parks — no immediate revert', () => {
   expect(!slice.includes('revertLocalSaleOnReject'), 'no revert in park branch')
 })
 
-test('T7 resolveSalePayload never keeps closed shiftId', () => {
-  expect(offline.includes('Смена закрыта или не синхронизирована'), 'throw')
+test('T7 resolveSalePayload keeps sale on its own (closed) shift', () => {
+  const idx = offline.indexOf('async function resolveSalePayload')
+  expect(idx > 0, 'resolveSalePayload')
+  const slice = offline.slice(idx, idx + 1200)
+  expect(!slice.includes("row.status !== 'open'"), 'must not reroute closed shift')
+  expect(slice.includes('hasPendingShiftOpen'), 'waits for own shift_open')
+})
+
+test('T7b flush does not reroute SHIFT_CLOSED sale to another shift', () => {
+  const idx = offline.indexOf('flush_shift_lifecycle')
+  const slice = offline.slice(Math.max(0, idx - 900), idx)
+  expect(slice.includes('ownShiftClosed'), 'ownShiftClosed guard')
+})
+
+test('T7c locally closed shift never resurrected by inbound open', async () => {
+  const { protectLocallyClosedShifts } = await import('../lib/shiftReconcileCore.mjs')
+  const local = [{ id: 'SHIFT-A', status: 'closed', closedAtIso: '2026-09-24T18:00:00.000Z', actualCash: 500 }]
+  const inbound = [
+    { id: 'SHIFT-A', status: 'open', salesCount: 9, updatedAtIso: '2026-09-24T18:05:00.000Z' },
+    { id: 'SHIFT-B', status: 'open' },
+  ]
+  const out = protectLocallyClosedShifts(local, inbound)
+  const a = out.find(s => s.id === 'SHIFT-A')
+  expect(a.status === 'closed', 'A stays closed')
+  expect(a.actualCash === 500 && a.closedAtIso === local[0].closedAtIso, 'close fields kept')
+  expect(a.salesCount === 9, 'server counters kept')
+  expect(out.find(s => s.id === 'SHIFT-B').status === 'open', 'other open untouched')
+  expect(protectLocallyClosedShifts([], inbound) === inbound, 'no-op identity')
+  for (const f of ['lib/syncPull.ts', 'lib/posStore.ts', 'lib/offline.ts']) {
+    expect(read(f).includes('protectLocallyClosedShifts'), `${f} wired`)
+  }
+})
+
+test('T7d server accepts late queued sale into its closed shift + recomputes diff', async () => {
+  const { createPosSale } = await import('../server/kakapo-api/posLogic.js')
+  const shift = {
+    id: 'SHIFT-late', status: 'closed', posId: 'POS-1', cashierId: '',
+    openedAtIso: '2026-09-24T08:00:00.000Z', closedAtIso: '2026-09-24T18:00:00.000Z',
+    openingCash: 0, salesCash: 100, salesCard: 0, salesCount: 1, cashInTotal: 0, expenseTotal: 0,
+    actualCash: 150, closingCash: 150, expectedCash: 100, cashDiff: 50,
+  }
+  const db = {
+    posShifts: [shift], posSales: [], cashiers: [], posPoints: [{ id: 'POS-1', name: 'P' }],
+    clients: [], cards: [], orders: [], products: [{ id: 1, name: 'X', price: 50, stock: 10 }],
+    stockReceipts: [{ id: 'RCPT-1', items: [{ productId: 1, qty: 10, remainingQty: 10, costPrice: 10 }] }],
+  }
+  const base = {
+    shiftId: 'SHIFT-late', posId: 'POS-1', paymentMethod: 'cash', paidCash: 50, total: 50,
+    items: [{ productId: 1, qty: 1, price: 50 }],
+  }
+  let rejected = false
+  try { createPosSale(db, { ...base, clientRef: 'r-online' }) } catch (e) { rejected = e.code === 'SHIFT_CLOSED' }
+  expect(rejected, 'online sale into closed shift still rejected')
+  let afterClose = false
+  try {
+    createPosSale(db, { ...base, clientRef: 'r-after', appliedLocal: true, createdAtIso: '2026-09-25T09:00:00.000Z' })
+  } catch (e) { afterClose = e.code === 'SHIFT_CLOSED' }
+  expect(afterClose, 'sale made after close rejected')
+  const sale = createPosSale(db, { ...base, clientRef: 'r-late', appliedLocal: true, createdAtIso: '2026-09-24T17:30:00.000Z' })
+  expect(sale.shiftId === 'SHIFT-late', `sale on own shift, got ${sale.shiftId}`)
+  expect(shift.status === 'closed', 'shift stays closed')
+  expect(shift.salesCash === 150 && shift.expectedCash === 150 && shift.cashDiff === 0, `diff recomputed ${shift.expectedCash}/${shift.cashDiff}`)
 })
 
 test('T8 ensureDurableShiftCloses wired in softSync', () => {
@@ -112,6 +178,7 @@ test('T12 API error surfaces code for client match', () => {
   expect(api.includes('json.code'), 'code in parseErrorText')
 })
 
+await runAll()
 const failed = results.filter(r => r.status === 'FAIL')
 console.log(`\n${results.length - failed.length}/${results.length} passed`)
 if (failed.length) process.exit(1)

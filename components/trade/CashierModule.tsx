@@ -7505,10 +7505,7 @@ export default function CashierModule({
           }
           void softSyncPosAfterSale({ force: true })
           useOfflineSync.getState().scheduleSyncDebounced()
-          if (!created._offline) {
-            void syncClientsFromApi()
-            void syncCardsFromApi()
-          }
+          // CRM already patched locally + softSync delta — no full getClients flash
 
           if (debtRepay > 0.001 && soldClient && apiMethod !== 'credit') {
             const method = cashPaid > 0.001 ? 'cash' : 'card'

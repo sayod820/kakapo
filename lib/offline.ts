@@ -1332,40 +1332,34 @@ async function findOpenServerShift(payload: any): Promise<string> {
   return open?.id || ''
 }
 
-/** Подставляет shiftId: локальный → серверный, или текущая открытая смена */
+async function hasPendingShiftOpen(localShiftId: string): Promise<boolean> {
+  try {
+    const pending = await getPending()
+    return pending.some(r => r.kind === 'shift_open' && String(r.localId || '') === localShiftId)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Чек всегда уходит в СВОЮ смену (в которой пробит), даже если она уже закрыта:
+ * сервер принимает поздний чек из очереди в закрытую смену и пересчитывает сверку.
+ * В текущую открытую смену переносим только когда своя смена так и не появилась на сервере.
+ */
 async function resolveSalePayload(payload: any): Promise<any> {
   const next = { ...(payload || {}) }
   if (isLocalId(next.shiftId)) {
-    const real = await resolveLocalId(next.shiftId)
+    const localShiftId = String(next.shiftId)
+    const real = await resolveLocalId(localShiftId)
     if (real) {
       next.shiftId = real
     } else {
+      if (await hasPendingShiftOpen(localShiftId)) {
+        throw new BrokenRefError('Смена ещё не отправлена — чек уйдёт следом')
+      }
       const openId = await findOpenServerShift(next)
       if (!openId) throw new BrokenRefError('Связанная операция не отправлена — разберите её первой')
-      await rememberId(String(payload.shiftId), openId)
-      next.shiftId = openId
-    }
-  } else if (next.shiftId) {
-    // Закрытая/чужая смена на клиенте ≠ валидна для новых чеков
-    const { usePosStore } = await import('./posStore')
-    const row = usePosStore.getState().shifts.find(s => s.id === next.shiftId)
-    if (!row || row.status !== 'open') {
-      const openId = await findOpenServerShift(next)
-      if (openId) {
-        next.shiftId = openId
-      } else {
-        // Never keep a closed/missing shiftId — park until reconcile finds open shift
-        throw new BrokenRefError('Смена закрыта или не синхронизирована — дождитесь сверки смены')
-      }
-    }
-  }
-  // Final local sanity: mapped id must still be open when present in store
-  if (next.shiftId && !isLocalId(next.shiftId)) {
-    const { usePosStore } = await import('./posStore')
-    const row = usePosStore.getState().shifts.find(s => s.id === next.shiftId)
-    if (row && String(row.status) !== 'open') {
-      const openId = await findOpenServerShift(next)
-      if (!openId) throw new BrokenRefError('Смена уже закрыта — дождитесь сверки смены')
+      await rememberId(localShiftId, openId)
       next.shiftId = openId
     }
   }
@@ -1536,7 +1530,8 @@ async function sendOp(row: PendingOp): Promise<string> {
         return await applySaleRow(sale)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        if (/смена не найдена|смена уже закрыта|SHIFT_CLOSED|SHIFT_NOT_FOUND/i.test(msg)) {
+        // Закрытую смену не подменяем: чек принадлежит своей смене (сервер принимает поздний чек)
+        if (/смена не найдена|SHIFT_NOT_FOUND/i.test(msg)) {
           const openId = await findOpenServerShift(payload)
           if (!openId) throw e
           const localShiftId = String((row.payload as any)?.shiftId || payload?.shiftId || '')
@@ -1609,14 +1604,15 @@ async function sendOp(row: PendingOp): Promise<string> {
             const { usePosStore } = await import('./posStore')
             const local = usePosStore.getState().shifts
             const merged = Array.isArray(list) ? list : []
-            usePosStore.setState(s => ({
-              shifts: [
+            const { protectLocallyClosedShifts } = await import('./shiftReconcile')
+            usePosStore.setState(() => ({
+              shifts: protectLocallyClosedShifts(local, [
                 ...merged.map((sh: any) => {
                   const prev = local.find(x => String(x.id) === String(sh.id))
                   return prev ? { ...prev, ...sh } : sh
                 }),
                 ...local.filter(x => isLocalId(x.id) || !merged.some((r: any) => String(r.id) === String(x.id))),
-              ] as typeof local,
+              ] as typeof local),
             }))
             openId = await findOpenServerShift(p)
           } catch { /* ignore */ }
@@ -2652,7 +2648,8 @@ export async function flushQueue(
               // «Смена не найдена» / «Смена уже закрыта»: reconcile/remap; never destroy local sale.
               if (/смена не найдена|смена уже закрыта|SHIFT_CLOSED|SHIFT_NOT_FOUND|SHIFT_POS_MISMATCH|SHIFT_CASHIER_MISMATCH/i.test(err)) {
                 const tries = Number((p as any)._shiftReconcileTries) || 0
-                if (tries < 2) {
+                const ownShiftClosed = /смена уже закрыта|SHIFT_CLOSED/i.test(err)
+                if (tries < 2 && !ownShiftClosed) {
                   try {
                     const openId = await findOpenServerShift(p)
                     if (openId) {
@@ -2850,10 +2847,11 @@ export async function flushQueue(
                     openId = prefer ? String(prefer.id) : ''
                     if (Array.isArray(list) && list.length) {
                       const { usePosStore } = await import('./posStore')
+                      const { protectLocallyClosedShifts } = await import('./shiftReconcile')
                       usePosStore.setState(s => {
                         const byId = new Map(s.shifts.map(x => [String(x.id), x]))
                         for (const sh of list as any[]) byId.set(String(sh.id), { ...(byId.get(String(sh.id)) || {}), ...sh })
-                        return { shifts: [...byId.values()] as typeof s.shifts }
+                        return { shifts: protectLocallyClosedShifts(s.shifts, [...byId.values()] as typeof s.shifts) }
                       })
                     }
                   }

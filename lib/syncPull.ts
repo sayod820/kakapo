@@ -209,34 +209,59 @@ async function doPullSyncChanges(opts?: {
     {
       const { useClientStore, isClientIdentityPending } = await import('./clientStore')
       const { mergeClientLoyaltyIfRecent } = await import('./loyaltySaveGuard')
-      const { mergeClientsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
+      const {
+        CRM_MERGE_MODE,
+        mergeClientsServerAuthoritativeDetailed,
+        persistAuthoritativeCrmCaches,
+      } = await import('./crmIdentityAuthority')
       const local = useClientStore.getState().clients || []
       let merged = local
       if (Array.isArray(delta.clients) && delta.clients.length) {
-        const incoming = delta.full || opts?.forceFull
-          ? (delta.clients as AdminClient[])
-          : mergeClientsServerAuthoritative(local, delta.clients as AdminClient[], {
+        const fullSnap = !!(delta.full || opts?.forceFull)
+        const detail = mergeClientsServerAuthoritativeDetailed(
+          local,
+          delta.clients as AdminClient[],
+          {
+            mode: fullSnap
+              ? CRM_MERGE_MODE.FULL_AUTHORITATIVE_SNAPSHOT as 'FULL_AUTHORITATIVE_SNAPSHOT'
+              : CRM_MERGE_MODE.PARTIAL_DELTA_UPSERT as 'PARTIAL_DELTA_UPSERT',
             isIdentityPending: isClientIdentityPending,
             mergeLoyalty: (remote, prev) => mergeClientLoyaltyIfRecent(remote, prev),
+          },
+        )
+        merged = detail.merged
+        try {
+          const { recordCrmMerge } = await import('./syncDiagnostics')
+          recordCrmMerge({
+            entity: 'client',
+            mode: detail.mode,
+            patched: detail.patched,
+            pruned: detail.pruned,
+            kept: detail.kept,
           })
-        // forceFull: still run through authority merge so stale local identity cannot linger
-        merged = delta.full || opts?.forceFull
-          ? mergeClientsServerAuthoritative(local, incoming, {
-            isIdentityPending: isClientIdentityPending,
-            mergeLoyalty: (remote, prev) => mergeClientLoyaltyIfRecent(remote, prev),
-          })
-          : incoming
+        } catch { /* ignore */ }
       }
       merged = dropById(merged, delOf('client'))
       if ((delta.clients && delta.clients.length) || delOf('client').length) {
         useClientStore.setState({ clients: merged })
-        await cacheClients(merged)
-        try {
-          const { useCardStore } = await import('./cardStore')
-          const { cacheData } = await import('./offline')
-          await cacheData('clients', merged)
-          await persistAuthoritativeCrmCaches(merged, useCardStore.getState().cards || [])
-        } catch { /* ignore */ }
+        const fullSnap = !!(delta.full || opts?.forceFull)
+        if (fullSnap) {
+          await cacheClients(merged)
+          try {
+            const { useCardStore } = await import('./cardStore')
+            const { cacheData } = await import('./offline')
+            await cacheData('clients', merged)
+            await persistAuthoritativeCrmCaches(merged, useCardStore.getState().cards || [])
+          } catch { /* ignore */ }
+        } else if (Array.isArray(delta.clients) && delta.clients.length) {
+          try {
+            const { persistCrmEntityPatches } = await import('./crmIncrementalSync')
+            const patched = (delta.clients as AdminClient[]).map(c =>
+              merged.find(m => String(m.id) === String(c.id)) || c,
+            )
+            await persistCrmEntityPatches({ clients: patched })
+          } catch { /* ignore */ }
+        }
       }
     }
 
@@ -247,19 +272,37 @@ async function doPullSyncChanges(opts?: {
         const { useClientStore, isClientIdentityPending } = await import('./clientStore')
         const { cacheData } = await import('./offline')
         const { mergeCardLoyaltyIfRecent } = await import('./loyaltySaveGuard')
-        const { mergeCardsServerAuthoritative, persistAuthoritativeCrmCaches } = await import('./crmIdentityAuthority')
+        const {
+          CRM_MERGE_MODE,
+          mergeCardsServerAuthoritativeDetailed,
+          persistAuthoritativeCrmCaches,
+        } = await import('./crmIdentityAuthority')
         const local = useCardStore.getState().cards || []
         let merged = local
         if (Array.isArray(delta.cards) && delta.cards.length) {
-          const remote = delta.cards as AdminCard[]
-          merged = mergeCardsServerAuthoritative(
-            delta.full || opts?.forceFull ? [] : local,
-            remote,
+          const fullSnap = !!(delta.full || opts?.forceFull)
+          const detail = mergeCardsServerAuthoritativeDetailed(
+            local,
+            delta.cards as AdminCard[],
             {
+              mode: fullSnap
+                ? CRM_MERGE_MODE.FULL_AUTHORITATIVE_SNAPSHOT as 'FULL_AUTHORITATIVE_SNAPSHOT'
+                : CRM_MERGE_MODE.PARTIAL_DELTA_UPSERT as 'PARTIAL_DELTA_UPSERT',
               isIdentityPending: isClientIdentityPending,
               mergeLoyalty: (row, prev) => mergeCardLoyaltyIfRecent(row, prev),
             },
           )
+          merged = detail.merged
+          try {
+            const { recordCrmMerge } = await import('./syncDiagnostics')
+            recordCrmMerge({
+              entity: 'card',
+              mode: detail.mode,
+              patched: detail.patched,
+              pruned: detail.pruned,
+              kept: detail.kept,
+            })
+          } catch { /* ignore */ }
         }
         // dropById uses .id — cards keyed by num; filter deletes by num
         const delCards = delOf('card')
@@ -268,8 +311,20 @@ async function doPullSyncChanges(opts?: {
           merged = merged.filter(row => !s.has(String(row.num)) && !s.has(String((row as any).id || '')))
         }
         useCardStore.setState({ cards: merged })
-        await cacheData('cards', merged)
-        await persistAuthoritativeCrmCaches(useClientStore.getState().clients || [], merged)
+        const fullSnap = !!(delta.full || opts?.forceFull)
+        if (fullSnap) {
+          await cacheData('cards', merged)
+          await persistAuthoritativeCrmCaches(useClientStore.getState().clients || [], merged)
+        } else if (Array.isArray(delta.cards) && delta.cards.length) {
+          try {
+            const { persistCrmEntityPatches } = await import('./crmIncrementalSync')
+            const patched = (delta.cards as AdminCard[]).map(c => {
+              const key = String(c.num || '').toUpperCase()
+              return merged.find(m => String(m.num || '').toUpperCase() === key) || c
+            })
+            await persistCrmEntityPatches({ cards: patched })
+          } catch { /* ignore */ }
+        }
       } catch { /* ignore */ }
     }
 
@@ -365,7 +420,8 @@ async function doPullSyncChanges(opts?: {
           const s = new Set(shiftDel)
           nextShifts = nextShifts.filter(sh => !s.has(String(sh?.id ?? '')))
         }
-        patch.shifts = nextShifts
+        const { protectLocallyClosedShifts } = await import('./shiftReconcile')
+        patch.shifts = protectLocallyClosedShifts(cur.shifts || [], nextShifts)
       }
       if (Array.isArray(pos.receipts) || delOf('receipt').length) {
         const incoming = Array.isArray(pos.receipts) ? pos.receipts : []

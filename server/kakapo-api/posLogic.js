@@ -105,6 +105,34 @@ function shiftExpectedCash(shift) {
   )
 }
 
+/** Чек пробит на кассе до закрытия смены, но дошёл из очереди позже. */
+const LATE_SALE_CLOSE_GRACE_MS = 5 * 60_000
+
+function isLateLocalSaleForClosedShift(shift, data, clientRef) {
+  if (!shift || String(shift.status || '') !== 'closed') return false
+  if (!clientRef || !data?.appliedLocal) return false
+  const saleMs = Date.parse(String(data.createdAtIso || ''))
+  if (!Number.isFinite(saleMs)) return false
+  const openedMs = Date.parse(String(shift.openedAtIso || ''))
+  const closedMs = Date.parse(String(shift.closedAtIso || ''))
+  if (Number.isFinite(openedMs) && saleMs < openedMs - LATE_SALE_CLOSE_GRACE_MS) return false
+  if (Number.isFinite(closedMs) && saleMs > closedMs + LATE_SALE_CLOSE_GRACE_MS) return false
+  return true
+}
+
+/** Закрытая смена получила поздний чек: пересчитать ожидаемое и расхождение (факт не меняется). */
+function recomputeClosedShiftReconcile(shift) {
+  const expectedCash = shiftExpectedCash(shift)
+  const expectedCard = round2(Number(shift.salesCard) || 0)
+  const actualCash = round2(Number(shift.actualCash ?? shift.closingCash) || 0)
+  const actualCard = round2(Number(shift.actualCard ?? shift.closingCard ?? expectedCard) || 0)
+  shift.expectedCash = expectedCash
+  shift.expectedCard = expectedCard
+  shift.cashDiff = round2(actualCash - expectedCash)
+  shift.cardDiff = round2(actualCard - expectedCard)
+  shift.lateSalesCount = (Number(shift.lateSalesCount) || 0) + 1
+}
+
 /** Открытая смена: сначала по posId, иначе любая. */
 function findOpenShift(db, posId) {
   const opens = (db.posShifts || []).filter(s => s.status === 'open')
@@ -3440,11 +3468,15 @@ export function createPosSale(db, data = {}) {
     err.code = 'SHIFT_NOT_FOUND'
     throw err
   }
+  let lateIntoClosedShift = false
   if (shift) {
     if (String(shift.status || '') !== 'open') {
-      const err = new Error('Смена уже закрыта')
-      err.code = 'SHIFT_CLOSED'
-      throw err
+      if (!isLateLocalSaleForClosedShift(shift, data, clientRef)) {
+        const err = new Error('Смена уже закрыта')
+        err.code = 'SHIFT_CLOSED'
+        throw err
+      }
+      lateIntoClosedShift = true
     }
     const wantPos = String(data.posId || '').trim()
     if (wantPos && shift.posId && wantPos !== String(shift.posId || '').trim()) {
@@ -3629,6 +3661,7 @@ export function createPosSale(db, data = {}) {
     shift.salesCard = round2((Number(shift.salesCard) || 0) + paidCard)
     shift.salesCredit = round2((Number(shift.salesCredit) || 0) + debtAdded)
     if (paidWallet > 0) shift.salesWallet = round2((Number(shift.salesWallet) || 0) + paidWallet)
+    if (lateIntoClosedShift) recomputeClosedShiftReconcile(shift)
     touchShift(shift)
   }
   // Оплата с кошелька (предоплаченные деньги) — списываем баланс клиента.

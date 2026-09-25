@@ -514,16 +514,19 @@ export default function DebtsModule({
   /** Синхронный guard: setState(saving) не успевает до второго клика */
   const moneyBusyRef = useRef(false)
 
-  const refreshAll = useCallback(async () => {
-    await Promise.all([
-      hydrateOfflineCaches(),
-      softSyncPosAfterSale(),
-      syncClientsFromApi(),
-      syncCardsFromApi(),
-    ])
+  /** After debt repay: soft delta only — keep list, patch one client/card. */
+  const softRefresh = useCallback(async () => {
+    await hydrateOfflineCaches()
+    await softSyncPosAfterSale({ force: true })
   }, [])
 
-  useEffect(() => { refreshAll() }, [refreshAll])
+  /** Mount / recovery: full CRM once. */
+  const refreshAll = useCallback(async () => {
+    await softRefresh()
+    await Promise.all([syncClientsFromApi(), syncCardsFromApi()])
+  }, [softRefresh])
+
+  useEffect(() => { void refreshAll() }, [refreshAll])
 
   useEffect(() => subscribeDebtHistory(() => setHistTick(t => t + 1)), [])
 
@@ -764,7 +767,7 @@ export default function DebtsModule({
       })
       const nextRemain = Math.round((maxPay - amount) * 100) / 100
       setHistMsg(`Погашено по ${saleLabel(s)}: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-      await refreshAll()
+      await softRefresh()
       if (nextRemain > 0.001) {
         setSaleRepay({ amount: String(nextRemain), saving: false, method })
       } else {
@@ -876,7 +879,7 @@ export default function DebtsModule({
       }
       setRepayQuick(null)
       setHistMsg(`Погашено: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-      await refreshAll()
+      await softRefresh()
     } catch (e) {
       setRepayQuick(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Не удалось погасить')
@@ -955,7 +958,7 @@ export default function DebtsModule({
         }
         setHistAdd(emptyHistAdd('repay'))
         setHistMsg(`Оплата записана: ${fmtMoney(amount)} · ${method === 'card' ? 'карта' : 'нал'} · в кассу`)
-        if (!res.offline) await refreshAll()
+        if (!res.offline) await softRefresh()
         return
       }
       const res = await chargeCashDebtFromOpenShift(detailClient, amount, {
@@ -967,7 +970,7 @@ export default function DebtsModule({
       if (phone) void syncDebtHistoryFromLedger(phone).finally(() => setHistTick(t => t + 1))
       setHistAdd(emptyHistAdd(histAdd.action))
       setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
-      if (!res.offline) await refreshAll()
+      if (!res.offline) await softRefresh()
     } catch (e) {
       setHistAdd(prev => ({ ...prev, saving: false }))
       setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
@@ -1017,7 +1020,7 @@ export default function DebtsModule({
         skipDebtHistory: true,
       })
       setHistMsg(`С карты убрано: ${fmtMoney(amt)}`)
-      await refreshAll()
+      await softRefresh()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось')
     } finally {
@@ -1046,7 +1049,7 @@ export default function DebtsModule({
     try {
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(removed, null))
       setHistMsg(`Удалено: ${fmtMoney(abs)}`)
-      await refreshAll()
+      await softRefresh()
     } catch (e) {
       setHistMsg(e instanceof Error ? e.message : 'Не удалось обновить баланс')
     } finally {
@@ -1084,7 +1087,7 @@ export default function DebtsModule({
       await applyDebtDeltaFromHistory(debtBalanceDeltaForHistoryChange(before, after))
       setHistEdit(null)
       setHistMsg(`Запись обновлена: ${fmtMoney(amountAbs)}`)
-      await refreshAll()
+      await softRefresh()
     } catch (e) {
       setHistEdit(prev => prev ? { ...prev, saving: false } : prev)
       setHistMsg(e instanceof Error ? e.message : 'Ошибка сохранения')

@@ -8,7 +8,12 @@ import {
   sameLogicalOpenSession as sameLogicalOpenSessionCore,
   planOrphanOffShiftAdopts as planOrphanOffShiftAdoptsCore,
   applyOrphanOffShiftAdoptsProjection as applyOrphanOffShiftAdoptsProjectionCore,
+  protectLocallyClosedShifts as protectLocallyClosedShiftsCore,
 } from './shiftReconcileCore.mjs'
+
+export function protectLocallyClosedShifts<T extends PosShift>(localShifts: T[], nextShifts: T[]): T[] {
+  return protectLocallyClosedShiftsCore(localShifts, nextShifts) as T[]
+}
 
 export type ShiftPickOpts = {
   cashierId?: string
