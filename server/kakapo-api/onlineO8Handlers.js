@@ -800,6 +800,255 @@ export async function handleO8WriteoffDelete(req, res, ctx) {
   }
 }
 
+function revisionItemsFingerprint(items) {
+  return (Array.isArray(items) ? items : []).map(it => ({
+    productId: it.productId,
+    countedStock: round2(it.countedStock),
+    systemStock: Number.isFinite(Number(it.systemStock)) ? round2(it.systemStock) : null,
+  }))
+}
+
+function revisionProductIds(...lists) {
+  const out = new Set()
+  for (const list of lists) {
+    for (const it of Array.isArray(list) ? list : []) {
+      if (it?.productId != null && it.productId !== '') out.add(it.productId)
+    }
+  }
+  return [...out]
+}
+
+const REVISION_PENDING_STATUSES = new Set(['pending_queues', 'pending_older', 'applying'])
+
+export async function handleO8RevisionCreate(req, res, ctx) {
+  const { db, createStockRevision, auditFromReq, broadcastPosUpdate, broadcastProduct, runRevisionCoordinator } = ctx
+  const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
+  const body = { ...(req.body || {}), ...(clientRef ? { clientRef } : {}) }
+  const fingerprint = buildO8Fingerprint(WH_OP_KINDS.STOCK_REVISION_CREATE, {
+    note: String(body.note || '').trim(),
+    items: revisionItemsFingerprint(body.items),
+  })
+
+  try {
+    const txOut = await runO8Tx(req, {
+      db,
+      clientRef,
+      operationKind: WH_OP_KINDS.STOCK_REVISION_CREATE,
+      fingerprint,
+      advisoryLocks: stockProductAdvisoryLocks(revisionProductIds(body.items)),
+      mutate: () => {
+        const row = createStockRevision(db, body)
+        if (clientRef) row.clientRef = clientRef
+        return {
+          result: row,
+          touched: touchedFromWarehouse(db, {
+            revision: row,
+            productIds: revisionProductIds(row.items),
+            clientRef,
+          }),
+        }
+      },
+    })
+
+    await afterCommitHold()
+    const row = txOut.result
+    if (!txOut.replay) {
+      auditFromReq(db, req, {
+        action: 'create',
+        entity: 'stock',
+        entityId: row.id,
+        entityName: row.note || row.id,
+        summary: `Ревизия склада · ${row.note || row.id}`,
+      })
+      broadcastPosUpdate({ kind: 'revision', id: row.id })
+      broadcastProduct({ reason: 'revision' })
+    }
+    if (typeof runRevisionCoordinator === 'function') void runRevisionCoordinator()
+    res.json({
+      ...row,
+      replayed: !!txOut.replay,
+      duplicate: !!txOut.replay,
+      durable: isPostgresEnabled(),
+    })
+  } catch (e) {
+    txError(res, e, 'Не удалось сохранить ревизию')
+  }
+}
+
+export async function handleO8RevisionUpdate(req, res, ctx) {
+  const { db, updateStockRevision, auditFromReq, broadcastPosUpdate, broadcastProduct } = ctx
+  const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
+  const revisionId = req.params.id
+  const body = { ...(req.body || {}), ...(clientRef ? { clientRef } : {}) }
+  const fingerprint = buildO8Fingerprint(WH_OP_KINDS.STOCK_REVISION_UPDATE, {
+    revisionId,
+    note: String(body.note || '').trim(),
+    items: revisionItemsFingerprint(body.items),
+  })
+  const oldRev = (db.stockRevisions || []).find(r => r.id === revisionId)
+
+  try {
+    const txOut = await runO8Tx(req, {
+      db,
+      clientRef,
+      operationKind: WH_OP_KINDS.STOCK_REVISION_UPDATE,
+      fingerprint,
+      advisoryLocks: stockProductAdvisoryLocks(revisionProductIds(body.items, oldRev?.items)),
+      mutate: () => {
+        const before = (db.stockRevisions || []).find(r => r.id === revisionId)
+        const beforeItems = before?.items || []
+        const row = updateStockRevision(db, revisionId, body)
+        if (clientRef) row.clientRef = clientRef
+        return {
+          result: row,
+          touched: touchedFromWarehouse(db, {
+            revision: row,
+            productIds: revisionProductIds(row.items, beforeItems),
+            clientRef,
+          }),
+        }
+      },
+    })
+
+    await afterCommitHold()
+    const row = txOut.result
+    if (!txOut.replay) {
+      auditFromReq(db, req, {
+        action: 'update',
+        entity: 'stock',
+        entityId: row.id,
+        entityName: row.note || row.id,
+        summary: `Изменена ревизия · ${row.note || row.id}`,
+      })
+      broadcastPosUpdate({ kind: 'revision', id: row.id, updated: true })
+      broadcastProduct({ reason: 'revision-update' })
+    }
+    res.json({
+      ...row,
+      replayed: !!txOut.replay,
+      duplicate: !!txOut.replay,
+      durable: isPostgresEnabled(),
+    })
+  } catch (e) {
+    txError(res, e, 'Не удалось изменить ревизию')
+  }
+}
+
+export async function handleO8RevisionDelete(req, res, ctx) {
+  const { db, deleteStockRevision, auditFromReq, broadcastPosUpdate, broadcastProduct } = ctx
+  const clientRef = String(req.body?.clientRef || req.query?.clientRef || '').trim()
+  const revisionId = req.params.id
+  const fingerprint = buildO8Fingerprint(WH_OP_KINDS.STOCK_REVISION_DELETE, { revisionId })
+  const oldRev = (db.stockRevisions || []).find(r => r.id === revisionId)
+
+  try {
+    const txOut = await runO8Tx(req, {
+      db,
+      clientRef,
+      operationKind: WH_OP_KINDS.STOCK_REVISION_DELETE,
+      fingerprint,
+      advisoryLocks: stockProductAdvisoryLocks(revisionProductIds(oldRev?.items)),
+      mutate: () => {
+        const before = (db.stockRevisions || []).find(r => r.id === revisionId)
+        const productIds = revisionProductIds(before?.items)
+        const row = deleteStockRevision(db, revisionId)
+        return {
+          result: row,
+          deletes: [{ collection: 'stockRevisions', id: String(revisionId) }],
+          touched: touchedFromWarehouse(db, { productIds, clientRef }),
+        }
+      },
+    })
+
+    await afterCommitHold()
+    const row = txOut.result
+    if (!txOut.replay) {
+      auditFromReq(db, req, {
+        action: 'delete',
+        entity: 'stock',
+        entityId: revisionId,
+        entityName: oldRev?.note || revisionId,
+        summary: `Удалена ревизия · ${oldRev?.note || revisionId}`,
+      })
+      broadcastPosUpdate({ kind: 'revision', id: revisionId, deleted: true })
+      broadcastProduct({ reason: 'revision-delete' })
+    }
+    res.json({
+      ...row,
+      replayed: !!txOut.replay,
+      duplicate: !!txOut.replay,
+      durable: isPostgresEnabled(),
+    })
+  } catch (e) {
+    txError(res, e, 'Не удалось удалить ревизию')
+  }
+}
+
+export async function handleO8RevisionCancel(req, res, ctx) {
+  const { db, cancelStockRevision, auditFromReq, broadcastPosUpdate, runRevisionCoordinator } = ctx
+  const revisionId = req.params.id
+  try {
+    const txOut = await runO8Tx(req, {
+      db,
+      operationKind: WH_OP_KINDS.STOCK_REVISION_CANCEL,
+      mutate: () => {
+        const row = cancelStockRevision(db, revisionId)
+        return { result: row, touched: touchedFromWarehouse(db, { revision: row }) }
+      },
+    })
+    await afterCommitHold()
+    const row = txOut.result
+    auditFromReq(db, req, {
+      action: 'update',
+      entity: 'stock',
+      entityId: row.id,
+      entityName: row.note || row.id,
+      summary: `Отменена ревизия · ${row.note || row.id}`,
+    })
+    broadcastPosUpdate({ kind: 'revision', id: row.id, cancelled: true })
+    if (typeof runRevisionCoordinator === 'function') void runRevisionCoordinator()
+    res.json(row)
+  } catch (e) {
+    txError(res, e, 'Не удалось отменить ревизию')
+  }
+}
+
+/**
+ * Revision v2 coordinator step as one business tx: applied stock + revision status
+ * are committed together (no debounced snapshot window).
+ * @returns {Promise<boolean>} true when something changed
+ */
+export async function runO8RevisionCoordinatorTx(ctx) {
+  const { db, processRevisionQueue } = ctx
+  const pendingBefore = (db.stockRevisions || []).filter(r => REVISION_PENDING_STATUSES.has(String(r.status || '')))
+  if (!pendingBefore.length) return false
+  const lockPids = revisionProductIds(...pendingBefore.map(r => r.items))
+  const txOut = await runBusinessMutationTx({
+    db,
+    operationKind: WH_OP_KINDS.REVISION_RESULT_COMMIT,
+    advisoryLocks: stockProductAdvisoryLocks(lockPids),
+    mutate: () => {
+      const pending = (db.stockRevisions || []).filter(r => REVISION_PENDING_STATUSES.has(String(r.status || '')))
+      const changed = processRevisionQueue(db)
+      if (!changed) return { result: { changed: false }, touched: [] }
+      const applied = pending.filter(r => String(r.status) === 'done')
+      const productIds = revisionProductIds(...applied.map(r => r.items))
+      try {
+        for (const rev of pending) recordEntityUpsert(db, 'revision', rev.id, rev, { sourceClientRef: rev.clientRef })
+        for (const pid of productIds) {
+          const p = (db.products || []).find(x => Number(x.id) === Number(pid))
+          if (p) recordEntityUpsert(db, 'product', p.id, p)
+        }
+      } catch { /* sync journal best-effort, docs still committed */ }
+      return {
+        result: { changed: true, applied: applied.map(r => r.id) },
+        touched: touchedFromWarehouse(db, { revisions: pending, productIds }),
+      }
+    },
+  })
+  return !!txOut?.result?.changed
+}
+
 export async function handleO8ExpenseCreate(req, res, ctx) {
   const { db, createExpense, broadcastPosUpdate } = ctx
 

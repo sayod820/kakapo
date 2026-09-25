@@ -73,6 +73,11 @@ import {
   handleO8WriteoffCreate,
   handleO8WriteoffUpdate,
   handleO8WriteoffDelete,
+  handleO8RevisionCreate,
+  handleO8RevisionUpdate,
+  handleO8RevisionDelete,
+  handleO8RevisionCancel,
+  runO8RevisionCoordinatorTx,
   handleO8SupplierPaymentDelete,
   handleO8ExpenseCreate,
   handleO8ExpenseDelete,
@@ -515,6 +520,12 @@ const o8HandlerCtx = () => ({
   updateStockWriteoff,
   deleteStockWriteoff,
   createStockAdjustment,
+  createStockRevision,
+  updateStockRevision,
+  deleteStockRevision,
+  cancelStockRevision: (d, id) => revisionCoordinator.cancelStockRevision(d, id),
+  processRevisionQueue: (d) => revisionCoordinator.processRevisionQueue(d),
+  runRevisionCoordinator: () => runRevisionCoordinator(),
   createPosSale,
   createClientOrderFromPosSale,
   completePosSaleOnlineLoyalty,
@@ -1048,16 +1059,23 @@ function broadcastPosUpdate(payload = {}) {
   }
 }
 
+let revisionCoordinatorRunning = null
 function runRevisionCoordinator() {
-  try {
-    if (revisionCoordinator.processRevisionQueue(db)) {
-      persist()
-      broadcastProduct({ reason: 'revision-coordinator' })
-      broadcastPosUpdate({ kind: 'revision-coordinator' })
+  if (revisionCoordinatorRunning) return revisionCoordinatorRunning
+  revisionCoordinatorRunning = (async () => {
+    try {
+      if (await runO8RevisionCoordinatorTx(o8HandlerCtx())) {
+        persist()
+        broadcastProduct({ reason: 'revision-coordinator' })
+        broadcastPosUpdate({ kind: 'revision-coordinator' })
+      }
+    } catch (e) {
+      console.error('[revision-coordinator]', e?.message || e)
+    } finally {
+      revisionCoordinatorRunning = null
     }
-  } catch (e) {
-    console.error('[revision-coordinator]', e?.message || e)
-  }
+  })()
+  return revisionCoordinatorRunning
 }
 
 function broadcastReview(review) {
@@ -3425,86 +3443,16 @@ app.get('/stock/revisions/queue', (_req, res) => {
   }
 })
 app.post('/stock/revisions', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'stock_revision_create', clientRef)) return
-    const row = createStockRevision(db, req.body || {})
-    if (clientRef) { row.clientRef = clientRef; rememberKnownOp('stock_revision_create', clientRef, row) }
-    auditFromReq(db, req, {
-      action: 'create',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.note || row.id,
-      summary: `Ревизия склада · ${row.note || row.id}`,
-    })
-    persist()
-    runRevisionCoordinator()
-    broadcastPosUpdate({ kind: 'revision', id: row.id })
-    broadcastProduct({ reason: 'revision' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось сохранить ревизию' })
-  }
+  void handleO8RevisionCreate(req, res, o8HandlerCtx())
 })
 app.put('/stock/revisions/:id', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'stock_revision_update', clientRef)) return
-    const row = updateStockRevision(db, req.params.id, req.body || {})
-    if (clientRef) rememberKnownOp('stock_revision_update', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'update',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.note || row.id,
-      summary: `Изменена ревизия · ${row.note || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'revision', id: row.id, updated: true })
-    broadcastProduct({ reason: 'revision-update' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось изменить ревизию' })
-  }
+  void handleO8RevisionUpdate(req, res, o8HandlerCtx())
 })
 app.patch('/stock/revisions/:id/cancel', (req, res) => {
-  try {
-    const row = revisionCoordinator.cancelStockRevision(db, req.params.id)
-    auditFromReq(db, req, {
-      action: 'update',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.note || row.id,
-      summary: `Отменена ревизия · ${row.note || row.id}`,
-    })
-    persist()
-    runRevisionCoordinator()
-    broadcastPosUpdate({ kind: 'revision', id: row.id, cancelled: true })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось отменить ревизию' })
-  }
+  void handleO8RevisionCancel(req, res, o8HandlerCtx())
 })
 app.delete('/stock/revisions/:id', (req, res) => {
-  try {
-    const clientRef = takeClientRef(req)
-    if (replyIfKnownOp(res, 'stock_revision_delete', clientRef)) return
-    const row = deleteStockRevision(db, req.params.id)
-    if (clientRef) rememberKnownOp('stock_revision_delete', clientRef, row)
-    auditFromReq(db, req, {
-      action: 'delete',
-      entity: 'stock',
-      entityId: row.id,
-      entityName: row.note || row.id,
-      summary: `Удалена ревизия · ${row.note || row.id}`,
-    })
-    persist()
-    broadcastPosUpdate({ kind: 'revision', id: row.id, deleted: true })
-    broadcastProduct({ reason: 'revision-delete' })
-    res.json(row)
-  } catch (e) {
-    res.status(400).json({ detail: e?.message || 'Не удалось удалить ревизию' })
-  }
+  void handleO8RevisionDelete(req, res, o8HandlerCtx())
 })
 app.get('/stock/expiry', (req, res) => {
   res.json(listExpiryItems(db, Number(req.query.days) || 14))

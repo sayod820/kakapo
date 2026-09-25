@@ -1006,7 +1006,7 @@ export async function deleteStockRevisionSafe(id: string): Promise<OfflineResult
     return { offline: true, data }
   }
 
-  const res = await raceWarehouseOp(() => api.deleteStockRevision(id), applyLocal)
+  const res = await raceWarehouseOp(() => api.deleteStockRevision(id, { clientRef }), applyLocal)
   if (!res.offline) {
     usePosStore.setState(s => ({
       revisions: s.revisions.filter(r => r.id !== id),
