@@ -321,7 +321,9 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   function renderRow(row: PendingOp) {
     const amt = amountOf(row.payload)
     const detail = detailOf(row)
-    const errText = row.failed ? enrichQueueError(row, products) : ''
+    const errText = row.failed
+      ? enrichQueueError(row, products)
+      : (row.attempts >= 3 && row.lastError ? String(row.lastError) : '')
     const isBusy = syncing || busyRef === row.clientRef || busyRef === '__all__'
     return (
       <div className="k-queue-row" key={row.clientRef} data-failed={row.failed ? '1' : '0'}>

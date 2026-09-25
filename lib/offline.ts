@@ -1316,6 +1316,55 @@ class BrokenRefError extends Error {
  * Если ссылка на локальную запись не разрешилась — предыдущая операция
  * не дошла до сервера, отправлять эту нельзя.
  */
+/**
+ * Правка прихода, чьё создание уже никогда не уйдёт: id временный, серверного id нет,
+ * и в очереди нет stock_receipt_create с этим localId (создание откатили/потеряли).
+ * Без этого строка вечно ждёт «связанную операцию» и её нельзя убрать.
+ */
+async function orphanReceiptUpdateLocalId(row: PendingOp): Promise<string> {
+  const localId = String((row.payload as any)?.id || '')
+  if (!isLocalId(localId)) return ''
+  if (await resolveLocalId(localId)) return ''
+  const list = await getPending()
+  const createPending = list.some(r => (
+    r.kind === 'stock_receipt_create'
+    && r.clientRef !== row.clientRef
+    && String(r.localId || '') === localId
+  ))
+  return createPending ? '' : localId
+}
+
+async function sendOrphanReceiptUpdateAsCreate(row: PendingOp, localId: string): Promise<string> {
+  const p = (row.payload || {}) as Record<string, any>
+  const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
+  const items = await remapProductIdsInItems(p.items || [])
+  let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
+  if (supplierId) {
+    try {
+      const { refreshSupplierFromServer } = await import('./offlineSupplierOps')
+      const rowSup = await refreshSupplierFromServer(String(supplierId))
+      if (rowSup) expectedSupplyVersion = rowSup.supplyVersion
+    } catch { /* keep queued version */ }
+  }
+  const receipt = await api.createStockReceipt({
+    clientRef: p.clientRef || row.clientRef,
+    supplierId: supplierId || undefined,
+    createdBy: p.createdBy,
+    paidNow: Number(p.paidNow) || 0,
+    payFrom: p.payFrom,
+    method: p.method,
+    items,
+    createdAtIso: row.createdAtIso,
+    expectedSupplyVersion,
+  } as any)
+  const serverId = String((receipt as any)?.id || '')
+  if (serverId) {
+    await rememberId(localId, serverId)
+    await applyLocalIdRemap('stock_receipt_create', localId, serverId)
+  }
+  return serverId
+}
+
 async function resolveRefs(payload: any, fields: string[]): Promise<any> {
   const next = { ...(payload || {}) }
   for (const field of fields) {
@@ -1869,6 +1918,8 @@ async function sendOp(row: PendingOp): Promise<string> {
       return String((receipt as any)?.id || '')
     }
     case 'stock_receipt_update': {
+      const orphan = await orphanReceiptUpdateLocalId(row)
+      if (orphan) return sendOrphanReceiptUpdateAsCreate(row, orphan)
       const p = await resolveRefs(row.payload, ['id'])
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
