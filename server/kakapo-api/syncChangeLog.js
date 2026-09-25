@@ -216,6 +216,18 @@ export async function getServerHeadCursor(db) {
   return getMemoryHead(db)
 }
 
+/** Cursor a client may adopt after a v1 pull without skipping in-flight journal rows. */
+export async function getSafeHeadCursor(db) {
+  if (isPostgresEnabled()) {
+    await flushSyncChangeJournal(db)
+    const { getSyncChangesHeadPg } = await import('./pg/syncChangesJournal.js')
+    const h = await getSyncChangesHeadPg()
+    return h.safeHeadCursor
+  }
+  ensureSyncChangeLog(db)
+  return getMemoryHead(db)
+}
+
 export async function getMinAvailableCursor(db) {
   if (isPostgresEnabled()) {
     try {

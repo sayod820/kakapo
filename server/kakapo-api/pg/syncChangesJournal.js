@@ -158,6 +158,26 @@ export async function insertSyncChangesPgBatch(entries) {
   })
 }
 
+/** Seq allocated by an uncommitted tx is invisible; a younger gap may still fill in. */
+export const SEQ_GAP_GRACE_MS = 15_000
+
+/**
+ * Longest prefix that cannot skip an in-flight change_seq.
+ * @param {Array<{ changeSeq: number, createdAt: any }>} rows ascending
+ */
+export function safeSeqPrefix(rows, after, nowMs, graceMs = SEQ_GAP_GRACE_MS) {
+  let prev = Math.max(0, Number(after) || 0)
+  for (let i = 0; i < rows.length; i++) {
+    const seq = Number(rows[i].changeSeq)
+    if (prev > 0 && seq !== prev + 1) {
+      const t = rows[i].createdAt instanceof Date ? rows[i].createdAt.getTime() : Date.parse(String(rows[i].createdAt || ''))
+      if (!Number.isFinite(t) || nowMs - t < graceMs) return { rows: rows.slice(0, i), truncated: true }
+    }
+    prev = seq
+  }
+  return { rows, truncated: false }
+}
+
 export async function querySyncChangesPg(afterCursor, opts = {}) {
   const after = Math.max(0, Number(afterCursor) || 0)
   const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 500))
@@ -191,7 +211,10 @@ export async function querySyncChangesPg(afterCursor, opts = {}) {
        LIMIT $2`,
       [after, limit],
     )
-    const globalRows = globalRes.rows.map(mapRow)
+    const nowRes = await client.query('SELECT (extract(epoch from clock_timestamp()) * 1000)::float8 AS now_ms')
+    const nowMs = Number(nowRes.rows[0]?.now_ms) || Date.now()
+    const safe = safeSeqPrefix(globalRes.rows.map(mapRow), after, nowMs)
+    const globalRows = safe.rows
     const nextCursor = globalRows.length
       ? globalRows[globalRows.length - 1].changeSeq
       : after
@@ -200,7 +223,7 @@ export async function querySyncChangesPg(afterCursor, opts = {}) {
       [after],
     )
     const totalAfter = Number(countRes.rows[0]?.n) || 0
-    const hasMore = totalAfter > globalRows.length
+    const hasMore = !safe.truncated && totalAfter > globalRows.length
 
     let changes = globalRows
     if (scope === 'pos-lite' || scope === 'pos' || scope === 'sales') {
@@ -232,9 +255,15 @@ export async function getSyncChangesHeadPg() {
   return withClient(async (client) => {
     const headRes = await client.query('SELECT COALESCE(MAX(change_seq), 0)::bigint AS head FROM sync_changes')
     const minRes = await client.query('SELECT COALESCE(MIN(change_seq), 0)::bigint AS min FROM sync_changes')
+    const safeRes = await client.query(
+      `SELECT COALESCE(MAX(change_seq), 0)::bigint AS safe FROM sync_changes
+       WHERE created_at < clock_timestamp() - ($1::int * interval '1 millisecond')`,
+      [SEQ_GAP_GRACE_MS],
+    )
     return {
       serverHeadCursor: Number(headRes.rows[0]?.head) || 0,
       minAvailableCursor: Number(minRes.rows[0]?.min) || 0,
+      safeHeadCursor: Number(safeRes.rows[0]?.safe) || 0,
     }
   })
 }

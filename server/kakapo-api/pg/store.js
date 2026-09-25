@@ -14,6 +14,13 @@ import {
   fetchDocByIdempotencyKey,
   isKnownIdempotencyUniqueViolation,
 } from './uniqueIdempotency.js'
+import {
+  seedPersistedHash,
+  diffSnapshotRows,
+  insertSnapshotJournalRows,
+  commitPersistedHashes,
+  isJournaledCollection,
+} from './snapshotChangeJournal.js'
 
 const INSERT_BATCH = 200
 
@@ -25,17 +32,19 @@ const UPSERT_SQL = `INSERT INTO docs (collection, id, data, sort_idx, updated_at
  WHERE
    -- L11: never let a stale full-snapshot flush overwrite a newer transactional write
    docs.updated_at IS NULL
-   OR EXCLUDED.updated_at >= docs.updated_at`
+   OR EXCLUDED.updated_at >= docs.updated_at
+ RETURNING collection, id`
 
-async function upsertOneDocRow(client, r) {
+async function upsertOneDocRow(client, r, written) {
   const ts = r.updatedAt || r.data?._txCommittedAt || null
-  await client.query(UPSERT_SQL, [
+  const res = await client.query(UPSERT_SQL, [
     r.key,
     r.id,
-    JSON.stringify(r.data ?? null),
+    r.json != null ? r.json : JSON.stringify(r.data ?? null),
     r.sortIdx,
     ts,
   ])
+  if (written) for (const row of res.rows || []) written.add(`${row.collection}\0${row.id}`)
 }
 
 /**
@@ -133,7 +142,7 @@ async function upsertMeta(client, metaEntries) {
  *
  * @returns {Promise<Array<object>>} idempotency conflicts (may be empty)
  */
-async function upsertDocRows(client, docRows) {
+async function upsertDocRows(client, docRows, written = null) {
   /** @type {Array<object>} */
   const conflicts = []
 
@@ -144,7 +153,7 @@ async function upsertDocRows(client, docRows) {
     for (const r of chunk) {
       const ts = r.updatedAt || r.data?._txCommittedAt || null
       values.push(`($${p++}, $${p++}, $${p++}::jsonb, $${p++}, COALESCE($${p++}::timestamptz, NOW()))`)
-      params.push(r.key, r.id, JSON.stringify(r.data ?? null), r.sortIdx, ts)
+      params.push(r.key, r.id, r.json != null ? r.json : JSON.stringify(r.data ?? null), r.sortIdx, ts)
     }
     const res = await client.query(
       `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
@@ -152,11 +161,11 @@ async function upsertDocRows(client, docRows) {
        ON CONFLICT (collection, id) DO UPDATE SET
          data = EXCLUDED.data,
          updated_at = EXCLUDED.updated_at
-       WHERE docs.updated_at IS NULL OR EXCLUDED.updated_at >= docs.updated_at`,
+       WHERE docs.updated_at IS NULL OR EXCLUDED.updated_at >= docs.updated_at
+       RETURNING collection, id`,
       params,
     )
-    // Track prevented overwrites when possible (batch may mix)
-    void res
+    if (written) for (const row of res.rows || []) written.add(`${row.collection}\0${row.id}`)
   }
 
   async function resolveRowConflict(r, err) {
@@ -179,7 +188,7 @@ async function upsertDocRows(client, docRows) {
     for (const r of rows) {
       await client.query('SAVEPOINT fixd_upsert_row')
       try {
-        await upsertOneDocRow(client, r)
+        await upsertOneDocRow(client, r, written)
         await client.query('RELEASE SAVEPOINT fixd_upsert_row')
       } catch (e) {
         await client.query('ROLLBACK TO SAVEPOINT fixd_upsert_row')
@@ -206,16 +215,22 @@ async function upsertDocRows(client, docRows) {
   return conflicts
 }
 
-async function applyExplicitDeletes(client, deletes) {
+function collectDeleted(removed, res) {
+  if (!removed) return
+  for (const row of res?.rows || []) removed.push({ collection: row.collection, id: String(row.id) })
+}
+
+async function applyExplicitDeletes(client, deletes, removed = null) {
   if (!Array.isArray(deletes) || !deletes.length) return
   for (const d of deletes) {
     const collection = String(d.collection || '').trim()
     const id = String(d.id ?? '').trim()
     if (!collection || !id) continue
-    await client.query(
-      'DELETE FROM docs WHERE collection = $1 AND id = $2',
+    const res = await client.query(
+      'DELETE FROM docs WHERE collection = $1 AND id = $2 RETURNING collection, id',
       [collection, id],
     )
+    collectDeleted(removed, res)
   }
 }
 
@@ -225,13 +240,14 @@ async function applyExplicitDeletes(client, deletes) {
  * @param {string[]} collections
  * @param {{ noPruneCollections?: Iterable<string> }} [opts]
  */
-async function upsertDocs(client, docRows, collections, opts = {}) {
+async function upsertDocs(client, docRows, collections, opts = {}, track = {}) {
   const noPrune = new Set([
     ...NO_PRUNE,
     ...(opts.noPruneCollections ? [...opts.noPruneCollections] : []),
   ])
+  const removed = track.removed || null
 
-  const conflicts = await upsertDocRows(client, docRows)
+  const conflicts = await upsertDocRows(client, docRows, track.written || null)
 
   // Do not prune using loser attempted ids that lost an idempotency race
   const skipIds = new Set(
@@ -251,14 +267,18 @@ async function upsertDocs(client, docRows, collections, opts = {}) {
       continue
     }
     const ids = byCol.get(col) || []
+    const journaled = removed && isJournaledCollection(col)
+    const ret = journaled ? ' RETURNING collection, id' : ''
     if (!ids.length) {
-      await client.query('DELETE FROM docs WHERE collection = $1', [col])
+      const res = await client.query(`DELETE FROM docs WHERE collection = $1${ret}`, [col])
+      if (journaled) collectDeleted(removed, res)
       continue
     }
-    await client.query(
-      'DELETE FROM docs WHERE collection = $1 AND NOT (id = ANY($2::text[]))',
+    const res = await client.query(
+      `DELETE FROM docs WHERE collection = $1 AND NOT (id = ANY($2::text[]))${ret}`,
       [col, ids],
     )
+    if (journaled) collectDeleted(removed, res)
   }
 
   // Drop unknown collections, but never drop protected append collections
@@ -307,17 +327,55 @@ export async function saveSnapshotToPg(client, snapshot, opts = {}) {
         let id = rowIdForItem(value[i], i)
         if (used.has(id)) id = `${id}#${i}`
         used.add(id)
-        docRows.push({ key, id, data: value[i], sortIdx: i })
+        docRows.push({ key, id, data: value[i], json: JSON.stringify(value[i] ?? null), sortIdx: i })
       }
     } else {
       metaEntries.push({ key, value })
     }
   }
 
+  const { candidates } = diffSnapshotRows(docRows)
+  const written = new Set()
+  const removed = []
+
   await upsertMeta(client, metaEntries)
-  const conflicts = await upsertDocs(client, docRows, collections, opts)
-  await applyExplicitDeletes(client, opts.deletes || [])
-  return { conflicts: conflicts || [] }
+  const conflicts = await upsertDocs(client, docRows, collections, opts, { written, removed })
+  await applyExplicitDeletes(client, opts.deletes || [], removed)
+
+  const upserts = [...candidates.entries()]
+    .filter(([k]) => written.has(k))
+    .map(([, v]) => v)
+  // Delete events come from recordSyncDelete tombstones (v1 ids); here only drop hashes
+  const deletedRows = removed.filter(d => isJournaledCollection(d.collection))
+  let journal = { upserts: [], deletes: deletedRows }
+  if (upserts.length) {
+    await client.query('SAVEPOINT snapshot_journal')
+    try {
+      await insertSnapshotJournalRows(client, upserts.map(u => ({
+        collection: u.collection, id: u.id, data: u.data, action: 'upsert',
+      })))
+      await client.query('RELEASE SAVEPOINT snapshot_journal')
+      journal = { upserts, deletes: deletedRows }
+    } catch (e) {
+      await client.query('ROLLBACK TO SAVEPOINT snapshot_journal')
+      console.error('[pg] snapshot sync journal failed (docs still saved, will retry)', e?.message || e)
+    }
+  }
+  return { conflicts: conflicts || [], journal }
+}
+
+/** Baseline hashes from the in-memory snapshot right after boot (ids as in saveSnapshotToPg). */
+export function seedSnapshotJournalBaseline(snapshot) {
+  for (const [key, value] of Object.entries(snapshot || {})) {
+    if (!Array.isArray(value) || !isJournaledCollection(key)) continue
+    const used = new Set()
+    for (let i = 0; i < value.length; i++) {
+      let id = rowIdForItem(value[i], i)
+      if (used.has(id)) id = `${id}#${i}`
+      used.add(id)
+      seedPersistedHash(key, id, value[i])
+    }
+  }
 }
 
 /** Explicit single-row delete (append collections must use this, not snapshot absence). */
@@ -343,9 +401,11 @@ export async function deleteDoc(collection, id) {
  * @returns {Promise<{ conflicts: Array<object> }>}
  */
 export async function persistSnapshot(snapshot, opts = {}) {
-  return withTransaction(async client => {
+  const out = await withTransaction(async client => {
     return saveSnapshotToPg(client, snapshot, opts)
   })
+  if (out?.journal) commitPersistedHashes(out.journal.upserts, out.journal.deletes)
+  return out
 }
 
 export {

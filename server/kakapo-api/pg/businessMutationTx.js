@@ -20,6 +20,7 @@
 import { isPostgresEnabled, withTransaction, withClient } from './client.js'
 import { maybeL13Hold } from './l13Chaos.js'
 import { rowIdForItem } from './store.js'
+import { notePersistedMemoryRows } from './snapshotChangeJournal.js'
 import { claimDocWithClient, upsertDocWithClient } from './idempotentClaim.js'
 
 export class BusinessTxFail extends Error {
@@ -683,6 +684,7 @@ export async function runBusinessMutationTx(opts = {}) {
       }
     }
     mirrorSyncRows(db, out.syncRows)
+    notePersistedMemoryRows(db, out.docs, out.deletes)
     // Drop pending that were committed (already spliced in mutate path)
     metrics.syncRowsCommitted += out.syncRows.filter((r) => !r.duplicate).length
     metrics.businessTxCommitted += 1

@@ -16,6 +16,7 @@ import {
   APPEND_NO_PRUNE_COLLECTIONS,
   isAppendNoPruneCollection,
   deleteDoc,
+  seedSnapshotJournalBaseline,
 } from './pg/store.js'
 import { applyIdempotencyConflictsToSnapshot } from './pg/uniqueIdempotency.js'
 
@@ -250,6 +251,7 @@ export async function initDb() {
         await persistSnapshot(cache)
       } else {
         cache = normalizeCache(await loadSnapshotFromPg(client))
+        seedSnapshotJournalBaseline(cache)
       }
     })
     console.log('[db] engine=postgres')

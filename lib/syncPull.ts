@@ -8,7 +8,8 @@
 import { api } from './api'
 import { isOnline } from './offline'
 import { getPending, cacheProducts, cacheClients, persistPosSnapshot } from './offline'
-import { getSyncCursor, setSyncCursor, entityUpsertMany } from './localEntities'
+import { getSyncCursor, setSyncCursor, getChangeSeqCursor, setChangeSeqCursor, entityUpsertMany } from './localEntities'
+import { fetchInboundDelta } from './syncPullV2Core.mjs'
 import { cacheStockLayersAndSyncCatalog } from './stockLayersLocal'
 import { appendConflictLog, mergeAppendById, mergeByIdLww, mergeSalesInbound, shouldTakeRemoteLww } from './syncConflict'
 import { refreshStockAfterRevisionsDone } from './revisionCoordinatorClient'
@@ -33,6 +34,8 @@ export type SyncPullResult = {
 }
 
 let pullInFlight: Promise<SyncPullResult> | null = null
+/** v1-страховка: первый pull сессии и раз в V1_BACKSTOP_MS идут по времени. */
+let lastV1PullAt = 0
 
 export async function pullSyncChanges(opts?: {
   forceFull?: boolean
@@ -84,8 +87,16 @@ async function doPullSyncChanges(opts?: {
 
   const t0 = isPerfEnabled() ? performance.now() : 0
   try {
-    const since = opts?.forceFull ? '' : await getSyncCursor()
-    const delta = await api.getSyncChanges(since || undefined)
+    const inbound = await fetchInboundDelta({
+      forceFull: !!opts?.forceFull,
+      now: Date.now(),
+      lastV1At: lastV1PullAt,
+      getV1Cursor: getSyncCursor,
+      getV2Cursor: getChangeSeqCursor,
+      fetchV1: (since?: string) => api.getSyncChanges(since),
+      fetchV2: (cursor: number, limit: number) => api.getSyncChangesV2(cursor, limit),
+    })
+    const delta = inbound.delta as Awaited<ReturnType<typeof api.getSyncChanges>>
 
     const del = Array.isArray(delta.deletes) ? delta.deletes : []
     let pendingProtect = new Set<string>()
@@ -485,7 +496,9 @@ async function doPullSyncChanges(opts?: {
     }
 
     // Cursor: overlays applied on remote base — safe to advance (no silent skip)
-    if (delta.cursor) await setSyncCursor(delta.cursor)
+    if (inbound.mode !== 'v2' && delta.cursor) await setSyncCursor(delta.cursor)
+    if (inbound.mode !== 'v2') lastV1PullAt = Date.now()
+    if (inbound.v2Cursor != null) await setChangeSeqCursor(inbound.v2Cursor)
     // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
     // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {

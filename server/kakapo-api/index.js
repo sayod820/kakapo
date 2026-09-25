@@ -132,7 +132,8 @@ import {
   classifyDebtOpClientRef,
   isAckLostCompatibleReplay,
 } from './debtOpIdempotency.js'
-import { buildSyncChanges } from './syncChanges.js'
+import { buildSyncChanges, buildSyncChangesAsync } from './syncChanges.js'
+import { getSafeHeadCursor } from './syncChangeLog.js'
 import { recordSyncDelete } from './syncDeletes.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
@@ -1404,12 +1405,26 @@ app.get('/ready', async (_req, res) => {
 
 /** Двусторонний синк: дельты после outbox flush на кассе.
  *  ?scope=pos-lite — только чеки/смены/клиенты/карты (лёгкий фон кассы). */
-app.get('/sync/changes', (req, res) => {
+app.get('/sync/changes', async (req, res) => {
   try {
     const since = String(req.query.since || '').trim()
     const historyDays = Number(req.query.historyDays)
     const scope = String(req.query.scope || '').trim()
-    res.json(buildSyncChanges(db, { since, historyDays, scope }))
+    const v = Number(req.query.v) || 1
+    if (v >= 2) {
+      const out = await buildSyncChangesAsync(db, {
+        v: 2,
+        cursor: req.query.cursor != null ? String(req.query.cursor) : since,
+        limit: Number(req.query.limit) || undefined,
+        scope,
+      })
+      return res.json(out)
+    }
+    // Taken before the payload is built: a client starting v2 from here cannot skip events
+    const head = await getSafeHeadCursor(db).catch(() => null)
+    const payload = buildSyncChanges(db, { since, historyDays, scope })
+    if (head != null) payload.changeSeqCursor = head
+    res.json(payload)
   } catch (e) {
     res.status(500).json({ detail: e?.message || 'sync/changes failed' })
   }

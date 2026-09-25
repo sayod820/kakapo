@@ -505,6 +505,17 @@ export const api = {
       }
     }>(`/sync/changes${qs ? `?${qs}` : ''}`)
   },
+  /** v2: сквозной номер изменения (changeSeq) вместо времени. */
+  getSyncChangesV2: (cursor: number, limit = 1000) =>
+    requestLongList<{
+      ok: boolean
+      code?: string
+      protocol?: string
+      changes?: { changeSeq: number; entityType: string; entityId: string; action: string; revision?: number | null; data?: unknown }[]
+      nextCursor?: number
+      hasMore?: boolean
+      serverHeadCursor?: number
+    }>(`/sync/changes?v=2&cursor=${encodeURIComponent(String(cursor))}&limit=${limit}`),
   reconcileStock: (data?: { createdBy?: string }) =>
     request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(
       '/stock/reconcile',

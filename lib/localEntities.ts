@@ -131,6 +131,34 @@ export async function setSyncCursor(cursor: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
+/** Курсор /sync/changes v2 (changeSeq); 0 — ещё не получен. */
+export async function getChangeSeqCursor(): Promise<number> {
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbMetaGet) {
+    try {
+      const meta = await desk.localDbMetaGet()
+      return Number(meta?.syncChangeSeq) || 0
+    } catch { /* ignore */ }
+  }
+  try {
+    return Number(localStorage.getItem('kakapo_sync_change_seq')) || 0
+  } catch {
+    return 0
+  }
+}
+
+export async function setChangeSeqCursor(seq: number): Promise<void> {
+  const value = Math.max(0, Math.floor(Number(seq) || 0))
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbMetaPatch) {
+    await desk.localDbMetaPatch({ syncChangeSeq: value })
+    return
+  }
+  try {
+    localStorage.setItem('kakapo_sync_change_seq', String(value))
+  } catch { /* ignore */ }
+}
+
 /** Отдельный курсор лёгкого pull чеков (не двигает полный sync cursor). */
 export async function getPosLiteSyncCursor(): Promise<string> {
   try {
