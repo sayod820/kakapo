@@ -10,6 +10,7 @@ import { isTradeLocalFirst, shadowMirrorPut } from './offlineV2'
 import { useOfflineSync } from './offlineSync'
 import { useProducts } from './store'
 import type { Product } from './types'
+import { changedProductFields } from './productConflictCore.mjs'
 
 export type { OfflineResult }
 
@@ -112,7 +113,8 @@ export async function saveProductSafe(
 
   return raceProductOp(async () => {
     if (editing && !isLocalProductId(existingId)) {
-      const p = await api.updateProduct(existingId, { ...cleaned, clientRef })
+      const prev = useProducts.getState().products.find(x => x.id === existingId) || null
+      const p = await api.updateProduct(existingId, { ...changedProductFields(prev, cleaned), clientRef })
       const fixed = { ...p, old: null, discount: 0 }
       persistLocalCatalog(
         useProducts.getState().products.map(x => (x.id === fixed.id ? fixed : x)),
@@ -172,6 +174,55 @@ export async function deleteProductSafe(id: number): Promise<OfflineResult<{ id:
     persistLocalCatalog(useProducts.getState().products.filter(p => p.id !== id))
     return { id }
   }, applyLocal)
+}
+
+/**
+ * Решение пользователя по конфликту версии товара в очереди.
+ * mine   — отправить мои поля поверх текущей серверной версии (чужие поля сохраняются);
+ * server — взять карточку с сервера, мою правку убрать из очереди.
+ */
+export async function resolveProductConflict(clientRef: string, choice: 'mine' | 'server'): Promise<void> {
+  const { getPending, putPending, deletePending } = await import('./offline')
+  const row = (await getPending()).find(r => r.clientRef === clientRef)
+  if (!row || row.kind !== 'product_upsert') return
+  const p = { ...((row.payload || {}) as Record<string, any>) }
+  const server = (p._conflict?.server || null) as Product | null
+
+  if (choice === 'mine') {
+    if (server) {
+      p.expectedDocVersion = Number(server.docVersion) || 0
+    } else {
+      delete p.expectedDocVersion
+      if (p.product) p.product = { ...p.product, docVersion: undefined }
+    }
+    delete p._conflict
+    p._mergeTries = 0
+    row.payload = p
+    row.failed = false
+    row.lastError = ''
+    row.errorClass = undefined
+    row.nextRetryAt = undefined
+    await putPending(row)
+    void useOfflineSync.getState().syncNow()
+    return
+  }
+
+  if (server && server.id != null) {
+    const localId = String(p.localId || '')
+    const fixed = { ...server, old: null, discount: 0 } as Product
+    const products = useProducts.getState().products
+    persistLocalCatalog(products.map(x => (
+      Number(x.id) === Number(server.id) || (localId && String(x.id) === localId) ? fixed : x
+    )))
+    try {
+      const { entityPut } = await import('./localEntities')
+      await entityPut('product', String(fixed.id), fixed, { updatedAtIso: (fixed as any).updatedAtIso })
+    } catch { /* ignore */ }
+  } else {
+    revertLocalProductUpsertOnReject(p)
+  }
+  await deletePending(clientRef)
+  await useOfflineSync.getState().refresh()
 }
 
 /** Откат локального upsert товара при конфликте версии */

@@ -35,6 +35,10 @@ const CSS = `
   .k-queue-badge{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;margin-left:6px;vertical-align:middle}
   .k-queue-badge.wait{background:rgba(59,142,240,.15);color:#3B8EF0}
   .k-queue-badge.fail{background:rgba(255,90,90,.15);color:var(--red)}
+  .k-queue-diff{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+  .k-queue-diff th{text-align:left;color:var(--muted);font-weight:800;padding:4px 6px;border-bottom:1px solid var(--border)}
+  .k-queue-diff td{padding:5px 6px;border-bottom:1px solid var(--border);word-break:break-word;vertical-align:top}
+  .k-queue-diff td:first-child{font-weight:700;white-space:nowrap}
 `
 
 function when(iso: string) {
@@ -66,7 +70,7 @@ function detailOf(row: PendingOp): string {
     return p.saleNumber || p.orderId || p.saleId || ''
   }
   if (row.kind === 'product_upsert' || row.kind === 'product_delete') {
-    return p.name || p.barcode || p.sku || ''
+    return p.product?.name || p.name || p.barcode || p.sku || ''
   }
   if (row.kind === 'client_upsert' || row.kind === 'client_delete') {
     return [p.name, p.phone].filter(Boolean).join(' · ')
@@ -137,6 +141,33 @@ function enrichQueueError(row: PendingOp, catalog: { id: number; name?: string; 
   return `${parts.join(' · ')}: ${err}`
 }
 
+type ConflictField = { field: string; label: string; mine: unknown; server: unknown }
+
+function conflictOf(row: PendingOp): { fields: ConflictField[] } | null {
+  if (row.kind !== 'product_upsert' || !row.failed) return null
+  const c = (row.payload as any)?._conflict
+  return c && typeof c === 'object' ? { fields: Array.isArray(c.fields) ? c.fields : [] } : null
+}
+
+function fieldValue(field: string, v: unknown): string {
+  if (v === undefined || v === null || v === '') return '—'
+  if (field === 'photo' || field === 'photoThumb') return 'есть фото'
+  if (typeof v === 'boolean') return v ? 'да' : 'нет'
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+/** Одна строка на подпись (cat/catId, photo/photoThumb — одно поле для человека). */
+function visibleConflictFields(fields: ConflictField[]): ConflictField[] {
+  const byLabel = new Map<string, ConflictField>()
+  for (const f of fields) {
+    const prev = byLabel.get(f.label)
+    if (!prev || f.field === 'cat' || f.field === 'photo') byLabel.set(f.label, f)
+  }
+  return [...byLabel.values()]
+}
+
 export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) {
   const items = useOfflineSync(s => s.items)
   const syncing = useOfflineSync(s => s.syncing)
@@ -165,7 +196,23 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
   }, [refresh])
 
   const waiting = items.filter(i => !i.failed)
-  const failed = items.filter(i => i.failed)
+  const conflicts = items.filter(i => conflictOf(i))
+  const failed = items.filter(i => i.failed && !conflictOf(i))
+
+  async function resolveConflict(row: PendingOp, choice: 'mine' | 'server') {
+    if (syncing || busyRef) return
+    if (choice === 'server' && !confirm('Взять версию с сервера? Ваши изменения этого товара будут отменены.')) return
+    setBusyRef(row.clientRef)
+    try {
+      const { resolveProductConflict } = await import('@/lib/offlineProductOps')
+      await resolveProductConflict(row.clientRef, choice)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Не удалось применить решение')
+    } finally {
+      setBusyRef(null)
+      await refresh()
+    }
+  }
 
   async function sendOne(row: PendingOp) {
     if (recovery) {
@@ -198,8 +245,14 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
     }
     setBusyRef(row.clientRef)
     try {
-      const { dropPending } = await import('@/lib/offline')
-      await dropPending(row.clientRef)
+      if (row.kind === 'product_upsert') {
+        // Иначе на кассе навсегда останется неотправленная карточка
+        const { resolveProductConflict } = await import('@/lib/offlineProductOps')
+        await resolveProductConflict(row.clientRef, 'server')
+      } else {
+        const { dropPending } = await import('@/lib/offline')
+        await dropPending(row.clientRef)
+      }
       await refresh()
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Не удалось убрать из очереди')
@@ -221,6 +274,48 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
       setBusyRef(null)
       await refresh()
     }
+  }
+
+  function renderConflictRow(row: PendingOp) {
+    const c = conflictOf(row)
+    const fields = visibleConflictFields((c?.fields || []) as ConflictField[])
+    const isBusy = syncing || !!busyRef
+    return (
+      <div className="k-queue-row" key={row.clientRef} data-failed="1">
+        <div className="k">
+          Товар изменили на другом устройстве
+          <span className="k-queue-badge fail">нужно решение</span>
+        </div>
+        <div className="m">{when(row.createdAtIso)} · ваша правка ещё не на сервере</div>
+        {!!detailOf(row) && <div className="d">{detailOf(row)}</div>}
+        {fields.length > 0 ? (
+          <table className="k-queue-diff">
+            <thead>
+              <tr><th>Поле</th><th>У вас</th><th>На сервере</th></tr>
+            </thead>
+            <tbody>
+              {fields.map(f => (
+                <tr key={f.field}>
+                  <td>{f.label}</td>
+                  <td>{fieldValue(f.field, f.mine)}</td>
+                  <td>{fieldValue(f.field, f.server)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="d">Сервер не прислал свою версию — можно отправить ваши изменения или отменить их.</div>
+        )}
+        <div className="a">
+          <button type="button" className="k-btn k-btn-g" disabled={isBusy} onClick={() => void resolveConflict(row, 'mine')}>
+            {busyRef === row.clientRef ? 'Отправка…' : 'Оставить мои изменения'}
+          </button>
+          <button type="button" className="k-btn k-btn-s" disabled={isBusy} onClick={() => void resolveConflict(row, 'server')}>
+            Взять с сервера
+          </button>
+        </div>
+      </div>
+    )
   }
 
   function renderRow(row: PendingOp) {
@@ -291,6 +386,7 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
                 : (
                   <>
                     {waiting.length > 0 ? `Ждут отправки: ${waiting.length}` : 'Нет ожидающих'}
+                    {conflicts.length > 0 ? ` · нужно решение: ${conflicts.length}` : ''}
                     {failed.length > 0 ? ` · повторим сами: ${failed.length}` : ''}
                     {online ? ' · связь есть' : ' · нет связи с сервером'}
                     {lastError ? ` · ${lastError}` : ''}
@@ -306,6 +402,13 @@ export default function OfflineQueuePanel({ onClose }: { onClose: () => void }) 
             <div className="k-queue-empty">
               Очередь пуста — всё уже на сервере
             </div>
+          )}
+
+          {conflicts.length > 0 && (
+            <>
+              <div className="k-queue-sec">Нужно ваше решение</div>
+              {conflicts.map(renderConflictRow)}
+            </>
           )}
 
           {failed.length > 0 && (

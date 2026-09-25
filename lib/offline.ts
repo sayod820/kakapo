@@ -4,6 +4,12 @@
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
 import { OUTBOX_ERROR_CLASS, classifyOutboxError, outboxBackoffMs, outboxRetryPolicy } from './outboxErrorClassifier'
+import {
+  analyzeProductConflict,
+  buildProductUpdateBody,
+  isProductVersionConflict,
+  serverProductFromError,
+} from './productConflictCore.mjs'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
@@ -456,6 +462,7 @@ function normalizeRow(row: any): PendingOp {
     lastError: row?.lastError,
     failed: !!row?.failed,
     nextRetryAt: Number(row?.nextRetryAt) > 0 ? Number(row.nextRetryAt) : undefined,
+    errorClass: row?.errorClass || undefined,
     localId: row?.localId,
   }
 }
@@ -2030,7 +2037,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         saved = await api.createProduct({ ...createBody, clientRef: p.clientRef })
       } else {
         saved = await api.updateProduct(rawId, {
-          ...body,
+          ...buildProductUpdateBody(p._prev || null, body),
           clientRef: p.clientRef,
           expectedDocVersion: p.expectedDocVersion != null
             ? Number(p.expectedDocVersion)
@@ -2590,6 +2597,41 @@ export async function flushQueue(
           reportProgress()
           continue
         }
+        // Товар меняли на другом устройстве: не откатывать молча — слить или спросить пользователя
+        if (live.kind === 'product_upsert' && isProductVersionConflict(e)) {
+          const p = { ...((live.payload || {}) as Record<string, any>) }
+          const server = serverProductFromError(e)
+          const analysis = analyzeProductConflict(p._prev || null, p.product || null, server)
+          const mergeTries = Number(p._mergeTries) || 0
+          if (analysis.autoMergeable && server && mergeTries < 3) {
+            p.expectedDocVersion = Number(server.docVersion) || 0
+            p._mergeTries = mergeTries + 1
+            delete p._conflict
+            live.payload = p
+            live.failed = false
+            live.lastError = ''
+            live.errorClass = undefined
+            live.nextRetryAt = Date.now() + 1_000
+          } else {
+            p._conflict = {
+              atIso: new Date().toISOString(),
+              server,
+              fields: analysis.fields,
+            }
+            live.payload = p
+            live.failed = true
+            live.errorClass = OUTBOX_ERROR_CLASS.CONFLICT
+            live.lastError = 'Товар изменили на другом устройстве — выберите, какую версию оставить'
+            live.nextRetryAt = undefined
+          }
+          await putPending(live)
+          liveByRef.set(live.clientRef, live)
+          failed++
+          done++
+          reportProgress()
+          continue
+        }
+
         // Конфликт версии / нет остатка / нет денег — откатить локально (НЕ debt_repay/cash_advance — D6)
         const rejectRe = /уже меняли|уже изменился|уже погашали|не приняли|верси.*ожидали|недостаточно остатка|недостаточно средств|недостаточно бонусов|недостаточно наличных|по партиям|осталось \d|уже полностью возвращён|можно вернуть не больше|нечего возвращать|позиция для возврата|в основном ящике|на карте только|наличных только|смена уже закрыта|смена не найдена|сначала дождитесь|партия уже израсходована|поставщик не найден|товар #|укажите фактическое|дождитесь|уже открыта сессия|уже открыта смена|нельзя удалить|со складом/i
         if (rejectRe.test(live.lastError)) {
@@ -2858,12 +2900,12 @@ export async function flushQueue(
               reportProgress()
               continue
             } else if (live.kind === 'product_upsert') {
-              const p = (live.payload || {}) as Record<string, unknown>
-              const { revertLocalProductUpsertOnReject } = await import('./offlineProductOps')
-              revertLocalProductUpsertOnReject(p)
-              void persistPosSnapshot()
-              await deletePending(live.clientRef)
-              liveByRef.delete(live.clientRef)
+              // Не откатывать молча: правка видна в очереди с причиной, «Убрать» вернёт серверную карточку
+              live.failed = true
+              live.errorClass = OUTBOX_ERROR_CLASS.INVALID
+              live.nextRetryAt = undefined
+              await putPending(live)
+              liveByRef.set(live.clientRef, live)
               failed++
               done++
               reportProgress()

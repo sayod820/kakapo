@@ -1704,6 +1704,8 @@ app.patch('/products/:id', async (req, res) => {
       if (Number.isFinite(exp) && exp !== cur) {
         return res.status(409).json({
           detail: `Товар уже меняли (версия ${cur}, ожидали ${exp})`,
+          code: 'PRODUCT_DOC_VERSION_CONFLICT',
+          current: stripHeavyPhotoFields(p),
         })
       }
     }
@@ -1732,7 +1734,9 @@ app.patch('/products/:id', async (req, res) => {
       body.barcodes = bars.barcodes
     }
     // Остаток живёт в партиях — прямая запись stock иначе расходится со складом
+    // Карточка присылает stock целиком — это не запись остатка, если он совпадает с текущим
     const stockTouched = Object.prototype.hasOwnProperty.call(body, 'stock')
+      && Math.abs((Number(body.stock) || 0) - (Number(p.stock) || 0)) > 0.0005
     delete body.stock
     delete body.docVersion
     if (stockTouched) {

@@ -311,10 +311,12 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
       noteApiFail()
       throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
     }
-    const err = new Error(message || `Ошибка ${res.status}`) as Error & { status?: number; code?: string }
+    const err = new Error(message || `Ошибка ${res.status}`) as Error & { status?: number; code?: string; body?: unknown }
     err.status = res.status
     try {
-      const c = JSON.parse(raw)?.code
+      const body = JSON.parse(raw)
+      err.body = body
+      const c = body?.code
       if (typeof c === 'string' && c.trim()) err.code = c.trim()
     } catch { /* non-JSON body */ }
     throw err

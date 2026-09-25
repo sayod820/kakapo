@@ -17,6 +17,7 @@ import {
 } from './orderParts'
 import { kakapoNowTime } from './kakapoTime'
 import { ensureArray } from './apiGuards'
+import { changedProductFields } from './productConflictCore.mjs'
 import { onOrderStatusChange, onRestPartAccepted } from './pushService'
 import { creditBonusOnDeliveryLocal, reverseBonusOnOrderCancelLocal } from './loyaltyBonus'
 import { useClientStore } from './clientStore'
@@ -977,8 +978,9 @@ export const useProducts = create<ProductsStore>((set, get) => ({
     if (USE_API) {
       try {
         if (data.id) {
+          const existing = get().products.find(x => x.id === data.id) || null
           const p = await api.updateProduct(data.id, {
-            ...data,
+            ...changedProductFields(existing, data),
             old: null,
             discount: 0,
           })
