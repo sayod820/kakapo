@@ -4,7 +4,7 @@
  */
 import { getApiUrl } from './config'
 import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
-import { getPending, ackPending } from './offline'
+import { getPending, deletePending } from './offline'
 import {
   ensureRecoveryGateReady,
   isRecoveryModeActive,
@@ -28,6 +28,7 @@ import {
 import {
   ORCH_STATUS,
   detectRecoveryNeed,
+  canAutoExitStaleRecovery,
   buildServerByClientRefFromSales,
   buildClosedShiftIds,
   runAutomaticRecoveryPipeline,
@@ -168,6 +169,33 @@ export async function maybeRunAutomaticDesktopRecovery(opts: {
       try {
         await desk.localDbMetaPatch({ lastSeenAppVersion: appVersion })
       } catch { /* ignore */ }
+    }
+
+    const onlyStaleArm = detect.need && detect.reasons.every(r =>
+      r === 'recoveryMode' || r === 'durable_session_incomplete' || r === 'recoveryRequiredAfterUpgrade')
+    if (onlyStaleArm) {
+      const exit = canAutoExitStaleRecovery({ queue: pending, meta: meta || {} })
+      if (exit.ok) {
+        const sess = meta?.recoverySession
+        if (sess && typeof sess === 'object' && desk?.localDbMetaPatch) {
+          try {
+            await desk.localDbMetaPatch({
+              recoverySession: { ...sess, status: 'ABORTED', stoppedReason: 'auto_exit_stale' },
+            })
+          } catch { /* ignore */ }
+        }
+        const off = await setRecoveryMode(false, 'auto_exit_stale', { force: true })
+        if (off.ok) {
+          await setRecoveryPhase(RECOVERY_PHASE.COMPLETE, 'auto_exit_stale')
+          await appendRecoveryAudit({
+            action: 'RECOVERY_DISABLED',
+            reason: 'auto_exit_stale',
+            before: { reasons: detect.reasons, queue: pending.length },
+          })
+          setUi({ active: false, status: ORCH_STATUS.IDLE, message: '', queueLeft: 0, queueTotal: 0 })
+          return { ok: true, skipped: true }
+        }
+      }
     }
 
     if (!detect.need) {
@@ -339,7 +367,7 @@ export async function maybeRunAutomaticDesktopRecovery(opts: {
     const remaining = new Set((world.queue || []).map((r: any) => r.clientRef))
     for (const row of pending) {
       if (!remaining.has(row.clientRef)) {
-        try { await ackPending(row.clientRef) } catch { /* ignore */ }
+        try { await deletePending(row.clientRef) } catch { /* ignore */ }
       }
     }
 

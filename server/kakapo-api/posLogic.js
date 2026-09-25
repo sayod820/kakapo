@@ -120,6 +120,22 @@ function isLateLocalSaleForClosedShift(shift, data, clientRef) {
   return true
 }
 
+/** Поздний чек пришёл с чужой закрытой сменой (старый reroute): найти смену той же точки, в которой он пробит. */
+function findClosedShiftForLateSale(db, claimed, data, clientRef) {
+  if (!clientRef || !data?.appliedLocal) return null
+  const saleMs = Date.parse(String(data.createdAtIso || ''))
+  if (!Number.isFinite(saleMs)) return null
+  const posId = String(claimed?.posId || data.posId || '').trim()
+  const hits = (db.posShifts || []).filter(s => {
+    if (String(s.status || '') !== 'closed') return false
+    if (posId && String(s.posId || '').trim() !== posId) return false
+    const o = Date.parse(String(s.openedAtIso || ''))
+    const c = Date.parse(String(s.closedAtIso || ''))
+    return Number.isFinite(o) && Number.isFinite(c) && c > o && saleMs >= o && saleMs <= c
+  })
+  return hits.length === 1 ? hits[0] : null
+}
+
 /** Закрытая смена получила поздний чек: пересчитать ожидаемое и расхождение (факт не меняется). */
 function recomputeClosedShiftReconcile(shift) {
   const expectedCash = shiftExpectedCash(shift)
@@ -3462,7 +3478,7 @@ export function createPosSale(db, data = {}) {
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
   const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
-  const shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
+  let shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) {
     const err = new Error('Смена не найдена')
     err.code = 'SHIFT_NOT_FOUND'
@@ -3471,6 +3487,13 @@ export function createPosSale(db, data = {}) {
   let lateIntoClosedShift = false
   if (shift) {
     if (String(shift.status || '') !== 'open') {
+      if (!isLateLocalSaleForClosedShift(shift, data, clientRef)) {
+        const own = findClosedShiftForLateSale(db, shift, data, clientRef)
+        if (own) {
+          shift = own
+          data = { ...data, shiftId: own.id }
+        }
+      }
       if (!isLateLocalSaleForClosedShift(shift, data, clientRef)) {
         const err = new Error('Смена уже закрыта')
         err.code = 'SHIFT_CLOSED'

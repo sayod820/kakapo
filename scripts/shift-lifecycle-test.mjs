@@ -143,6 +143,45 @@ test('T7d server accepts late queued sale into its closed shift + recomputes dif
   expect(shift.salesCash === 150 && shift.expectedCash === 150 && shift.cashDiff === 0, `diff recomputed ${shift.expectedCash}/${shift.cashDiff}`)
 })
 
+test('T7e late sale tagged with wrong closed shift lands on the shift it was made in', async () => {
+  const { createPosSale } = await import('../server/kakapo-api/posLogic.js')
+  const mk = (id, o, c) => ({
+    id, status: 'closed', posId: 'POS-1', cashierId: '', openedAtIso: o, closedAtIso: c,
+    openingCash: 0, salesCash: 0, salesCard: 0, salesCount: 0, cashInTotal: 0, expenseTotal: 0,
+    actualCash: 0, closingCash: 0, expectedCash: 0, cashDiff: 0,
+  })
+  const d23 = mk('SHIFT-23', '2026-09-23T02:44:00.000Z', '2026-09-23T16:58:00.000Z')
+  const d24 = mk('SHIFT-24', '2026-09-24T02:57:00.000Z', '2026-09-24T17:04:00.000Z')
+  const db = {
+    posShifts: [d23, d24], posSales: [], cashiers: [], posPoints: [{ id: 'POS-1', name: 'P' }],
+    clients: [], cards: [], orders: [], products: [{ id: 1, name: 'X', price: 50, stock: 10 }],
+    stockReceipts: [{ id: 'RCPT-1', items: [{ productId: 1, qty: 10, remainingQty: 10, costPrice: 10 }] }],
+  }
+  const sale = createPosSale(db, {
+    shiftId: 'SHIFT-24', posId: 'POS-1', paymentMethod: 'cash', paidCash: 50, total: 50,
+    items: [{ productId: 1, qty: 1, price: 50 }],
+    clientRef: 'r-23', appliedLocal: true, createdAtIso: '2026-09-23T16:07:00.000Z',
+  })
+  expect(sale.shiftId === 'SHIFT-23', `moved to own shift, got ${sale.shiftId}`)
+  expect(d23.salesCash === 50 && d24.salesCash === 0, 'counters on own shift')
+})
+
+test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale arm auto-exits', async () => {
+  const orch = await import('../lib/desktopRecoveryOrchestratorCore.mjs')
+  const queue = [
+    { clientRef: 'a', kind: 'sale', failed: true, lastError: 'SHIFT_CLOSED: Смена уже закрыта', payload: { shiftId: 'SHIFT-23' } },
+    { clientRef: 'b', kind: 'sale', failed: false, lastError: '', payload: { shiftId: 'off-shift-1' } },
+  ]
+  const d = orch.detectRecoveryNeed({ queue, meta: {}, appVersion: '2', previousAppVersion: '1' })
+  expect(!d.need, JSON.stringify(d.reasons))
+  expect(orch.canAutoExitStaleRecovery({ queue, meta: { recoveryMode: true, recoverySession: { status: 'CLASSIFIED', phase: 'RECOVERY_PREPARE' } } }).ok, 'stale exits')
+  expect(!orch.canAutoExitStaleRecovery({ queue, meta: { recoverySession: { targetServerShiftId: 'SHIFT-R' } } }).ok, 'mutated stays')
+  const idem = [{ clientRef: 'c', kind: 'sale', failed: true, lastError: 'IDEMPOTENCY_KEY_REUSED' }]
+  expect(!orch.canAutoExitStaleRecovery({ queue: idem, meta: {} }).ok, 'idempotency stays')
+  const o = read('lib/desktopRecoveryOrchestrator.ts')
+  expect(o.includes('canAutoExitStaleRecovery') && !o.includes('ackPending'), 'orchestrator wired')
+})
+
 test('T8 ensureDurableShiftCloses wired in softSync', () => {
   expect(ops.includes('ensureDurableShiftCloses'), 'ops')
   expect(posStore.includes('ensureDurableShiftCloses'), 'posStore')
