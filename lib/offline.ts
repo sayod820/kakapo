@@ -1334,6 +1334,26 @@ async function orphanReceiptUpdateLocalId(row: PendingOp): Promise<string> {
   return createPending ? '' : localId
 }
 
+async function hasPendingReceiptDelete(localId: string): Promise<boolean> {
+  const list = await getPending()
+  return list.some(r => r.kind === 'stock_receipt_delete' && String((r.payload as any)?.id || '') === localId)
+}
+
+async function orphanReceiptDeleteLocalId(row: PendingOp): Promise<string> {
+  const localId = String((row.payload as any)?.id || '')
+  if (!isLocalId(localId)) return ''
+  if (await resolveLocalId(localId)) return ''
+  const list = await getPending()
+  const related = list.some(r => (
+    r.clientRef !== row.clientRef
+    && (
+      (r.kind === 'stock_receipt_create' && String(r.localId || '') === localId)
+      || (r.kind === 'stock_receipt_update' && String((r.payload as any)?.id || '') === localId)
+    )
+  ))
+  return related ? '' : localId
+}
+
 async function sendOrphanReceiptUpdateAsCreate(row: PendingOp, localId: string): Promise<string> {
   const p = (row.payload || {}) as Record<string, any>
   const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
@@ -1919,7 +1939,11 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_receipt_update': {
       const orphan = await orphanReceiptUpdateLocalId(row)
-      if (orphan) return sendOrphanReceiptUpdateAsCreate(row, orphan)
+      if (orphan) {
+        // Приход потом удалили на кассе — на сервер нечего создавать
+        if (await hasPendingReceiptDelete(orphan)) return ''
+        return sendOrphanReceiptUpdateAsCreate(row, orphan)
+      }
       const p = await resolveRefs(row.payload, ['id'])
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
       const items = await remapProductIdsInItems(p.items || [])
@@ -1943,6 +1967,8 @@ async function sendOp(row: PendingOp): Promise<string> {
       return String((receipt as any)?.id || '')
     }
     case 'stock_receipt_delete': {
+      // Приход так и не попал на сервер (создание потеряно, правок в очереди нет) — удалять нечего
+      if (await orphanReceiptDeleteLocalId(row)) return ''
       const p = await resolveRefs(row.payload, ['id'])
       await api.deleteStockReceipt(String(p.id), { clientRef: p.clientRef } as any)
       return String(p.id || '')
