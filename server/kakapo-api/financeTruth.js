@@ -7,6 +7,7 @@
  */
 
 import { parseReportRange, inReportRange, ymdBusiness } from './kakapoTime.js'
+import { resolveCashierId } from './cashierIdentity.js'
 
 export const CASH_DIFF_ALERT_SOM = 50
 
@@ -69,7 +70,7 @@ export function appendMoneyLedger(db, data = {}) {
     cashAffect: !!cashAffect,
     posId: data.posId || '',
     shiftId: data.shiftId || '',
-    cashierId: data.cashierId || '',
+    cashierId: resolveCashierId(db, data.cashierId) || '',
     cashierName: data.cashierName || '',
     refType: data.refType || '',
     refId: data.refId || '',
@@ -86,7 +87,10 @@ export function listMoneyLedger(db, q = {}) {
   ensureLedger(db)
   let rows = filterByReportRange([...db.moneyLedger], (r) => r.createdAtIso, q)
   if (q.posId) rows = rows.filter(r => r.posId === q.posId)
-  if (q.cashierId) rows = rows.filter(r => r.cashierId === q.cashierId || r.cashierName === q.cashierId)
+  if (q.cashierId) {
+    const cid = resolveCashierId(db, q.cashierId)
+    rows = rows.filter(r => r.cashierId === cid || r.cashierName === q.cashierId)
+  }
   if (q.type) rows = rows.filter(r => r.type === q.type)
   if (q.cashOnly) rows = rows.filter(r => r.cashAffect)
   rows.sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))

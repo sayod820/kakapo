@@ -334,12 +334,14 @@ import { buildEnsureExistingCardPatch, buildEnsureNewCardRow } from './crmEnsure
 import {
   ensureAuditLog,
   pruneAuditLog,
+  logAudit,
   auditFromReq,
   listAuditLog,
   diffBrief,
   AUDIT_RETENTION_DAYS,
 } from './auditLog.js'
 import { ymdBusiness } from './kakapoTime.js'
+import { mergeDuplicateCashiers } from './cashierIdentity.js'
 import { getGeminiApiKey, getGeminiModel, loadLocalEnv } from './loadEnv.js'
 
 loadLocalEnv()
@@ -466,6 +468,24 @@ ensureAuditLog(db)
 pruneAuditLog(db)
 if (ensureDefaultEmployees(db)) persist()
 if (ensurePosSaleNumbers(db)) persist()
+{
+  const cashierMerge = mergeDuplicateCashiers(db)
+  if (cashierMerge.merged.length || Object.keys(cashierMerge.remapped).length) {
+    for (const m of cashierMerge.merged) {
+      logAudit(db, {
+        action: 'merge',
+        entity: 'cashier',
+        entityId: m.from,
+        entityName: m.name,
+        summary: `Дубль кассира «${m.name}» ${m.from} слит в ${m.to}`,
+        before: { id: m.from },
+        after: { mergedInto: m.to },
+      })
+    }
+    console.log('[cashiers] merged duplicates', JSON.stringify(cashierMerge))
+    persist()
+  }
+}
 /** 3 = дерево с фото POS (грамматика + 19 корневых групп) */
 const CATEGORY_SEED_VERSION = 3
 if (!db._categorySeedVersion || db._categorySeedVersion < CATEGORY_SEED_VERSION) {

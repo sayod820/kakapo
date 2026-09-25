@@ -259,6 +259,8 @@ export interface PosCashier {
   salesCount: number
   salesTotal: number
   createdAtIso?: string
+  /** Дубль слит в этого кассира (строка осталась ради старых ссылок) */
+  mergedInto?: string
 }
 
 /** Сотрудник приложения «Торговля» (доступ к разделам) */

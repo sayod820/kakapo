@@ -4010,17 +4010,29 @@ export async function deletePosPointSafe(id: string): Promise<OfflineResult<{ id
   )
 }
 
+function normalizeCashierName(name: unknown): string {
+  return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/ё/g, 'е')
+}
+
 export async function ensureCashierSafe(input: {
   name: string
   preferredId?: string
 }): Promise<OfflineResult<import('./types').PosCashier>> {
   const preferredId = input.preferredId
+  const list = usePosStore.getState().cashiers
   if (preferredId && preferredId !== 'local') {
-    const found = usePosStore.getState().cashiers.find(c => c.id === preferredId)
+    let found = list.find(c => c.id === preferredId)
+    const seen = new Set<string>()
+    while (found?.mergedInto && !seen.has(found.id)) {
+      seen.add(found.id)
+      const target: string = found.mergedInto
+      found = list.find(c => c.id === target) || found
+    }
     if (found) return { offline: false, data: found }
   }
   const trimmed = String(input.name || '').trim() || 'Кассир'
-  const existing = usePosStore.getState().cashiers.find(c => c.name === trimmed)
+  const nameKey = normalizeCashierName(trimmed)
+  const existing = list.find(c => !c.mergedInto && normalizeCashierName(c.name) === nameKey)
   if (existing) return { offline: false, data: existing }
 
   const clientRef = newClientRef()
@@ -4048,7 +4060,7 @@ export async function ensureCashierSafe(input: {
     async () => {
       const saved = await api.createCashier({ name: trimmed, pin: '0000' })
       usePosStore.setState(s => ({
-        cashiers: [...s.cashiers.filter(c => c.id !== saved.id && c.name !== saved.name), saved],
+        cashiers: [...s.cashiers.filter(c => c.id !== saved.id && normalizeCashierName(c.name) !== normalizeCashierName(saved.name)), saved],
       }))
       void persistPosSnapshot()
       return saved

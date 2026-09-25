@@ -19,6 +19,11 @@ import {
   SETTLEMENT_METHOD,
 } from './supplierSettlement.js'
 import { parseReportRange, inReportRange } from './kakapoTime.js'
+import {
+  resolveCashierId,
+  findCashierById,
+  findCashierByName,
+} from './cashierIdentity.js'
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100
@@ -1495,6 +1500,14 @@ export function createCashier(db, data = {}) {
   const pin = String(data.pin || '').trim()
   if (!name) throw new Error('Укажите имя кассира')
   if (pin.length < 4) throw new Error('PIN должен быть не короче 4 символов')
+  const clientRef = String(data.clientRef || '').trim()
+  if (clientRef) {
+    const byRef = db.cashiers.find(c => c.clientRef === clientRef)
+    if (byRef) return findCashierById(db, byRef.id) || byRef
+  }
+  // Офлайн-касса создаёт кассира по имени — второй с тем же именем не заводим
+  const sameName = findCashierByName(db, name)
+  if (sameName) return sameName
   const row = {
     id: nextId('CASHIER'),
     name,
@@ -1504,6 +1517,7 @@ export function createCashier(db, data = {}) {
     salesTotal: 0,
     createdAtIso: nowIso(),
   }
+  if (clientRef) row.clientRef = clientRef
   db.cashiers.unshift(row)
   try { recordEntityUpsert(db, 'cashier', row.id, row) } catch { /* ignore */ }
   return row
@@ -1511,11 +1525,18 @@ export function createCashier(db, data = {}) {
 
 export function updateCashier(db, id, patch = {}) {
   ensurePosCollections(db)
-  const row = db.cashiers.find(x => x.id === id)
+  const row = findCashierById(db, id)
   if (!row) throw new Error('Кассир не найден')
-  Object.assign(row, patch)
+  const { id: _id, mergedInto: _m, mergedAtIso: _ma, salesCount: _sc, salesTotal: _st, ...safe } = patch || {}
+  if (safe.name != null) {
+    const name = String(safe.name).trim()
+    if (!name) throw new Error('Укажите имя кассира')
+    if (findCashierByName(db, name, row.id)) throw new Error('Кассир с таким именем уже есть')
+  }
+  Object.assign(row, safe)
   row.name = String(row.name || '').trim()
   row.pin = String(row.pin || '').trim()
+  row.updatedAtIso = nowIso()
   try { recordEntityUpsert(db, 'cashier', row.id, row) } catch { /* ignore */ }
   return row
 }
@@ -1532,10 +1553,10 @@ export function openPosShift(db, data = {}) {
     const known = (db.posShifts || []).find(s => s.clientRef === clientRef)
     if (known) return known
   }
-  const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
+  const cashier = findCashierById(db, data.cashierId)
   if (!cashier) throw new Error('Кассир не найден')
   const named = String(data.cashierName || '').trim()
-  if (named && named !== cashier.name && !/^кассир$/i.test(named)) {
+  if (named && named !== cashier.name && !/^кассир$/i.test(named) && !findCashierByName(db, named, cashier.id)) {
     cashier.name = named
   }
   const posId = String(data.posId || '').trim() || (db.posPoints[0]?.id || DEFAULT_POS_ID)
@@ -2001,7 +2022,7 @@ export function createSupplierPayment(db, supplierId, data = {}) {
       payFrom: data.payFrom,
       shiftId: data.shiftId,
       posId: data.posId,
-      cashierId: data.cashierId,
+      cashierId: resolveCashierId(db, data.cashierId),
       cashierName: data.cashierName,
       createdAtIso: data.createdAtIso,
       reason: data.reason,
@@ -2275,7 +2296,7 @@ export function createFinanceMove(db, data = {}) {
   }
 
   const cashierName = String(data.createdBy || data.cashierName || shift?.cashierName || '').trim()
-  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const cashierId = String(resolveCashierId(db, data.cashierId || shift?.cashierId) || '').trim()
   const supplierId = String(data.supplierId || '').trim()
 
   if (type === 'withdraw' && supplierId) {
@@ -2453,7 +2474,7 @@ export function applyDebtRepayToShift(db, data = {}) {
   }
 
   const cashierName = String(data.cashierName || shift?.cashierName || '').trim()
-  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const cashierId = String(resolveCashierId(db, data.cashierId || shift?.cashierId) || '').trim()
   const posId = String(shift?.posId || data.posId || '').trim()
   const note = String(data.note || '').trim()
   const clientLabel = String(data.clientName || data.cardNum || '').trim()
@@ -2545,7 +2566,7 @@ export function applyCashAdvanceToShift(db, data = {}) {
   }
 
   const cashierName = String(data.cashierName || shift?.cashierName || '').trim()
-  const cashierId = String(data.cashierId || shift?.cashierId || '').trim()
+  const cashierId = String(resolveCashierId(db, data.cashierId || shift?.cashierId) || '').trim()
   const posId = String(shift?.posId || data.posId || '').trim()
   const note = String(data.note || '').trim()
   const clientLabel = String(data.clientName || data.cardNum || '').trim()
@@ -2711,7 +2732,7 @@ export function createCashAdvance(db, data = {}) {
       amount,
       shiftId: data.shiftId,
       posId: data.posId,
-      cashierId: data.cashierId,
+      cashierId: resolveCashierId(db, data.cashierId),
       cashierName: data.cashierName,
       cardNum: data.cardNum || card.num,
       clientName: card.client || linkedClient?.name || '',
@@ -3477,7 +3498,7 @@ export function createPosSale(db, data = {}) {
   }
   const rawItems = Array.isArray(data.items) ? data.items : []
   if (!rawItems.length) throw new Error('Добавьте товары в продажу')
-  const cashier = data.cashierId ? db.cashiers.find(c => c.id === data.cashierId) : null
+  const cashier = findCashierById(db, data.cashierId)
   let shift = data.shiftId ? db.posShifts.find(s => s.id === data.shiftId) : null
   if (data.shiftId && !shift) {
     const err = new Error('Смена не найдена')
@@ -3507,11 +3528,11 @@ export function createPosSale(db, data = {}) {
       err.code = 'SHIFT_POS_MISMATCH'
       throw err
     }
-    const wantCashier = String(data.cashierId || '').trim()
+    const wantCashier = String(resolveCashierId(db, data.cashierId) || '').trim()
     // Офлайн-чек уже пробит и выдан — кассир на чеке остаётся как есть, смену не отбиваем
     // (у одного человека бывает несколько cashierId; устаревшая смена на кассе).
     const offlineReceipt = !!(clientRef && data.appliedLocal)
-    if (!offlineReceipt && wantCashier && shift.cashierId && wantCashier !== String(shift.cashierId || '').trim()) {
+    if (!offlineReceipt && wantCashier && shift.cashierId && wantCashier !== String(resolveCashierId(db, shift.cashierId) || '').trim()) {
       const err = new Error('Смена относится к другому кассиру')
       err.code = 'SHIFT_CASHIER_MISMATCH'
       throw err
@@ -3625,7 +3646,7 @@ export function createPosSale(db, data = {}) {
     || cashier?.name
     || '',
   ).trim()
-  if (cashier && cashierName && cashierName !== cashier.name && !/^кассир$/i.test(cashierName)) {
+  if (cashier && cashierName && cashierName !== cashier.name && !/^кассир$/i.test(cashierName) && !findCashierByName(db, cashierName, cashier.id)) {
     cashier.name = cashierName
   }
 
@@ -3639,7 +3660,7 @@ export function createPosSale(db, data = {}) {
     clientRef: clientRef || undefined,
     createdAtIso: offlineIso,
     serverAtIso: nowIso(),
-    cashierId: cashier?.id || data.cashierId || '',
+    cashierId: cashier?.id || resolveCashierId(db, data.cashierId) || '',
     cashierName,
     shiftId: shift?.id || '',
     posId,
@@ -3810,7 +3831,7 @@ export function createPosSale(db, data = {}) {
   const baseLed = {
     posId,
     shiftId: shift?.id || '',
-    cashierId: cashier?.id || data.cashierId || '',
+    cashierId: cashier?.id || resolveCashierId(db, data.cashierId) || '',
     cashierName: cashierName || cashier?.name || '',
     refType: 'sale',
     refId: sale.id,
@@ -4222,7 +4243,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     return left <= 0
   })
 
-  const cashier = sale.cashierId ? db.cashiers.find(c => c.id === sale.cashierId) : null
+  const cashier = findCashierById(db, sale.cashierId)
   if (cashier) {
     if (fullyReturned) cashier.salesCount = Math.max(0, Number(cashier.salesCount || 0) - 1)
     cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
@@ -4248,7 +4269,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cutWallet,
     cutBonus,
     note: String(meta.note || '').trim(),
-    cashierId: String(meta.cashierId || '').trim(),
+    cashierId: String(resolveCashierId(db, meta.cashierId) || '').trim(),
     items: returnLines,
     clientRef: retClientRef || undefined,
   }
@@ -4260,7 +4281,7 @@ export function returnPosSale(db, saleId, meta = {}) {
 
   sale.returnedAtIso = nowIso()
   sale.returnNote = String(meta.note || '').trim()
-  sale.returnedByCashierId = String(meta.cashierId || '').trim()
+  sale.returnedByCashierId = String(resolveCashierId(db, meta.cashierId) || '').trim()
   sale.status = fullyReturned ? 'returned' : 'partial'
   sale.lastReturnTotal = returnTotal
   if (sale.totalCost != null && Number(sale.originalTotal) > 0) {
@@ -4272,7 +4293,7 @@ export function returnPosSale(db, saleId, meta = {}) {
   const ledBase = {
     posId: sale.posId || '',
     shiftId: sale.shiftId || '',
-    cashierId: String(meta.cashierId || sale.cashierId || ''),
+    cashierId: String(resolveCashierId(db, meta.cashierId || sale.cashierId) || ''),
     cashierName: sale.cashierName || '',
     refType: 'sale_return',
     refId: sale.id,
