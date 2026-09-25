@@ -9,10 +9,15 @@ import {
   planOrphanOffShiftAdopts as planOrphanOffShiftAdoptsCore,
   applyOrphanOffShiftAdoptsProjection as applyOrphanOffShiftAdoptsProjectionCore,
   protectLocallyClosedShifts as protectLocallyClosedShiftsCore,
+  adoptServerClosedShifts as adoptServerClosedShiftsCore,
 } from './shiftReconcileCore.mjs'
 
 export function protectLocallyClosedShifts<T extends PosShift>(localShifts: T[], nextShifts: T[]): T[] {
   return protectLocallyClosedShiftsCore(localShifts, nextShifts) as T[]
+}
+
+export function adoptServerClosedShifts<T extends PosShift>(nextShifts: T[], remoteShifts: readonly Partial<PosShift>[]): T[] {
+  return adoptServerClosedShiftsCore(nextShifts, remoteShifts as PosShift[]) as T[]
 }
 
 export type ShiftPickOpts = {

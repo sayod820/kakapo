@@ -182,6 +182,35 @@ test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale 
   expect(o.includes('canAutoExitStaleRecovery') && !o.includes('ackPending'), 'orchestrator wired')
 })
 
+test('T7g server-closed shift beats fresher local open (morning stale shift)', async () => {
+  const { adoptServerClosedShifts } = await import('../lib/shiftReconcileCore.mjs')
+  const local = [
+    { id: 'SHIFT-24', status: 'open', clientRef: 'normal-open-1', salesCount: 212, updatedAtIso: '2026-09-25T03:10:00.000Z' },
+    { id: 'off-shift-x', status: 'open', clientRef: 'normal-open-2' },
+  ]
+  const remote = [{ id: 'SHIFT-24', status: 'closed', clientRef: 'normal-open-1', closedAtIso: '2026-09-24T17:04:17.934Z', actualCash: 900, updatedAtIso: '2026-09-24T17:04:18.000Z' }]
+  const out = adoptServerClosedShifts(local, remote)
+  const a = out.find(s => s.id === 'SHIFT-24')
+  expect(a.status === 'closed' && a.closedAtIso === remote[0].closedAtIso && a.actualCash === 900, 'adopted close')
+  expect(out.find(s => s.id === 'off-shift-x').status === 'open', 'other open untouched')
+  const byRef = adoptServerClosedShifts([{ id: 'off-shift-y', status: 'open', clientRef: 'normal-open-1' }], remote)
+  expect(byRef[0].status === 'closed', 'matched by clientRef')
+  expect(adoptServerClosedShifts(local, []) === local, 'no-op identity')
+  for (const f of ['lib/syncPull.ts', 'lib/posStore.ts']) {
+    expect(read(f).includes('adoptServerClosedShifts'), `${f} wired`)
+  }
+  expect(posStore.includes('lastOpenShiftProbeAt'), 'delta probe for missed close')
+})
+
+test('T7h sale made after its shift closed goes to current open shift, waits without burning tries', () => {
+  expect(offline.includes('async function saleMadeAfterShiftClose'), 'helper')
+  const idx = offline.indexOf('const madeAfterClose')
+  expect(idx > 0, 'flush uses helper')
+  const slice = offline.slice(idx, idx + 2400)
+  expect(slice.includes('(tries < 2 || madeAfterClose) && !ownShiftClosed'), 'reroute allowed')
+  expect(slice.includes('madeAfterClose ? tries : tries + 1'), 'tries not burned')
+})
+
 test('T8 ensureDurableShiftCloses wired in softSync', () => {
   expect(ops.includes('ensureDurableShiftCloses'), 'ops')
   expect(posStore.includes('ensureDurableShiftCloses'), 'posStore')

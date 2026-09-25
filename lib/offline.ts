@@ -1332,6 +1332,19 @@ async function findOpenServerShift(payload: any): Promise<string> {
   return open?.id || ''
 }
 
+async function saleMadeAfterShiftClose(payload: any): Promise<boolean> {
+  const saleMs = Date.parse(String(payload?.createdAtIso || ''))
+  if (!Number.isFinite(saleMs)) return false
+  const sid = String(payload?.shiftId || '')
+  if (!sid) return false
+  const resolved = await resolveLocalId(sid)
+  const { usePosStore } = await import('./posStore')
+  const shift = usePosStore.getState().shifts.find(s => String(s.id) === sid || String(s.id) === resolved)
+  if (!shift || shift.status !== 'closed') return false
+  const closedMs = Date.parse(String(shift.closedAtIso || ''))
+  return Number.isFinite(closedMs) && saleMs > closedMs + 5 * 60_000
+}
+
 async function hasPendingShiftOpen(localShiftId: string): Promise<boolean> {
   try {
     const pending = await getPending()
@@ -2648,8 +2661,12 @@ export async function flushQueue(
               // «Смена не найдена» / «Смена уже закрыта»: reconcile/remap; never destroy local sale.
               if (/смена не найдена|смена уже закрыта|SHIFT_CLOSED|SHIFT_NOT_FOUND|SHIFT_POS_MISMATCH|SHIFT_CASHIER_MISMATCH/i.test(err)) {
                 const tries = Number((p as any)._shiftReconcileTries) || 0
-                const ownShiftClosed = /смена уже закрыта|SHIFT_CLOSED/i.test(err)
-                if (tries < 2 && !ownShiftClosed) {
+                // Чек пробит уже после закрытия (касса держала устаревшую смену) —
+                // его смена текущая открытая, а не закрытая.
+                const closedErr = /смена уже закрыта|SHIFT_CLOSED/i.test(err)
+                const madeAfterClose = closedErr && await saleMadeAfterShiftClose(p)
+                const ownShiftClosed = closedErr && !madeAfterClose
+                if ((tries < 2 || madeAfterClose) && !ownShiftClosed) {
                   try {
                     const openId = await findOpenServerShift(p)
                     if (openId) {
@@ -2669,9 +2686,10 @@ export async function flushQueue(
                       continue
                     }
                   } catch { /* fall through to park */ }
-                  live.payload = { ...p, _shiftReconcileTries: tries + 1 }
+                  // Ждём, пока кассир откроет новую смену — попытки не сжигаем
+                  live.payload = { ...p, _shiftReconcileTries: madeAfterClose ? tries : tries + 1 }
                   live.failed = true
-                  live.nextRetryAt = Date.now() + pendingRetryDelayMs(tries + 1)
+                  live.nextRetryAt = Date.now() + (madeAfterClose ? 60_000 : pendingRetryDelayMs(tries + 1))
                   await putPending(live)
                   liveByRef.set(live.clientRef, live)
                   failed++

@@ -266,8 +266,11 @@ export const usePosStore = create<PosStore>((set) => ({
       const delIds = await pendingDeleteIds()
       snapshot.sales = omitInboundDeleted(mergeSalesInbound(local.sales, dropDeletedRemote(snapshot.sales, delIds), { mode: 'full' }))
       {
-        const { protectLocallyClosedShifts } = await import('./shiftReconcile')
-        snapshot.shifts = protectLocallyClosedShifts(local.shifts, mergeInboundById(local.shifts, snapshot.shifts))
+        const { protectLocallyClosedShifts, adoptServerClosedShifts } = await import('./shiftReconcile')
+        snapshot.shifts = adoptServerClosedShifts(
+          protectLocallyClosedShifts(local.shifts, mergeInboundById(local.shifts, snapshot.shifts)),
+          snapshot.shifts,
+        )
       }
       snapshot.receipts = omitInboundDeleted(mergeInboundById(local.receipts, dropDeletedRemote(snapshot.receipts, delIds)))
       snapshot.writeoffs = omitInboundDeleted(mergeInboundById(local.writeoffs, dropDeletedRemote(snapshot.writeoffs, delIds)))
@@ -385,6 +388,7 @@ function softListSig(rows: {
 
 let posSoftSyncInFlight: Promise<void> | null = null
 let posSoftSyncLastAt = 0
+let lastOpenShiftProbeAt = 0
 /** Пока идёт GET — новый вызов (WS / браузер→ПК) не должен теряться */
 let posSoftSyncDirty = false
 let posSoftSyncDirtyForce = false
@@ -569,27 +573,41 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
         const del = new Set(deleteIds)
         mergedShifts = mergedShifts.filter(sh => !del.has(String(sh.id)))
       }
+      const { protectLocallyClosedShifts, adoptServerClosedShifts } = await import('./shiftReconcile')
       if (!protectShifts) {
-        const { protectLocallyClosedShifts } = await import('./shiftReconcile')
         mergedShifts = protectLocallyClosedShifts(localShifts, mergedShifts)
       }
+      // Дельта могла пропустить закрытие (курсор ушёл, пока LWW держал локальное «open»)
+      let closedProbe: typeof enrichedShifts = enrichedShifts
+      if (
+        usedDelta
+        && localShifts.some(sh => sh.status === 'open' && !String(sh.id || '').startsWith('off-'))
+        && Date.now() - lastOpenShiftProbeAt > 60_000
+      ) {
+        lastOpenShiftProbeAt = Date.now()
+        try {
+          const all = await api.getPosShifts()
+          if (Array.isArray(all)) closedProbe = [...enrichedShifts, ...all]
+        } catch { /* offline — next tick */ }
+      }
+      const closedAdopted = adoptServerClosedShifts(mergedShifts, closedProbe)
+      const serverClosedChanged = closedAdopted !== mergedShifts
+      mergedShifts = closedAdopted
 
       const salesChanged = softListSig(mergedSales) !== softListSig(localSales)
         || hasNewFromServer
         || keptLocal
         || mergedSales.length !== localSales.length
-      const shiftsChanged = !protectShifts && softListSig(mergedShifts) !== softListSig(localShifts)
+      const shiftsChanged = (!protectShifts || serverClosedChanged)
+        && softListSig(mergedShifts) !== softListSig(localShifts)
 
+      // При queued shift ops локальные смены держим (ожидаемый нал / expenseTotal),
+      // кроме серверного закрытия — shiftsChanged это уже учитывает
       if (salesChanged || shiftsChanged) {
-        if (protectShifts) {
-          // Сервер ещё без queued ops — оставляем локальные смены (ожидаемый нал / expenseTotal)
-          if (salesChanged) usePosStore.setState({ sales: mergedSales })
-        } else {
-          usePosStore.setState({
-            ...(salesChanged ? { sales: mergedSales } : {}),
-            ...(shiftsChanged ? { shifts: mergedShifts } : {}),
-          })
-        }
+        usePosStore.setState({
+          ...(salesChanged ? { sales: mergedSales } : {}),
+          ...(shiftsChanged ? { shifts: mergedShifts } : {}),
+        })
       }
 
       // CRM из той же дельты — долг/бонусы без отдельного полного getClients

@@ -420,8 +420,11 @@ async function doPullSyncChanges(opts?: {
           const s = new Set(shiftDel)
           nextShifts = nextShifts.filter(sh => !s.has(String(sh?.id ?? '')))
         }
-        const { protectLocallyClosedShifts } = await import('./shiftReconcile')
-        patch.shifts = protectLocallyClosedShifts(cur.shifts || [], nextShifts)
+        const { protectLocallyClosedShifts, adoptServerClosedShifts } = await import('./shiftReconcile')
+        patch.shifts = adoptServerClosedShifts(
+          protectLocallyClosedShifts(cur.shifts || [], nextShifts),
+          incoming || [],
+        )
       }
       if (Array.isArray(pos.receipts) || delOf('receipt').length) {
         const incoming = Array.isArray(pos.receipts) ? pos.receipts : []
