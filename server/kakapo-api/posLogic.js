@@ -3508,7 +3508,10 @@ export function createPosSale(db, data = {}) {
       throw err
     }
     const wantCashier = String(data.cashierId || '').trim()
-    if (wantCashier && shift.cashierId && wantCashier !== String(shift.cashierId || '').trim()) {
+    // Офлайн-чек уже пробит и выдан — кассир на чеке остаётся как есть, смену не отбиваем
+    // (у одного человека бывает несколько cashierId; устаревшая смена на кассе).
+    const offlineReceipt = !!(clientRef && data.appliedLocal)
+    if (!offlineReceipt && wantCashier && shift.cashierId && wantCashier !== String(shift.cashierId || '').trim()) {
       const err = new Error('Смена относится к другому кассиру')
       err.code = 'SHIFT_CASHIER_MISMATCH'
       throw err

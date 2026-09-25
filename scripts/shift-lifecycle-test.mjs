@@ -166,6 +166,26 @@ test('T7e late sale tagged with wrong closed shift lands on the shift it was mad
   expect(d23.salesCash === 50 && d24.salesCash === 0, 'counters on own shift')
 })
 
+test('T7j offline receipt not rejected by cashier mismatch; online still is', async () => {
+  const { createPosSale } = await import('../server/kakapo-api/posLogic.js')
+  const shift = {
+    id: 'SHIFT-now', status: 'open', posId: 'POS-1', cashierId: 'CASHIER-B',
+    openedAtIso: '2026-09-25T03:57:00.000Z', openingCash: 0, salesCash: 0, salesCard: 0, salesCount: 0, cashInTotal: 0, expenseTotal: 0,
+  }
+  const db = {
+    posShifts: [shift], posSales: [], cashiers: [{ id: 'CASHIER-A', name: 'S' }, { id: 'CASHIER-B', name: 'S' }],
+    posPoints: [{ id: 'POS-1', name: 'P' }], clients: [], cards: [], orders: [],
+    products: [{ id: 1, name: 'X', price: 5, stock: 10 }],
+    stockReceipts: [{ id: 'RCPT-1', items: [{ productId: 1, qty: 10, remainingQty: 10, costPrice: 1 }] }],
+  }
+  const base = { shiftId: 'SHIFT-now', posId: 'POS-1', cashierId: 'CASHIER-A', paymentMethod: 'cash', paidCash: 5, total: 5, items: [{ productId: 1, qty: 1, price: 5 }] }
+  let rejected = false
+  try { createPosSale(db, { ...base, clientRef: 'on-1' }) } catch (e) { rejected = e.code === 'SHIFT_CASHIER_MISMATCH' }
+  expect(rejected, 'online mismatch rejected')
+  const sale = createPosSale(db, { ...base, clientRef: 'off-1', appliedLocal: true, createdAtIso: '2026-09-25T02:35:00.000Z' })
+  expect(sale.shiftId === 'SHIFT-now' && sale.cashierId === 'CASHIER-A', 'offline receipt accepted, cashier kept')
+})
+
 test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale arm auto-exits', async () => {
   const orch = await import('../lib/desktopRecoveryOrchestratorCore.mjs')
   const queue = [
