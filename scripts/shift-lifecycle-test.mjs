@@ -175,11 +175,19 @@ test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale 
   const d = orch.detectRecoveryNeed({ queue, meta: {}, appVersion: '2', previousAppVersion: '1' })
   expect(!d.need, JSON.stringify(d.reasons))
   expect(orch.canAutoExitStaleRecovery({ queue, meta: { recoveryMode: true, recoverySession: { status: 'CLASSIFIED', phase: 'RECOVERY_PREPARE' } } }).ok, 'stale exits')
-  expect(!orch.canAutoExitStaleRecovery({ queue, meta: { recoverySession: { targetServerShiftId: 'SHIFT-R' } } }).ok, 'mutated stays')
-  const idem = [{ clientRef: 'c', kind: 'sale', failed: true, lastError: 'IDEMPOTENCY_KEY_REUSED' }]
-  expect(!orch.canAutoExitStaleRecovery({ queue: idem, meta: {} }).ok, 'idempotency stays')
+  expect(orch.canAutoExitStaleRecovery({ queue, meta: { recoverySession: { remappedClientRefs: ['a'], targetServerShiftId: 'SHIFT-R' } } }).ok, 'half-run session exits too')
+  expect(!orch.canAutoExitStaleRecovery({ queue: null, meta: {} }).ok, 'unreadable queue stays')
   const o = read('lib/desktopRecoveryOrchestrator.ts')
   expect(o.includes('canAutoExitStaleRecovery') && !o.includes('ackPending'), 'orchestrator wired')
+  expect(o.includes('if (detect.need) {'), 'exit on any detected need')
+})
+
+test('T7i parked shift/idempotency sales auto-retry; server-held clientRef acks', () => {
+  expect(offline.includes('function isAutoRetryFailedSale'), 'helper')
+  expect(offline.includes('(!r.failed || isAutoRetryFailedSale(r))'), 'flush picks parked shift sales')
+  const idx = offline.indexOf("live.kind === 'sale' && /IDEMPOTENCY_KEY_REUSED")
+  expect(idx > 0, 'idempotency ack branch')
+  expect(offline.slice(idx, idx + 300).includes('deletePending(live.clientRef)'), 'acks queue row')
 })
 
 test('T7g server-closed shift beats fresher local open (morning stale shift)', async () => {

@@ -1332,6 +1332,12 @@ async function findOpenServerShift(payload: any): Promise<string> {
   return open?.id || ''
 }
 
+function isAutoRetryFailedSale(r: PendingOp): boolean {
+  return r.kind === 'sale'
+    && /смена уже закрыта|SHIFT_CLOSED|смена не найдена|SHIFT_NOT_FOUND|IDEMPOTENCY_KEY_REUSED|тот же clientRef уже использован/i
+      .test(String(r.lastError || ''))
+}
+
 async function saleMadeAfterShiftClose(payload: any): Promise<boolean> {
   const saleMs = Date.parse(String(payload?.createdAtIso || ''))
   if (!Number.isFinite(saleMs)) return false
@@ -2421,8 +2427,10 @@ export async function flushQueue(
   }
   const now = Date.now()
     // Не шлём ops на cooldown — иначе одни и те же 6 строк крутятся без паузы
+    // Чеки, припаркованные из-за смены / уже принятого clientRef, решаются сервером
+    // (поздний чек в свою закрытую смену, ack дубля) — повторяем их сами, по cooldown.
     const queue = all
-      .filter(r => !r.failed && !(Number(r.nextRetryAt) > now))
+      .filter(r => (!r.failed || isAutoRetryFailedSale(r)) && !(Number(r.nextRetryAt) > now))
       .sort(byOrder)
     const total = queue.length
     let done = 0
@@ -2546,6 +2554,16 @@ export async function flushQueue(
           await putPending(live)
           liveByRef.set(live.clientRef, live)
           failed++
+          done++
+          reportProgress()
+          continue
+        }
+
+        // Сервер уже держит чек с этим clientRef (отличаются только поля, напр. shiftId после
+        // старого reroute) — чек доставлен; локальную продажу не трогаем, синк подтянет серверную.
+        if (live.kind === 'sale' && /IDEMPOTENCY_KEY_REUSED|тот же clientRef уже использован/i.test(live.lastError)) {
+          await deletePending(live.clientRef)
+          liveByRef.delete(live.clientRef)
           done++
           reportProgress()
           continue

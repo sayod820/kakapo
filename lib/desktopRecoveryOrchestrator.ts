@@ -171,9 +171,9 @@ export async function maybeRunAutomaticDesktopRecovery(opts: {
       } catch { /* ignore */ }
     }
 
-    const onlyStaleArm = detect.need && detect.reasons.every(r =>
-      r === 'recoveryMode' || r === 'durable_session_incomplete' || r === 'recoveryRequiredAfterUpgrade')
-    if (onlyStaleArm) {
+    // Normal flush is idempotent by clientRef (IDEMPOTENCY_KEY_REUSED sale = already delivered),
+    // and remapping onto a recovery shift moves receipts off their real shift — always hand back.
+    if (detect.need) {
       const exit = canAutoExitStaleRecovery({ queue: pending, meta: meta || {} })
       if (exit.ok) {
         const sess = meta?.recoverySession
