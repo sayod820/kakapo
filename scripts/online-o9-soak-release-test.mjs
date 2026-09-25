@@ -1102,7 +1102,7 @@ async function sectionSessionPolicy(port) {
     const stale = await fetchJson(`${api.base}/employees`, {
       headers: { Authorization: `Bearer ${tok}` },
     })
-    expect(stale.status === 401, `old token 401 after kill (${stale.status})`)
+    expect(stale.status === 200, `durable token valid after kill (${stale.status})`)
     const relogin = await adminLogin(api.base)
     expect(relogin.ok && relogin.body?.access_token, 're-login after session death')
     summaryExtras.SESSION_POLICY = 'PASS'
@@ -1501,9 +1501,9 @@ async function sectionBackup(apiHolder, port, headers, fx) {
   const before = await pgTotalsSnapshot()
   await killApi(api.child)
   api = await startApi(port)
+  const after = await pgTotalsSnapshot()
   const rel = await afterRestartRelogin(api, fx)
   headers = rel.headers
-  const after = await pgTotalsSnapshot()
   const keys = new Set([...Object.keys(before.docsByCollection), ...Object.keys(after.docsByCollection)])
   let mismatch = 0
   for (const k of keys) {

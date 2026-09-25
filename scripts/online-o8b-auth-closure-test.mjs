@@ -765,7 +765,7 @@ try {
     headers: { 'Content-Type': 'application/json', ...authHeaders(oldTok) },
     body: JSON.stringify({ clientRef: cref('rst'), paymentMethod: 'cash', total: 1, paidCash: 1, items: [] }),
   })
-  expect(afterRestart.status === 401, 'old token invalid after restart')
+  expect(afterRestart.status !== 401 && afterRestart.status !== 403, `durable session survives restart (${afterRestart.status})`)
 
   // ── S Lab flags in production ──
   console.log('\n--- S Lab safety ---')

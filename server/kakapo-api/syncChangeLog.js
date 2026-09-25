@@ -179,6 +179,11 @@ export async function flushSyncChangeJournal(db) {
   }
 }
 
+/**
+ * sourceClientRef — ref of the operation that caused this change (journal dedupe key
+ * with entity+action). Never default to the entity's own clientRef: that is the ref of
+ * the operation that created it, so every later change would be dropped as a replay.
+ */
 export function recordEntityUpsert(db, entityType, entityId, data, opts = {}) {
   return recordSyncChange(db, {
     entityType,
@@ -187,7 +192,7 @@ export function recordEntityUpsert(db, entityType, entityId, data, opts = {}) {
     revision: opts.revision ?? data?.docVersion ?? data?.debtPayVersion ?? data?.bonusPayVersion ?? null,
     updatedAt: opts.updatedAt || data?.serverAtIso || data?.updatedAtIso || data?.createdAtIso,
     data: data == null ? null : data,
-    sourceClientRef: opts.sourceClientRef || data?.clientRef || null,
+    sourceClientRef: opts.sourceClientRef || null,
   })
 }
 

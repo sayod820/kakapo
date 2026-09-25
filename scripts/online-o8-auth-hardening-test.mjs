@@ -348,8 +348,8 @@ try {
       items: [],
     }),
   })
-  // In-memory sessions die on restart → old token invalid → 401 (expected)
-  expect(afterRestart.status === 401, `session not in-memory-only grant after restart (${afterRestart.status})`)
+  // Sessions are durable in PG: the token survives restart (400 = auth passed, empty sale rejected)
+  expect(afterRestart.status !== 401 && afterRestart.status !== 403, `durable session survives restart (${afterRestart.status})`)
   const relogin = await fetchJson(`${api.base}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

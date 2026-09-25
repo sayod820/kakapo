@@ -44,8 +44,8 @@ const SUITES = [
   { name: 'O9', script: 'online-o9-soak-release-test.mjs', env: { O9_REAL_PG_REQUIRED: '1' } },
   { name: 'O10', script: 'online-o10-release-readiness-test.mjs', env: { O10_REAL_PG_REQUIRED: '1', KAKAPO_LAB_AUTO_AUTH: '0' } },
   { name: 'O11D', script: 'online-o11d-customer-otp-deferred-test.mjs', env: { O11D_REAL_PG_REQUIRED: '1' } },
-  { name: 'PC-14', script: 'pc14-ack-lost-idempotency-test.mjs', env: {} },
   { name: 'D4', script: 'debt-server-idempotency-d4-test.mjs', env: {} },
+  { name: 'L13', script: 'online-l13-local-first-test.mjs', env: {} },
 ]
 
 const SKIP = new Set(

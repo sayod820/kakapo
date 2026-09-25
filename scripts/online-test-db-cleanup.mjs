@@ -14,7 +14,7 @@ import { withClient, isPostgresEnabled, getDatabaseUrl } from '../server/kakapo-
 
 export const ONLINE_TEST_PREFIXES = [
   'O8A-', 'O1-', 'O1B-', 'O2-', 'O2B-', 'O3-', 'O3B-', 'O3C-', 'O4-', 'O4B-', 'O4C-', 'O4D-', 'O4E-', 'O5-', 'O5B-', 'O6-', 'O6B-', 'O7-',
-  'O8AUTH-', 'O8BAUTH-', 'O9-',
+  'O8AUTH-', 'O8BAUTH-', 'O9-', 'L13-',
 ]
 
 const ALLOWED_TEST_DB = /^kakapo_l11_test(_[a-z0-9]+)?$/i

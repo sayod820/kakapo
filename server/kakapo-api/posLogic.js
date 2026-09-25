@@ -69,7 +69,6 @@ function touchCrmRow(row, db = null, entityType = '') {
         : String(row.id || '')
       if (id) {
         recordEntityUpsert(db, entityType, id, row, {
-          sourceClientRef: row.clientRef,
           revision: row.docVersion ?? row.debtPayVersion ?? row.bonusPayVersion,
           updatedAt: stamp,
         })
@@ -581,18 +580,23 @@ function stockRowsWithoutConsume(db, items) {
   })
 }
 
-/** Офлайн-чек после ревизии: номер выше среза. Судья — opSeq, не часы кассы.
- *  queuedOffline / skipStockAfterRevision: чек лежал в очереди; ревизия уже поправила остаток. */
-function shouldSkipSaleStock(db, posId, opSeq, productIds, deviceId, queuedOffline) {
+/** Офлайн-чек, который ревизия уже учла: номер выше среза (сервер его не знал) И пробит
+ *  до подсчёта — товара на полке уже не было. Чек после подсчёта списывает как обычно.
+ *  queuedOffline / skipStockAfterRevision: чек лежал в очереди. */
+function shouldSkipSaleStock(db, posId, opSeq, productIds, deviceId, queuedOffline, saleAtIso) {
   if (!queuedOffline) return null
   const ids = new Set((productIds || []).map(n => Number(n)).filter(n => n > 0))
   if (!ids.size || !(Number(opSeq) > 0)) return null
+  const saleMs = Date.parse(String(saleAtIso || ''))
+  if (!Number.isFinite(saleMs)) return null
   const dev = String(deviceId || '')
   for (const rev of db.stockRevisions || []) {
     const st = String(rev.status || 'done')
     if (st && st !== 'done' && st !== 'applying') continue
     const cuts = Array.isArray(rev.posCuts) ? rev.posCuts : []
     if (!cuts.length) continue
+    const countedMs = Date.parse(String(rev.createdAtIso || ''))
+    if (!Number.isFinite(countedMs) || saleMs > countedMs) continue
     const overlap = (rev.items || []).some(it => ids.has(Number(it.productId)))
     if (!overlap) continue
     const cut = cuts.find(c =>
@@ -3566,6 +3570,7 @@ export function createPosSale(db, data = {}) {
     rawItems.map(it => it.productId),
     deviceId,
     !!(data.queuedOffline || data.skipStockAfterRevision),
+    clientRef ? data.createdAtIso : null,
   )
   const rows = skipStock
     ? stockRowsWithoutConsume(db, rawItems)
