@@ -203,10 +203,10 @@ test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale 
 })
 
 test('T7i parked shift/idempotency sales auto-retry; server-held clientRef acks', () => {
-  expect(offline.includes('function isAutoRetryFailedSale'), 'helper')
-  expect(offline.includes('(!r.failed || isAutoRetryFailedSale(r))'), 'flush picks parked shift sales')
-  const idx = offline.indexOf("live.kind === 'sale' && /IDEMPOTENCY_KEY_REUSED")
-  expect(idx > 0, 'idempotency ack branch')
+  expect(offline.includes("outboxRetryPolicy(r, now) === 'send'"), 'flush picks parked rows by class')
+  expect(offline.includes("outboxRetryPolicy(live) !== 'send'"), 'loop does not skip auto-retry failed rows')
+  const idx = offline.indexOf('cls.class === OUTBOX_ERROR_CLASS.COMMITTED')
+  expect(idx > 0, 'committed ack branch')
   expect(offline.slice(idx, idx + 300).includes('deletePending(live.clientRef)'), 'acks queue row')
 })
 

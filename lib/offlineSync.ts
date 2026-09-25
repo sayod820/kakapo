@@ -19,6 +19,7 @@ import {
   type PosSalePayload,
   type QueueKind,
 } from './offline'
+import { outboxRetryPolicy } from './outboxErrorClassifier'
 import { markLocalSyncAt } from './offlineBootstrap'
 
 interface OfflineSyncState {
@@ -349,6 +350,8 @@ async function autoRetryFailed(opts?: { forceAll?: boolean }): Promise<number> {
         continue
       }
 
+      // Классифицированные строки flushQueue повторяет сам (по errorClass + backoff)
+      if (row.errorClass || outboxRetryPolicy(row, now) !== 'manual') continue
       // Жёсткая валидация / broken-ref — только ручной forceSync
       if (err && isHardValidationError(err) && !isTransientFailError(err)) continue
       // Фон: не больше N попыток на op

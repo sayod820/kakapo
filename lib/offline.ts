@@ -3,6 +3,7 @@
 // Локальный кэш каталога + очередь чеков + синхронизация
 // ════════════════════════════════════════════════
 import { api, isNetworkError } from './api'
+import { OUTBOX_ERROR_CLASS, classifyOutboxError, outboxBackoffMs, outboxRetryPolicy } from './outboxErrorClassifier'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
@@ -108,6 +109,8 @@ export interface PendingOp<P = any> {
   failed?: boolean
   /** Не слать / не revive до этого времени (мс) — антиспам одной и той же op */
   nextRetryAt?: number
+  /** Класс последней ошибки (outboxErrorClassifier) — определяет авто-повтор */
+  errorClass?: string
   /**
    * Временный id, под которым операция уже показана в интерфейсе.
    * После отправки сопоставляется с настоящим id с сервера.
@@ -1297,7 +1300,9 @@ export interface FlushResult {
 let flushing = false
 
 /** Ошибка «ссылка на операцию, которая не ушла» — дальше повторять бессмысленно */
-class BrokenRefError extends Error {}
+class BrokenRefError extends Error {
+  name = 'BrokenRefError'
+}
 
 /**
  * Подставляет настоящие id вместо временных.
@@ -1330,12 +1335,6 @@ async function findOpenServerShift(payload: any): Promise<string> {
     && (!posId || !s.posId || s.posId === posId),
   ) || shifts.find(s => s.status === 'open' && !isLocalId(s.id))
   return open?.id || ''
-}
-
-function isAutoRetryFailedSale(r: PendingOp): boolean {
-  return r.kind === 'sale'
-    && /смена уже закрыта|SHIFT_CLOSED|смена не найдена|SHIFT_NOT_FOUND|IDEMPOTENCY_KEY_REUSED|тот же clientRef уже использован/i
-      .test(String(r.lastError || ''))
 }
 
 async function saleMadeAfterShiftClose(payload: any): Promise<boolean> {
@@ -2426,11 +2425,10 @@ export async function flushQueue(
     if (all.length) perfNote('oldest_pending_age_ms', Date.now() - oldest, 'flush_start')
   }
   const now = Date.now()
-    // Не шлём ops на cooldown — иначе одни и те же 6 строк крутятся без паузы
-    // Чеки, припаркованные из-за смены / уже принятого clientRef, решаются сервером
-    // (поздний чек в свою закрытую смену, ack дубля) — повторяем их сами, по cooldown.
+    // Не шлём ops на cooldown — иначе одни и те же 6 строк крутятся без паузы.
+    // failed-строки повторяются сами по классу ошибки; INVALID — только вручную.
     const queue = all
-      .filter(r => (!r.failed || isAutoRetryFailedSale(r)) && !(Number(r.nextRetryAt) > now))
+      .filter(r => outboxRetryPolicy(r, now) === 'send')
       .sort(byOrder)
     const total = queue.length
     let done = 0
@@ -2445,12 +2443,7 @@ export async function flushQueue(
     const liveByRef = new Map(all.map(r => [r.clientRef, r]))
     for (const row of queue) {
       const live = liveByRef.get(row.clientRef)
-      if (!live || live.failed) {
-        done++
-        reportProgress()
-        continue
-      }
-      if (Number(live.nextRetryAt) > Date.now()) {
+      if (!live || outboxRetryPolicy(live) !== 'send') {
         done++
         reportProgress()
         continue
@@ -2513,8 +2506,36 @@ export async function flushQueue(
         }
         live.attempts += 1
         live.lastError = e instanceof Error ? e.message : 'Ошибка отправки'
+        const cls = classifyOutboxError(live.kind, e)
+        live.errorClass = cls.class
         live.failed = true
-        live.nextRetryAt = Date.now() + pendingRetryDelayMs(live.attempts)
+        live.nextRetryAt = Date.now() + outboxBackoffMs(cls.class, live.attempts)
+
+        if (cls.class === OUTBOX_ERROR_CLASS.RETRYABLE || cls.class === OUTBOX_ERROR_CLASS.DEPENDENCY) {
+          live.failed = false
+          await putPending(live)
+          liveByRef.set(live.clientRef, live)
+          failed++
+          done++
+          reportProgress()
+          // Без авторизации остальные строки упадут так же — ждём входа, не жжём попытки
+          if (cls.auth) {
+            stopped = true
+            break
+          }
+          continue
+        }
+
+        // Сервер уже держит op с этим clientRef — операция доставлена; локальное не трогаем,
+        // синк подтянет серверную версию.
+        if (cls.class === OUTBOX_ERROR_CLASS.COMMITTED) {
+          await deletePending(live.clientRef)
+          liveByRef.delete(live.clientRef)
+          sent++
+          done++
+          reportProgress()
+          continue
+        }
 
         // Phase D6: classify debt errors — never silently revert appliedLocal debt
         if (live.kind === 'debt_repay' || live.kind === 'cash_advance') {
@@ -2554,16 +2575,6 @@ export async function flushQueue(
           await putPending(live)
           liveByRef.set(live.clientRef, live)
           failed++
-          done++
-          reportProgress()
-          continue
-        }
-
-        // Сервер уже держит чек с этим clientRef (отличаются только поля, напр. shiftId после
-        // старого reroute) — чек доставлен; локальную продажу не трогаем, синк подтянет серверную.
-        if (live.kind === 'sale' && /IDEMPOTENCY_KEY_REUSED|тот же clientRef уже использован/i.test(live.lastError)) {
-          await deletePending(live.clientRef)
-          liveByRef.delete(live.clientRef)
           done++
           reportProgress()
           continue
@@ -2666,9 +2677,11 @@ export async function flushQueue(
                   reportProgress()
                   continue
                 }
-                // После 2 обновлений версий — паркуем до ручного forceSync
+                // После 2 обновлений версий — длинная пауза, затем снова обновим версии
+                live.payload = { ...p, _verRefreshTries: 0 }
+                live.errorClass = OUTBOX_ERROR_CLASS.NEEDS_REPAIR
                 live.failed = true
-                live.nextRetryAt = Date.now() + 120_000
+                live.nextRetryAt = Date.now() + outboxBackoffMs(OUTBOX_ERROR_CLASS.NEEDS_REPAIR, live.attempts)
                 await putPending(live)
                 liveByRef.set(live.clientRef, live)
                 failed++
