@@ -249,6 +249,21 @@ async function requestLongList<T>(path: string, options: RequestInit = {}): Prom
   return request<T>(path, options, 0, LIST_TIMEOUT_MS)
 }
 
+type SyncMeta = { employeesAuthRev?: string }
+let syncMetaListener: ((meta: SyncMeta) => void) | null = null
+
+/** Кто-то (офлайн-вход) хочет знать служебные поля каждого ответа /sync/changes. */
+export function setSyncMetaListener(fn: ((meta: SyncMeta) => void) | null) {
+  syncMetaListener = fn
+}
+
+function noteSyncMeta<T>(res: T): T {
+  if (syncMetaListener && res && typeof res === 'object') {
+    try { syncMetaListener(res as SyncMeta) } catch { /* ignore */ }
+  }
+  return res
+}
+
 /** Маршруты Next.js вне proxy /api/kakapo */
 async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 0): Promise<T> {
   return requestUrl<T>(path, options, attempt)
@@ -492,6 +507,7 @@ export const api = {
       stockLayers: ProductStockLayer[]
       deletes?: { kind: string; id: string; atIso?: string }[]
       stockLayersReplace?: boolean
+      employeesAuthRev?: string
       pos: {
         sales: unknown[]
         shifts: unknown[]
@@ -505,7 +521,7 @@ export const api = {
         cashiers: unknown[]
         expiry: unknown[]
       }
-    }>(`/sync/changes${qs ? `?${qs}` : ''}`)
+    }>(`/sync/changes${qs ? `?${qs}` : ''}`).then(noteSyncMeta)
   },
   /** v2: сквозной номер изменения (changeSeq) вместо времени. */
   getSyncChangesV2: (cursor: number, limit = 1000) =>
@@ -517,7 +533,8 @@ export const api = {
       nextCursor?: number
       hasMore?: boolean
       serverHeadCursor?: number
-    }>(`/sync/changes?v=2&cursor=${encodeURIComponent(String(cursor))}&limit=${limit}`),
+      employeesAuthRev?: string
+    }>(`/sync/changes?v=2&cursor=${encodeURIComponent(String(cursor))}&limit=${limit}`).then(noteSyncMeta),
   reconcileStock: (data?: { createdBy?: string }) =>
     request<{ ok: boolean; fixed: { id: number; name: string; before: number; after: number }[] }>(
       '/stock/reconcile',
@@ -1076,6 +1093,7 @@ export const api = {
       password?: string
       passwordHash?: string | null
       offlinePinHash?: string | null
+      offlineVerifier?: string | null
     }>>(`/employees/local-auth${q}`)
   },
   createEmployee: (data: {

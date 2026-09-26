@@ -27,7 +27,7 @@ const STEPS: { id: BootstrapStepId; label: string }[] = [
 async function cacheEmployeesForOfflineLogin(): Promise<void> {
   const rows = await api.getEmployeesLocalAuth()
   const mapped = await mergeServerAuthRows(rows || [], await readCachedEmployeesAuth())
-  const withPass = mapped.filter(r => r.active !== false && r.passwordHash)
+  const withPass = mapped.filter(r => r.active !== false && (r.passwordHash || r.offlineVerifier))
   if (!withPass.length) {
     throw new Error('Сервер не отдал данные для офлайн-входа')
   }

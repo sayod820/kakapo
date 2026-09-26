@@ -17,7 +17,8 @@ import CashierModule, { type CashierDashboardApi } from '@/components/trade/Cash
 import ComingSoonModule from '@/components/trade/ComingSoonModule'
 import FinanceModule from '@/components/trade/FinanceModule'
 import ReportsModule from '@/components/trade/ReportsModule'
-import TradeLoginPage from '@/components/trade/TradeLoginPage'
+import TradeLoginPage, { LOGIN_NOTICE_KEY } from '@/components/trade/TradeLoginPage'
+import { EMPLOYEE_REVOKED_EVENT, installEmployeesAuthSync } from '@/lib/employeesAuthSync'
 import TradeDeviceGate from '@/components/trade/TradeDeviceGate'
 import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
@@ -3687,6 +3688,22 @@ function TradeAppGate() {
   const boundAtRef = useRef(0)
 
   useEffect(() => {
+    installEmployeesAuthSync()
+    function onEmployeeRevoked(e: Event) {
+      const detail = (e as CustomEvent<{ employeeId?: string; reason?: string }>).detail || {}
+      const current = loadTradeEmployeeSession()
+      if (!current || (detail.employeeId && detail.employeeId !== current.employeeId)) return
+      try {
+        if (detail.reason) sessionStorage.setItem(LOGIN_NOTICE_KEY, detail.reason)
+      } catch { /* ignore */ }
+      clearTradeEmployeeSession()
+      setSession(null)
+    }
+    window.addEventListener(EMPLOYEE_REVOKED_EVENT, onEmployeeRevoked)
+    return () => window.removeEventListener(EMPLOYEE_REVOKED_EVENT, onEmployeeRevoked)
+  }, [])
+
+  useEffect(() => {
     if (!USE_API) return
     let stopped = false
 
@@ -3713,7 +3730,7 @@ function TradeAppGate() {
       void kickIfUnbound()
     }
     window.addEventListener('kakapo:device-revoked', onRevoked)
-    const timer = window.setInterval(() => { void kickIfUnbound() }, 6000)
+    const timer = window.setInterval(() => { void kickIfUnbound() }, 30000)
     void kickIfUnbound()
     return () => {
       stopped = true

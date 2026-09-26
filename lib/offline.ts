@@ -310,6 +310,7 @@ export type CachedEmployeeAuth = {
   active: boolean
   password?: string
   passwordHash?: string
+  offlineVerifier?: string
 }
 
 const KEY_EMPLOYEES_AUTH = 'catalog_employees_auth'

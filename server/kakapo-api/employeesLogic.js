@@ -8,7 +8,36 @@ import {
   verifyAndMaybeMigrateCredential,
   applyPasswordMigration,
   offlinePinHash,
+  makeOfflineVerifier,
+  checkOfflineVerifier,
 } from './passwordHash.js'
+import { createHash } from 'node:crypto'
+
+/** Offline credentials shipped to bound devices (never the bcrypt hash). */
+function setOfflineCredentials(row, password) {
+  row.offlinePinHash = offlinePinHash(password)
+  row.offlineVerifier = makeOfflineVerifier(password)
+}
+
+/**
+ * Short fingerprint of everything a device needs for offline login.
+ * Sent with every /sync/changes; the device refetches /employees/local-auth only when it changes.
+ */
+export function employeesAuthRev(db) {
+  ensureEmployees(db)
+  const parts = [...db.employees]
+    .filter(e => e && e.active !== false)
+    .map(e => [
+      e.id,
+      e.name,
+      e.role || '',
+      Array.isArray(e.permissions) ? e.permissions.join(',') : '',
+      e.offlineVerifier || '',
+      e.offlinePinHash || '',
+    ].join('|'))
+    .sort()
+  return createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16)
+}
 
 export const TRADE_PAGE_IDS = [
   'sales',
@@ -98,7 +127,7 @@ export function listEmployeesDirectory(db) {
     }))
 }
 
-/** Для офлайн-кассы: bcrypt hash + offline SHA pin (только привязанное устройство). */
+/** Для офлайн-кассы: офлайн-отпечатки пароля (только привязанное устройство). bcrypt не отдаём. */
 export function listEmployeesLocalAuth(db) {
   ensureEmployees(db)
   return [...db.employees]
@@ -111,10 +140,10 @@ export function listEmployeesLocalAuth(db) {
       roleLabel: EMPLOYEE_ROLE_PRESETS[e.role]?.label || 'Свой набор',
       permissions: Array.isArray(e.permissions) ? [...e.permissions] : [],
       active: e.active !== false,
-      // Server auth hash (bcrypt). Offline clients prefer offlinePinHash when present.
-      passwordHash: e.passwordHash || null,
+      passwordHash: null,
+      offlineVerifier: e.offlineVerifier || null,
+      // Legacy SHA for kassa UIs older than offlineVerifier support
       offlinePinHash: e.offlinePinHash || null,
-      passwordHashVersion: e.passwordHashVersion || null,
     }))
 }
 
@@ -138,7 +167,7 @@ export function createEmployee(db, data = {}) {
     createdAtIso: nowIso(),
   }
   setPasswordOnRow(row, password)
-  row.offlinePinHash = offlinePinHash(password)
+  setOfflineCredentials(row, password)
   db.employees.unshift(row)
   return publicEmployee(row)
 }
@@ -159,7 +188,7 @@ export function updateEmployee(db, id, patch = {}) {
     const password = String(patch.password ?? patch.pin ?? '').trim()
     if (password) {
       setPasswordOnRow(row, password)
-      row.offlinePinHash = offlinePinHash(password)
+      setOfflineCredentials(row, password)
     }
   }
   if (patch.role != null) {
@@ -210,11 +239,12 @@ export function loginEmployee(db, data = {}) {
   if (!verified.ok) throw new Error('Неверный логин или пароль')
   if (verified.migrated) {
     applyPasswordMigration(row, verified.passwordHash)
-    row.offlinePinHash = offlinePinHash(password)
+    setOfflineCredentials(row, password)
     row.updatedAtIso = nowIso()
-  } else if (row.offlinePinHash !== offlinePinHash(password)) {
-    // Офлайн-вход кассы сверяет только этот отпечаток
-    row.offlinePinHash = offlinePinHash(password)
+  } else if (row.offlinePinHash !== offlinePinHash(password)
+    || !checkOfflineVerifier(password, row.offlineVerifier)) {
+    // Офлайн-вход кассы сверяет эти отпечатки
+    setOfflineCredentials(row, password)
   }
   return {
     ...publicEmployee(row),
@@ -238,6 +268,26 @@ export function publicEmployee(row) {
   }
 }
 
+/**
+ * Startup: legacy plaintext passwords → bcrypt + offline credentials, plaintext removed.
+ * Rows with only bcrypt cannot be converted; they get offline credentials on next online login.
+ * @returns {number} rows changed
+ */
+export function migrateEmployeeCredentials(db) {
+  ensureEmployees(db)
+  let changed = 0
+  for (const row of db.employees) {
+    if (!row || row.passwordHash) continue
+    const pwd = row.password != null ? String(row.password).trim() : ''
+    if (pwd.length < 4) continue
+    setPasswordOnRow(row, pwd)
+    setOfflineCredentials(row, pwd)
+    row.updatedAtIso = nowIso()
+    changed += 1
+  }
+  return changed
+}
+
 /** Демо-сотрудник с полным доступом, если список пуст */
 export function ensureDefaultEmployees(db) {
   ensureEmployees(db)
@@ -251,7 +301,7 @@ export function ensureDefaultEmployees(db) {
     createdAtIso: nowIso(),
   }
   setPasswordOnRow(row, '1234')
-  row.offlinePinHash = offlinePinHash('1234')
+  setOfflineCredentials(row, '1234')
   db.employees.push(row)
   return true
 }

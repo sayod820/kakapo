@@ -4,10 +4,73 @@ import { useEffect, useState } from 'react'
 import { api, isNetworkError } from '@/lib/api'
 import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
-import { loadLastTradeEmployeeId } from '@/lib/employeeSession'
+import { loadLastTradeEmployeeId, loadTradeEmployeeSession, saveTradeEmployeeSession } from '@/lib/employeeSession'
 import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
-import { employeePasswordMatches, hashEmployeePassword, mergeServerAuthRows } from '@/lib/employeePassword'
+import {
+  employeePasswordMatches,
+  hasOfflineCredential,
+  hashEmployeePassword,
+} from '@/lib/employeePassword'
+import { emitEmployeeRevoked, refreshEmployeesAuthFromServer } from '@/lib/employeesAuthSync'
 import type { TradePageId } from '@/lib/tradeAccess'
+
+export const LOGIN_NOTICE_KEY = 'kakapo_trade_login_notice'
+
+type LoginRow = Awaited<ReturnType<typeof api.loginEmployee>>
+
+function tokenOf(row: LoginRow): string {
+  const r = row as { access_token?: string; token?: string }
+  return String(r.access_token || r.token || '')
+}
+
+/** После входа онлайн: отпечаток на диск кассы, затем свежие отпечатки сервера. */
+async function rememberLoginLocally(row: LoginRow, pin: string) {
+  const prev = (await readCachedEmployeesAuth()) || []
+  const next = prev.filter(p => p.id !== row.id)
+  next.push({
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    roleLabel: row.roleLabel,
+    permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
+    active: true,
+    password: '',
+    passwordHash: await hashEmployeePassword(pin),
+    offlineVerifier: '',
+  })
+  await cacheEmployeesAuth(next)
+  void refreshEmployeesAuthFromServer().catch(() => {})
+}
+
+/**
+ * Вход прошёл по кэшу кассы; сервер подтверждает в фоне и выдаёт токен.
+ * Если сервер говорит «неверный пароль» / «заблокирован» — кэш устарел: обновляем и выходим.
+ */
+async function confirmLoginOnServer(employeeId: string, pin: string) {
+  try {
+    const row = await api.loginEmployee({ id: employeeId, password: pin })
+    const session = loadTradeEmployeeSession()
+    if (session && session.employeeId === row.id) {
+      saveTradeEmployeeSession({
+        ...session,
+        name: row.name,
+        role: row.role,
+        permissions: (row.permissions || session.permissions) as TradeEmployeeSession['permissions'],
+        token: tokenOf(row) || session.token,
+      })
+    }
+    await rememberLoginLocally(row, pin)
+  } catch (error) {
+    if (isNetworkError(error)) return
+    const msg = error instanceof Error ? error.message : ''
+    if (/неверн|заблокир|не найден/i.test(msg)) {
+      await refreshEmployeesAuthFromServer().catch(() => false)
+      emitEmployeeRevoked(employeeId, /заблокир/i.test(msg)
+        ? 'Сотрудник заблокирован. Обратитесь к администратору.'
+        : 'Пароль изменили в админке. Войдите с новым паролем.')
+    }
+  }
+}
 
 type DirectoryRow = { id: string; name: string; role: string; roleLabel?: string }
 type TradeTheme = 'dark' | 'light'
@@ -47,6 +110,17 @@ export default function TradeLoginPage({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [loadingDir, setLoadingDir] = useState(true)
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem(LOGIN_NOTICE_KEY) || ''
+      if (msg) {
+        sessionStorage.removeItem(LOGIN_NOTICE_KEY)
+        setNotice(msg)
+      }
+    } catch { /* ignore */ }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -98,14 +172,11 @@ export default function TradeLoginPage({
               active: true,
               password: '',
               passwordHash: old?.passwordHash || '',
+              offlineVerifier: old?.offlineVerifier || '',
             }
           })
           await cacheEmployeesAuth(merged)
-          void api.getEmployeesLocalAuth()
-            .then(async full => {
-              await cacheEmployeesAuth(await mergeServerAuthRows(full || [], await readCachedEmployeesAuth()))
-            })
-            .catch(() => {})
+          void refreshEmployeesAuthFromServer().catch(() => {})
         } catch (e) {
           if (cancelled) return
           if (cached?.length) {
@@ -136,61 +207,44 @@ export default function TradeLoginPage({
       return
     }
     setBusy(true)
+    const pin = password.trim()
     try {
-      // Офлайн или сбой сети — вход по локальному кэшу
-      const tryLocal = async (): Promise<boolean> => {
-        const cached = await readCachedEmployeesAuth()
-        const row = cached?.find(r => r.id === employeeId && r.active !== false)
-        if (!row) return false
-        const ok = await employeePasswordMatches(password.trim(), row)
-        if (!ok) throw new Error('Неверный пароль')
-        onSuccess(sessionFromAuth(row))
-        return true
-      }
+      const cached = await readCachedEmployeesAuth()
+      const localRow = cached?.find(r => r.id === employeeId && r.active !== false) || null
+      const canLocal = hasOfflineCredential(localRow)
 
-      if (!isOnline()) {
-        const ok = await tryLocal()
-        if (!ok) throw new Error('Нет локальных данных сотрудника. Нужен интернет один раз.')
+      // Пароль всегда сначала проверяет касса: вход мгновенный и без интернета.
+      if (localRow && canLocal && await employeePasswordMatches(pin, localRow)) {
+        onSuccess(sessionFromAuth(localRow))
+        if (isOnline()) void confirmLoginOnServer(localRow.id, pin)
         return
       }
 
+      const offlineError = () => {
+        if (!localRow) return new Error('Нет локальных данных сотрудника. Нужен интернет один раз.')
+        if (!canLocal) {
+          return new Error('Пароль этого сотрудника ещё не пришёл на кассу. Подключите интернет один раз или задайте пароль заново в админке.')
+        }
+        return new Error('Неверный пароль')
+      }
+
+      if (!isOnline()) throw offlineError()
+
+      // Касса не знает этот пароль (новый сотрудник или пароль сменили) — спросим сервер.
       try {
-        const row = await api.loginEmployee({ id: employeeId, password: password.trim() })
+        const row = await api.loginEmployee({ id: employeeId, password: pin })
         onSuccess({
           employeeId: row.id,
           name: row.name,
           role: row.role,
           permissions: (row.permissions || []) as TradeEmployeeSession['permissions'],
-          token: String((row as { access_token?: string; token?: string }).access_token
-            || (row as { token?: string }).token
-            || ''),
+          token: tokenOf(row),
         })
-        // запомним пароль локально — следующий вход без интернета
-        const prev = (await readCachedEmployeesAuth()) || []
-        const next = prev.filter(p => p.id !== row.id)
-        next.push({
-          id: row.id,
-          name: row.name,
-          role: row.role,
-          roleLabel: row.roleLabel,
-          permissions: Array.isArray(row.permissions) ? row.permissions.map(String) : [],
-          active: true,
-          password: '',
-          passwordHash: await hashEmployeePassword(password.trim()),
-        })
-        await cacheEmployeesAuth(next)
-        void api.getEmployeesLocalAuth()
-          .then(async full => {
-            await cacheEmployeesAuth(await mergeServerAuthRows(full || [], await readCachedEmployeesAuth()))
-          })
-          .catch(() => {})
+        await rememberLoginLocally(row, pin)
       } catch (error) {
         const msg = error instanceof Error ? error.message : ''
         if (/не привязан/i.test(msg)) throw error
-        if (isNetworkError(error)) {
-          const ok = await tryLocal()
-          if (ok) return
-        }
+        if (isNetworkError(error)) throw offlineError()
         throw error
       }
     } catch (error) {
@@ -341,6 +395,7 @@ export default function TradeLoginPage({
           </div>
         ) : (
           <>
+            {notice && !err ? <div className="tl-err">{notice}</div> : null}
             {err ? <div className="tl-err">{err}</div> : null}
             <div className="tl-label">Сотрудник</div>
             <div className="tl-emp-list" role="listbox" aria-label="Сотрудник">

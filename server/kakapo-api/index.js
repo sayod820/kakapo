@@ -301,6 +301,8 @@ import {
   deleteEmployee,
   loginEmployee,
   ensureDefaultEmployees,
+  migrateEmployeeCredentials,
+  employeesAuthRev,
 } from './employeesLogic.js'
 import {
   askAdminAi,
@@ -467,6 +469,7 @@ ensurePosCollections(db)
 ensureAuditLog(db)
 pruneAuditLog(db)
 if (ensureDefaultEmployees(db)) persist()
+if (migrateEmployeeCredentials(db)) persist()
 if (ensurePosSaleNumbers(db)) persist()
 {
   const cashierMerge = mergeDuplicateCashiers(db)
@@ -1451,12 +1454,14 @@ app.get('/sync/changes', async (req, res) => {
         limit: Number(req.query.limit) || undefined,
         scope,
       })
+      if (out && typeof out === 'object') out.employeesAuthRev = employeesAuthRev(db)
       return res.json(out)
     }
     // Taken before the payload is built: a client starting v2 from here cannot skip events
     const head = await getSafeHeadCursor(db).catch(() => null)
     const payload = buildSyncChanges(db, { since, historyDays, scope })
     if (head != null) payload.changeSeqCursor = head
+    payload.employeesAuthRev = employeesAuthRev(db)
     res.json(payload)
   } catch (e) {
     res.status(500).json({ detail: e?.message || 'sync/changes failed' })
