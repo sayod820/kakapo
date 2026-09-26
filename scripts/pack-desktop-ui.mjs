@@ -19,6 +19,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import path from 'node:path'
@@ -71,6 +72,7 @@ const publicBase = (process.env.KAKAPO_PUBLIC_ORIGIN || 'https://kakappo.shop').
 const latest = {
   version,
   url: `${publicBase}/updates/kassa-ui/${zipName}`,
+  size: statSync(zipPath).size,
   builtAt: new Date().toISOString(),
 }
 
