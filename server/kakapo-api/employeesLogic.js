@@ -212,6 +212,9 @@ export function loginEmployee(db, data = {}) {
     applyPasswordMigration(row, verified.passwordHash)
     row.offlinePinHash = offlinePinHash(password)
     row.updatedAtIso = nowIso()
+  } else if (row.offlinePinHash !== offlinePinHash(password)) {
+    // Офлайн-вход кассы сверяет только этот отпечаток
+    row.offlinePinHash = offlinePinHash(password)
   }
   return {
     ...publicEmployee(row),

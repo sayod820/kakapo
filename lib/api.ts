@@ -1074,7 +1074,8 @@ export const api = {
       permissions: string[]
       active: boolean
       password?: string
-      passwordHash?: string
+      passwordHash?: string | null
+      offlinePinHash?: string | null
     }>>(`/employees/local-auth${q}`)
   },
   createEmployee: (data: {

@@ -6,7 +6,7 @@ import { USE_API } from '@/lib/config'
 import type { TradeEmployeeSession } from '@/lib/employeeSession'
 import { loadLastTradeEmployeeId } from '@/lib/employeeSession'
 import { isOnline, readCachedEmployeesAuth, cacheEmployeesAuth, type CachedEmployeeAuth } from '@/lib/offline'
-import { employeePasswordMatches, hashEmployeePassword, authRowFromServer } from '@/lib/employeePassword'
+import { employeePasswordMatches, hashEmployeePassword, mergeServerAuthRows } from '@/lib/employeePassword'
 import type { TradePageId } from '@/lib/tradeAccess'
 
 type DirectoryRow = { id: string; name: string; role: string; roleLabel?: string }
@@ -103,7 +103,7 @@ export default function TradeLoginPage({
           await cacheEmployeesAuth(merged)
           void api.getEmployeesLocalAuth()
             .then(async full => {
-              await cacheEmployeesAuth(await Promise.all((full || []).map(r => authRowFromServer(r))))
+              await cacheEmployeesAuth(await mergeServerAuthRows(full || [], await readCachedEmployeesAuth()))
             })
             .catch(() => {})
         } catch (e) {
@@ -181,7 +181,7 @@ export default function TradeLoginPage({
         await cacheEmployeesAuth(next)
         void api.getEmployeesLocalAuth()
           .then(async full => {
-            await cacheEmployeesAuth(await Promise.all((full || []).map(r => authRowFromServer(r))))
+            await cacheEmployeesAuth(await mergeServerAuthRows(full || [], await readCachedEmployeesAuth()))
           })
           .catch(() => {})
       } catch (error) {

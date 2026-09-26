@@ -14,16 +14,12 @@ export async function hashEmployeePassword(password: string): Promise<string> {
   throw new Error('Нет WebCrypto')
 }
 
-export async function authRowFromServer(r: {
-  id: string
-  name?: string
-  role?: string
-  roleLabel?: string
-  permissions?: string[]
-  active?: boolean
-  password?: string
-  passwordHash?: string
-}): Promise<{
+/** Только SHA-256 кассы; bcrypt сервера ($2…) на кассе проверить нельзя. */
+export function isOfflinePasswordHash(hash: unknown): boolean {
+  return /^[0-9a-f]{64}$/i.test(String(hash || '').trim())
+}
+
+export type LocalAuthRow = {
   id: string
   name: string
   role: string
@@ -32,12 +28,25 @@ export async function authRowFromServer(r: {
   active: boolean
   password: string
   passwordHash: string
-}> {
-  const hashIn = String(r.passwordHash || '').trim()
+}
+
+export async function authRowFromServer(r: {
+  id: string
+  name?: string
+  role?: string
+  roleLabel?: string
+  permissions?: string[]
+  active?: boolean
+  password?: string
+  passwordHash?: string | null
+  offlinePinHash?: string | null
+}): Promise<LocalAuthRow> {
   const plain = String(r.password || '').trim()
-  const passwordHash = hashIn.length >= 32
-    ? hashIn
-    : (plain.length >= 4 ? await hashEmployeePassword(plain) : '')
+  const passwordHash = isOfflinePasswordHash(r.offlinePinHash)
+    ? String(r.offlinePinHash).trim().toLowerCase()
+    : isOfflinePasswordHash(r.passwordHash)
+      ? String(r.passwordHash).trim().toLowerCase()
+      : (plain.length >= 4 ? await hashEmployeePassword(plain) : '')
   return {
     id: String(r.id),
     name: String(r.name || ''),
@@ -50,6 +59,25 @@ export async function authRowFromServer(r: {
   }
 }
 
+/**
+ * Свежий список с сервера поверх кэша кассы: если сервер не дал проверяемый
+ * отпечаток, остаётся тот, что касса запомнила при прошлом входе.
+ */
+export async function mergeServerAuthRows(
+  serverRows: Parameters<typeof authRowFromServer>[0][],
+  prev: Array<{ id: string; passwordHash?: string }> | null | undefined,
+): Promise<LocalAuthRow[]> {
+  const prevById = new Map((prev || []).map(p => [String(p.id), p]))
+  return Promise.all((serverRows || []).map(async r => {
+    const row = await authRowFromServer(r)
+    if (!row.passwordHash) {
+      const old = prevById.get(row.id)
+      if (old && isOfflinePasswordHash(old.passwordHash)) row.passwordHash = String(old.passwordHash)
+    }
+    return row
+  }))
+}
+
 export async function employeePasswordMatches(
   typed: string,
   stored: { password?: string; passwordHash?: string },
@@ -57,8 +85,8 @@ export async function employeePasswordMatches(
   const pin = String(typed || '').trim()
   if (pin.length < 4) return false
   const hash = String(stored?.passwordHash || '').trim()
-  if (hash.length >= 32) {
-    return (await hashEmployeePassword(pin)) === hash
+  if (isOfflinePasswordHash(hash)) {
+    return (await hashEmployeePassword(pin)) === hash.toLowerCase()
   }
   const plain = String(stored?.password || '')
   return plain.length >= 4 && plain === pin

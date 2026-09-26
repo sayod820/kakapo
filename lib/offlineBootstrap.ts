@@ -10,7 +10,7 @@ function needsLocalInstall(): boolean {
   return isKakapoDesktop() || isTradeAndroidNative()
 }
 import { cacheEmployeesAuth, isOnline, persistPosSnapshot, readCachedEmployeesAuth, readCachedProducts } from './offline'
-import { authRowFromServer, hashEmployeePassword } from './employeePassword'
+import { mergeServerAuthRows, hashEmployeePassword } from './employeePassword'
 import { getApiUrl } from './config'
 import { api } from './api'
 
@@ -26,8 +26,8 @@ const STEPS: { id: BootstrapStepId; label: string }[] = [
 
 async function cacheEmployeesForOfflineLogin(): Promise<void> {
   const rows = await api.getEmployeesLocalAuth()
-  const mapped = await Promise.all((rows || []).map(r => authRowFromServer(r)))
-  const withPass = mapped.filter(r => r.active !== false && r.passwordHash.length >= 32)
+  const mapped = await mergeServerAuthRows(rows || [], await readCachedEmployeesAuth())
+  const withPass = mapped.filter(r => r.active !== false && r.passwordHash)
   if (!withPass.length) {
     throw new Error('Сервер не отдал данные для офлайн-входа')
   }
