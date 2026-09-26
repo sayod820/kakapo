@@ -38,7 +38,6 @@ function countLocalSalesForShift(sales, shiftId) {
   let n = 0
   for (const s of sales || []) {
     if (String(s?.shiftId || '').trim() !== sid) continue
-    if (String(s?.status || '') === 'returned') continue
     n += 1
   }
   return n
@@ -193,13 +192,34 @@ test('I other shift excluded from current', () => {
   expect(!saleInCurrentShift(sales[0], '6968'), 'no leak')
 })
 
-// J. returned sales not counted in gap local count
-test('J returned sales excluded from local count', () => {
+// J. returned sales count locally: server salesCount keeps kassa-side full returns
+test('J returned sales counted (server salesCount keeps kassa returns)', () => {
   const sales = [
     { id: '1', shiftId: '6968', status: 'ok' },
     { id: '2', shiftId: '6968', status: 'returned' },
   ]
-  expect(countLocalSalesForShift(sales, '6968') === 1, 'count')
+  expect(countLocalSalesForShift(sales, '6968') === 2, 'count')
+  expect(!/status \|\| ''\) === 'returned'\) continue/.test(repairSrc), 'lib counts returned too')
+})
+
+// J2. prod 26.09: closed shift 177 = 175 + 2 fully returned → no phantom gap
+test('J2 full returns do not create a phantom gap (prod 26.09)', () => {
+  const today = new Date()
+  const shifts = [{ id: 'SHIFT-mugfn7hb', status: 'closed', closedAtIso: today.toISOString(), salesCount: 177 }]
+  const sales = [
+    ...Array.from({ length: 175 }, (_, i) => ({ id: `S${i}`, shiftId: 'SHIFT-mugfn7hb' })),
+    { id: 'R1', shiftId: 'SHIFT-mugfn7hb', status: 'returned' },
+    { id: 'R2', shiftId: 'SHIFT-mugfn7hb', status: 'returned' },
+  ]
+  expect(detectPosSalesInboundGaps(shifts, sales, today.getTime()).length === 0, 'no gap')
+  expect(detectPosSalesInboundGaps(shifts, sales.slice(1), today.getTime())[0]?.missing === 1, 'real missing still found')
+})
+
+// J3. unfixed gap does not refetch the 14-day window on every pull
+test('J3 unfixed gap backs off before next full pos-lite', () => {
+  expect(/UNFIXED_GAP_RETRY_MS = 15 \* 60_000/.test(repairSrc), 'retry window')
+  expect(repairSrc.includes('sig === unfixedGapSig'), 'same gap skipped')
+  expect((repairSrc.match(/unfixedGapSig = gapSignature/g) || []).length >= 2, 'set after empty and after merge')
 })
 
 // K/L. repair must not touch stock/loyalty/outbox

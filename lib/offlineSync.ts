@@ -90,6 +90,9 @@ const POLL_BUSY_MS = 12000
 const STUCK_COOLDOWN_MS = 45000
 /** Входящие дельты из syncNow (без очереди) — не чаще */
 const INBOUND_PULL_MIN_MS = 30000
+/** Layer changes arrive in /sync/changes; the full list (~50 KB + catalog rewrite) is only a backstop. */
+const LAYERS_BACKSTOP_MS = 10 * 60 * 1000
+let lastLayersBackstopAt = 0
 const BACKOFF_MS = [2500, 4000, 7000, 12000, 20000, 30000, 45000]
 /** syncNow не должен вечно держать «чёрный круг» */
 const SYNC_WATCHDOG_MS = 55000
@@ -458,10 +461,10 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
           } catch {
             try { await refetchEverything() } catch { /* следующий цикл */ }
           }
-          if (get().pending === 0) {
+          if (get().pending === 0 && Date.now() - lastLayersBackstopAt >= LAYERS_BACKSTOP_MS) {
             try {
               const { pullStockLayersFromServer } = await import('./stockLayersLocal')
-              await pullStockLayersFromServer({ bumpProducts: true })
+              if (await pullStockLayersFromServer({ bumpProducts: true })) lastLayersBackstopAt = Date.now()
             } catch { /* ignore */ }
           }
           try { await markLocalSyncAt() } catch { /* ignore */ }

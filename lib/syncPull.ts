@@ -175,9 +175,16 @@ async function doPullSyncChanges(opts?: {
           perfCount('products_array_replace', 1, 'syncPull.products', { catalogSize: merged.length })
         }
         await cacheProducts(merged)
+        const fullCatalog = !!opts?.forceFull || !!delta.full
+        const touched = fullCatalog
+          ? null
+          : new Set([
+            ...(delta.products || []).map((p: any) => String(p?.id ?? '')),
+            ...stockTouched,
+          ].map(String))
         await entityUpsertMany(
           'product',
-          merged.map(p => ({
+          (touched ? merged.filter(p => touched.has(String(p.id))) : merged).map(p => ({
             id: p.id,
             data: p,
             updatedAtIso: String((p as any).updatedAtIso || (p as any).updatedAt || delta.cursor),

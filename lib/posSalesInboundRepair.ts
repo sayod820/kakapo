@@ -36,7 +36,11 @@ export type PosSalesInboundTrace = {
   reason: string
 }
 
-/** Count non-fully-returned sales for a shift (matches shift.salesCount intent). */
+/**
+ * All local receipts of the shift, returned included: server shift.salesCount
+ * drops a fully returned sale only for returns it applied itself (open shift,
+ * not from a kassa), so it is an upper bound only when returns are counted.
+ */
 export function countLocalSalesForShift(
   sales: PosSale[] | undefined,
   shiftId: string,
@@ -46,10 +50,13 @@ export function countLocalSalesForShift(
   let n = 0
   for (const s of sales || []) {
     if (String(s?.shiftId || '').trim() !== sid) continue
-    if (String(s?.status || '') === 'returned') continue
     n += 1
   }
   return n
+}
+
+function gapSignature(gaps: PosSalesInboundGap[]): string {
+  return gaps.map(g => `${g.shiftId}:${g.shiftSalesCount}:${g.localSalesCount}`).sort().join('|')
 }
 
 /**
@@ -116,6 +123,10 @@ export function filterSalesForGapRepair(
 let repairInFlight: Promise<PosSalesInboundTrace | null> | null = null
 let lastRepairAt = 0
 const REPAIR_MIN_GAP_MS = 12_000
+/** Full 14-day pos-lite is ~0.5 MB; a gap the server can't fill must not refetch it every pull. */
+const UNFIXED_GAP_RETRY_MS = 15 * 60_000
+let unfixedGapSig = ''
+let unfixedGapAt = 0
 
 export type RepairPosSalesInboundOpts = {
   reason?: string
@@ -161,6 +172,11 @@ export async function repairPosSalesInboundFromServer(
       trace.gaps_after = []
       return trace
     }
+    const sig = gapSignature(gaps)
+    if (!force && sig === unfixedGapSig && Date.now() - unfixedGapAt < UNFIXED_GAP_RETRY_MS) {
+      trace.gaps_after = gaps
+      return trace
+    }
 
     try {
       // Full pos-lite (since='') → ~14 days of sales; does not require cursor rewind
@@ -177,6 +193,9 @@ export async function repairPosSalesInboundFromServer(
       const toMerge = filtered.length ? filtered : remoteSales
       if (!toMerge.length) {
         trace.gaps_after = detectPosSalesInboundGaps(before.shifts, before.sales)
+        lastRepairAt = Date.now()
+        unfixedGapSig = gapSignature(trace.gaps_after)
+        unfixedGapAt = lastRepairAt
         return trace
       }
 
@@ -220,6 +239,12 @@ export async function repairPosSalesInboundFromServer(
       } catch { /* ignore */ }
 
       lastRepairAt = Date.now()
+      if (trace.gaps_after.length) {
+        unfixedGapSig = gapSignature(trace.gaps_after)
+        unfixedGapAt = lastRepairAt
+      } else {
+        unfixedGapSig = ''
+      }
       return trace
     } catch {
       trace.gaps_after = detectPosSalesInboundGaps(
