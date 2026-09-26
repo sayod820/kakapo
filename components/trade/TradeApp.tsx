@@ -21,7 +21,6 @@ import TradeLoginPage from '@/components/trade/TradeLoginPage'
 import TradeDeviceGate from '@/components/trade/TradeDeviceGate'
 import LocalDbBootstrap from '@/components/trade/LocalDbBootstrap'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
-import RecoveryModeBanner from '@/components/trade/RecoveryModeBanner'
 import MobileBarcodeScanner from '@/components/shared/MobileBarcodeScanner'
 import {
   getKakapoDesktop,
@@ -3468,7 +3467,6 @@ function TradeAppInner({
   return (
     <div className={`k-trade ${posFullscreen ? 'pos-fs' : ''}`} data-theme={theme}>
       <style>{CSS}</style>
-      <RecoveryModeBanner />
 
       {!posFullscreen && (
         <>
@@ -3734,19 +3732,8 @@ function TradeAppGate() {
       m.ensureDesktopLocalFirst()
       void m.ensureBrowserOnlineOnly()
     }).catch(() => {})
-    // PC-1A/PC-5: recovery gate MUST be ready; auto-recovery runs before sync.start
-    void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
-      await ensureRecoveryGateReady()
-      await hydrateOfflineCaches()
-      try {
-        const { maybeRunAutomaticDesktopRecovery } = await import('@/lib/desktopRecoveryOrchestrator')
-        await maybeRunAutomaticDesktopRecovery()
-      } catch { /* keep fail-closed recoveryMode if orchestrator throws */ }
+    void hydrateOfflineCaches().catch(() => {}).then(() => {
       useOfflineSync.getState().start()
-    }).catch(() => {
-      void hydrateOfflineCaches().then(() => {
-        useOfflineSync.getState().start()
-      })
     })
     setSession(loadTradeEmployeeSession())
     setTheme(loadTradeTheme())
@@ -3757,15 +3744,9 @@ function TradeAppGate() {
       void isLocalBootstrapComplete().then(done => {
         setLocalDbReady(done)
         if (done) {
-          void import('@/lib/desktopRecovery').then(async ({ ensureRecoveryGateReady }) => {
-            await ensureRecoveryGateReady()
-            try {
-              const { maybeRunAutomaticDesktopRecovery } = await import('@/lib/desktopRecoveryOrchestrator')
-              await maybeRunAutomaticDesktopRecovery()
-            } catch { /* keep recovery fail-closed */ }
-            const { silentSyncFromServer } = await import('@/lib/offlineBootstrap')
-            await silentSyncFromServer()
-          }).catch(() => {})
+          void import('@/lib/offlineBootstrap')
+            .then(({ silentSyncFromServer }) => silentSyncFromServer())
+            .catch(() => {})
         }
       }).catch(() => {
         // Не открываем кассу «вслепую» — показываем экран первой загрузки

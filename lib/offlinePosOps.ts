@@ -23,9 +23,6 @@ import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 import { pickActiveOpenShift } from './shiftReconcile'
-import { isRecoveryModeActive } from './desktopRecovery'
-import { pickSaleTargetShift, isRecoveryShiftId } from './desktopRecoveryEngineCore.mjs'
-import { allowLocalBusinessMutation } from './desktopRecoveryExecutorCore.mjs'
 
 /**
  * Sticky clientRef for one logical money attempt (browser timeout-after-commit).
@@ -148,28 +145,9 @@ export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'sa
   )
 }
 
-/** Открытая смена: серверная побеждает offline off-* при том же POS/кассире.
- * PC-2 recovery: never sell on server-closed ghost SHIFT-*; prefer off-recovery-*.
- */
+/** Открытая смена: серверная побеждает offline off-* при том же POS/кассире. */
 export function resolveOpenShift(posId?: string, cashierId?: string): PosShift | undefined {
   const shifts = usePosStore.getState().shifts
-  if (isRecoveryModeActive()) {
-    const recoveryOpen = shifts.find(s =>
-      String(s.status) === 'open' && isRecoveryShiftId(s.id))
-    if (recoveryOpen) return recoveryOpen
-    // During recovery, block attaching to non-off SHIFT-* ghosts (treat as closed for new sales)
-    const ghostIds = new Set(
-      shifts
-        .filter(s => String(s.status) === 'open' && !String(s.id).startsWith('off-'))
-        .map(s => String(s.id)),
-    )
-    const picked = pickSaleTargetShift(shifts, {
-      serverClosedIds: ghostIds,
-      recoveryShiftId: recoveryOpen?.id,
-    })
-    return (picked as PosShift | null) || undefined
-  }
-
   return pickActiveOpenShift(shifts, {
     posId: String(posId || '').trim() || undefined,
     cashierId: String(cashierId || '').trim() || undefined,
@@ -2767,57 +2745,6 @@ export async function createSaleSafe(
 async function createSaleSafeInner(
   input: CreateSaleSafeInput,
 ): Promise<OfflineResult<PosSale & { orderId?: string; _offline?: boolean }>> {
-  // PC-3: RECOVERY_REPLAY freeze — block NEW business mutations during final drain
-  if (isRecoveryModeActive()) {
-    try {
-      const { getRecoveryPhase } = await import('./desktopRecoveryExecutor')
-      const phase = await getRecoveryPhase()
-      if (!allowLocalBusinessMutation(phase)) {
-        throw new Error('RECOVERY_REPLAY_FREEZE: новые продажи временно заблокированы до завершения восстановления')
-      }
-    } catch (e) {
-      if (e instanceof Error && /RECOVERY_REPLAY_FREEZE/.test(e.message)) throw e
-      /* if phase unreadable, allow PREPARE-safe path below */
-    }
-  }
-
-  // PC-2: while recoveryMode, ensure a dedicated off-recovery-* shift exists and is used
-  if (isRecoveryModeActive()) {
-    try {
-      const { ensureLocalRecoveryShift, createRecoverySession, recoveryShiftId } = await import('./desktopRecoveryEngineCore.mjs')
-      const meta = usePosStore.getState()
-      let sessionId = ''
-      try {
-        const desk = (await import('./desktopBridge')).getKakapoDesktop()
-        const m = desk?.localDbMetaGet ? await desk.localDbMetaGet() : {}
-        sessionId = String((m as any)?.recoverySessionId || '')
-      } catch { /* ignore */ }
-      if (!sessionId) {
-        sessionId = `live-${Date.now().toString(36)}`
-        try {
-          const desk = (await import('./desktopBridge')).getKakapoDesktop()
-          await desk?.localDbMetaPatch?.({ recoverySessionId: sessionId })
-        } catch { /* ignore */ }
-      }
-      const session = createRecoverySession({ sessionId })
-      const ensured = ensureLocalRecoveryShift(meta.shifts, session, {
-        posId: String(input.salePayload?.posId || ''),
-        cashierId: String(input.salePayload?.cashierId || ''),
-        cashierName: String(input.salePayload?.cashierName || 'Recovery'),
-      })
-      if (ensured.created) {
-        usePosStore.setState(s => ({ shifts: ensured.shifts as typeof s.shifts }))
-        void persistPosSnapshot()
-      }
-      // Force sale onto recovery shift (do not use ghost)
-      const rid = recoveryShiftId(sessionId)
-      if (input.salePayload && typeof input.salePayload === 'object') {
-        ;(input.salePayload as any).shiftId = rid
-      }
-      input.shiftId = rid
-    } catch { /* best-effort — resolveOpenShift still blocks ghosts */ }
-  }
-
   const cashPaid = round2(input.cashPaid)
   const cardPaid = round2(input.cardPaid)
   const debtAdded = round2(input.debtAdded)

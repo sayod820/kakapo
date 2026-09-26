@@ -186,20 +186,14 @@ test('T7j offline receipt not rejected by cashier mismatch; online still is', as
   expect(sale.shiftId === 'SHIFT-now' && sale.cashierId === 'CASHIER-A', 'offline receipt accepted, cashier kept')
 })
 
-test('T7f SHIFT_CLOSED / off- shift sales no longer arm desktop recovery; stale arm auto-exits', async () => {
-  const orch = await import('../lib/desktopRecoveryOrchestratorCore.mjs')
-  const queue = [
-    { clientRef: 'a', kind: 'sale', failed: true, lastError: 'SHIFT_CLOSED: Смена уже закрыта', payload: { shiftId: 'SHIFT-23' } },
-    { clientRef: 'b', kind: 'sale', failed: false, lastError: '', payload: { shiftId: 'off-shift-1' } },
-  ]
-  const d = orch.detectRecoveryNeed({ queue, meta: {}, appVersion: '2', previousAppVersion: '1' })
-  expect(!d.need, JSON.stringify(d.reasons))
-  expect(orch.canAutoExitStaleRecovery({ queue, meta: { recoveryMode: true, recoverySession: { status: 'CLASSIFIED', phase: 'RECOVERY_PREPARE' } } }).ok, 'stale exits')
-  expect(orch.canAutoExitStaleRecovery({ queue, meta: { recoverySession: { remappedClientRefs: ['a'], targetServerShiftId: 'SHIFT-R' } } }).ok, 'half-run session exits too')
-  expect(!orch.canAutoExitStaleRecovery({ queue: null, meta: {} }).ok, 'unreadable queue stays')
-  const o = read('lib/desktopRecoveryOrchestrator.ts')
-  expect(o.includes('canAutoExitStaleRecovery') && !o.includes('ackPending'), 'orchestrator wired')
-  expect(o.includes('if (detect.need) {'), 'exit on any detected need')
+test('T7f no desktop recovery mode: queue never blocked, sales stay on their real shift', () => {
+  const sync = read('lib/offlineSync.ts')
+  const posOps = read('lib/offlinePosOps.ts')
+  const trade = read('components/trade/TradeApp.tsx')
+  for (const [name, src] of [['offline', offline], ['offlineSync', sync], ['offlinePosOps', posOps], ['TradeApp', trade]]) {
+    expect(!/desktopRecovery|RecoveryModeBanner|off-recovery/.test(src), `${name} has no recovery hooks`)
+  }
+  expect(!fs.existsSync(path.join(root, 'lib/desktopRecovery.ts')), 'recovery module removed')
 })
 
 test('T7i parked shift/idempotency sales auto-retry; server-held clientRef acks', () => {

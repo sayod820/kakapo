@@ -26,12 +26,6 @@ export type DeviceHeartbeatContext = {
 
 export async function sendDeviceHeartbeat(ctx?: DeviceHeartbeatContext): Promise<void> {
   if (!USE_API || typeof window === 'undefined') return
-  try {
-    const { assertSyncAllowed } = await import('./desktopRecovery')
-    const gate = await assertSyncAllowed('sendDeviceHeartbeat')
-    if (!gate.allowed) return
-  } catch { /* continue */ }
-
   const now = Date.now()
   if (!ctx?.force && now - lastSentAt < MIN_INTERVAL_MS) return
   if (inflight) return inflight

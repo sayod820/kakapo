@@ -396,11 +396,6 @@ let posSoftSyncDirtyForce = false
 const POS_SOFT_MIN_GAP_MS = 4000
 
 export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
-  try {
-    const { assertSyncAllowed } = await import('./desktopRecovery')
-    const gate = await assertSyncAllowed('softSyncPosAfterSale')
-    if (!gate.allowed) return
-  } catch { /* continue */ }
   const wantForce = !!opts?.force
   if (posSoftSyncInFlight) {
     // Снимок GET уже ушёл — после него нужен ещё один pull, иначе чек с браузера не приедет
@@ -771,11 +766,6 @@ async function persistSoftPosSnapshot() {
 let warehouseSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncWarehouse(opts?: { expiryDays?: number }) {
-  try {
-    const { assertSyncAllowed } = await import('./desktopRecovery')
-    const gate = await assertSyncAllowed('softSyncWarehouse')
-    if (!gate.allowed) return
-  } catch { /* continue */ }
   if (warehouseSoftSyncInFlight) return warehouseSoftSyncInFlight
   try {
     const { perfSoftSync } = await import('./devTelemetry')
@@ -852,11 +842,6 @@ export async function softSyncExpiry(opts?: { expiryDays?: number; force?: boole
 let financeSoftSyncInFlight: Promise<void> | null = null
 
 export async function softSyncFinance() {
-  try {
-    const { assertSyncAllowed } = await import('./desktopRecovery')
-    const gate = await assertSyncAllowed('softSyncFinance')
-    if (!gate.allowed) return
-  } catch { /* continue */ }
   if (financeSoftSyncInFlight) return financeSoftSyncInFlight
   try {
     const { perfSoftSync } = await import('./devTelemetry')
