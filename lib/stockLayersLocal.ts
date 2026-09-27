@@ -186,6 +186,7 @@ export async function pullStockLayersFromServer(opts?: {
     const { api } = await import('./api')
     const remote = (await api.getAllStockLayers()) || []
     const next = remote
+    lastFullLayersPullAt = Date.now()
     await cacheStockLayers(next)
     if (opts?.bumpProducts !== false) {
       await bumpProductCatalogFromLayers(next)
@@ -199,6 +200,17 @@ export async function pullStockLayersFromServer(opts?: {
   } catch {
     return null
   }
+}
+
+let lastFullLayersPullAt = 0
+
+/**
+ * Полный GET партий, только если прошлый был давнее maxAgeMs.
+ * Изменения партий (продажа/возврат/приход) приходят v2-дельтой /sync/changes.
+ */
+export async function pullStockLayersIfStale(maxAgeMs: number): Promise<ProductStockLayer[] | null> {
+  if (Date.now() - lastFullLayersPullAt < maxAgeMs) return null
+  return pullStockLayersFromServer({ bumpProducts: true })
 }
 
 function notifyStockLayersChanged(count: number) {

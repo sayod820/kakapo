@@ -36,6 +36,7 @@ export type SyncPullResult = {
 let pullInFlight: Promise<SyncPullResult> | null = null
 /** v1-страховка: первый pull сессии и раз в V1_BACKSTOP_MS идут по времени. */
 let lastV1PullAt = 0
+const V1_LAYERS_MAX_AGE_MS = 5 * 60_000
 
 export async function pullSyncChanges(opts?: {
   forceFull?: boolean
@@ -499,6 +500,12 @@ async function doPullSyncChanges(opts?: {
     if (inbound.mode !== 'v2' && delta.cursor) await setSyncCursor(delta.cursor)
     if (inbound.mode !== 'v2') lastV1PullAt = Date.now()
     if (inbound.v2Cursor != null) await setChangeSeqCursor(inbound.v2Cursor)
+    // v1-дельта (не полная) не несёт партий — догоняем отдельным GET
+    if (inbound.mode === 'v1') {
+      void import('./stockLayersLocal')
+        .then(m => m.pullStockLayersIfStale(V1_LAYERS_MAX_AGE_MS))
+        .catch(() => {})
+    }
     // НЕ копируем main→lite: main часто уезжает вперёд из‑за товаров и softSync теряет чеки.
     // Lite курсор двигает только softSyncPosAfterSale (pos-lite).
     try {

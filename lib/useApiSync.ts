@@ -132,6 +132,11 @@ export function useApiSync(mode: SyncMode = 'all') {
         })
         return
       }
+      // Продажа/возврат: остатки и партии приходят дельтой — не качаем весь каталог
+      if (mode === 'pos' && /^sale/i.test(reason)) {
+        pull.pos()
+        return
+      }
       // Неполное WS-сообщение — редкий repair
       pull.products()
       return

@@ -389,6 +389,8 @@ function softListSig(rows: {
 let posSoftSyncInFlight: Promise<void> | null = null
 let posSoftSyncLastAt = 0
 let lastOpenShiftProbeAt = 0
+/** Полный GET /pos/shifts ловит закрытие смены, пропущенное дельтой; закрытие также идёт WS/дельтой. */
+const OPEN_SHIFT_PROBE_MS = 5 * 60_000
 /** Пока идёт GET — новый вызов (WS / браузер→ПК) не должен теряться */
 let posSoftSyncDirty = false
 let posSoftSyncDirtyForce = false
@@ -574,7 +576,7 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
       if (
         usedDelta
         && localShifts.some(sh => sh.status === 'open' && !String(sh.id || '').startsWith('off-'))
-        && Date.now() - lastOpenShiftProbeAt > 60_000
+        && Date.now() - lastOpenShiftProbeAt > OPEN_SHIFT_PROBE_MS
       ) {
         lastOpenShiftProbeAt = Date.now()
         try {
