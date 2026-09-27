@@ -211,6 +211,28 @@ export function revokeSession(token) {
   sessionBackend?.remove(hash)
 }
 
+/** Отозвать все ключи устройства (отвязка, удаление точки, перевыдача). */
+export function revokeDeviceSessions(deviceId) {
+  const id = String(deviceId || '').trim()
+  if (!id) return 0
+  let n = 0
+  for (const [hash, s] of sessions) {
+    if (s.principal !== 'DEVICE' || String(s.deviceId || '') !== id) continue
+    sessions.delete(hash)
+    sessionBackend?.remove(hash)
+    n++
+  }
+  return n
+}
+
+/** Постоянный ключ кассы: один живой на устройство, прежний отзывается. */
+export function issueDeviceSession({ deviceId, name } = {}) {
+  const id = String(deviceId || '').trim()
+  if (!id) throw new Error('issueDeviceSession requires deviceId')
+  revokeDeviceSessions(id)
+  return createSession({ principal: 'DEVICE', subjectId: id, deviceId: id, name: name || '', roles: ['device'] })
+}
+
 export function getSession(token) {
   if (!token) return null
   pruneExpiredSessions()
@@ -358,6 +380,16 @@ export function createAuthMiddleware(matchPolicy, opts = {}) {
   return function apiAuthMiddleware(req, res, next) {
     try {
       attachAuth(req)
+      if (req.auth?.principal === 'DEVICE' && typeof opts.upgradeDeviceAuth === 'function') {
+        const up = opts.upgradeDeviceAuth(req)
+        if (up && up.ok === false) {
+          if (up.revoke && req.authToken) revokeSession(req.authToken)
+          return res.status(up.status || 401).json({
+            detail: up.detail || 'Ключ устройства недействителен',
+            code: up.code || 'AUTH_DEVICE_REVOKED',
+          })
+        }
+      }
       const path = String(req.path || req.url || '').split('?')[0]
       const method = String(req.method || 'GET').toUpperCase()
       // Skip static update assets
@@ -399,7 +431,8 @@ export function createAuthMiddleware(matchPolicy, opts = {}) {
       if (typeof opts.refreshStaffAuth === 'function' && req.auth) {
         const refreshed = opts.refreshStaffAuth(req)
         if (refreshed && refreshed.ok === false) {
-          if (req.authToken) revokeSession(req.authToken)
+          // Ключ устройства не принадлежит сотруднику — его не отзываем
+          if (req.authToken && !req.auth.deviceAuth) revokeSession(req.authToken)
           return res.status(refreshed.status || 401).json({
             detail: refreshed.detail || 'Сессия сотрудника недействительна',
             code: refreshed.code || 'AUTH_STAFF_REVOKED',

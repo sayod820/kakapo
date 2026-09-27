@@ -9,6 +9,8 @@ const LS_DEVICE = 'kakapo_trade_device_id'
 const LS_BIND = 'kakapo_trade_device_bind'
 const KV_DEVICE = 'trade_device_id'
 const KV_BIND = 'trade_device_bind'
+const LS_TOKEN = 'kakapo_trade_device_token'
+const KV_TOKEN = 'trade_device_token'
 
 export type TradeDeviceBind = {
   deviceId: string
@@ -20,6 +22,7 @@ export type TradeDeviceBind = {
 
 let deviceIdMem = ''
 let bindMem: TradeDeviceBind | null | undefined
+let tokenMem = ''
 let ready: Promise<void> | null = null
 
 function newId(): string {
@@ -95,6 +98,18 @@ export function ensureTradeDeviceReady(): Promise<void> {
     if (bind && files) {
       try { await files.kvSet(KV_BIND, bind) } catch { /* ignore */ }
     }
+
+    let token = ''
+    if (isKakapoDesktop() && desk?.localDbKvGet) {
+      try { token = String((await desk.localDbKvGet(KV_TOKEN)) || '') } catch { /* ignore */ }
+    }
+    if (!token && files) {
+      try { token = String((await files.kvGet(KV_TOKEN)) || '') } catch { /* ignore */ }
+    }
+    if (!token) token = readLs(LS_TOKEN)
+    if (!bind) token = ''
+    tokenMem = token
+    if (token) writeLs(LS_TOKEN, token)
   })()
   return ready
 }
@@ -136,16 +151,55 @@ export async function saveTradeDeviceBind(bind: TradeDeviceBind): Promise<void> 
 
 export async function clearTradeDeviceBind(): Promise<void> {
   bindMem = null
+  tokenMem = ''
   if (typeof window !== 'undefined') {
     try { localStorage.removeItem(LS_BIND) } catch { /* ignore */ }
+    try { localStorage.removeItem(LS_TOKEN) } catch { /* ignore */ }
   }
   const desk = getKakapoDesktop()
   if (isKakapoDesktop() && desk?.localDbKvDelete) {
     try { await desk.localDbKvDelete(KV_BIND) } catch { /* ignore */ }
+    try { await desk.localDbKvDelete(KV_TOKEN) } catch { /* ignore */ }
   }
   const files = androidPersist()
   if (files) {
     try { await files.kvDelete(KV_BIND) } catch { /* ignore */ }
+    try { await files.kvDelete(KV_TOKEN) } catch { /* ignore */ }
+  }
+}
+
+/** Постоянный ключ кассы от сервера (Bearer, когда нет пропуска сотрудника; всегда для WS). */
+export function getTradeDeviceTokenSync(): string {
+  return tokenMem || readLs(LS_TOKEN)
+}
+
+export async function saveTradeDeviceToken(token: string): Promise<void> {
+  const t = String(token || '').trim()
+  if (!t || t === tokenMem) return
+  tokenMem = t
+  writeLs(LS_TOKEN, t)
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbKvSet) {
+    try { await desk.localDbKvSet(KV_TOKEN, t) } catch { /* ignore */ }
+  }
+  const files = androidPersist()
+  if (files) {
+    try { await files.kvSet(KV_TOKEN, t) } catch { /* ignore */ }
+  }
+}
+
+export async function clearTradeDeviceToken(): Promise<void> {
+  tokenMem = ''
+  if (typeof window !== 'undefined') {
+    try { localStorage.removeItem(LS_TOKEN) } catch { /* ignore */ }
+  }
+  const desk = getKakapoDesktop()
+  if (isKakapoDesktop() && desk?.localDbKvDelete) {
+    try { await desk.localDbKvDelete(KV_TOKEN) } catch { /* ignore */ }
+  }
+  const files = androidPersist()
+  if (files) {
+    try { await files.kvDelete(KV_TOKEN) } catch { /* ignore */ }
   }
 }
 

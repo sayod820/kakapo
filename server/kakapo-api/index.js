@@ -107,6 +107,9 @@ import {
   isProductionRuntime,
   authSubjectKey,
   revokeSession,
+  revokeDeviceSessions,
+  issueDeviceSession,
+  getSession,
   parseBearer,
   resolveWsAuth,
   isWsStaffRole,
@@ -230,6 +233,7 @@ import {
   updatePosDevice,
   setRevisionCoordinator,
   checkPosDevice,
+  isPosDeviceBound,
   listPosShifts,
   openPosShift,
   closePosShift,
@@ -795,6 +799,46 @@ app.use(cors({
 }))
 app.use(express.json({ limit: '2mb' }))
 app.use(createAuthMiddleware(matchRoutePolicy, {
+  /**
+   * Ключ кассы (DEVICE) + активный сотрудник из x-kakapo-employee-id → права этого сотрудника.
+   * Без сотрудника остаётся DEVICE (WS, маршруты устройства). Отвязанная касса — ключ отзывается.
+   */
+  upgradeDeviceAuth(req) {
+    const auth = req.auth
+    const deviceId = String(auth.deviceId || auth.subjectId || '').trim()
+    if (!isPosDeviceBound(db, deviceId)) {
+      return { ok: false, status: 401, detail: 'Устройство отвязано', code: 'AUTH_DEVICE_REVOKED', revoke: true }
+    }
+    const decodeHdr = (v) => {
+      try { return decodeURIComponent(String(v || '')) } catch { return String(v || '') }
+    }
+    const hdrDevice = decodeHdr(req.headers['x-kakapo-device-id']).trim()
+    if (hdrDevice && hdrDevice !== deviceId) {
+      return { ok: false, status: 403, detail: 'Ключ от другого устройства', code: 'AUTH_DEVICE_MISMATCH' }
+    }
+    const employeeId = decodeHdr(req.headers['x-kakapo-employee-id']).trim()
+    if (!employeeId) return { ok: true }
+    const emp = (db.employees || []).find((e) => String(e.id) === employeeId)
+    if (!emp || emp.active === false) {
+      return { ok: false, status: 401, detail: 'Сотрудник заблокирован', code: 'AUTH_STAFF_DISABLED' }
+    }
+    const perms = Array.isArray(emp.permissions) ? emp.permissions.map(String) : []
+    req.auth = {
+      token: auth.token,
+      principal: String(emp.role || '') === 'cashier' ? 'CASHIER' : 'STAFF',
+      subjectId: String(emp.id),
+      roles: [String(emp.role || 'staff')],
+      permissions: perms,
+      caps: capsFromTradePermissions(perms),
+      deviceId,
+      phone: '',
+      name: emp.name || '',
+      createdAtMs: auth.createdAtMs,
+      expiresAtMs: auth.expiresAtMs,
+      deviceAuth: true,
+    }
+    return { ok: true }
+  },
   refreshStaffAuth(req) {
     const auth = req.auth
     if (!auth || auth.labAuto) return { ok: true }
@@ -1575,7 +1619,8 @@ app.post('/auth/login', (req, res) => {
 app.post('/auth/logout', (req, res) => {
   const token = parseBearer(req)
   if (!token) return res.status(401).json({ detail: 'Требуется авторизация', code: 'AUTH_REQUIRED' })
-  revokeSession(token)
+  // Выход сотрудника не отзывает ключ кассы — только отвязка в админке
+  if (getSession(token)?.principal !== 'DEVICE') revokeSession(token)
   res.json({ ok: true })
 })
 app.get('/auth/admin', (_req, res) => {
@@ -3286,6 +3331,7 @@ app.post('/employees/login', (req, res) => {
       ...safe,
       token: session.token,
       access_token: session.token,
+      ...deviceTokenFields(deviceId),
     })
   } catch (e) {
     res.status(401).json({ detail: e?.message || 'Ошибка входа' })
@@ -3334,7 +3380,9 @@ app.patch('/pos/points/:id', (req, res) => {
 })
 app.delete('/pos/points/:id', (req, res) => {
   try {
+    const deviceIds = ((db.posPoints || []).find(p => p.id === req.params.id)?.devices || []).map(d => String(d.id))
     const row = deletePosPoint(db, req.params.id)
+    for (const id of deviceIds) revokeDeviceSessions(id)
     persist()
     broadcastPosUpdate({ kind: 'pos', id: row.id, deleted: true })
     res.json(row)
@@ -3357,6 +3405,7 @@ app.delete('/pos/points/:id/devices/:deviceId', (req, res) => {
   try {
     const deviceId = String(req.params.deviceId || '').trim()
     const row = unbindPosDevice(db, req.params.id, deviceId)
+    revokeDeviceSessions(deviceId)
     persist()
     broadcastPosUpdate({ kind: 'device-unbind', id: row.id, posId: row.id, deviceId })
     res.json(row)
@@ -3398,6 +3447,18 @@ app.get('/pos/devices/status', (_req, res) => {
   }
 })
 
+/** Выдать кассе постоянный ключ (привязка кодом или вход сотрудника на привязанном устройстве). */
+function deviceTokenFields(deviceId) {
+  const id = String(deviceId || '').trim()
+  if (!id || !isPosDeviceBound(db, id)) return {}
+  try {
+    return { deviceToken: issueDeviceSession({ deviceId: id }).token }
+  } catch (e) {
+    console.warn('[apiAuth] device token issue failed', e?.message || e)
+    return {}
+  }
+}
+
 app.post('/pos/devices/bind', async (req, res) => {
   try {
     const clientRef = takeClientRef(req)
@@ -3418,12 +3479,13 @@ app.post('/pos/devices/bind', async (req, res) => {
         mutate: () => mutateBindDevice(db, body),
       })
       if (!replay && row?.point?.id) broadcastPosUpdate({ kind: 'pos', id: row.point.id })
-      return finishDurableMasterJson(res, row, replay)
+      // Ключ только в ответе — в сохранённый результат операции он не попадает
+      return finishDurableMasterJson(res, { ...row, ...deviceTokenFields(deviceId) }, replay)
     }
     const row = bindPosDevice(db, body)
     persist()
     if (row?.point?.id) broadcastPosUpdate({ kind: 'pos', id: row.point.id })
-    res.json(row)
+    res.json({ ...row, ...deviceTokenFields(deviceId) })
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось привязать устройство' })
   }

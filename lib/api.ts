@@ -34,7 +34,7 @@ import type { AdminAssembler } from './assemblerTeam'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
 import { getApiUrl } from './config'
-import { getTradeDeviceIdSync } from './tradeDevice'
+import { clearTradeDeviceToken, getTradeDeviceIdSync, getTradeDeviceTokenSync, saveTradeDeviceToken } from './tradeDevice'
 import { noteApiFail, noteApiOk, recentlyApiOk, shouldSkipFetchAsOffline } from './apiReachability'
 import { isTradeLocalFirst } from './offlineV2'
 
@@ -88,6 +88,9 @@ export const getToken = (): string | null => {
     try {
       const path = window.location.pathname || ''
       if (path.includes('/trade') || path.includes('/pos')) {
+        // Ключ кассы не истекает через 12 ч; сотрудника сервер берёт из x-kakapo-employee-id
+        const deviceToken = getTradeDeviceTokenSync()
+        if (deviceToken) return deviceToken
         const raw = localStorage.getItem('kakapo_trade_employee_session')
         if (raw) {
           const s = JSON.parse(raw) as { token?: string }
@@ -353,6 +356,10 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
       const c = body?.code
       if (typeof c === 'string' && c.trim()) err.code = c.trim()
     } catch { /* non-JSON body */ }
+    if (err.code === 'AUTH_DEVICE_REVOKED' || err.code === 'AUTH_DEVICE_MISMATCH' || err.code === 'AUTH_DEVICE_UNBOUND') {
+      void clearTradeDeviceToken()
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('kakapo:device-revoked'))
+    }
     throw err
   }
   noteApiOk()
@@ -1139,11 +1146,14 @@ export const api = {
   }),
   deleteEmployee: (id: string) =>
     request<{ id: string }>(`/employees/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  loginEmployee: (data: { id?: string; name?: string; password: string }) =>
-    request<import('./types').TradeEmployee & { token: string }>('/employees/login', {
+  loginEmployee: async (data: { id?: string; name?: string; password: string }) => {
+    const row = await request<import('./types').TradeEmployee & { token: string; deviceToken?: string }>('/employees/login', {
       method: 'POST',
       body: JSON.stringify({ ...data, deviceId: getTradeDeviceIdSync() }),
-    }),
+    })
+    if (row?.deviceToken) await saveTradeDeviceToken(row.deviceToken)
+    return row
+  },
 
   // ── POS / склад ──
   getCashiers: () => request<PosCashier[]>('/cashiers'),
@@ -1182,11 +1192,15 @@ export const api = {
       `/pos/points/${encodeURIComponent(posId)}/devices/${encodeURIComponent(deviceId)}`,
       { method: 'PATCH', body: JSON.stringify(data) },
     ),
-  bindPosDevice: (data: { code: string; deviceId: string; deviceName?: string; clientRef?: string }) =>
-    request<{
+  bindPosDevice: async (data: { code: string; deviceId: string; deviceName?: string; clientRef?: string }) => {
+    const res = await request<{
       point: PosPoint
       device: { id: string; name: string; boundAtIso: string }
-    }>('/pos/devices/bind', { method: 'POST', body: JSON.stringify(data) }),
+      deviceToken?: string
+    }>('/pos/devices/bind', { method: 'POST', body: JSON.stringify(data) })
+    if (res?.deviceToken) await saveTradeDeviceToken(res.deviceToken)
+    return res
+  },
   checkPosDevice: (deviceId: string) =>
     request<{ ok: boolean; point?: PosPoint; device?: { id: string; name: string } }>(
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,

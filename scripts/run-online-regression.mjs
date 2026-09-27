@@ -46,6 +46,7 @@ const SUITES = [
   { name: 'O11D', script: 'online-o11d-customer-otp-deferred-test.mjs', env: { O11D_REAL_PG_REQUIRED: '1' } },
   { name: 'D4', script: 'debt-server-idempotency-d4-test.mjs', env: {} },
   { name: 'L13', script: 'online-l13-local-first-test.mjs', env: {} },
+  { name: 'S2', script: 'online-s2-device-key-test.mjs', env: { KAKAPO_LAB_AUTO_AUTH: '0' } },
 ]
 
 const SKIP = new Set(

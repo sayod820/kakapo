@@ -452,6 +452,16 @@ export function checkPosDevice(db, deviceId) {
   return { ok: false }
 }
 
+/** Как checkPosDevice, но без записи lastSeenAtIso — для проверки на каждом запросе. */
+export function isPosDeviceBound(db, deviceId) {
+  const id = String(deviceId || '').trim()
+  if (!id) return false
+  if ((db.revokedPosDevices || []).some(d => String(d.id) === id)) return false
+  return (db.posPoints || []).some(p =>
+    p.active !== false
+    && (Array.isArray(p.devices) ? p.devices : []).some(d => String(d.id) === id))
+}
+
 export function deletePosPoint(db, id) {
   ensurePosCollections(db)
   const idx = db.posPoints.findIndex(p => p.id === id)
