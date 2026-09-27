@@ -477,12 +477,9 @@ export async function softSyncPosAfterSale(opts?: { force?: boolean }) {
           return
         }
       } catch {
-        // Старый сервер / сбой дельты — полный список как раньше
-        usedDelta = false
-        ;[sales, shifts] = await Promise.all([
-          api.getPosSales(),
-          api.getPosShifts(),
-        ])
+        // Сбой дельты (таймаут/обрыв): не качаем весь список чеков — повтор на следующем тике.
+        // Пропуски чеков закрывает posSalesInboundRepair (сверка salesCount смены).
+        return
       }
 
       const { getPending } = await import('./offline')

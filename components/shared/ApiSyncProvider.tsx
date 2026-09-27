@@ -1,5 +1,6 @@
 'use client'
 import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { USE_API } from '@/lib/config'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
 
@@ -18,7 +19,16 @@ async function purgeServiceWorkers() {
   } catch { /* ignore */ }
 }
 
+/** Касса живёт на своём useApiSync('pos') + /sync/changes: каталог/акции/рестораны отсюда ей не нужны. */
+function isTradeRoute(pathname: string | null) {
+  const p = pathname || (typeof window !== 'undefined' ? window.location.pathname : '')
+  return p === '/trade' || p.startsWith('/trade/') || p === '/pos' || p.startsWith('/pos/')
+}
+
 export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
+  const pathname = usePathname()
+  const tradeRoute = isTradeRoute(pathname)
+
   useEffect(() => {
     void purgeServiceWorkers()
   }, [])
@@ -26,6 +36,7 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
   useEffect(() => {
     if (!USE_API) return
     clearAppDataLocalCacheOnce()
+    if (tradeRoute) return
     let cancelled = false
 
     const load = async () => {
@@ -57,7 +68,7 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
     load()
     const id = setInterval(load, 12000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [mode])
+  }, [mode, tradeRoute])
 
   return <>{children}</>
 }

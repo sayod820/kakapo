@@ -260,6 +260,14 @@ export function useApiSync(mode: SyncMode = 'all') {
             await softSyncPosAfterSale()
             return
           }
+          // Каталог с диска до дельты: иначе дельта ляжет на пустой список и перезапишет кэш частью
+          try {
+            const { hydrateOfflineCaches } = await import('./offlineHydrate')
+            await hydrateOfflineCaches()
+          } catch { /* ignore */ }
+          if (!useProducts.getState().products.length) {
+            await useProducts.getState().fetchProducts().catch(() => {})
+          }
           // Один /sync/changes (дельта since=cursor) вместо полных sales/clients/warehouse/finance
           const { pullSyncChanges } = await import('./syncPull')
           const { usePosStore } = await import('./posStore')

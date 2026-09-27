@@ -38,11 +38,20 @@ export function useWebSocket(
     let stopped = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let pingTimer: ReturnType<typeof setInterval> | null = null
+    let tokenWatch: ReturnType<typeof setInterval> | null = null
     let attempt = 0
+    let lastToken = ''
+
+    const clearTokenWatch = () => {
+      if (tokenWatch) clearInterval(tokenWatch)
+      tokenWatch = null
+    }
 
     const connect = () => {
       if (stopped) return
+      clearTokenWatch()
       const token = getToken() || ''
+      lastToken = token
       const phoneDigits = (phoneRef.current || '').replace(/\D/g, '').slice(-9)
       // phone only — never put Bearer token in the URL (proxy/access logs)
       const phoneQuery = role === 'client' && phoneDigits ? `?phone=${encodeURIComponent(phoneDigits)}` : ''
@@ -86,14 +95,28 @@ export function useWebSocket(
     const scheduleReconnect = () => {
       if (stopped) return
       attempt += 1
-      const delay = Math.min(2000 * attempt, 15000)
+      // Первые попытки быстро (обрыв сети), дальше до 2 мин — отказ по авторизации не долбит сервер
+      const delay = attempt <= 3
+        ? Math.min(2000 * attempt, 15000)
+        : Math.min(15000 * 2 ** (attempt - 3), 120000)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
       reconnectTimer = setTimeout(connect, delay)
+      // Новый токен (вход сотрудника) — не ждём паузу
+      clearTokenWatch()
+      tokenWatch = setInterval(() => {
+        if ((getToken() || '') === lastToken) return
+        if (reconnectTimer) clearTimeout(reconnectTimer)
+        reconnectTimer = null
+        attempt = 0
+        connect()
+      }, 3000)
     }
 
     connect()
 
     return () => {
       stopped = true
+      clearTokenWatch()
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (pingTimer) clearInterval(pingTimer)
       if (wsRef.current) { try { wsRef.current.close() } catch {} }

@@ -1150,6 +1150,10 @@ export type CashierDashboardApi = {
   openCreatePos: () => void
 }
 
+const STOCK_LAYERS_NET_MAX_AGE_MS = 10 * 60_000
+let stockLayersNetPullAt = 0
+let stockLayersNetRev = ''
+
 export default function CashierModule({
   onExit,
   onNavigate,
@@ -1854,7 +1858,7 @@ export default function CashierModule({
   useEffect(() => {
     if (!active || posSurface !== 'register') return
     void fetchOrders()
-    const t = window.setInterval(() => { void fetchOrders() }, 45_000)
+    const t = window.setInterval(() => { void fetchOrders() }, 90_000)
     return () => window.clearInterval(t)
   }, [active, posSurface, fetchOrders])
 
@@ -3006,12 +3010,19 @@ export default function CashierModule({
         // Сначала кэш — UI не ждёт сеть
         const cached = await m.readCachedStockLayers()
         if (!cancelled) applyLayers(cached)
-        // Сеть в фоне (приход с телефона)
+        // Сеть в фоне (приход с телефона). Правки партий приходят дельтой /sync/changes,
+        // поэтому полный GET — только при смене склада или раз в STOCK_LAYERS_NET_MAX_AGE_MS.
+        const due = warehouseRev !== stockLayersNetRev
+          || Date.now() - stockLayersNetPullAt > STOCK_LAYERS_NET_MAX_AGE_MS
+        if (!due) return
+        stockLayersNetRev = warehouseRev
+        stockLayersNetPullAt = Date.now()
         void m.pullStockLayersFromServer({ bumpProducts: true })
           .then(remote => {
+            if (!remote) stockLayersNetPullAt = 0
             if (!cancelled && remote?.length) applyLayers(remote)
           })
-          .catch(() => {})
+          .catch(() => { stockLayersNetPullAt = 0 })
       } catch {
         if (!cancelled) setStockLayersLoaded(true)
       }
