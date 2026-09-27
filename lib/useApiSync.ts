@@ -9,7 +9,7 @@ import { syncAssemblerTeamFromApi } from './assemblerTeamStore'
 import { syncPushFromApi } from './pushStore'
 import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
-import { useWebSocket } from './ws'
+import { isWsLive, useWebSocket } from './ws'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
 import { getTradeDeviceIdSync } from './tradeDevice'
 import { createWsPullCoalescer } from './wsPullCoalesce'
@@ -21,6 +21,8 @@ const INTERVAL_MS = 12000
 const POS_INTERVAL_MS = 90000
 /** Чеки с сервера (браузер → ПК): дельта pos-lite, не полный список */
 const POS_SALES_INBOUND_MS = 35000
+/** Живой WS приносит изменения сам — фоновые опросы кассы не чаще этого */
+export const POS_WS_LIVE_POLL_MS = 5 * 60_000
 
 function wsRoleForMode(mode: SyncMode) {
   if (mode === 'assembler') return 'assembler' as const
@@ -67,6 +69,17 @@ export function useApiSync(mode: SyncMode = 'all') {
 
   useWebSocket(wsRoleForMode(mode), (msg) => {
     if (!USE_API) return
+    if (msg.event === 'restaurant_deleted') {
+      void useRestaurants.getState().fetchRestaurants()
+      return
+    }
+    if (msg.event === 'order_deleted') {
+      const id = msg.order?.id
+      if (id != null) {
+        useOrders.setState(s => ({ orders: s.orders.filter(o => String(o.id) !== String(id)) }))
+      }
+      return
+    }
     if (msg.event === 'loyalty_update') {
       pull.crm()
       return
@@ -182,6 +195,16 @@ export function useApiSync(mode: SyncMode = 'all') {
         }
         return
       }
+      // Пароли/права/блокировка: employeesAuthRev приходит в ответе /sync/changes
+      if (kind === 'employee') {
+        pull.pos()
+        return
+      }
+      if (kind === 'loyalty-settings') {
+        void import('./loyaltyStatusConfig').then(m => m.syncLoyaltyStatusConfigFromApi()).catch(() => {})
+        pull.pos()
+        return
+      }
       // Phase 7: sale/shift → one crmSoft (pos-lite includes CRM). No duplicate crm+posSoft.
       if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
         pull.posSoft()
@@ -243,12 +266,21 @@ export function useApiSync(mode: SyncMode = 'all') {
       pull.posSoft()
     }
     else if (mode === 'all') orders.fetchOrders()
-  })
+  }, undefined, mode === 'pos' ? () => {
+    pull.pos()
+    pull.posSoft()
+    void useOrders.getState().fetchOrders()
+  } : undefined)
 
   useEffect(() => {
     if (!USE_API) return
 
-    const load = async () => {
+    let lastLoadAt = 0
+    let lastSalesAt = 0
+
+    const load = async (fromTimer = false) => {
+      if (mode === 'pos' && fromTimer && isWsLive('pos') && Date.now() - lastLoadAt < POS_WS_LIVE_POLL_MS) return
+      lastLoadAt = Date.now()
       try {
         // Только оплата/пробитие — полный стоп. Фокус поиска НЕ блокирует входящие чеки.
         if (mode === 'pos' && isCashierPaymentCritical()) return
@@ -321,7 +353,7 @@ export function useApiSync(mode: SyncMode = 'all') {
 
     // Не блокируем UI: старт в фоне
     void load()
-    const id = setInterval(() => { void load() }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
+    const id = setInterval(() => { void load(true) }, mode === 'pos' ? POS_INTERVAL_MS : INTERVAL_MS)
     // Отдельный inbound продаж (браузер → ПК/Android). Читать можно даже при очереди —
     // иначе локаль не видит чек в долг, который уже есть в браузере/на сервере.
     let salesId: ReturnType<typeof setInterval> | null = null
@@ -330,6 +362,8 @@ export function useApiSync(mode: SyncMode = 'all') {
       salesId = setInterval(() => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
         if (isCashierPaymentCritical()) return
+        if (isWsLive('pos') && Date.now() - lastSalesAt < POS_WS_LIVE_POLL_MS) return
+        lastSalesAt = Date.now()
         void softSyncPosAfterSale()
       }, POS_SALES_INBOUND_MS)
     }

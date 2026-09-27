@@ -3229,6 +3229,7 @@ app.post('/employees', async (req, res) => {
             summary: `Создан сотрудник «${row.name}» · ${row.role || row.roleLabel || ''}`,
             after: { name: row.name, role: row.role, active: row.active },
           })
+          broadcastPosUpdate({ kind: 'employee', id: row.id })
         }
         return finishDurableMasterJson(res, row, replay)
       } catch (e) {
@@ -3245,6 +3246,7 @@ app.post('/employees', async (req, res) => {
       after: { name: row.name, role: row.role, active: row.active },
     })
     persist()
+    broadcastPosUpdate({ kind: 'employee', id: row.id })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось создать сотрудника' })
@@ -3264,6 +3266,7 @@ app.patch('/employees/:id', (req, res) => {
       after: { name: row.name, role: row.role, active: row.active },
     })
     persist()
+    broadcastPosUpdate({ kind: 'employee', id: row.id })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить' })
@@ -3281,6 +3284,7 @@ app.delete('/employees/:id', (req, res) => {
       before: { name: row.name, role: row.role },
     })
     persist()
+    broadcastPosUpdate({ kind: 'employee', id: row.id, deleted: true })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить' })
@@ -4478,6 +4482,7 @@ app.patch('/settings/loyalty', (req, res) => {
     summary: 'Изменены настройки лояльности / VIP',
   })
   persist()
+  broadcastPosUpdate({ kind: 'loyalty-settings' })
   res.json(db.settings.loyalty)
 })
 
@@ -5720,6 +5725,7 @@ app.post('/audit/:id/restore', (req, res) => {
       const row = updateEmployee(db, entry.entityId, pickDefined(before, ['name', 'role', 'active']))
       logRestore('employee', `сотрудник «${row.name}»`)
       persist()
+      broadcastPosUpdate({ kind: 'employee', id: row.id })
       return res.json({ ok: true, entity: 'employee', row })
     }
 
@@ -5853,6 +5859,13 @@ const wsHeartbeat = setInterval(() => {
       clients.delete(ws)
       continue
     }
+    // Нет pong с прошлого круга — сеть оборвалась без close; иначе рассылка шлёт в пустоту
+    if (ws.isAlive === false) {
+      clients.delete(ws)
+      try { ws.terminate() } catch { /* */ }
+      continue
+    }
+    ws.isAlive = false
     ws.ping()
   }
 }, WS_HEARTBEAT_MS)
@@ -5911,8 +5924,13 @@ httpServer.on('upgrade', (req, socket, head) => {
     ws.wsRole = resolved.wsRole
     ws.clientPhone = resolved.clientPhone
     ws.wsPrincipal = resolved.principal
+    ws.isAlive = true
     clients.add(ws)
-    ws.on('message', (data) => { if (String(data) === 'ping') ws.send('pong') })
+    ws.on('pong', () => { ws.isAlive = true })
+    ws.on('message', (data) => {
+      ws.isAlive = true
+      if (String(data) === 'ping') ws.send('pong')
+    })
     ws.on('close', () => clients.delete(ws))
   })
 })

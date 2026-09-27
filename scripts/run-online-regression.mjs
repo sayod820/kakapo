@@ -47,6 +47,7 @@ const SUITES = [
   { name: 'D4', script: 'debt-server-idempotency-d4-test.mjs', env: {} },
   { name: 'L13', script: 'online-l13-local-first-test.mjs', env: {} },
   { name: 'S2', script: 'online-s2-device-key-test.mjs', env: { KAKAPO_LAB_AUTO_AUTH: '0' } },
+  { name: 'S3', script: 'online-s3-push-test.mjs', env: { KAKAPO_LAB_AUTO_AUTH: '0' } },
 ]
 
 const SKIP = new Set(

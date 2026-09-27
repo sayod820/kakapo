@@ -9,7 +9,7 @@ import { USE_API, getWsUrl } from './config'
 export type WSRole = 'client' | 'courier' | 'assembler' | 'restaurant' | 'admin' | 'pos'
 
 export interface WSMessage {
-  event: 'new_order' | 'order_update' | 'order_deleted' | 'notification' | 'review_update' | 'loyalty_update' | 'courier_wallet_update' | 'product_update' | 'restaurant_update' | 'pos_update' | 'category_update'
+  event: 'new_order' | 'order_update' | 'order_deleted' | 'restaurant_deleted' | 'notification' | 'review_update' | 'loyalty_update' | 'courier_wallet_update' | 'product_update' | 'restaurant_update' | 'pos_update' | 'category_update'
   order?: any
   notification?: any
   review?: any
@@ -20,18 +20,34 @@ export interface WSMessage {
   payload?: any
 }
 
+const PING_MS = 25_000
+/** Нет ни одного сообщения (включая pong) дольше — соединение считаем мёртвым */
+const DEAD_MS = 60_000
+
+/** Последнее сообщение от сервера по роли; 0 — сокет закрыт */
+const lastSeenByRole = new Map<WSRole, number>()
+
+/** WS открыт и сервер отвечал за последние 60 с — опросы можно делать реже */
+export function isWsLive(role: WSRole): boolean {
+  const at = lastSeenByRole.get(role) || 0
+  return at > 0 && Date.now() - at < DEAD_MS
+}
+
 export function useWebSocket(
   role: WSRole,
   onMessage: (msg: WSMessage) => void,
   meta?: { phone?: string },
+  onReconnect?: () => void,
 ) {
   const wsRef = useRef<WebSocket | null>(null)
   const onMsgRef = useRef(onMessage)
+  const onReconnectRef = useRef(onReconnect)
   const [connected, setConnected] = useState(false)
   const phoneRef = useRef(meta?.phone)
   phoneRef.current = meta?.phone
 
   useEffect(() => { onMsgRef.current = onMessage }, [onMessage])
+  useEffect(() => { onReconnectRef.current = onReconnect }, [onReconnect])
 
   useEffect(() => {
     if (!USE_API) return
@@ -41,6 +57,7 @@ export function useWebSocket(
     let tokenWatch: ReturnType<typeof setInterval> | null = null
     let attempt = 0
     let lastToken = ''
+    let openedBefore = false
 
     const clearTokenWatch = () => {
       if (tokenWatch) clearInterval(tokenWatch)
@@ -64,18 +81,34 @@ export function useWebSocket(
         return
       }
       wsRef.current = ws
+      let lastSeen = 0
 
       ws.onopen = () => {
         attempt = 0
+        lastSeen = Date.now()
+        lastSeenByRole.set(role, lastSeen)
         setConnected(true)
+        if (pingTimer) clearInterval(pingTimer)
         pingTimer = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            try { ws.send('ping') } catch {}
+          if (ws.readyState !== WebSocket.OPEN) return
+          // Скрытая вкладка: таймеры браузер душит, pong может «опоздать» без обрыва
+          const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+          if (!hidden && Date.now() - lastSeen > DEAD_MS) {
+            try { ws.close() } catch {}
+            return
           }
-        }, 25000)
+          try { ws.send('ping') } catch {}
+        }, PING_MS)
+        // Пока сокета не было, события могли пройти мимо — догоняем одной дельтой
+        if (openedBefore) {
+          try { onReconnectRef.current?.() } catch {}
+        }
+        openedBefore = true
       }
 
       ws.onmessage = (e) => {
+        lastSeen = Date.now()
+        lastSeenByRole.set(role, lastSeen)
         if (e.data === 'pong') return
         try {
           const msg = JSON.parse(e.data) as WSMessage
@@ -84,8 +117,10 @@ export function useWebSocket(
       }
 
       ws.onclose = () => {
+        if (wsRef.current === ws) lastSeenByRole.set(role, 0)
         setConnected(false)
         if (pingTimer) clearInterval(pingTimer)
+        pingTimer = null
         scheduleReconnect()
       }
 
@@ -116,6 +151,7 @@ export function useWebSocket(
 
     return () => {
       stopped = true
+      lastSeenByRole.set(role, 0)
       clearTokenWatch()
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (pingTimer) clearInterval(pingTimer)

@@ -134,6 +134,8 @@ import {
 import { hideTradeHardwareUi, isTradeMobileUi } from '@/lib/tradeAndroid'
 import { isLikelyReceiptPrinter, pickReceiptPrinter, sortReceiptPrinters, XP58C_RECEIPT_MM } from '@/lib/printerPresets'
 import { useProducts, useOrders } from '@/lib/store'
+import { isWsLive } from '@/lib/ws'
+import { POS_WS_LIVE_POLL_MS } from '@/lib/useApiSync'
 import type { Category, Order, PosSale, Product, ProductStockLayer } from '@/lib/types'
 import {
   categorySlug,
@@ -1856,7 +1858,13 @@ export default function CashierModule({
   useEffect(() => {
     if (!active || posSurface !== 'register') return
     void fetchOrders()
-    const t = window.setInterval(() => { void fetchOrders() }, 90_000)
+    let lastAt = Date.now()
+    // Заказы приходят по WS; пока он жив — опрос только раз в 5 мин как страховка
+    const t = window.setInterval(() => {
+      if (isWsLive('pos') && Date.now() - lastAt < POS_WS_LIVE_POLL_MS) return
+      lastAt = Date.now()
+      void fetchOrders()
+    }, 90_000)
     return () => window.clearInterval(t)
   }, [active, posSurface, fetchOrders])
 

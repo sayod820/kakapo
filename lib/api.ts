@@ -80,11 +80,9 @@ export const setToken = (t: string | null) => {
   }
 }
 export const getToken = (): string | null => {
-  if (_token) return _token
   if (typeof window !== 'undefined') {
-    _token = localStorage.getItem('kakapo_token')
-    if (_token) return _token
-    // Trade employee Bearer (ONLINE-O8)
+    // Trade employee Bearer (ONLINE-O8). Раньше kakapo_token: админка в том же браузере
+    // пишет туда свой вход, и касса не должна работать под ним.
     try {
       const path = window.location.pathname || ''
       if (path.includes('/trade') || path.includes('/pos')) {
@@ -98,6 +96,10 @@ export const getToken = (): string | null => {
         }
       }
     } catch { /* ignore */ }
+  }
+  if (_token) return _token
+  if (typeof window !== 'undefined') {
+    _token = localStorage.getItem('kakapo_token')
   }
   return _token
 }
