@@ -782,6 +782,8 @@ app.use(cors({
   // Bearer Authorization header auth — no ambient cookies → credentials:false
   // (wildcard + credentials:true would be unsafe; we never enable that).
   credentials: false,
+  // Касса (127.0.0.1) шлёт свой If-None-Match — ей нужен ETag ответа
+  exposedHeaders: ['ETag'],
   origin(origin, cb) {
     if (!origin) return cb(null, true)
     if (CORS_ORIGINS.length === 1 && CORS_ORIGINS[0] === '*') return cb(null, true)

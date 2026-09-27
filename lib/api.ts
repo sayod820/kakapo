@@ -249,6 +249,17 @@ async function requestLongList<T>(path: string, options: RequestInit = {}): Prom
   return request<T>(path, options, 0, LIST_TIMEOUT_MS)
 }
 
+/** Свой If-None-Match: 304 не зависит от HTTP-кэша Chromium (на кассе он бывает недоступен). */
+const etagMemo = new Map<string, { etag: string; data: unknown }>()
+const etagUrls = new Set<string>()
+
+async function requestWithEtag<T>(path: string): Promise<T> {
+  const url = `${getApiUrl()}${path}`
+  etagUrls.add(url)
+  const memo = etagMemo.get(url)
+  return requestUrl<T>(url, memo ? { headers: { 'If-None-Match': memo.etag } } : {}, 0, LIST_TIMEOUT_MS)
+}
+
 type SyncMeta = { employeesAuthRev?: string }
 let syncMetaListener: ((meta: SyncMeta) => void) | null = null
 
@@ -315,6 +326,14 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
   }
 
+  if (res.status === 304) {
+    const memo = etagMemo.get(url)
+    if (memo) {
+      noteApiOk()
+      return memo.data as T
+    }
+  }
+
   if (!res.ok) {
     const raw = await res.text()
     const message = parseErrorText(raw, res.status)
@@ -337,7 +356,12 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     throw err
   }
   noteApiOk()
-  return parseSuccessBody<T>(res)
+  const data = await parseSuccessBody<T>(res)
+  if (etagUrls.has(url)) {
+    const etag = res.headers.get('etag')
+    if (etag) etagMemo.set(url, { etag, data })
+  }
+  return data
 }
 
 async function createOrderViaAppRoute(data: unknown): Promise<Order> {
@@ -649,7 +673,7 @@ export const api = {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
     if (params?.type) q.set('type', params.type)
-    return request<Order[]>(`/orders?${q}`)
+    return requestWithEtag<Order[]>(`/orders?${q}`)
   },
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
