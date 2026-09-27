@@ -1168,7 +1168,10 @@ export const api = {
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,
     ),
   sendDeviceHeartbeat: (data: TradeDeviceHeartbeatPayload) =>
-    request<{ ok: boolean }>('/pos/devices/heartbeat', { method: 'POST', body: JSON.stringify(data) }),
+    request<{ ok: boolean }>(
+      `/pos/devices/heartbeat?ui=${encodeURIComponent(process.env.NEXT_PUBLIC_KAKAPO_UI_BUILD || '')}`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
   getPosDeviceStatuses: () =>
     request<TradeDeviceLiveStatus[]>('/pos/devices/status'),
   getPosShifts: () => request<PosShift[]>('/pos/shifts'),

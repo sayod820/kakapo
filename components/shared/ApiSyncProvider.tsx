@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { USE_API } from '@/lib/config'
 import { clearAppDataLocalCacheOnce } from '@/lib/localCache'
+import { isKakapoDesktop } from '@/lib/desktopBridge'
+import { isTradeAndroidNative } from '@/lib/tradeAndroid'
 
 type Props = { children: React.ReactNode; mode?: 'all' | 'assembler' | 'courier' | 'catalog' }
 
@@ -25,9 +27,20 @@ function isTradeRoute(pathname: string | null) {
   return p === '/trade' || p.startsWith('/trade/') || p === '/pos' || p.startsWith('/pos/')
 }
 
+/** Приложение кассы (ПК/APK) открывает только торговлю — фоновый опрос сайта ему не нужен ни на каком адресе. */
+function isKassaApp() {
+  if (typeof window === 'undefined') return false
+  if (isKakapoDesktop() || isTradeAndroidNative()) return true
+  return /kakapo-trade-desktop/i.test(navigator.userAgent || '')
+}
+
+function skipSitePolling(pathname: string | null) {
+  return isKassaApp() || isTradeRoute(pathname) || isTradeRoute(typeof window !== 'undefined' ? window.location.pathname : null)
+}
+
 export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
   const pathname = usePathname()
-  const tradeRoute = isTradeRoute(pathname)
+  const skip = skipSitePolling(pathname)
 
   useEffect(() => {
     void purgeServiceWorkers()
@@ -36,10 +49,11 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
   useEffect(() => {
     if (!USE_API) return
     clearAppDataLocalCacheOnce()
-    if (tradeRoute) return
+    if (skip) return
     let cancelled = false
 
     const load = async () => {
+      if (skipSitePolling(null)) return
       try {
         const { useProducts, usePromos, useRestaurants, useOrders } = await import('@/lib/store')
         const { syncCourierStoresFromApi } = await import('@/lib/courierStore')
@@ -68,7 +82,7 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
     load()
     const id = setInterval(load, 12000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [mode, tradeRoute])
+  }, [mode, skip])
 
   return <>{children}</>
 }

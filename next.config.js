@@ -21,8 +21,12 @@ const backendUrl = resolveBackendUrl()
 const standalone = process.env.KAKAPO_STANDALONE === 'true'
 const androidExport = process.env.KAKAPO_ANDROID_EXPORT === 'true'
 
+/** Метка сборки UI: касса шлёт её в heartbeat — по логам видно, какая версия реально запущена. */
+const uiBuild = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '')
+
 const nextConfig = {
   reactStrictMode: true,
+  env: { NEXT_PUBLIC_KAKAPO_UI_BUILD: uiBuild },
   images: { unoptimized: true },
   ...(standalone ? { output: 'standalone' } : {}),
   ...(androidExport ? { output: 'export', trailingSlash: true } : {}),
