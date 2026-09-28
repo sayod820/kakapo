@@ -1747,6 +1747,29 @@ export function closePosShift(db, id, data = {}) {
   return row
 }
 
+/**
+ * Закрытые смены, где в note осталась авто-сверка кассы («Всё совпало»), а сервер насчитал другое.
+ * Идемпотентно: второй проход ничего не меняет.
+ */
+export function repairAutoReconcileShiftNotes(db) {
+  ensurePosCollections(db)
+  const fixed = []
+  for (const row of db.posShifts || []) {
+    if (row.status !== 'closed') continue
+    const rec = String(row.reconcileNote || '').trim()
+    const note = String(row.note || '').trim()
+    if (!rec || note === rec || !isAutoReconcileNote(note)) continue
+    if (/^Переместили /.test(note) && /^Переместили /.test(rec)) continue
+    fixed.push({ id: row.id, from: note, to: rec })
+    row.note = rec
+    row.updatedAtIso = new Date().toISOString()
+    try {
+      recordEntityUpsert(db, 'shift', row.id, row)
+    } catch { /* ignore */ }
+  }
+  return fixed
+}
+
 /** Сдача закрытой смены в основной ящик (нал факт + карта). Идемпотентно по shiftId. */
 export function transferClosedShiftToVault(db, shift) {
   ensurePosCollections(db)

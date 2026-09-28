@@ -1615,6 +1615,7 @@ export default function CashierModule({
     kind?: 'sale' | 'cash'
   } | null>(null)
   const [chargeOpen, setChargeOpen] = useState(false)
+  const [chargeErr, setChargeErr] = useState('')
   const [chargeBuf, setChargeBuf] = useState('')
   /** Погасить старый долг вместе с текущим чеком (только если долг > 0) */
   const [payDebtOn, setPayDebtOn] = useState(false)
@@ -7960,14 +7961,26 @@ export default function CashierModule({
     if (!client || busy || chargeBusyRef.current) return
     const amount = Math.round((Number(chargeBuf) || 0) * 100) / 100
     if (amount <= 0) return
+    const failCharge = (message: string) => {
+      setChargeErr(message)
+      void api.reportClientError('cash_advance', message, {
+        clientId: client.id,
+        clientName: client.name,
+        cardNum: client.card,
+        amount,
+        till: tillExpected,
+        shiftId: activeShift?.id,
+      })
+    }
     if (!activeShift) {
-      showToast('Смена закрыта', 'Откройте смену, чтобы выдать наличные из кассы')
+      failCharge('Смена закрыта — откройте смену, чтобы выдать наличные')
       return
     }
     if (amount > tillExpected + 0.009) {
-      showToast('Мало наличных', `В кассе ${fmtMoney(tillExpected)}`)
+      failCharge(`Мало наличных: в кассе ${fmtMoney(tillExpected)}`)
       return
     }
+    setChargeErr('')
     chargeBusyRef.current = true
     setBusy(true)
     try {
@@ -7991,7 +8004,7 @@ export default function CashierModule({
         `${client.name}: +${fmtMoney(amount)} · из кассы · долг ${fmtMoney(nextDebt)}${charged.offline ? ' · отправится в фоне' : ''}`,
       )
     } catch (e) {
-      showToast('Ошибка', e instanceof Error ? e.message : 'Не удалось выдать наличные')
+      failCharge(`Выдача НЕ записана: ${e instanceof Error ? e.message : 'не удалось выдать наличные'}`)
     } finally {
       chargeBusyRef.current = false
       setBusy(false)
@@ -8004,6 +8017,7 @@ export default function CashierModule({
       return
     }
     setHistTab('cash')
+    setChargeErr('')
     setChargeBuf('')
     setAmountPad(false)
     setChargeOpen(true)
@@ -11671,7 +11685,7 @@ export default function CashierModule({
                 value={chargeBuf}
                 inputMode="decimal"
                 autoFocus
-                onChange={e => setChargeBuf(sanitizeDecimalInput(e.target.value))}
+                onChange={e => { setChargeErr(''); setChargeBuf(sanitizeDecimalInput(e.target.value)) }}
                 onFocus={e => e.currentTarget.select()}
                 placeholder="0.00"
               />
@@ -11691,6 +11705,23 @@ export default function CashierModule({
                 ⌨ {amountPad ? 'Скрыть' : 'Клавиатура'}
               </button>
             </div>
+            {chargeErr ? (
+              <div
+                role="alert"
+                style={{
+                  margin: '10px 0 0',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  background: 'rgba(255,70,70,.12)',
+                  border: '1px solid var(--red)',
+                  color: 'var(--red)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              >
+                {chargeErr}
+              </div>
+            ) : null}
             <div className="modal-card-actions">
               <button
                 type="button"

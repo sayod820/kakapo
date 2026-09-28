@@ -2,6 +2,7 @@
 
 import { backdropCloseProps } from '@/components/shared/backdropClose'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '@/lib/api'
 import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
@@ -972,8 +973,16 @@ export default function DebtsModule({
       setHistMsg(`Выдано наличными: ${fmtMoney(amount)} · из кассы`)
       if (!res.offline) await softRefresh()
     } catch (e) {
+      const message = e instanceof Error ? e.message : 'Ошибка операции'
       setHistAdd(prev => ({ ...prev, saving: false }))
-      setHistMsg(e instanceof Error ? e.message : 'Ошибка операции')
+      setHistMsg(histAdd.action === 'repay' ? message : `Выдача НЕ записана: ${message}`)
+      void api.reportClientError(histAdd.action === 'repay' ? 'debt_repay' : 'cash_advance', message, {
+        clientId: detailClient.id,
+        clientName: detailClient.name,
+        cardNum: detailClient.card,
+        amount,
+        from: 'debts',
+      })
     } finally {
       moneyBusyRef.current = false
     }

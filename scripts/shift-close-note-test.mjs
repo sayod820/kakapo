@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const { closePosShift } = await import(pathToFileURL(path.join(root, 'server/kakapo-api/posLogic.js')).href)
+const { closePosShift, repairAutoReconcileShiftNotes } = await import(pathToFileURL(path.join(root, 'server/kakapo-api/posLogic.js')).href)
 const { expectedTillCashFromShift, overlayShiftSaleTotals } = await import(pathToFileURL(path.join(root, 'lib/shiftSaleTotalsCore.mjs')).href)
 
 let pass = 0
@@ -85,6 +85,23 @@ test('kassa expected till includes cash debt repay (same as server)', () => {
 
 test('server shift row (repay folded, no debtRepayCash) unchanged', () => {
   expect(expectedTillCashFromShift(baseShift('SH-5')) === 1643.43, 'server row')
+})
+
+test('startup repair: old closed shift note replaced once, manual/moved kept', () => {
+  const closed = (id, note, reconcileNote) => ({ ...baseShift(id), status: 'closed', note, reconcileNote })
+  const db = makeDb(closed('OLD-1', 'Всё совпало', 'нал · недостача 231.28 · карта · без расхождения'))
+  db.posShifts.push(
+    closed('OLD-2', 'Всё совпало', 'Всё совпало'),
+    closed('OLD-3', 'отдал Саидмуроду', 'нал · недостача 204.00 · карта · без расхождения'),
+    closed('OLD-4', 'Переместили 12.00 сом с наличных на карту', 'Переместили 12.00 сом с нал → карта'),
+    { ...baseShift('OPEN-1'), note: 'Всё совпало', reconcileNote: 'нал · недостача 1.00' },
+  )
+  const fixed = repairAutoReconcileShiftNotes(db)
+  expect(fixed.length === 1 && fixed[0].id === 'OLD-1', JSON.stringify(fixed))
+  expect(db.posShifts[0].note.startsWith('нал · недостача 231.28'), db.posShifts[0].note)
+  expect(db.posShifts[2].note === 'отдал Саидмуроду', 'manual kept')
+  expect(db.posShifts[4].note === 'Всё совпало', 'open shift untouched')
+  expect(repairAutoReconcileShiftNotes(db).length === 0, 'idempotent')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

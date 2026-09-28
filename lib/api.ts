@@ -1211,6 +1211,12 @@ export const api = {
     if (res?.deviceToken) await saveTradeDeviceToken(res.deviceToken)
     return res
   },
+  /** Не бросает: журнал ошибок не должен ломать саму операцию. */
+  reportClientError: (kind: string, message: string, context?: Record<string, string | number | boolean | undefined>) =>
+    request<{ ok: boolean }>('/pos/client-errors', {
+      method: 'POST',
+      body: JSON.stringify({ kind, message, context }),
+    }).catch(() => null),
   checkPosDevice: (deviceId: string) =>
     request<{ ok: boolean; point?: PosPoint; device?: { id: string; name: string } }>(
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,

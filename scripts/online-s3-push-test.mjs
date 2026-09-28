@@ -226,6 +226,21 @@ try {
   expect(!(await anon?.waitFor(posKind('employee'), 800)), 'client/catalog socket did not')
   anon?.close()
 
+  console.log('\n--- E failed cash advance reported to audit ---')
+  const ceName = cref('Said')
+  const ce = await fetchJson(`${api.base}/pos/client-errors`, {
+    method: 'POST', headers: staffH,
+    body: JSON.stringify({ kind: 'cash_advance', message: 'Мало наличных: в кассе 0.00', context: { clientName: ceName, amount: 204 } }),
+  })
+  expect(ce.ok, `POST /pos/client-errors with device key (${ce.status})`)
+  const ceAnon = await fetchJson(`${api.base}/pos/client-errors`, {
+    method: 'POST', headers: JSON_H, body: JSON.stringify({ kind: 'x', message: 'x' }),
+  })
+  expect(ceAnon.status === 401 || ceAnon.status === 403, `anonymous rejected (${ceAnon.status})`)
+  const audit = await fetchJson(`${api.base}/audit?action=client_error&days=1`, { headers: adminH })
+  const rows = Array.isArray(audit.body) ? audit.body : (audit.body?.items || audit.body?.rows || [])
+  expect(rows.some(r => r.entityName === ceName && /Мало наличных/.test(r.summary || '')), `audit has client_error row (${audit.status}, ${rows.length})`)
+
   console.log(`\n=== S3 RESULT passed=${passed} failed=${failed} ===`)
 } catch (e) {
   failed += 1

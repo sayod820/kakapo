@@ -237,6 +237,7 @@ import {
   listPosShifts,
   openPosShift,
   closePosShift,
+  repairAutoReconcileShiftNotes,
   getCashVault,
   convertVaultCardToCash,
   convertVaultCashToCard,
@@ -490,6 +491,23 @@ if (ensurePosSaleNumbers(db)) persist()
       })
     }
     console.log('[cashiers] merged duplicates', JSON.stringify(cashierMerge))
+    persist()
+  }
+}
+{
+  const noteFix = repairAutoReconcileShiftNotes(db)
+  if (noteFix.length) {
+    for (const f of noteFix) {
+      logAudit(db, {
+        action: 'update',
+        entity: 'shift',
+        entityId: f.id,
+        summary: `Пометка смены «${f.from}» заменена сверкой сервера: ${f.to}`,
+        before: { note: f.from },
+        after: { note: f.to },
+      })
+    }
+    console.log('[shifts] auto reconcile notes fixed', JSON.stringify(noteFix))
     persist()
   }
 }
@@ -3514,6 +3532,39 @@ app.post('/pos/devices/key', (req, res) => {
   if (!fields.deviceToken) return res.status(403).json({ detail: 'Устройство не привязано', code: 'AUTH_DEVICE_UNBOUND' })
   console.log('[apiAuth] device key issued (no login)', deviceId, 'emp=', auth.subjectId, auth.legacyPos ? 'legacy' : 'session')
   res.json({ ok: true, ...fields })
+})
+
+const clientErrorBudget = new Map()
+app.post('/pos/client-errors', (req, res) => {
+  const b = req.body || {}
+  const deviceId = readTradeDeviceId(req) || String(req.auth?.deviceId || '')
+  const hour = Math.floor(Date.now() / 3600e3)
+  const key = `${deviceId || req.ip}|${hour}`
+  const used = clientErrorBudget.get(key) || 0
+  if (used >= 60) return res.json({ ok: true, dropped: true })
+  clientErrorBudget.set(key, used + 1)
+  if (clientErrorBudget.size > 500) {
+    for (const k of clientErrorBudget.keys()) if (!k.endsWith(`|${hour}`)) clientErrorBudget.delete(k)
+  }
+  const kind = String(b.kind || 'other').slice(0, 40)
+  const message = String(b.message || '').slice(0, 200)
+  const context = b.context && typeof b.context === 'object' ? b.context : {}
+  const slim = {}
+  for (const [k, v] of Object.entries(context).slice(0, 12)) {
+    slim[String(k).slice(0, 40)] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v ?? '').slice(0, 120)
+  }
+  console.warn('[clientError]', kind, deviceId, message, JSON.stringify(slim))
+  auditFromReq(db, req, {
+    app: 'trade',
+    action: 'client_error',
+    entity: kind,
+    entityId: slim.cardNum || slim.clientId || undefined,
+    entityName: slim.clientName || undefined,
+    summary: `Не прошло на кассе: ${message || kind}`,
+    after: { ...slim, deviceId },
+  })
+  persist()
+  res.json({ ok: true })
 })
 
 app.get('/pos/devices/check', (req, res) => {
