@@ -38,6 +38,7 @@ import {
   clearTradeDeviceBind,
   ensureTradeDeviceReady,
   getTradeDeviceIdSync,
+  getTradeDeviceTokenSync,
 } from '@/lib/tradeDevice'
 import {
   clearTradeEmployeeSession,
@@ -3706,6 +3707,16 @@ function TradeAppGate() {
   useEffect(() => {
     if (!USE_API) return
     let stopped = false
+    let keyTriedAt = 0
+
+    /** Касса обновилась без входа по паролю: ключа нет → WS 401 и частые опросы. Берём ключ сами. */
+    async function ensureDeviceKey() {
+      if (getTradeDeviceTokenSync()) return
+      if (!loadTradeEmployeeSession()?.employeeId) return
+      if (Date.now() - keyTriedAt < 10 * 60_000) return
+      keyTriedAt = Date.now()
+      try { await api.requestDeviceKey() } catch { /* повтор через 10 мин */ }
+    }
 
     async function kickIfUnbound() {
       const started = Date.now()
@@ -3715,7 +3726,10 @@ function TradeAppGate() {
         if (!deviceId) return
         const check = await api.checkPosDevice(deviceId)
         if (stopped) return
-        if (check.ok && check.point) return
+        if (check.ok && check.point) {
+          void ensureDeviceKey()
+          return
+        }
         if (boundAtRef.current > started) return
         await clearTradeDeviceBind()
         clearTradeEmployeeSession()

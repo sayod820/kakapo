@@ -46,6 +46,7 @@ const OVERRIDES = {
   'POST /orders': { access: 'PUBLIC_STORE', public: true, domain: 'orders', businessRisk: 'store checkout' },
   'POST /pos/devices/bind': { access: 'PUBLIC_STORE', public: true, domain: 'pos', businessRisk: 'needs live pair code' },
   'GET /pos/devices/check': { access: 'PUBLIC_STORE', public: true, domain: 'pos' },
+  'POST /pos/devices/key': { access: 'STAFF', authRequired: true, domain: 'pos', requireCaps: [], deviceRequired: true },
   'GET /employees/directory': { access: 'PUBLIC_STORE', public: true, domain: 'staff' },
   'GET /employees/local-auth': { access: 'PUBLIC_STORE', public: true, domain: 'staff', deviceRequired: true },
   'POST /employees/login': { access: 'PUBLIC_STORE', public: true, domain: 'staff', deviceRequired: true },

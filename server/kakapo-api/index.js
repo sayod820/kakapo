@@ -3495,6 +3495,27 @@ app.post('/pos/devices/bind', async (req, res) => {
   }
 })
 
+/**
+ * Ключ для кассы, которая работает без него (обновилась без входа по паролю).
+ * Выдаётся только тому, кто уже прошёл как эта касса: legacy (привязка + активный сотрудник,
+ * пока KAKAPO_LEGACY_POS_WRITE=1) или сессия сотрудника, выданная на этом же устройстве.
+ */
+app.post('/pos/devices/key', (req, res) => {
+  const auth = req.auth
+  const deviceId = readTradeDeviceId(req)
+  if (!auth || !deviceId) return res.status(401).json({ detail: 'Нужен вход', code: 'AUTH_REQUIRED' })
+  if (auth.deviceAuth) return res.json({ ok: true })
+  const sameDevice = String(auth.deviceId || '') === deviceId
+  const staff = auth.principal === 'STAFF' || auth.principal === 'CASHIER'
+  if (!sameDevice || !(auth.legacyPos || staff)) {
+    return res.status(403).json({ detail: 'Ключ выдаётся только самой кассе', code: 'AUTH_DEVICE_MISMATCH' })
+  }
+  const fields = deviceTokenFields(deviceId)
+  if (!fields.deviceToken) return res.status(403).json({ detail: 'Устройство не привязано', code: 'AUTH_DEVICE_UNBOUND' })
+  console.log('[apiAuth] device key issued (no login)', deviceId, 'emp=', auth.subjectId, auth.legacyPos ? 'legacy' : 'session')
+  res.json({ ok: true, ...fields })
+})
+
 app.get('/pos/devices/check', (req, res) => {
   try {
     res.json(checkPosDevice(db, String(req.query.deviceId || '')))

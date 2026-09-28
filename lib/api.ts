@@ -1203,6 +1203,14 @@ export const api = {
     if (res?.deviceToken) await saveTradeDeviceToken(res.deviceToken)
     return res
   },
+  requestDeviceKey: async () => {
+    const res = await request<{ ok: boolean; deviceToken?: string }>('/pos/devices/key', {
+      method: 'POST',
+      body: JSON.stringify({ deviceId: getTradeDeviceIdSync() }),
+    })
+    if (res?.deviceToken) await saveTradeDeviceToken(res.deviceToken)
+    return res
+  },
   checkPosDevice: (deviceId: string) =>
     request<{ ok: boolean; point?: PosPoint; device?: { id: string; name: string } }>(
       `/pos/devices/check?deviceId=${encodeURIComponent(deviceId)}`,

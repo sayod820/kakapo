@@ -237,11 +237,40 @@ try {
   })
   expect(legacy.ok, `legacy headers still work (${legacy.status} ${legacy.body?.code || ''})`)
 
+  // ── G2 касса без ключа (обновилась без входа) берёт ключ сама ──
+  console.log('\n--- G2 key without login ---')
+  const legacyH = { ...JSON_H, 'x-kakapo-device-id': devA.deviceId, 'x-kakapo-employee-id': empId }
+  const selfKey = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: legacyH, body: JSON.stringify({ deviceId: devA.deviceId }),
+  })
+  const keyG = selfKey.body?.deviceToken
+  expect(selfKey.ok && typeof keyG === 'string' && keyG.length > 20, `legacy kassa gets device key (${selfKey.status} ${selfKey.body?.code || ''})`)
+  expect(await wsOpen(api.base, 'pos', keyG), 'WS accepts self-issued key')
+  expect(!(await wsOpen(api.base, 'pos', keyB)), 'previous key rotated out')
+  const withKey = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: staffH(keyG), body: JSON.stringify({ deviceId: devA.deviceId }),
+  })
+  expect(withKey.ok && !withKey.body?.deviceToken, 'kassa with key gets no new key (no rotation loop)')
+  const otherDev = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: legacyH, body: JSON.stringify({ deviceId: devB.deviceId }),
+  })
+  expect(otherDev.status === 403 && !otherDev.body?.deviceToken, `cannot mint key for another device (${otherDev.status})`)
+  const anon = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: JSON_H, body: JSON.stringify({ deviceId: devA.deviceId }),
+  })
+  expect((anon.status === 401 || anon.status === 403) && !anon.body?.deviceToken, `no key without device+employee (${anon.status})`)
+  const ghost = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: { ...JSON_H, 'x-kakapo-device-id': `${PREFIX}ghost`, 'x-kakapo-employee-id': empId },
+    body: JSON.stringify({ deviceId: `${PREFIX}ghost` }),
+  })
+  expect(ghost.status === 403 && !ghost.body?.deviceToken, `unbound device gets no key (${ghost.status})`)
+  const keyAfterG = keyG
+
   // ── H перезапуск API — ключ живёт (сессии в PG) ──
   console.log('\n--- H restart ---')
   await killApi(api.child)
   api = await startApi(PORT + 1)
-  const afterRestart = await fetchJson(`${api.base}/pos/sales`, { headers: staffH(keyB) })
+  const afterRestart = await fetchJson(`${api.base}/pos/sales`, { headers: staffH(keyAfterG) })
   expect(afterRestart.ok, `device key survives API restart (${afterRestart.status})`)
 
   // ── I отвязка отзывает ключ ──
@@ -255,9 +284,13 @@ try {
     { method: 'DELETE', headers: adminH2 },
   )
   expect(unbind.ok, `unbind (${unbind.status})`)
-  const afterUnbind = await fetchJson(`${api.base}/pos/sales`, { headers: staffH(keyB) })
+  const afterUnbind = await fetchJson(`${api.base}/pos/sales`, { headers: staffH(keyAfterG) })
   expect(afterUnbind.status === 401 || afterUnbind.status === 403, `unbound device key denied (${afterUnbind.status} ${afterUnbind.body?.code || ''})`)
-  expect(!(await wsOpen(api.base, 'pos', keyB)), 'WS rejects revoked device key')
+  expect(!(await wsOpen(api.base, 'pos', keyAfterG)), 'WS rejects revoked device key')
+  const afterUnbindKey = await fetchJson(`${api.base}/pos/devices/key`, {
+    method: 'POST', headers: legacyH, body: JSON.stringify({ deviceId: devA.deviceId }),
+  })
+  expect(!afterUnbindKey.body?.deviceToken, `unbound kassa cannot get key back (${afterUnbindKey.status})`)
 
   console.log(`\n=== S2 RESULT passed=${passed} failed=${failed} ===`)
 } catch (e) {
