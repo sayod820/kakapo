@@ -421,6 +421,12 @@ export function buildSaleDebtStatuses(
 export function computeDebtFromLedger(
   history: DebtHistoryEntry[],
 ): { goods: number; cash: number; total: number } {
+  const cashAdvRows = history.filter(isCashAdvanceHistoryRow)
+  const isCashAdvPay = (oid: string) => cashAdvRows.some(d =>
+    debtOrderIdsMatch(d.orderId, oid)
+    || debtOrderIdsMatch(d.id, oid)
+    || debtOrderIdsMatch(`cash-${d.id}`, oid),
+  )
   let goods = 0
   let cash = 0
   for (const row of history) {
@@ -428,7 +434,9 @@ export function computeDebtFromLedger(
     const amt = Math.abs(Number(row.amount) || 0)
     if (amt < 0.005) continue
     const src = row.source || ''
-    if (src === 'pos' || src === 'order' || row.orderId) {
+    if (isCashAdvanceHistoryRow(row)) {
+      cash += amt
+    } else if (src === 'pos' || src === 'order' || row.orderId) {
       goods += amt
     } else {
       cash += amt
@@ -442,7 +450,10 @@ export function computeDebtFromLedger(
     const amt = Math.abs(Number(row.amount) || 0)
     if (amt < 0.005) continue
     const src = row.source || ''
-    if (src === 'pos' || src === 'order' || row.orderId) {
+    const payOid = String(row.orderId || '').trim()
+    if (payOid && src !== 'pos' && src !== 'order' && isCashAdvPay(payOid)) {
+      cashPaid += amt
+    } else if (src === 'pos' || src === 'order' || payOid) {
       goodsPaid += amt
     } else {
       cashPaid += amt
@@ -706,6 +717,14 @@ function historyDebtMatchesSale(
   return saleOrderKeys(sale).some(k => debtOrderIdsMatch(row.orderId, k))
 }
 
+/** Выдача наличных: orderId у неё — id записи журнала сервера, а не чек. */
+export function isCashAdvanceHistoryRow(row: DebtHistoryEntry): boolean {
+  if (row.type !== 'debt') return false
+  if (row.source === 'pos' || row.source === 'order') return false
+  const desc = String(row.desc || '')
+  return desc.startsWith(CASH_ADVANCE_HISTORY_LABEL) || /выдач\S*\s+налич/i.test(desc)
+}
+
 /** Наличные / заказ с сервера — в ленте «Нал.», если это не чек POS (в т.ч. уже возвращённый). */
 export function isLedgerCashHistoryDebt(
   row: DebtHistoryEntry,
@@ -715,6 +734,7 @@ export function isLedgerCashHistoryDebt(
   if (posSales.some(s => historyDebtMatchesSale(row, s))) return false
   // Чек / заказ — всегда «Товары», даже если чек вернули и он выпал из открытых.
   if (row.source === 'pos' || row.source === 'order') return false
+  if (isCashAdvanceHistoryRow(row)) return true
   if (row.orderId) return false
   const desc = String(row.desc || '')
   if (/чек|заказ|возврат/i.test(desc)) return false
