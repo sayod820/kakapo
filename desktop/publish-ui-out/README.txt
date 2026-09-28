@@ -12,4 +12,4 @@ KAKAPO — офлайн UI для кассы (без полной переуст
 
 Файлы:
 - latest.json
-- ui-DPnxNvAZFYTCLw6bWqvYv.zip
+- ui-JdMeYIL6ho1e9ImOzVGLk.zip
