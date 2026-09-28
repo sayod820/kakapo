@@ -823,6 +823,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ phone: phone ? phone.replace(/\D/g, '').slice(-9) : '' }),
     }),
+  unblockClientDebt: (id: string) =>
+    request<{ ok: boolean; client?: AdminClient; card?: AdminCard | null }>(
+      `/clients/${encodeURIComponent(id)}/debt-unblock`,
+      { method: 'POST' },
+    ),
   restoreClient: (id: string) =>
     requestApp<AdminClient>(`/api/kakapo/clients/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
   moveClientToRecoveryByPhone: (phone: string) => {

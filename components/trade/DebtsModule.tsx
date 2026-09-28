@@ -508,6 +508,7 @@ export default function DebtsModule({
   const [histAdd, setHistAdd] = useState<HistAddState>(emptyHistAdd)
   const [histMsg, setHistMsg] = useState('')
   const [histTick, setHistTick] = useState(0)
+  const [unblockBusy, setUnblockBusy] = useState(false)
   const [histEdit, setHistEdit] = useState<{ id: string; amount: string; desc: string; saving: boolean } | null>(null)
   const [saleDetailId, setSaleDetailId] = useState<string | null>(null)
   const [saleRepay, setSaleRepay] = useState<SaleRepayState | null>(null)
@@ -1012,6 +1013,29 @@ export default function DebtsModule({
     setHistTick(t => t + 1)
   }
 
+  async function unblockDebt() {
+    if (!detailClient || unblockBusy) return
+    if (!window.confirm(
+      `Разблокировать долг для «${detailClient.name}»?\n\nКлиенту снова можно давать в долг. Текущий долг не меняется.`,
+    )) return
+    setUnblockBusy(true)
+    try {
+      await api.unblockClientDebt(detailClient.id)
+      useClientStore.getState().updateClient(detailClient.id, {
+        debtCreditBlocked: false,
+        debtOverdueStrikes: 0,
+      }, { skipApi: true })
+      const card = cardForClient(detailClient, cards)
+      if (card) useCardStore.getState().updateCardLoyalty(card.num, { debtCreditBlocked: false }, { skipApi: true })
+      setHistMsg('Долг разблокирован — можно давать в долг')
+      await softRefresh()
+    } catch (e) {
+      setHistMsg(e instanceof Error ? e.message : 'Не удалось разблокировать')
+    } finally {
+      setUnblockBusy(false)
+    }
+  }
+
   async function clearResidualCashFromCard() {
     if (!detailClient || !detailData || detailData.residualCash < 0.005) return
     if (moneyBusyRef.current) return
@@ -1283,7 +1307,7 @@ export default function DebtsModule({
     )
   }
 
-  const msgOk = /Удалено|обновлена|Оплата|Выдано|Записано|С карты|исправлен|Долг на карте|Погашено/i.test(histMsg)
+  const msgOk = /Удалено|обновлена|Оплата|Выдано|Записано|С карты|исправлен|Долг на карте|Погашено|разблокирован/i.test(histMsg)
   const cardDebt = detailClient ? Math.max(0, Number(detailClient.debt) || 0) : 0
 
   return (
@@ -1391,6 +1415,8 @@ export default function DebtsModule({
               card={cardForClient(detailClient, cards)}
               level={detailClient.level}
               debtCreditBlocked={detailClient.debtCreditBlocked}
+              onUnblockDebt={() => { void unblockDebt() }}
+              unblockBusy={unblockBusy}
               overLimit={detailClient.overLimit}
               cardDebt={cardDebt}
               debtLimit={detailClient.debtLimit}

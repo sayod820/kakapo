@@ -434,6 +434,25 @@ export function recomputeDebtBlockState(client, card) {
 }
 
 /**
+ * Ручная разблокировка админом: страйки обнуляются, а уже открытые записи
+ * больше не дают страйков при просрочке (иначе завтра снова блок). Долг не трогаем.
+ */
+export function unblockDebtCredit(client, card) {
+  ensureDebtLedger(client)
+  let markedEntries = 0
+  for (const entry of client.debtLedger) {
+    if (round2(entry.remaining) > 0 && !entry.overdueStrikeApplied) {
+      entry.overdueStrikeApplied = true
+      markedEntries += 1
+    }
+  }
+  client.debtOverdueStrikes = 0
+  client.debtCreditBlocked = false
+  syncDebtLedgerToCard(client, card)
+  return { markedEntries }
+}
+
+/**
  * Align ledger with client.debt without writing off open remainings via the soft cap.
  * Truncation may only prune paid/closed history.
  */

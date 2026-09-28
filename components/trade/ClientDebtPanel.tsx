@@ -54,6 +54,8 @@ export default function ClientDebtPanel({
   onOpenSale,
   onRepayCash,
   onPayGroup,
+  onUnblockDebt,
+  unblockBusy,
   cashTabExtra,
 }: {
   name: string
@@ -79,6 +81,8 @@ export default function ClientDebtPanel({
   onOpenSale: (saleId: string) => void
   onRepayCash: (row: ClientDebtCashView) => void
   onPayGroup: (g: ClientDebtPayGroup) => void
+  onUnblockDebt?: () => void
+  unblockBusy?: boolean
   cashTabExtra?: ReactNode
 }) {
   const cardSt = card ? CARD_STATUS_LABELS[card.status] : null
@@ -135,6 +139,17 @@ export default function ClientDebtPanel({
               ) : null}
               {debtCreditBlocked ? (
                 <span className="k-badge" style={{ background: 'var(--badge-warn-bg)', color: 'var(--red)' }}>Долг закрыт</span>
+              ) : null}
+              {debtCreditBlocked && onUnblockDebt ? (
+                <button
+                  type="button"
+                  className="k-btn k-btn-s"
+                  style={{ padding: '2px 8px', fontSize: 11 }}
+                  disabled={unblockBusy}
+                  onClick={onUnblockDebt}
+                >
+                  {unblockBusy ? '…' : 'Разблокировать долг'}
+                </button>
               ) : null}
               <span className="k-badge" style={{
                 fontSize: 10,

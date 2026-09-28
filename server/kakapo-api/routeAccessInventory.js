@@ -98,6 +98,7 @@ const OVERRIDES = {
   'POST /cards/:num/cash-topup': { access: 'STAFF', authRequired: true, domain: 'crm', requireCaps: [CAP.BONUS_ADJUSTMENT], businessRisk: 'critical' },
   'POST /cards/:num/bonus-adjustments': { access: 'STAFF', authRequired: true, domain: 'crm', requireCaps: [CAP.BONUS_ADJUSTMENT], businessRisk: 'high' },
   'POST /clients/:id/debt-adjustments': { access: 'STAFF', authRequired: true, domain: 'crm', requireCaps: [CAP.CLIENT_DEBT_REPAY], businessRisk: 'critical' },
+  'POST /clients/:id/debt-unblock': { access: 'STAFF', authRequired: true, domain: 'crm', requireCaps: [CAP.CLIENT_DEBT_REPAY], businessRisk: 'high' },
   'POST /products': { access: 'STAFF', authRequired: true, domain: 'catalog', requireCaps: [CAP.PRODUCT_EDIT], businessRisk: 'high' },
   'PATCH /products/:id': { access: 'STAFF', authRequired: true, domain: 'catalog', requireCaps: [CAP.PRODUCT_EDIT], businessRisk: 'high' },
   'DELETE /products/:id': { access: 'STAFF', authRequired: true, domain: 'catalog', requireCaps: [CAP.PRODUCT_EDIT], businessRisk: 'high' },
