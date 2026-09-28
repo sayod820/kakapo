@@ -1657,6 +1657,17 @@ function issueOpeningFloatFromVault(db, shift) {
   })
 }
 
+/** Сверку в note касса считает сама; ручной комментарий кассира не трогаем. */
+function isAutoReconcileNote(note) {
+  const s = String(note || '').trim()
+  if (!s) return false
+  return s === 'Всё совпало'
+    || s === 'По сумме всё ровно'
+    || /^Переместили \d/.test(s)
+    || /^Общ(ий излишек|ая недостача) /.test(s)
+    || /^нал · (без расхождения|недостача|излишек)/.test(s)
+}
+
 export function closePosShift(db, id, data = {}) {
   ensurePosCollections(db)
   const row = db.posShifts.find(s => s.id === id)
@@ -1710,6 +1721,7 @@ export function closePosShift(db, id, data = {}) {
     : (Math.abs(cashDiff) < 0.009 && Math.abs(cardDiff) < 0.009
       ? 'Всё совпало'
       : [cashReason, cardReason].join(' · '))
+  if (isAutoReconcileNote(row.note) && row.note !== row.reconcileNote) row.note = row.reconcileNote
   if (!row.note && row.reconcileNote) row.note = row.reconcileNote
   appendMoneyLedger(db, {
     type: 'shift_close',

@@ -23,6 +23,7 @@ import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 import { pickActiveOpenShift } from './shiftReconcile'
+import { expectedTillCashFromShift, overlayShiftSaleTotalsWithDebtRepay } from './shiftSaleTotals'
 
 /**
  * Sticky clientRef for one logical money attempt (browser timeout-after-commit).
@@ -315,7 +316,7 @@ export async function closeShiftSafe(
   const applyLocal = async () => {
     const current = shiftById(shiftId)
     const expected = current
-      ? round2((current.openingCash || 0) + (current.salesCash || 0) + (current.cashInTotal || 0) - (current.expenseTotal || 0))
+      ? expectedTillCashFromShift(overlayShiftSaleTotalsWithDebtRepay(current, usePosStore.getState().sales))
       : payload.closingCash
     const expectedCard = current ? round2(Number(current.salesCard) || 0) : 0
     const actualCard = payload.closingCard != null ? payload.closingCard : expectedCard
