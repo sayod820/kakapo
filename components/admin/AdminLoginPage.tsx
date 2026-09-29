@@ -14,8 +14,10 @@ import ThemeToggle from '@/components/shared/ThemeToggle'
 
 export default function AdminLoginPage({
   onSuccess,
+  notice,
 }: {
   onSuccess: (session: AdminSession) => void
+  notice?: string
 }) {
   const { theme, setTheme } = useAppTheme()
   const [login, setLogin] = useState(DEFAULT_ADMIN_LOGIN)
@@ -171,7 +173,7 @@ export default function AdminLoginPage({
           </button>
         </div>
 
-        {err ? <div className="al-err">{err}</div> : null}
+        {err ? <div className="al-err">{err}</div> : notice ? <div className="al-err">{notice}</div> : null}
 
         <button type="submit" className="al-btn" disabled={busy}>
           {busy ? 'Вход…' : 'Войти'}

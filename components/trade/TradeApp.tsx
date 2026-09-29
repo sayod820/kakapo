@@ -40,6 +40,7 @@ import {
   getTradeDeviceIdSync,
   getTradeDeviceTokenSync,
 } from '@/lib/tradeDevice'
+import { isWsLive } from '@/lib/ws'
 import {
   clearTradeEmployeeSession,
   loadTradeEmployeeSession,
@@ -2804,6 +2805,7 @@ const CSS = `
 `
 
 const THEME_KEY = 'kakapo_trade_pos_theme'
+const DEVICE_CHECK_WS_LIVE_MS = 10 * 60_000
 type TradeTheme = 'dark' | 'light'
 
 function loadTradeTheme(): TradeTheme {
@@ -3718,8 +3720,13 @@ function TradeAppGate() {
       try { await api.requestDeviceKey() } catch { /* повтор через 10 мин */ }
     }
 
-    async function kickIfUnbound() {
+    let lastCheckAt = 0
+
+    async function kickIfUnbound(fromTimer = false) {
+      // Отвязка приходит по WS (device-unbind) — пока он жив, опрос редкий
+      if (fromTimer && isWsLive('pos') && Date.now() - lastCheckAt < DEVICE_CHECK_WS_LIVE_MS) return
       const started = Date.now()
+      lastCheckAt = started
       try {
         await ensureTradeDeviceReady()
         const deviceId = getTradeDeviceIdSync()
@@ -3744,7 +3751,7 @@ function TradeAppGate() {
       void kickIfUnbound()
     }
     window.addEventListener('kakapo:device-revoked', onRevoked)
-    const timer = window.setInterval(() => { void kickIfUnbound() }, 30000)
+    const timer = window.setInterval(() => { void kickIfUnbound(true) }, 30000)
     void kickIfUnbound()
     return () => {
       stopped = true

@@ -63,9 +63,10 @@ export default function ApiSyncProvider({ children, mode = 'catalog' }: Props) {
           useProducts.getState().fetchProducts(),
           usePromos.getState().fetchPromos(),
           useRestaurants.getState().fetchRestaurants(),
-          syncCourierStoresFromApi(),
         ]
+        // /pickups только для персонала — магазин получал 403 каждые 12 с
         if (mode !== 'catalog') {
+          tasks.push(syncCourierStoresFromApi())
           const { syncClientsFromApi } = await import('@/lib/clientStore')
           const { syncCardsFromApi } = await import('@/lib/cardStore')
           tasks.push(syncClientsFromApi(), syncCardsFromApi())

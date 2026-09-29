@@ -29,6 +29,7 @@ const OVERRIDES = {
   'POST /auth/login': { access: 'PUBLIC_STORE', public: true, domain: 'auth' },
   'POST /auth/logout': { access: 'PUBLIC_STORE', public: true, domain: 'auth', businessRisk: 'revokes bearer; handler requires token' },
   'GET /auth/admin': { access: 'PUBLIC_STORE', public: true, domain: 'auth' },
+  'GET /auth/session': { access: 'PUBLIC_STORE', public: true, domain: 'auth', businessRisk: 'reports only whether the caller bearer is alive' },
   'PATCH /auth/admin': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'auth', requireCaps: [CAP.SETTINGS_EDIT] },
 
   'GET /products': { access: 'PUBLIC_STORE', public: true, domain: 'catalog' },

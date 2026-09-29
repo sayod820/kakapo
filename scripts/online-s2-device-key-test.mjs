@@ -261,6 +261,13 @@ try {
     method: 'POST', headers: staffH(keyG), body: JSON.stringify({ deviceId: devA.deviceId }),
   })
   expect(withKey.ok && !withKey.body?.deviceToken, 'kassa with key gets no new key (no rotation loop)')
+
+  const sessLive = await fetchJson(`${api.base}/auth/session`, { headers: { Authorization: `Bearer ${keyG}` } })
+  expect(sessLive.ok && sessLive.body?.active === true && sessLive.body?.principal === 'DEVICE', `/auth/session reports live key (${sessLive.status})`)
+  const sessDead = await fetchJson(`${api.base}/auth/session`, { headers: { Authorization: `Bearer ${keyB}` } })
+  expect(sessDead.ok && sessDead.body?.active === false, `/auth/session reports rotated key as dead (${sessDead.status})`)
+  const sessNone = await fetchJson(`${api.base}/auth/session`)
+  expect(sessNone.ok && sessNone.body?.active === false, `/auth/session without bearer is inactive (${sessNone.status})`)
   const otherDev = await fetchJson(`${api.base}/pos/devices/key`, {
     method: 'POST', headers: legacyH, body: JSON.stringify({ deviceId: devB.deviceId }),
   })

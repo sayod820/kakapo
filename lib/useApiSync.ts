@@ -332,11 +332,11 @@ export function useApiSync(mode: SyncMode = 'all') {
           syncLoyaltyStatusConfigFromApi(),
           usePromos.getState().fetchPromos(),
           useRestaurants.getState().fetchRestaurants(),
-          syncCourierStoresFromApi(),
         ]
-        // layout ApiSyncProvider уже тянет /products — не качаем каталог дважды (магазин)
+        // layout ApiSyncProvider уже тянет /products — не качаем каталог дважды (магазин);
+        // /pickups только для персонала
         if (mode !== 'catalog') {
-          tasks.push(useProducts.getState().fetchProducts())
+          tasks.push(useProducts.getState().fetchProducts(), syncCourierStoresFromApi())
         }
         if (mode === 'all') {
           tasks.push(syncAssemblerTeamFromApi(), syncPushFromApi())

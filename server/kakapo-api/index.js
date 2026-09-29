@@ -1642,6 +1642,12 @@ app.post('/auth/logout', (req, res) => {
   if (getSession(token)?.principal !== 'DEVICE') revokeSession(token)
   res.json({ ok: true })
 })
+app.get('/auth/session', (req, res) => {
+  const token = parseBearer(req)
+  const s = token ? getSession(token) : null
+  if (!s) return res.json({ active: false })
+  res.json({ active: true, principal: s.principal, roles: Array.isArray(s.roles) ? s.roles : [] })
+})
 app.get('/auth/admin', (_req, res) => {
   const auth = ensureAdminAuth()
   res.json({ login: auth.login })
@@ -3408,6 +3414,7 @@ app.delete('/pos/points/:id', (req, res) => {
     for (const id of deviceIds) revokeDeviceSessions(id)
     persist()
     broadcastPosUpdate({ kind: 'pos', id: row.id, deleted: true })
+    for (const deviceId of deviceIds) broadcastPosUpdate({ kind: 'device-unbind', id: row.id, posId: row.id, deviceId })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось удалить точку продаж' })

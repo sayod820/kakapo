@@ -8636,6 +8636,7 @@ function BannersPage() {
 export default function AdminApp() {
   const [session, setSession] = useState<AdminSession | null>(null)
   const [ready, setReady] = useState(false)
+  const [loginNotice, setLoginNotice] = useState('')
 
   useEffect(() => {
     const s = loadAdminSession()
@@ -8643,6 +8644,18 @@ export default function AdminApp() {
     setSession(s)
     setReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!session) return
+    const onExpired = () => {
+      clearAdminSession()
+      setToken(null)
+      setSession(null)
+      setLoginNotice('Сессия истекла — войдите снова')
+    }
+    window.addEventListener('kakapo:admin-session-expired', onExpired)
+    return () => window.removeEventListener('kakapo:admin-session-expired', onExpired)
+  }, [session])
 
   if (!ready) {
     return (
@@ -8656,7 +8669,7 @@ export default function AdminApp() {
   }
 
   if (!session) {
-    return <AdminLoginPage onSuccess={setSession} />
+    return <AdminLoginPage notice={loginNotice} onSuccess={s => { setLoginNotice(''); setSession(s) }} />
   }
 
   return (

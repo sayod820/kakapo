@@ -285,6 +285,39 @@ async function requestApp<T>(path: string, options: RequestInit = {}, attempt = 
   return requestUrl<T>(path, options, attempt)
 }
 
+const ADMIN_AUTH_FAIL_CODES = new Set([
+  'AUTH_REQUIRED', 'AUTH_DEVICE_REQUIRED', 'AUTH_ADMIN_ONLY', 'AUTH_STAFF_ONLY', 'AUTH_FORBIDDEN',
+])
+const ADMIN_SESSION_CHECK_GAP_MS = 30_000
+let adminSessionCheckAt = 0
+
+function onAdminPage() {
+  if (typeof window === 'undefined') return false
+  const p = window.location.pathname || ''
+  return p === '/admin' || p.startsWith('/admin/')
+}
+
+/** Мёртвый вход админки иначе крутит опрос с 403 и переподключения /ws/admin с 401 бесконечно. */
+async function checkAdminSessionAlive() {
+  if (!onAdminPage()) return
+  const now = Date.now()
+  if (now - adminSessionCheckAt < ADMIN_SESSION_CHECK_GAP_MS) return
+  adminSessionCheckAt = now
+  const token = getToken()
+  let alive = false
+  if (token) {
+    try {
+      const res = await fetch(`${getApiUrl()}/auth/session`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+      if (!res.ok) return
+      const body = await res.json() as { active?: boolean; principal?: string }
+      alive = !!body?.active && (body.principal === 'ADMIN' || body.principal === 'STAFF')
+    } catch {
+      return
+    }
+  }
+  if (!alive && onAdminPage()) window.dispatchEvent(new CustomEvent('kakapo:admin-session-expired'))
+}
+
 async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const headers: Record<string, string> = {
@@ -361,6 +394,9 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     if (err.code === 'AUTH_DEVICE_REVOKED' || err.code === 'AUTH_DEVICE_MISMATCH' || err.code === 'AUTH_DEVICE_UNBOUND') {
       void clearTradeDeviceToken()
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('kakapo:device-revoked'))
+    }
+    if ((res.status === 401 || res.status === 403) && err.code && ADMIN_AUTH_FAIL_CODES.has(err.code)) {
+      void checkAdminSessionAlive()
     }
     throw err
   }
