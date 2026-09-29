@@ -920,6 +920,16 @@ export const api = {
     request<AdminCard>('/cards/ensure', { method: 'POST', body: JSON.stringify(data) }),
   updateCard: (num: string, data: Partial<AdminCard> & { unlink?: boolean; allowBonusDecrease?: boolean; clientRef?: string }) =>
     request<AdminCard>(`/cards/${encodeURIComponent(num.trim())}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  adjustClientDebt: (clientId: string, data: { targetDebt: number; reason?: string; clientRef: string }) =>
+    request<{ client?: AdminClient; prevDebt?: number; nextDebt?: number }>(
+      `/clients/${encodeURIComponent(clientId)}/debt-adjustments`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
+  adjustCardBonus: (num: string, data: { targetBonus: number; reason?: string; clientRef: string }) =>
+    request<{ card?: AdminCard; prevBonus?: number; nextBonus?: number }>(
+      `/cards/${encodeURIComponent(num.trim())}/bonus-adjustments`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
   getDebtLedger: (phone: string) =>
     request<import('./clientVipCredit').DebtLedgerResponse>(
       `/debt/ledger?phone=${encodeURIComponent(phone.trim())}`,

@@ -108,17 +108,32 @@ function isClientAlreadyExists(err: unknown): boolean {
   return /409|уже зарегистрирован|already registered/i.test(msg)
 }
 
+const SERVER_OWNED_MONEY_FIELDS = ['debt', 'bonus', 'debtPayVersion', 'bonusPayVersion', 'debtLedger'] as const
+
+/** PATCH карты/клиента не принимает долг и бонусы (400) — они идут отдельными операциями. */
+export function withoutServerOwnedMoney<T extends Record<string, unknown>>(patch: T): T {
+  const out = { ...patch }
+  for (const k of SERVER_OWNED_MONEY_FIELDS) delete out[k]
+  return out
+}
+
 /** Сохранить лояльность на сервер; карта должна быть записана вместе с клиентом */
 async function persistLoyaltyToApi(
   apiCardNum: string,
-  cardPatch: Record<string, unknown>,
+  rawCardPatch: Record<string, unknown>,
   clientId: string,
-  clientPatch: Record<string, unknown>,
+  rawClientPatch: Record<string, unknown>,
+  money: { debtTarget?: number; bonusTarget?: number } = {},
 ): Promise<{ cardSaved: boolean; clientSaved: boolean; cardNum: string; savedCard?: AdminCard; savedClient?: AdminClient }> {
   let cardSaved = false
   let cardNum = apiCardNum.trim()
   let savedCard: AdminCard | undefined
   let savedClient: AdminClient | undefined
+  const cardPatch = withoutServerOwnedMoney(rawCardPatch)
+  const clientPatch = withoutServerOwnedMoney(rawClientPatch)
+  const debtChanging = money.debtTarget != null
+  // «Выключить долг» до списания долга сервер отклонит (409) — debtEnabled уйдёт с картой после операции долга
+  if (debtChanging) delete clientPatch.debtEnabled
 
   const trySaveCard = async (num: string) => {
     try {
@@ -147,6 +162,15 @@ async function persistLoyaltyToApi(
     throw e
   }
 
+  if (debtChanging) {
+    const out = await api.adjustClientDebt(clientId, {
+      targetDebt: Math.max(0, Math.round(Number(money.debtTarget) * 100) / 100),
+      reason: 'Ручная правка долга',
+      clientRef: newClientRef(),
+    })
+    if (out?.client) savedClient = out.client
+  }
+
   try {
     const saved = await trySaveCard(cardNum)
     cardSaved = true
@@ -158,6 +182,15 @@ async function persistLoyaltyToApi(
 
   if (!cardSaved) {
     throw new Error('Не удалось сохранить карту на сервере. Обновите страницу и повторите.')
+  }
+
+  if (money.bonusTarget != null) {
+    const out = await api.adjustCardBonus(cardNum, {
+      targetBonus: Math.max(0, Math.round(Number(money.bonusTarget) * 100) / 100),
+      reason: 'Ручная правка бонусов',
+      clientRef: newClientRef(),
+    })
+    if (out?.card) savedCard = out.card
   }
 
   return { cardSaved, clientSaved, cardNum, savedCard, savedClient }
@@ -415,6 +448,9 @@ export async function saveCardLoyalty(
   const tierLimit = getTierDefaultDebtLimit(resolvedLevel, !!form.vip)
   const prevDebt = Math.max(0, Number(card.debt) || 0, Number(client?.debt) || 0)
   const nextDebt = Math.max(0, Number(form.debt) || 0)
+  const prevBonus = mode === 'edit'
+    ? Math.max(0, Number(card.bonus) || 0)
+    : Math.max(0, Number(card.bonus) || 0, Number(client?.bonus) || 0)
   // Пока есть долг (или начисляем) — раздел долга нельзя выключать:
   // иначе API отвечает 409 и баланс не сохраняется, а история уже могла записаться локально.
   const resolvedDebtEnabled = nextDebt > 0.001
@@ -535,6 +571,9 @@ export async function saveCardLoyalty(
         phone,
         note: loyaltyNote,
         ...loyalty,
+      }, {
+        debtTarget: Math.abs(loyalty.debt - prevDebt) > 0.001 ? loyalty.debt : undefined,
+        bonusTarget: Math.abs(loyalty.bonus - prevBonus) > 0.001 ? loyalty.bonus : undefined,
       })
       const saved = result.savedCard
       const savedClient = result.savedClient

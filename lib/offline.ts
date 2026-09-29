@@ -2352,30 +2352,45 @@ async function sendOp(row: PendingOp): Promise<string> {
       const p = row.payload || {}
       const num = String(p.num || '')
       if (!num) return ''
-      const cardPatch = p.cardPatch || {
-        debt: p.debt,
+      const { withoutServerOwnedMoney } = await import('./clientCardSync')
+      const cardPatch = withoutServerOwnedMoney(p.cardPatch || {
         debtEnabled: p.debtEnabled,
         debtLimit: p.debtLimit,
-        bonus: p.bonus,
         level: p.level,
         vip: p.vip,
         allowBonusDecrease: true,
-      }
-      await api.updateCard(num, { ...cardPatch, clientRef: p.clientRef })
-      if (p.clientId) {
-        let clientId = String(p.clientId)
+      })
+      const clientPatch = withoutServerOwnedMoney(p.clientPatch || {
+        debtEnabled: p.debtEnabled,
+        debtLimit: p.debtLimit,
+        level: p.level,
+        vip: p.vip,
+      })
+      let clientId = p.clientId ? String(p.clientId) : ''
+      if (clientId) {
         const map = await getIdMap()
         if (map[clientId]) clientId = map[clientId]
-        if (clientId && !isLocalId(clientId)) {
-          await api.updateClient(clientId, p.clientPatch || {
-            debt: p.debt,
-            debtEnabled: p.debtEnabled,
-            debtLimit: p.debtLimit,
-            bonus: p.bonus,
-            level: p.level,
-            vip: p.vip,
-          })
-        }
+        if (isLocalId(clientId)) clientId = ''
+      }
+      const refBase = String(p.clientRef || newClientRef())
+      if (p.debtTarget != null && clientId) {
+        await api.adjustClientDebt(clientId, {
+          targetDebt: Math.max(0, Math.round(Number(p.debtTarget) * 100) / 100),
+          reason: 'Ручная правка долга',
+          clientRef: `${refBase}:debt`,
+        })
+      }
+      await api.updateCard(num, { ...cardPatch, clientRef: p.clientRef })
+      if (p.bonusTarget != null) {
+        await api.adjustCardBonus(num, {
+          targetBonus: Math.max(0, Math.round(Number(p.bonusTarget) * 100) / 100),
+          reason: 'Ручная правка бонусов',
+          clientRef: `${refBase}:bonus`,
+        })
+      }
+      if (clientId) {
+        if (p.debtTarget != null) delete clientPatch.debtEnabled
+        if (Object.keys(clientPatch).length) await api.updateClient(clientId, clientPatch)
       }
       return num
     }

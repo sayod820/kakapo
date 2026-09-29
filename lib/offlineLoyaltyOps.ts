@@ -109,6 +109,8 @@ export async function saveCardLoyaltySafe(
         bonus: patch.bonus,
         level: form.level,
         vip: !!form.vip,
+        debtTarget: Math.abs(nextDebt - prevDebt) > 0.001 ? nextDebt : undefined,
+        bonusTarget: Math.abs(nextBonus - prevBonus) > 0.001 ? nextBonus : undefined,
         cardPatch: patch,
         clientPatch: {
           debt: patch.debt,
