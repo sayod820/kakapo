@@ -1201,6 +1201,19 @@ export async function deleteStockLayerSafe(
   const clientRef = newClientRef()
   const body = { clientRef, receiptId, productId }
 
+  const known = usePosStore.getState().receipts.find(r => r.id === receiptId)
+  if (known && known.items.length > 1) {
+    const left = known.items.filter(it => Number(it.productId) !== Number(productId))
+    const newTotal = round2(left.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0), 0))
+    const paid = round2(Number(known.paidNow) || 0)
+    if (paid > newTotal + 0.009) {
+      throw new Error(
+        `Приход оплачен на ${paid.toFixed(2)}, без этой партии его сумма станет ${newTotal.toFixed(2)}. `
+        + 'Сначала измените приход и уменьшите оплату, потом удаляйте партию.',
+      )
+    }
+  }
+
   const applyLocal = async () => {
     const receipt = usePosStore.getState().receipts.find(r => r.id === receiptId)
     const item = receipt?.items.find(it => Number(it.productId) === Number(productId))

@@ -1192,16 +1192,26 @@ export function deleteProductStockLayer(db, receiptId, productId) {
   const oldTotal = round2(receipt.totalCost)
   const oldDebt = round2(receipt.debtAdded)
   const oldPaid = round2(receipt.paidNow)
+  const newTotal = round2(itemsLeft.reduce(
+    (s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0),
+    0,
+  ))
+  // Обрезка paidNow не возвращает деньги и не уменьшает totalPaid поставщика — это и есть переплата
+  if (oldPaid > newTotal + 0.009) {
+    const err = new Error(
+      `Приход оплачен на ${oldPaid.toFixed(2)}, без этой партии его сумма станет ${newTotal.toFixed(2)}. `
+      + 'Сначала измените приход и уменьшите оплату, потом удаляйте партию.',
+    )
+    err.status = 409
+    err.code = 'RECEIPT_PAID_EXCEEDS_TOTAL'
+    throw err
+  }
   if (receipt.supplierId) {
     reverseSupplierDebt(db, receipt.supplierId, oldTotal, oldDebt)
   }
 
   receipt.items = itemsLeft
-  const newTotal = round2(itemsLeft.reduce(
-    (s, it) => s + (Number(it.qty) || 0) * (Number(it.costPrice) || 0),
-    0,
-  ))
-  const newPaid = round2(Math.min(oldPaid, newTotal))
+  const newPaid = oldPaid
   receipt.totalCost = newTotal
   receipt.paidNow = newPaid
   receipt.debtAdded = round2(Math.max(0, newTotal - newPaid))
