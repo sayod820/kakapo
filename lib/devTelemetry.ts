@@ -6,6 +6,8 @@
  * Never throws; never changes business logic.
  */
 
+import { lagMark } from './lagMonitor'
+
 export type PerfMetricName =
   | 'sale_local_ms'
   | 'cashier_render'
@@ -112,6 +114,7 @@ function logLine(msg: string, data?: Record<string, unknown>): void {
 
 /** Mark start; returns end() that records duration under `name`. */
 export function perfTime(name: PerfMetricName, tag?: string, extra?: Record<string, unknown>): () => number {
+  lagMark(tag ? `${name}.${tag}` : name)
   if (!isPerfEnabled()) return () => 0
   const t0 = performance.now()
   return () => {
@@ -123,6 +126,7 @@ export function perfTime(name: PerfMetricName, tag?: string, extra?: Record<stri
 }
 
 export function perfCount(name: PerfMetricName, n = 1, tag?: string, extra?: Record<string, unknown>): void {
+  if (name !== 'cashier_render') lagMark(tag ? `${name}.${tag}` : name)
   if (!isPerfEnabled()) return
   pushSample(name, { t: Date.now(), n, tag, extra })
   if (name === 'cashier_render' || name === 'products_array_replace') {
@@ -135,6 +139,7 @@ export function perfCount(name: PerfMetricName, n = 1, tag?: string, extra?: Rec
 }
 
 export function perfNote(name: PerfMetricName, ms: number, tag?: string, extra?: Record<string, unknown>): void {
+  lagMark(tag ? `${name}.${tag}` : name)
   if (!isPerfEnabled()) return
   pushSample(name, { t: Date.now(), ms, tag, extra }, ms)
   logLine(name, { ms: Math.round(ms * 10) / 10, tag, ...extra })

@@ -15,6 +15,7 @@ import type { AdminClient } from './clientCrm'
 import { browserSaysOffline, recentlyApiOk } from './apiReachability'
 import { androidPersist } from './androidPersist'
 import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
+import { lagMark } from './lagMonitor'
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -186,6 +187,7 @@ function androidFiles() {
 
 // ── KV: кэш каталога ──
 async function kvSet(key: string, value: unknown): Promise<void> {
+  lagMark(`kv:${key}`)
   const t0 = isPerfEnabled() ? performance.now() : 0
   const files = androidFiles()
   if (files) {
@@ -260,12 +262,15 @@ async function kvGet<T>(key: string): Promise<T | null> {
 export async function cacheProducts(products: Product[]): Promise<void> {
   // Только метаданные + URL. Prefetch байтов фото — отдельно (иначе каждый
   // cacheProducts после дельты/WS гоняет весь каталог по сети).
+  lagMark('cacheProducts')
   const clean = (products || []).map(sanitizeProductForLocalCache)
   const t0 = isPerfEnabled() ? performance.now() : 0
   let bytes = 0
-  try {
-    bytes = JSON.stringify(clean).length
-  } catch { /* ignore */ }
+  if (t0) {
+    try {
+      bytes = JSON.stringify(clean).length
+    } catch { /* ignore */ }
+  }
   await kvSet(KEY_PRODUCTS, clean)
   if (t0) {
     const ms = performance.now() - t0
@@ -365,11 +370,14 @@ async function writePosSnapshotFromStore(): Promise<void> {
     financeSummary: cur.financeSummary,
     report: cur.report,
   }
+  lagMark('posSnapshot')
   const t0 = isPerfEnabled() ? performance.now() : 0
   let bytes = 0
-  try {
-    bytes = JSON.stringify(payload).length
-  } catch { /* ignore */ }
+  if (t0) {
+    try {
+      bytes = JSON.stringify(payload).length
+    } catch { /* ignore */ }
+  }
   await cacheData('pos_snapshot', payload)
   snapshotWriteCount += 1
   if (t0) {

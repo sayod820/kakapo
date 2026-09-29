@@ -110,6 +110,7 @@ import { isAssemblerStoreHandoffPending } from '@/lib/orderUiMap'
 import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStorage'
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { isPerfEnabled, perfCount, perfScenario, perfTime } from '@/lib/devTelemetry'
+import { lagRender, setLagContextProvider, startLagMonitor } from '@/lib/lagMonitor'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -1179,6 +1180,7 @@ export default function CashierModule({
   theme?: ThemeName
   onThemeChange?: (theme: ThemeName) => void
 }) {
+  lagRender()
   if (isPerfEnabled()) perfCount('cashier_render', 1, active ? 'active' : 'idle')
   if (isPerfEnabled() && typeof window !== 'undefined') {
     try {
@@ -1324,6 +1326,20 @@ export default function CashierModule({
   const ticketSaleClientRefMap = useRef<Map<string, string>>(new Map())
   ticketsRef.current = tickets
   activeTicketIdRef.current = activeTicketId
+
+  useEffect(() => {
+    if (!USE_API) return
+    setLagContextProvider(() => ({
+      tickets: ticketsRef.current.length,
+      cartLines: ticketsRef.current.reduce((s, t) => s + t.cart.length, 0),
+      products: useProducts.getState().products.length,
+      sales: usePosStore.getState().sales.length,
+      clients: useClientStore.getState().clients.length,
+      cards: useCardStore.getState().cards.length,
+      online: isOnline(),
+    }))
+    startLagMonitor((message, context) => { void api.reportClientError('lag', message, context) })
+  }, [])
 
   // Восстановление открытых чеков после света / перезапуска
   useEffect(() => {

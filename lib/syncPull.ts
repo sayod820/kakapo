@@ -22,6 +22,7 @@ import {
 } from './pendingPullGate'
 import { refreshDebtOverlayFromPending } from './pendingDebtOverlay'
 import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
+import { lagMark } from './lagMonitor'
 import type { Product, ProductStockLayer } from './types'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
@@ -168,6 +169,7 @@ async function doPullSyncChanges(opts?: {
         merged = applyPendingStockOverlayToProducts(merged, stockDeltas)
       }
       if ((delta.products && delta.products.length) || delOf('product').length) {
+        lagMark(`pull.products${opts?.forceFull || delta.full ? '.full' : ''}`)
         useProducts.setState(s => ({
           products: merged,
           catalogEpoch: s.catalogEpoch + 1,
@@ -255,6 +257,7 @@ async function doPullSyncChanges(opts?: {
       }
       merged = dropById(merged, delOf('client'))
       if ((delta.clients && delta.clients.length) || delOf('client').length) {
+        lagMark('pull.clients')
         useClientStore.setState({ clients: merged })
         const fullSnap = !!(delta.full || opts?.forceFull)
         if (fullSnap) {
@@ -322,6 +325,7 @@ async function doPullSyncChanges(opts?: {
           const s = new Set(delCards)
           merged = merged.filter(row => !s.has(String(row.num)) && !s.has(String((row as any).id || '')))
         }
+        lagMark('pull.cards')
         useCardStore.setState({ cards: merged })
         const fullSnap = !!(delta.full || opts?.forceFull)
         if (fullSnap) {
@@ -342,6 +346,7 @@ async function doPullSyncChanges(opts?: {
 
     // Stock layers — protect products with unacked stock effects; cursor still advances
     if (Array.isArray(delta.stockLayers) && (delta.stockLayersReplace || delta.full || opts?.forceFull || delta.stockLayers.length)) {
+      lagMark('pull.layers')
       const next = (delta.full || opts?.forceFull || delta.stockLayersReplace)
         ? (delta.stockLayers as ProductStockLayer[])
         : null
@@ -491,6 +496,7 @@ async function doPullSyncChanges(opts?: {
       }
 
       if (Object.keys(patch).length) {
+        lagMark(`pull.pos.${Object.keys(patch).join('+')}`)
         usePosStore.setState(patch as any)
         try { await persistPosSnapshot({ force: true }) } catch { /* ignore */ }
       }

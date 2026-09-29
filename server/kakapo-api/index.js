@@ -3559,8 +3559,13 @@ app.post('/pos/client-errors', (req, res) => {
   const message = String(b.message || '').slice(0, 200)
   const context = b.context && typeof b.context === 'object' ? b.context : {}
   const slim = {}
-  for (const [k, v] of Object.entries(context).slice(0, 12)) {
+  for (const [k, v] of Object.entries(context).slice(0, kind === 'lag' ? 20 : 12)) {
     slim[String(k).slice(0, 40)] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v ?? '').slice(0, 120)
+  }
+  if (kind === 'lag') {
+    console.log('[clientLag]', deviceId, message, JSON.stringify(slim))
+    markResponseEphemeral(res)
+    return res.json({ ok: true })
   }
   console.warn('[clientError]', kind, deviceId, message, JSON.stringify(slim))
   auditFromReq(db, req, {
