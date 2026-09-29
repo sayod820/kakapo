@@ -225,11 +225,26 @@ export function revokeDeviceSessions(deviceId) {
   return n
 }
 
-/** Постоянный ключ кассы: один живой на устройство, прежний отзывается. */
+function deviceKeyRotateGraceMs() {
+  const raw = Number(process.env.KAKAPO_DEVICE_KEY_ROTATE_GRACE_MS)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 120_000
+}
+
+/**
+ * Постоянный ключ кассы: новый при каждом входе, прежний доживает короткую паузу —
+ * запросы, отправленные кассой в момент входа, ещё идут со старым ключом.
+ */
 export function issueDeviceSession({ deviceId, name } = {}) {
   const id = String(deviceId || '').trim()
   if (!id) throw new Error('issueDeviceSession requires deviceId')
-  revokeDeviceSessions(id)
+  const graceUntil = nowMs() + deviceKeyRotateGraceMs()
+  for (const [hash, s] of sessions) {
+    if (s.principal !== 'DEVICE' || String(s.deviceId || '') !== id) continue
+    if (!s.expiresAtMs || s.expiresAtMs > graceUntil) {
+      s.expiresAtMs = graceUntil
+      sessionBackend?.save(hash, s)
+    }
+  }
   return createSession({ principal: 'DEVICE', subjectId: id, deviceId: id, name: name || '', roles: ['device'] })
 }
 

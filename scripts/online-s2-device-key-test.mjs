@@ -16,6 +16,7 @@ import { cleanupOnlineTestPrefixes, bootstrapTestLabCashVault } from './online-t
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const WS = createRequire(path.join(root, 'server/kakapo-api/index.js'))('ws')
 const PREFIX = 'S2DEV-'
+const ROTATE_GRACE_MS = 2500
 const REAL_PG = isPostgresEnabled()
 
 let passed = 0
@@ -61,6 +62,7 @@ function startApi(port) {
         KAKAPO_AUTH_ENFORCE: '1',
         KAKAPO_LEGACY_POS_WRITE: '1',
         KAKAPO_OTP_LAB: '1',
+        KAKAPO_DEVICE_KEY_ROTATE_GRACE_MS: String(ROTATE_GRACE_MS),
         NODE_ENV: 'test',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -179,7 +181,14 @@ try {
   const keyB = login.body?.deviceToken
   expect(typeof keyB === 'string' && keyB && keyB !== keyA, 'login returns fresh deviceToken')
   expect(await wsOpen(api.base, 'pos', keyB), 'WS accepts fresh key')
-  expect(!(await wsOpen(api.base, 'pos', keyA)), 'old key revoked after rotation (WS rejects)')
+  expect(await wsOpen(api.base, 'pos', keyA), 'old key still accepted during rotation grace (in-flight requests)')
+  const inFlight = await fetchJson(`${api.base}/pos/sales`, {
+    headers: { ...JSON_H, ...bearer(keyA), 'x-kakapo-device-id': devA.deviceId, 'x-kakapo-employee-id': empId },
+  })
+  expect(inFlight.ok, `old key + employee works during grace, no legacy fallback needed (${inFlight.status})`)
+  await new Promise(r => setTimeout(r, ROTATE_GRACE_MS + 700))
+  expect(!(await wsOpen(api.base, 'pos', keyA)), 'old key expires after rotation grace (WS rejects)')
+  expect(await wsOpen(api.base, 'pos', keyB), 'fresh key unaffected by grace expiry')
 
   const staffH = (key, extra = {}) => ({
     ...JSON_H, ...bearer(key), 'x-kakapo-device-id': devA.deviceId, 'x-kakapo-employee-id': empId, ...extra,
@@ -246,7 +255,8 @@ try {
   const keyG = selfKey.body?.deviceToken
   expect(selfKey.ok && typeof keyG === 'string' && keyG.length > 20, `legacy kassa gets device key (${selfKey.status} ${selfKey.body?.code || ''})`)
   expect(await wsOpen(api.base, 'pos', keyG), 'WS accepts self-issued key')
-  expect(!(await wsOpen(api.base, 'pos', keyB)), 'previous key rotated out')
+  await sleep(ROTATE_GRACE_MS + 700)
+  expect(!(await wsOpen(api.base, 'pos', keyB)), 'previous key rotated out after grace')
   const withKey = await fetchJson(`${api.base}/pos/devices/key`, {
     method: 'POST', headers: staffH(keyG), body: JSON.stringify({ deviceId: devA.deviceId }),
   })
