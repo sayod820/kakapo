@@ -34,6 +34,7 @@ const EPHEMERAL_PATH_RE = [
   /^\/admin\/ai\/ask$/,
   /^\/loyalty\/sync$/,
   /^\/employees\/login$/,
+  /^\/auth\/(login|logout)$/,
 ]
 
 export function markResponseEphemeral(res) {
