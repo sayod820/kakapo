@@ -345,11 +345,67 @@ export function readCachedCategories<T = unknown>(): Promise<T[] | null> {
 
 /** Phase 8: coalesce full pos_snapshot KV writes (secondary checkpoint). */
 const SNAPSHOT_DEBOUNCE_MS = 800
+/**
+ * Online: the snapshot holds every receipt (10k+) and one write blocks the screen for seconds.
+ * Server is the source of truth and local sales live in durable mirrors, so write rarely and
+ * only in a pause of the cashier's input (but at least every SNAPSHOT_ONLINE_MAX_DELAY_MS).
+ */
+const SNAPSHOT_ONLINE_MIN_INTERVAL_MS = 2 * 60_000
+const SNAPSHOT_ONLINE_IDLE_MS = 5_000
+const SNAPSHOT_ONLINE_MAX_DELAY_MS = 5 * 60_000
 let snapshotDirty = false
 let snapshotInFlight = false
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null
 let snapshotWriteCount = 0
 let snapshotCoalesced = 0
+let snapshotLastWriteAt = 0
+let snapshotFirstDirtyAt = 0
+let lastUserInputAt = 0
+let snapshotWatchInstalled = false
+
+function installSnapshotWatch(): void {
+  if (snapshotWatchInstalled || typeof window === 'undefined') return
+  snapshotWatchInstalled = true
+  const markInput = () => { lastUserInputAt = Date.now() }
+  window.addEventListener('keydown', markInput, { capture: true, passive: true })
+  window.addEventListener('pointerdown', markInput, { capture: true, passive: true })
+  const flushNow = () => {
+    if (!snapshotDirty || snapshotInFlight) return
+    if (snapshotTimer) {
+      clearTimeout(snapshotTimer)
+      snapshotTimer = null
+    }
+    void drainPosSnapshotWrites(true)
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushNow()
+  })
+  window.addEventListener('pagehide', flushNow)
+}
+
+function snapshotDelayMs(): number {
+  if (typeof window === 'undefined' || !isOnline()) return SNAPSHOT_DEBOUNCE_MS
+  installSnapshotWatch()
+  const now = Date.now()
+  if (snapshotFirstDirtyAt && now - snapshotFirstDirtyAt >= SNAPSHOT_ONLINE_MAX_DELAY_MS) return SNAPSHOT_DEBOUNCE_MS
+  return Math.max(
+    SNAPSHOT_DEBOUNCE_MS,
+    snapshotLastWriteAt + SNAPSHOT_ONLINE_MIN_INTERVAL_MS - now,
+    lastUserInputAt + SNAPSHOT_ONLINE_IDLE_MS - now,
+  )
+}
+
+function scheduleSnapshotWrite(): void {
+  if (snapshotTimer) return
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null
+    if (snapshotDelayMs() > SNAPSHOT_DEBOUNCE_MS) {
+      scheduleSnapshotWrite()
+      return
+    }
+    void drainPosSnapshotWrites()
+  }, snapshotDelayMs())
+}
 
 async function writePosSnapshotFromStore(): Promise<void> {
   const { usePosStore } = await import('./posStore')
@@ -392,7 +448,7 @@ async function writePosSnapshotFromStore(): Promise<void> {
   }
 }
 
-async function drainPosSnapshotWrites(): Promise<void> {
+async function drainPosSnapshotWrites(force = false): Promise<void> {
   snapshotTimer = null
   if (snapshotInFlight) {
     snapshotDirty = true
@@ -400,14 +456,21 @@ async function drainPosSnapshotWrites(): Promise<void> {
   }
   while (snapshotDirty) {
     snapshotDirty = false
+    snapshotFirstDirtyAt = 0
     snapshotInFlight = true
     try {
       await writePosSnapshotFromStore()
     } catch { /* ignore */ }
     finally {
       snapshotInFlight = false
+      snapshotLastWriteAt = Date.now()
     }
-    // New marks during write → loop again (trailing checkpoint)
+    // New marks during write → loop again (trailing checkpoint); online — later, in a pause
+    if (snapshotDirty && !force && snapshotDelayMs() > SNAPSHOT_DEBOUNCE_MS) {
+      if (!snapshotFirstDirtyAt) snapshotFirstDirtyAt = Date.now()
+      scheduleSnapshotWrite()
+      return
+    }
   }
 }
 
@@ -424,14 +487,14 @@ export async function persistPosSnapshot(opts?: { force?: boolean }): Promise<vo
         snapshotTimer = null
       }
       snapshotDirty = true
-      await drainPosSnapshotWrites()
+      await drainPosSnapshotWrites(true)
       return
     }
     if (snapshotDirty || snapshotInFlight || snapshotTimer) snapshotCoalesced += 1
     snapshotDirty = true
+    if (!snapshotFirstDirtyAt) snapshotFirstDirtyAt = Date.now()
     if (snapshotInFlight) return
-    if (snapshotTimer) return
-    snapshotTimer = setTimeout(() => { void drainPosSnapshotWrites() }, SNAPSHOT_DEBOUNCE_MS)
+    scheduleSnapshotWrite()
   } catch { /* ignore */ }
 }
 
@@ -453,6 +516,8 @@ export function __resetPosSnapshotPersistDebug() {
   snapshotTimer = null
   snapshotWriteCount = 0
   snapshotCoalesced = 0
+  snapshotLastWriteAt = 0
+  snapshotFirstDirtyAt = 0
 }
 
 // ── Очередь операций ──

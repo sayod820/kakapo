@@ -2514,20 +2514,33 @@ export default function CashierModule({
       const liveG = grams
       const commitG = stopped ? roundStep(ev.grams) : liveG
 
-      setCasWeight(prev => ({
-        ...prev,
-        connected: payload.connected !== false,
-        running: true,
-        weightKg: liveG / 1000,
-        grams: liveG,
-        price: payload.price ?? prev.price,
-        error: payload.error || '',
-        host: payload.host || prev.host,
-        port: payload.port || prev.port,
-        raw: payload.raw,
-        stable: stopped,
-        ts: now,
-      }))
+      // Весы шлют показания несколько раз в секунду — без изменений не перерисовываем всю кассу
+      setCasWeight(prev => {
+        const next = {
+          ...prev,
+          connected: payload.connected !== false,
+          running: true,
+          weightKg: liveG / 1000,
+          grams: liveG,
+          price: payload.price ?? prev.price,
+          error: payload.error || '',
+          host: payload.host || prev.host,
+          port: payload.port || prev.port,
+          raw: payload.raw,
+          stable: stopped,
+          ts: now,
+        }
+        const same = prev.connected === next.connected
+          && prev.running === next.running
+          && prev.grams === next.grams
+          && prev.price === next.price
+          && prev.error === next.error
+          && prev.host === next.host
+          && prev.port === next.port
+          && prev.raw === next.raw
+          && prev.stable === next.stable
+        return same ? prev : next
+      })
 
       if (!deskScaleLiveWeightRef.current) return
       if (deskScaleModeRef.current === 'none') return

@@ -92,9 +92,10 @@ test('S1 persistPosSnapshot has dirty/debounce/force', () => {
   expect(offlineSrc.includes('__posSnapshotPersistDebug'), 'debug')
 })
 
-test('S2 bootstrap + syncPull force snapshot', () => {
+test('S2 bootstrap forces snapshot; syncPull schedules it (online write is throttled to pauses)', () => {
   expect(bootstrapSrc.includes('persistPosSnapshot({ force: true })'), 'bootstrap force')
-  expect(syncPullSrc.includes('persistPosSnapshot({ force: true })'), 'pull force')
+  expect(syncPullSrc.includes('void persistPosSnapshot()'), 'pull schedules')
+  expect(offlineSrc.includes('SNAPSHOT_ONLINE_IDLE_MS'), 'online idle throttle')
 })
 
 test('S3 sale path still schedules snapshot (void persistPosSnapshot)', () => {

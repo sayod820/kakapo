@@ -498,7 +498,7 @@ async function doPullSyncChanges(opts?: {
       if (Object.keys(patch).length) {
         lagMark(`pull.pos.${Object.keys(patch).join('+')}`)
         usePosStore.setState(patch as any)
-        try { await persistPosSnapshot({ force: true }) } catch { /* ignore */ }
+        void persistPosSnapshot()
       }
     }
 
