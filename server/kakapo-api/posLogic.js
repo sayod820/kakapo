@@ -4188,8 +4188,6 @@ export function returnPosSale(db, saleId, meta = {}) {
   let cutCash = 0
   let cutCard = 0
   let cutWallet = 0
-  const skipBalanceRestore = !!(meta.appliedLocal || meta.queuedOffline || meta.skipBalances)
-
   // Долг на чеке: explicit debtAdded, иначе credit/total, иначе mixed = total − оплаты
   let debtBefore = round2(Number(sale.debtAdded) || 0)
   if (!(debtBefore > 0.001)) {
@@ -4309,8 +4307,8 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
   }
   const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
-  // Смену на сервере крутим только если касса ещё не крутила (не skipBalances)
-  if (shift && shift.status === 'open' && !skipBalanceRestore) {
+  // Итоги смены считает только сервер (касса их не присылает): skipBalances не должен пропускать смену
+  if (shift && shift.status === 'open') {
     if (fullyReturned) shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
     shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))

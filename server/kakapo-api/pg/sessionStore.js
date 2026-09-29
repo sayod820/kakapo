@@ -15,12 +15,11 @@ function dataForStorage(row) {
 
 export function createPgSessionBackend() {
   let lastPruneAt = 0
-  const run = (label, fn) => {
-    withClient(fn).catch((e) => console.error(`[sessions] ${label} failed`, e?.message || e))
-  }
+  const run = (label, fn) => withClient(fn)
+    .catch((e) => console.error(`[sessions] ${label} failed`, e?.message || e))
   return {
     save(hash, row) {
-      run('save', (c) => c.query(
+      const saved = run('save', (c) => c.query(
         `INSERT INTO api_sessions (token_hash, principal, subject_id, data, expires_at)
          VALUES ($1, $2, $3, $4::jsonb, to_timestamp($5 / 1000.0))
          ON CONFLICT (token_hash) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`,
@@ -30,9 +29,10 @@ export function createPgSessionBackend() {
         lastPruneAt = Date.now()
         run('prune', (c) => c.query('DELETE FROM api_sessions WHERE expires_at <= now()'))
       }
+      return saved
     },
     remove(hash) {
-      run('remove', (c) => c.query('DELETE FROM api_sessions WHERE token_hash = $1', [hash]))
+      return run('remove', (c) => c.query('DELETE FROM api_sessions WHERE token_hash = $1', [hash]))
     },
     clear() {
       run('clear', (c) => c.query('DELETE FROM api_sessions'))

@@ -87,11 +87,23 @@ export function capsFromTradePermissions(permissions = []) {
 /** Keyed by sha256(token): the durable backend never sees raw tokens. @type {Map<string, object>} */
 const sessions = new Map()
 
-/** @type {{ save(hash: string, row: object): void, remove(hash: string): void, clear?(): void } | null} */
+/** @type {{ save(hash: string, row: object): Promise<unknown> | void, remove(hash: string): Promise<unknown> | void, clear?(): void } | null} */
 let sessionBackend = null
+const pendingSessionWrites = new Set()
 
 export function setSessionBackend(backend) {
   sessionBackend = backend || null
+}
+
+function trackSessionWrite(p) {
+  if (!p || typeof p.then !== 'function') return
+  pendingSessionWrites.add(p)
+  p.finally(() => pendingSessionWrites.delete(p)).catch(() => {})
+}
+
+/** Дождаться записи сессий в PG — чтобы токен пережил перезапуск API сразу после входа. */
+export async function sessionWritesSettled() {
+  await Promise.all([...pendingSessionWrites])
 }
 
 export function hashSessionToken(token) {
@@ -200,7 +212,7 @@ export function createSession(data) {
   }
   const hash = hashSessionToken(token)
   sessions.set(hash, row)
-  sessionBackend?.save(hash, row)
+  trackSessionWrite(sessionBackend?.save(hash, row))
   return row
 }
 
@@ -208,7 +220,7 @@ export function revokeSession(token) {
   if (!token) return
   const hash = hashSessionToken(token)
   sessions.delete(hash)
-  sessionBackend?.remove(hash)
+  trackSessionWrite(sessionBackend?.remove(hash))
 }
 
 /** Отозвать все ключи устройства (отвязка, удаление точки, перевыдача). */

@@ -118,6 +118,7 @@ import {
   isLoopbackReq,
   extractWsToken,
   capsFromTradePermissions,
+  sessionWritesSettled,
 } from './apiAuth.js'
 import {
   matchRoutePolicy,
@@ -1628,19 +1629,19 @@ app.post('/auth/login', (req, res) => {
     name: admin.name || 'Админ',
     roles: ['admin'],
   })
-  res.json({
+  void sessionWritesSettled().then(() => res.json({
     access_token: session.token,
     role: admin.role,
     user_id: admin.id,
     name: admin.name || 'Админ',
-  })
+  }))
 })
 app.post('/auth/logout', (req, res) => {
   const token = parseBearer(req)
   if (!token) return res.status(401).json({ detail: 'Требуется авторизация', code: 'AUTH_REQUIRED' })
   // Выход сотрудника не отзывает ключ кассы — только отвязка в админке
   if (getSession(token)?.principal !== 'DEVICE') revokeSession(token)
-  res.json({ ok: true })
+  void sessionWritesSettled().then(() => res.json({ ok: true }))
 })
 app.get('/auth/session', (req, res) => {
   const token = parseBearer(req)
