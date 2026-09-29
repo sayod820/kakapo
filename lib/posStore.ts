@@ -291,8 +291,8 @@ export const usePosStore = create<PosStore>((set) => ({
       // нет связи — при первом запуске поднимаем данные из офлайн-кэша
       if (!alreadyReady) {
         try {
-          const { readCachedData } = await import('./offline')
-          const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
+          const { readCachedPosSnapshot } = await import('./offline')
+          const cached = await readCachedPosSnapshot<Partial<PosStore>>()
           if (cached) {
             set({
               ...cached,

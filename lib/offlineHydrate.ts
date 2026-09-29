@@ -3,7 +3,7 @@
 // Холодный старт без интернета: разделы показывают данные
 // сразу, не дожидаясь таймаута сетевых запросов
 // ════════════════════════════════════════════════
-import { readCachedProducts, readCachedData } from './offline'
+import { readCachedProducts, readCachedData, readCachedPosSnapshot } from './offline'
 import type { Product } from './types'
 import type { AdminClient } from './clientCrm'
 import type { AdminCard } from './cardCrm'
@@ -68,7 +68,7 @@ async function hydratePos() {
     const { recoverLocalDebtOpEnvelopes } = await import('./localDebtCommitEnvelope')
     await recoverLocalDebtOpEnvelopes()
   } catch { /* ignore */ }
-  const cached = await readCachedData<Partial<PosStore>>('pos_snapshot')
+  const cached = await readCachedPosSnapshot<Partial<PosStore>>()
   if (cached) {
     const { usePosStore } = await import('./posStore')
     if (!usePosStore.getState().apiReady) {

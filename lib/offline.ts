@@ -407,14 +407,97 @@ function scheduleSnapshotWrite(): void {
   }, snapshotDelayMs())
 }
 
+/**
+ * Old receipts live in their own KV key, rewritten only when one of them changes
+ * (sync keeps the same object for an unchanged sale) — the main snapshot stays small.
+ */
+const POS_SNAPSHOT_ARCHIVE_KEY = 'pos_snapshot_sales_archive'
+const POS_SNAPSHOT_RECENT_DAYS = 21
+let archiveWrittenRefs: unknown[] | null = null
+
+function sameRefs(a: unknown[], b: unknown[] | null): boolean {
+  if (!b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+function splitSalesForSnapshot<T extends { createdAtIso?: string }>(sales: T[]): {
+  recent: T[]
+  archive: T[]
+  archivePos: number[]
+} {
+  // Day-aligned: a sliding cutoff would move a receipt into the archive on almost every write
+  const cutoff = (Math.floor(Date.now() / 86_400_000) - POS_SNAPSHOT_RECENT_DAYS) * 86_400_000
+  const recent: T[] = []
+  const archive: T[] = []
+  const archivePos: number[] = []
+  ;(sales || []).forEach((s, i) => {
+    const t = Date.parse(String(s?.createdAtIso || ''))
+    if (Number.isFinite(t) && t < cutoff) {
+      archive.push(s)
+      archivePos.push(i)
+    } else {
+      recent.push(s)
+    }
+  })
+  return { recent, archive, archivePos }
+}
+
+/** pos_snapshot with archived receipts put back in their original order. */
+export async function readCachedPosSnapshot<T = Record<string, unknown>>(): Promise<T | null> {
+  const snap = await readCachedData<Record<string, unknown>>('pos_snapshot')
+  if (!snap || !snap.salesArchived) return snap as T | null
+  const recent = Array.isArray(snap.sales) ? snap.sales as unknown[] : []
+  const archive = (await readCachedData<unknown[]>(POS_SNAPSHOT_ARCHIVE_KEY)) || []
+  const pos = Array.isArray(snap.salesArchivePos) ? snap.salesArchivePos as number[] : []
+  const { salesArchived: _a, salesArchivePos: _p, ...rest } = snap
+  let sales: unknown[]
+  if (pos.length === archive.length) {
+    sales = new Array(recent.length + archive.length)
+    const taken = new Set<number>()
+    pos.forEach((p, i) => {
+      if (p >= 0 && p < sales.length && !taken.has(p)) {
+        sales[p] = archive[i]
+        taken.add(p)
+      }
+    })
+    let r = 0
+    for (let i = 0; i < sales.length && r < recent.length; i++) {
+      if (!taken.has(i)) sales[i] = recent[r++]
+    }
+    while (r < recent.length) sales.push(recent[r++])
+    sales = sales.filter(s => s !== undefined)
+  } else {
+    sales = [...archive, ...recent]
+  }
+  const seen = new Set<string>()
+  const deduped: unknown[] = []
+  for (let i = sales.length - 1; i >= 0; i--) {
+    const id = String((sales[i] as { id?: unknown })?.id ?? '')
+    if (id && seen.has(id)) continue
+    if (id) seen.add(id)
+    deduped.push(sales[i])
+  }
+  deduped.reverse()
+  return { ...rest, sales: deduped } as T
+}
+
 async function writePosSnapshotFromStore(): Promise<void> {
   const { usePosStore } = await import('./posStore')
   const cur = usePosStore.getState()
+  const split = splitSalesForSnapshot(cur.sales || [])
+  if (!sameRefs(split.archive, archiveWrittenRefs)) {
+    lagMark('posSnapshotArchive')
+    await cacheData(POS_SNAPSHOT_ARCHIVE_KEY, split.archive)
+    archiveWrittenRefs = split.archive
+  }
   const payload = {
     cashiers: cur.cashiers,
     posPoints: cur.posPoints,
     shifts: cur.shifts,
-    sales: cur.sales,
+    sales: split.recent,
+    salesArchived: true,
+    salesArchivePos: split.archivePos,
     receipts: cur.receipts,
     writeoffs: cur.writeoffs,
     revisions: cur.revisions,
@@ -518,6 +601,7 @@ export function __resetPosSnapshotPersistDebug() {
   snapshotCoalesced = 0
   snapshotLastWriteAt = 0
   snapshotFirstDirtyAt = 0
+  archiveWrittenRefs = null
 }
 
 // ── Очередь операций ──
