@@ -944,6 +944,7 @@ export const CRM_OP_KINDS = Object.freeze({
   CRM_EXPIRE_RECOVERY: 'crm_expire_recovery',
   CRM_LOYALTY_MAINTENANCE: 'crm_loyalty_maintenance',
   CLIENT_DEBT_ADJUSTMENT: 'client_debt_adjustment',
+  CLIENT_DEBT_UNBLOCK: 'client_debt_unblock',
   CARD_BONUS_ADJUSTMENT: 'card_bonus_adjustment',
   CRM_CLIENT_CARD_LINK: 'crm_client_card_link',
   CRM_CARD_UNLINK: 'crm_card_unlink',

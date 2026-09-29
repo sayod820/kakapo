@@ -42,6 +42,7 @@ import {
   applyDebtRepayment,
   syncDebtLedgerToCard,
   resolveDebtRepaymentTarget,
+  unblockDebtCredit,
 } from './debtLedger.js'
 import { authSubjectKey } from './apiAuth.js'
 
@@ -1877,6 +1878,57 @@ export async function handleO8ClientDebtAdjustment(req, res, ctx) {
     })
   } catch (e) {
     txError(res, e, 'Не удалось скорректировать долг')
+  }
+}
+
+/** Ручная разблокировка долга админом: пишет только клиента и карту, без полного снимка. */
+export async function handleO8ClientDebtUnblock(req, res, ctx) {
+  const { db, findCardByNum, auditFromReq, notifyCrmChange } = ctx
+
+  const roles = Array.isArray(req.auth?.roles) ? req.auth.roles.map(r => String(r).toLowerCase()) : []
+  if (req.auth?.principal !== 'ADMIN' && !roles.includes('admin') && !roles.includes('manager')) {
+    return res.status(403).json({ detail: 'Разблокировать долг может только администратор' })
+  }
+  const clientId = req.params.id
+  const client = (db.clients || []).find(x => String(x.id) === String(clientId))
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+
+  try {
+    const txOut = await runO8Tx(req, {
+      db,
+      operationKind: CRM_OP_KINDS.CLIENT_DEBT_UNBLOCK,
+      advisoryLocks: crmResourceLocksForClient(db, clientId, client.phone),
+      mutate: () => {
+        const card = client.card ? findCardByNum(client.card) : null
+        const before = {
+          debtCreditBlocked: !!(client.debtCreditBlocked || card?.debtCreditBlocked),
+          debtOverdueStrikes: Number(client.debtOverdueStrikes) || 0,
+        }
+        const { markedEntries } = unblockDebtCredit(client, card)
+        const nowIso = new Date().toISOString()
+        client.updatedAtIso = nowIso
+        if (card) card.updatedAtIso = nowIso
+        return {
+          result: { ok: true, client, card, before, markedEntries },
+          touched: touchedFromCrm(db, { client, card }),
+        }
+      },
+    })
+    await afterCommitHold()
+    const { before, markedEntries, card } = txOut.result || {}
+    auditFromReq(db, req, {
+      action: 'debt_unblock',
+      entity: 'client',
+      entityId: client.id,
+      entityName: client.name || client.phone,
+      summary: `Долг разблокирован вручную: «${client.name || client.phone}» (было страйков ${before?.debtOverdueStrikes ?? 0})`,
+      before,
+      after: { debtCreditBlocked: false, debtOverdueStrikes: 0, markedEntries },
+    })
+    notifyCrmChange(client)
+    res.json({ ok: true, client, card: card || null, durable: isPostgresEnabled() })
+  } catch (e) {
+    txError(res, e, 'Не удалось разблокировать долг')
   }
 }
 

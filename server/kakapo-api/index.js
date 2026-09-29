@@ -91,6 +91,7 @@ import {
   handleO8PosSaleCreate,
   handleO8StockAdjustment,
   handleO8ClientDebtAdjustment,
+  handleO8ClientDebtUnblock,
   handleO8CardBonusAdjustment,
   handleO8CashAdvance,
   handleO8DebtRepay,
@@ -329,7 +330,6 @@ import {
   runDebtMaintenance,
   syncDebtLedgerFromCard,
   syncDebtLedgerToCard,
-  unblockDebtCredit,
 } from './debtLedger.js'
 import {
   unlinkNonCanonicalSiblingCards,
@@ -5472,31 +5472,7 @@ app.post('/clients/:id/debt-adjustments', (req, res) => {
 })
 
 app.post('/clients/:id/debt-unblock', (req, res) => {
-  const roles = Array.isArray(req.auth?.roles) ? req.auth.roles.map(r => String(r).toLowerCase()) : []
-  if (req.auth?.principal !== 'ADMIN' && !roles.includes('admin') && !roles.includes('manager')) {
-    return res.status(403).json({ detail: 'Разблокировать долг может только администратор' })
-  }
-  const client = (db.clients || []).find(x => x.id === req.params.id)
-  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
-  const card = client.card ? findCardByNum(client.card) : null
-  const before = {
-    debtCreditBlocked: !!(client.debtCreditBlocked || card?.debtCreditBlocked),
-    debtOverdueStrikes: Number(client.debtOverdueStrikes) || 0,
-  }
-  const { markedEntries } = unblockDebtCredit(client, card)
-  client.updatedAtIso = new Date().toISOString()
-  auditFromReq(db, req, {
-    action: 'debt_unblock',
-    entity: 'client',
-    entityId: client.id,
-    entityName: client.name || client.phone,
-    summary: `Долг разблокирован вручную: «${client.name || client.phone}» (было страйков ${before.debtOverdueStrikes})`,
-    before,
-    after: { debtCreditBlocked: false, debtOverdueStrikes: 0, markedEntries },
-  })
-  persist()
-  notifyCrmChange(client)
-  res.json({ ok: true, client, card })
+  void handleO8ClientDebtUnblock(req, res, o8HandlerCtx())
 })
 
 app.post('/cards/:num/bonus-adjustments', (req, res) => {

@@ -113,5 +113,71 @@ test('новые долги после разблокировки снова с�
   expect(client.debtCreditBlocked === true, 'new overdue did not block')
 })
 
+const { handleO8ClientDebtUnblock } = await import(pathToFileURL(path.join(root, 'server/kakapo-api/onlineO8Handlers.js')).href)
+const { installDurableHttpResponse } = await import(pathToFileURL(path.join(root, 'server/kakapo-api/durableHttpResponse.js')).href)
+
+async function callUnblock(db, auth) {
+  const out = { status: 200, body: null }
+  const res = {
+    status(code) { out.status = code; return res },
+    json(body) { out.body = body; return res },
+  }
+  const audits = []
+  const crm = []
+  await handleO8ClientDebtUnblock({ params: { id: 'c1' }, body: {}, auth }, res, {
+    db,
+    findCardByNum: num => db.cards.find(c => c.num === num) || null,
+    auditFromReq: (_db, _req, row) => audits.push(row),
+    notifyCrmChange: c => crm.push(c.id),
+  })
+  return { ...out, audits, crm }
+}
+
+async function testAsync(name, fn) {
+  try {
+    await fn()
+    pass++
+    console.log(`PASS  ${name}`)
+  } catch (e) {
+    fail++
+    console.log(`FAIL  ${name}: ${e.message}`)
+  }
+}
+
+await testAsync('HTTP: кассир получает 403, данные не меняются', async () => {
+  const { db, client } = makeDb()
+  const r = await callUnblock(db, { principal: 'STAFF', roles: ['cashier'] })
+  expect(r.status === 403, `status ${r.status}`)
+  expect(client.debtCreditBlocked === true, 'unblocked by cashier')
+  expect(r.audits.length === 0, 'audit written')
+})
+
+await testAsync('HTTP: админ разблокирует, аудит и оповещение касс', async () => {
+  const { db, client, card } = makeDb()
+  const r = await callUnblock(db, { principal: 'STAFF', roles: ['admin'] })
+  expect(r.status === 200 && r.body?.ok, `status ${r.status} ${JSON.stringify(r.body)?.slice(0, 120)}`)
+  expect(client.debtCreditBlocked === false && card.debtCreditBlocked === false, 'still blocked')
+  expect(r.audits.length === 1 && r.audits[0].action === 'debt_unblock', 'no audit')
+  expect(r.audits[0].before?.debtOverdueStrikes === 5, 'before strikes')
+  expect(r.crm.length === 1, 'no crm broadcast')
+})
+
+await testAsync('HTTP: неизвестный клиент → 404', async () => {
+  const { db } = makeDb()
+  db.clients = []
+  const r = await callUnblock(db, { principal: 'ADMIN', roles: ['admin'] })
+  expect(r.status === 404, `status ${r.status}`)
+})
+
+test('ответ разблокировки не ждёт полного снимка базы', () => {
+  let mw = null
+  installDurableHttpResponse({ use: fn => { mw = fn } })
+  let sent = false
+  const res = { locals: {}, statusCode: 200, headersSent: false, json: () => { sent = true }, send() {}, end() {} }
+  mw({ method: 'POST', path: '/clients/U-05/debt-unblock' }, res, () => {})
+  res.json({ ok: true })
+  expect(sent, 'response deferred behind snapshot flush')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
-if (fail) process.exit(1)
+process.exit(fail ? 1 : 0)

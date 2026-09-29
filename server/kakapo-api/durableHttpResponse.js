@@ -17,6 +17,7 @@ const O8_ALREADY_DURABLE_RE = [
   /^\/finance\/moves/,
   /^\/finance\/vault\//,
   /^\/clients\/[^/]+\/debt-adjustments$/,
+  /^\/clients\/[^/]+\/debt-unblock$/,
   /^\/cards\/[^/]+\/(cash-topup|cash-advance|debt-repay|bonus-adjustments)$/,
   /^\/cards\/[^/]+\/unlink$/,
 ]
