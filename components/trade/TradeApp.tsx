@@ -3761,6 +3761,17 @@ function TradeAppGate() {
   }, [])
 
   useEffect(() => {
+    function onReceiptRejected(e: Event) {
+      const d = (e as CustomEvent<{ supplierName?: string; paidNow?: number; message?: string }>).detail || {}
+      const who = d.supplierName ? ` от «${d.supplierName}»` : ''
+      const paid = Number(d.paidNow) > 0 ? `\nОплата ${Number(d.paidNow).toFixed(2)} из кассы тоже отменена. Если деньги поставщику уже отдали — касса не сойдётся, сообщите администратору.` : ''
+      window.alert(`Приход${who} не принят сервером и убран с кассы.\n${d.message || ''}${paid}`)
+    }
+    window.addEventListener('kakapo:receipt-rejected', onReceiptRejected)
+    return () => window.removeEventListener('kakapo:receipt-rejected', onReceiptRejected)
+  }, [])
+
+  useEffect(() => {
     try {
       if (isTradeAndroidNative()) document.documentElement.classList.add('kakapo-android')
       ;(window as Window & { __kakapoHideBoot?: () => void }).__kakapoHideBoot?.()

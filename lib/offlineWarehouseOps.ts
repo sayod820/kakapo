@@ -520,7 +520,23 @@ export async function createStockReceiptSafe(
     return receipt
   }
 
-  const res = await raceWarehouseOp(() => api.createStockReceipt(body), applyLocal)
+  // Локальный supplyVersion отстаёт после прихода с другого устройства или оборванного ответа:
+  // сервер отказывает, повтор с той же версией отказывает снова. clientRef тот же — дубля не будет.
+  const createOnline = async () => {
+    try {
+      return await api.createStockReceipt(body)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e || '')
+      if (!payload.supplierId || !/Приходы уже меняли|верси.*ожидали/i.test(msg)) throw e
+      const { refreshSupplierSupplyVersionFromServer } = await import('./offlineSupplierOps')
+      const ver = await refreshSupplierSupplyVersionFromServer(String(payload.supplierId))
+      if (ver == null) throw e
+      body.expectedSupplyVersion = ver
+      return api.createStockReceipt(body)
+    }
+  }
+
+  const res = await raceWarehouseOp(createOnline, applyLocal)
   if (res.data) {
     shadowMirrorPut('stock_receipt', res.data.id, res.data)
     if (!res.offline) upsertReceiptOnline(res.data)

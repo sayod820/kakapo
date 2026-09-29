@@ -2934,6 +2934,19 @@ export async function flushQueue(
                 void persistPosSnapshot()
                 await deletePending(live.clientRef)
                 liveByRef.delete(live.clientRef)
+                const p = (live.payload || {}) as Record<string, unknown>
+                const supplierName = String(p.supplierName || '')
+                const paid = Number(p.paidNow) || 0
+                void api.reportClientError('stock_receipt_rejected', err.slice(0, 200), {
+                  supplierName,
+                  paidNow: paid,
+                  items: Array.isArray(p.items) ? p.items.length : 0,
+                }).catch(() => {})
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('kakapo:receipt-rejected', {
+                    detail: { supplierName, paidNow: paid, message: err },
+                  }))
+                }
               } else {
                 // update: локальный приход уже изменён — оставляем в очереди с паузой
                 live.failed = true

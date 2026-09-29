@@ -792,6 +792,21 @@ export default function WarehouseReceiptsPanel({
       setMsg('Добавьте товар и укажите количество')
       return
     }
+    const paidValue = Number(paidNow) || 0
+    const sup = supplierId ? suppliers.find(s => s.id === supplierId) : undefined
+    if (!(draft.editingId || editingId) && sup && paidValue > 0.001) {
+      // Сервер отклонит оплату больше долга; на кассе приход уже был бы снят из очереди молча
+      const advance = roundMoney((Number(sup.totalPaid) || 0) - (Number(sup.totalSupplied) || 0))
+      const payableAfter = Math.max(0, roundMoney((Number(sup.totalSupplied) || 0) + totals.costTotal - (Number(sup.totalPaid) || 0)))
+      if (paidValue > payableAfter + 0.009) {
+        setMsg(
+          advance > 0.009
+            ? `У поставщика «${sup.name}» переплата ${fmtMoney(advance)} — приход спишется с неё. Оплата сейчас не больше ${fmtMoney(payableAfter)}.`
+            : `Оплата больше суммы долга поставщику (${fmtMoney(payableAfter)}).`,
+        )
+        return
+      }
+    }
     setSaving(true)
     setMsg('')
     try {
