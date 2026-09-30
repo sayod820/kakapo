@@ -131,6 +131,7 @@ function applyCashOut(db, { amount, payFrom, method, shift, posId }) {
     } else {
       db.cashVault.cashTotal = round2(have - amt)
     }
+    db.cashVault.vaultVersion = (Number(db.cashVault.vaultVersion) || 0) + 1
     return { shift: null, posId: posId || '' }
   }
   if (!shift) throw new Error('Нет открытой смены — откройте смену или оплатите из основного ящика')
@@ -165,6 +166,7 @@ function restoreCashOut(db, payment) {
     } else {
       db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
     }
+    db.cashVault.vaultVersion = (Number(db.cashVault.vaultVersion) || 0) + 1
     return
   }
   if (payment.shiftId) {

@@ -37,8 +37,8 @@ type PaymentFormState = {
   supplierName: string
   amount: string
   note: string
-  /** book = только учёт; shift/vault = с деньгами */
-  mode: 'book' | 'shift' | 'vault'
+  /** Откуда берём деньги: касса смены или основной ящик */
+  mode: 'shift' | 'vault'
   method: 'cash' | 'card'
   saving: boolean
   msg: string
@@ -51,7 +51,7 @@ function emptyPaymentForm(): PaymentFormState {
     supplierName: '',
     amount: '',
     note: '',
-    mode: 'book',
+    mode: 'shift',
     method: 'cash',
     saving: false,
     msg: '',
@@ -173,7 +173,7 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
 
   type HistoryRow =
     | { kind: 'receipt'; id: string; dateIso: string; totalCost: number; debtAdded: number; itemsCount: number }
-    | { kind: 'payment'; id: string; dateIso: string; amount: number; note?: string }
+    | { kind: 'payment'; id: string; dateIso: string; amount: number; note?: string; from?: string }
 
   function historyFor(supplierId: string): HistoryRow[] {
     const rows: HistoryRow[] = []
@@ -181,7 +181,9 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
       rows.push({ kind: 'receipt', id: r.id, dateIso: r.createdAtIso, totalCost: r.totalCost, debtAdded: r.debtAdded, itemsCount: r.items?.length || 0 })
     }
     for (const p of payments[supplierId] || []) {
-      rows.push({ kind: 'payment', id: p.id, dateIso: p.paidAtIso, amount: p.amount, note: p.note })
+      const from = p.payFrom === 'vault' ? 'основной ящик' : p.payFrom === 'shift' ? 'касса смены' : p.payFrom === 'book' ? 'учёт' : ''
+      const method = p.method === 'card' ? 'карта' : p.method === 'cash' ? 'нал' : ''
+      rows.push({ kind: 'payment', id: p.id, dateIso: p.paidAtIso, amount: p.amount, note: p.note, from: [from, method].filter(Boolean).join(', ') })
     }
     return rows.sort((a, b) => String(b.dateIso || '').localeCompare(String(a.dateIso || '')))
   }
@@ -275,7 +277,7 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
       supplierName: s.name,
       amount: '',
       note: '',
-      mode: 'book',
+      mode: 'shift',
       method: 'cash',
       saving: false,
       msg: '',
@@ -301,41 +303,24 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
     try {
       const clientRef = payClientRefRef.current || newClientRef()
       if (!payClientRefRef.current) payClientRefRef.current = clientRef
-      if (payForm.mode === 'book') {
-        const res = await createSupplierPaymentSafe(payForm.supplierId, {
-          amount,
-          note: payForm.note.trim() || undefined,
-          clientRef,
-        })
-        if (res.offline) {
-          setPayments(prev => {
-            const next = [res.data, ...(prev[payForm.supplierId] || [])]
-            void import('@/lib/offline').then(({ cacheData }) => {
-              void cacheData(`supplier_payments_${payForm.supplierId}`, next)
-            })
-            return { ...prev, [payForm.supplierId]: next }
+      const res = await createSupplierPaymentSafe(payForm.supplierId, {
+        amount,
+        note: payForm.note.trim() || undefined,
+        clientRef,
+        payFrom: payForm.mode,
+        method: payForm.method,
+      })
+      if (res.offline) {
+        setPayments(prev => {
+          const next = [res.data, ...(prev[payForm.supplierId] || [])]
+          void import('@/lib/offline').then(({ cacheData }) => {
+            void cacheData(`supplier_payments_${payForm.supplierId}`, next)
           })
-        } else {
-          void refreshAll()
-          void loadPayments(payForm.supplierId)
-        }
-      } else {
-        const { financeMoveSafe } = await import('@/lib/offlinePosOps')
-        const res = await financeMoveSafe({
-          type: 'withdraw',
-          amount,
-          supplierId: payForm.supplierId,
-          note: payForm.note.trim() || `Оплата · ${payForm.supplierName}`,
-          payFrom: payForm.mode,
-          method: payForm.method,
-          reason: `Оплата поставщику · ${payForm.supplierName}`,
+          return { ...prev, [payForm.supplierId]: next }
         })
-        if (!res.offline) {
-          void refreshAll()
-          void loadPayments(payForm.supplierId)
-        } else {
-          void loadPayments(payForm.supplierId)
-        }
+      } else {
+        void refreshAll()
+        void loadPayments(payForm.supplierId)
       }
       closePayForm(true)
     } catch (e) {
@@ -538,15 +523,8 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
                 )}
               </div>
               <div className="k-field">
-                <label>Как оплатить</label>
+                <label>Откуда деньги</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className={`k-subtab ${payForm.mode === 'book' ? 'active' : ''}`}
-                    onClick={() => setPayForm(prev => ({ ...prev, mode: 'book' }))}
-                  >
-                    Только учёт
-                  </button>
                   <button
                     type="button"
                     className={`k-subtab ${payForm.mode === 'shift' ? 'active' : ''}`}
@@ -559,36 +537,34 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
                     className={`k-subtab ${payForm.mode === 'vault' ? 'active' : ''}`}
                     onClick={() => setPayForm(prev => ({ ...prev, mode: 'vault' }))}
                   >
-                    Из основного
+                    Из основного ящика
                   </button>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                  {payForm.mode === 'book'
-                    ? 'Долг уменьшится, деньги в ящиках не трогаем'
-                    : 'Долг уменьшится и спишем деньги из выбранного ящика'}
+                  {payForm.mode === 'shift'
+                    ? 'Долг уменьшится, деньги спишем из кассы открытой смены'
+                    : 'Долг уменьшится, деньги спишем из основного (общего) ящика'}
                 </div>
               </div>
-              {payForm.mode !== 'book' && (
-                <div className="k-field">
-                  <label>Чем</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      type="button"
-                      className={`k-subtab ${payForm.method === 'cash' ? 'active' : ''}`}
-                      onClick={() => setPayForm(prev => ({ ...prev, method: 'cash' }))}
-                    >
-                      Нал
-                    </button>
-                    <button
-                      type="button"
-                      className={`k-subtab ${payForm.method === 'card' ? 'active' : ''}`}
-                      onClick={() => setPayForm(prev => ({ ...prev, method: 'card' }))}
-                    >
-                      Карта
-                    </button>
-                  </div>
+              <div className="k-field">
+                <label>Чем</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className={`k-subtab ${payForm.method === 'cash' ? 'active' : ''}`}
+                    onClick={() => setPayForm(prev => ({ ...prev, method: 'cash' }))}
+                  >
+                    Нал
+                  </button>
+                  <button
+                    type="button"
+                    className={`k-subtab ${payForm.method === 'card' ? 'active' : ''}`}
+                    onClick={() => setPayForm(prev => ({ ...prev, method: 'card' }))}
+                  >
+                    Карта
+                  </button>
                 </div>
-              )}
+              </div>
               <div className="k-field">
                 <label>Сумма оплаты *</label>
                 <input
@@ -702,6 +678,8 @@ export default function SuppliersModule({ search = '' }: { search?: string }) {
                         <span>{row.kind === 'receipt' ? '📥' : '💰'}</span>
                         <span style={{ color: 'var(--muted)' }}>{fmtDateTime(row.dateIso)}</span>
                         {row.kind === 'receipt' && <span style={{ color: 'var(--muted)' }}>· приход, {row.itemsCount} поз.</span>}
+                        {row.kind === 'payment' && row.from && <span style={{ color: 'var(--muted)' }}>· {row.from}</span>}
+                        {row.kind === 'payment' && row.from && <span style={{ color: 'var(--muted)' }}>· {row.from}</span>}
                         {row.kind === 'payment' && row.note && <span style={{ color: 'var(--muted)' }}>· {row.note}</span>}
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>

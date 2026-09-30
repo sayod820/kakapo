@@ -2259,11 +2259,25 @@ async function sendOp(row: PendingOp): Promise<string> {
           if (rowSup) expectedPayVersion = rowSup.payVersion
         } catch { /* keep queued */ }
       }
+      const cash = p.payFrom === 'shift' || p.payFrom === 'vault'
+      const shiftId = cash && p.shiftId ? String((await resolveRefs({ shiftId: p.shiftId }, ['shiftId'])).shiftId || '') : ''
       const pay = await api.createSupplierPayment(String(supplierId), {
         amount: Number(p.amount) || 0,
         note: p.note,
         clientRef: p.clientRef,
         expectedPayVersion,
+        ...(cash
+          ? {
+              settlementMethod: p.method === 'card' ? 'card' as const : 'cash' as const,
+              method: p.method === 'card' ? 'card' as const : 'cash' as const,
+              payFrom: p.payFrom as 'shift' | 'vault',
+              shiftId: shiftId && !isLocalId(shiftId) ? shiftId : undefined,
+              posId: p.posId || undefined,
+              cashierId: p.cashierId || undefined,
+              cashierName: p.cashierName || undefined,
+              reason: p.reason || undefined,
+            }
+          : {}),
       })
       return String((pay as any)?.id || '')
     }
@@ -2933,8 +2947,9 @@ export async function flushQueue(
               }
               if (live.kind === 'supplier_payment_create') {
                 const p = (live.payload || {}) as Record<string, unknown>
-                const { revertLocalSupplierPaymentOnReject } = await import('./offlineSupplierOps')
+                const { revertLocalSupplierPaymentOnReject, revertLocalSupplierCashOnReject } = await import('./offlineSupplierOps')
                 revertLocalSupplierPaymentOnReject(String(p.supplierId || ''), Number(p.amount) || 0)
+                await revertLocalSupplierCashOnReject(p)
               } else {
                 const p = (live.payload || {}) as Record<string, unknown>
                 const { revertLocalSupplierPaymentDeleteOnReject } = await import('./offlineSupplierOps')

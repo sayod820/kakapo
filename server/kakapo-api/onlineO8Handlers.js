@@ -321,6 +321,7 @@ export async function handleO8SupplierBookPayment(req, res, ctx) {
             clientRef,
             includeRecentLedger: settlementMethod !== 'adjustment',
           }),
+          ...(payment.payFrom === 'vault' ? { meta: metaCashVault(db) } : {}),
         }
       },
     })
@@ -1194,6 +1195,7 @@ export async function handleO8SupplierPaymentDelete(req, res, ctx) {
             clientRef,
             includeRecentLedger: true,
           }),
+          ...(row.payment?.payFrom === 'vault' ? { meta: metaCashVault(db) } : {}),
         }
       },
     })

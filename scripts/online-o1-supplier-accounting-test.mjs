@@ -242,7 +242,7 @@ expect(id.db === 'kakapo_l11_test' || process.env.O8_ALLOW_NON_L11_DB === '1', '
 await cleanupPg()
 
 const PORT = 18090 + Math.floor(Math.random() * 100)
-const api = await startApi(PORT)
+let api = await startApi(PORT)
 const fx = await seed(api.base)
 expect(!!fx.supplierId, 'O1 seed')
 
@@ -462,6 +462,42 @@ try {
   expect(round2(expCard1 - expCard0) === 0, 'CASE4 cash expense unchanged')
   expect(round2(card0 - card1) === 1000, 'CASE4 card -1000 once')
   expect((await fetchJson(`${api.base}/suppliers/${fxC4.supplierId}/payments`)).body?.filter(p => p.clientRef === payRef4).length === 1, 'CASE4 one SPAY')
+
+  // CASE 9 — main drawer balance after supplier payment / its reversal survives API restart (PG meta)
+  const vaultCash = async () => round2(Number((await fetchJson(`${api.base}/finance/vault`)).body?.cashTotal) || 0)
+  const restartApi = async () => {
+    killApi(api.child)
+    await sleep(500)
+    api = await startApi(PORT + 100 + Math.floor(Math.random() * 50))
+  }
+  const supC9 = await fetchJson(`${api.base}/suppliers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `${PREFIX}SupC9`, clientRef: `${PREFIX}supc9` }),
+  })
+  const fxC9 = { ...fx, supplierId: supC9.body?.id }
+  await receiptCreate(api.base, fxC9, 500, { supplyVersion: 0 })
+  const v9a = await vaultCash()
+  const c9 = await paySupplier(api.base, fxC9, 300, {
+    clientRef: `${PREFIX}case9-vault`,
+    expectedPayVersion: (await getSupplier(api.base, fxC9.supplierId))?.payVersion ?? 0,
+    settlementMethod: 'cash',
+    payFrom: 'vault',
+    method: 'cash',
+  })
+  expect(c9.r.ok, `CASE9 vault payment ok (${c9.r.status})`)
+  await restartApi()
+  expect(round2(v9a - (await vaultCash())) === 300, 'CASE9 vault -300 persisted after restart')
+  const c9del = await fetchJson(`${api.base}/suppliers/${fxC9.supplierId}/payments/${c9.r.body?.id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientRef: `${PREFIX}case9-del` }),
+  })
+  expect(c9del.ok, `CASE9 delete ok (${c9del.status})`)
+  await restartApi()
+  expect(round2(await vaultCash()) === v9a, 'CASE9 vault restored after delete, persisted after restart')
+  const sup9 = await getSupplier(api.base, fxC9.supplierId)
+  expect(round2(sup9?.payableAmount) === 500, 'CASE9 debt back to 500')
 
 } finally {
   killApi(api.child)

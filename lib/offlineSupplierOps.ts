@@ -1,7 +1,6 @@
 // ════════════════════════════════════════════════
 // KAKAPO — поставщики офлайн (Offline V2)
-// CRUD + оплаты долга (без кассового движения).
-// Оплата с кассы (finance_move + supplierId) — по-прежнему только онлайн.
+// CRUD + оплаты долга: из кассы смены / основного ящика (или корректировка без денег).
 // ════════════════════════════════════════════════
 import { api } from './api'
 import { isLocalId, newClientRef, newLocalId, persistPosSnapshot } from './offline'
@@ -240,10 +239,85 @@ export async function deleteSupplierSafe(id: string): Promise<OfflineResult<{ id
   }, applyLocal)
 }
 
-/** Оплата долга поставщику (без движения по кассе). При V2=on — без сети. */
+type SupplierCashFields = {
+  settlementMethod: 'cash' | 'card'
+  method: 'cash' | 'card'
+  payFrom: 'shift' | 'vault'
+  shiftId?: string
+  posId?: string
+  cashierId?: string
+  cashierName?: string
+  reason: string
+}
+
+/** Real money for a supplier payment: which drawer, which shift, who paid. Throws if the drawer is short. */
+async function resolveSupplierCash(
+  supplierName: string,
+  amount: number,
+  payFrom: 'shift' | 'vault',
+  method: 'cash' | 'card',
+): Promise<SupplierCashFields> {
+  const { resolveOpenShift, shiftAvailableLocal, vaultAvailableLocal } = await import('./offlinePosOps')
+  const open = resolveOpenShift()
+  if (payFrom === 'vault') {
+    const have = vaultAvailableLocal(method)
+    if (amount > have + 0.009) {
+      throw new Error(method === 'card'
+        ? `В основном ящике на карте только ${have.toFixed(2)} сом`
+        : `В основном ящике наличных только ${have.toFixed(2)} сом`)
+    }
+  } else {
+    if (!open) throw new Error('Нет открытой смены — откройте смену или оплатите из основного ящика')
+    const have = shiftAvailableLocal(open, method)
+    if (amount > have + 0.009) {
+      throw new Error(method === 'card'
+        ? `На карте смены только ${have.toFixed(2)} сом`
+        : `В кассе недостаточно наличных (доступно ${have.toFixed(2)} сом)`)
+    }
+  }
+  const fromLabel = payFrom === 'vault' ? 'основной ящик' : 'касса смены'
+  return {
+    settlementMethod: method,
+    method,
+    payFrom,
+    shiftId: payFrom === 'shift' ? open?.id : undefined,
+    posId: open?.posId,
+    cashierId: open?.cashierId,
+    cashierName: open?.cashierName,
+    reason: `Оплата поставщику · ${supplierName} · ${fromLabel} · ${method === 'card' ? 'карта' : 'нал'}`,
+  }
+}
+
+/** Вернуть деньги в кассу/ящик, если сервер отклонил оплату поставщику из очереди */
+export async function revertLocalSupplierCashOnReject(payload: Record<string, unknown>) {
+  const payFrom = payload.payFrom === 'vault' ? 'vault' : payload.payFrom === 'shift' ? 'shift' : null
+  if (!payFrom) return
+  const { applyMoneyOutLocal } = await import('./offlinePosOps')
+  try {
+    applyMoneyOutLocal({
+      amount: Number(payload.amount) || 0,
+      payFrom,
+      method: payload.method === 'card' ? 'card' : 'cash',
+      dir: -1,
+      shiftId: payload.shiftId ? String(payload.shiftId) : undefined,
+      posId: payload.posId ? String(payload.posId) : undefined,
+    })
+  } catch { /* shift already gone — server state wins on next pull */ }
+}
+
+/**
+ * Оплата долга поставщику из кассы смены или основного ящика (payFrom),
+ * либо без денег (корректировка), если payFrom не задан. При V2=on — без сети.
+ */
 export async function createSupplierPaymentSafe(
   supplierId: string,
-  input: { amount: number; note?: string; clientRef?: string },
+  input: {
+    amount: number
+    note?: string
+    clientRef?: string
+    payFrom?: 'shift' | 'vault'
+    method?: 'cash' | 'card'
+  },
 ): Promise<OfflineResult<SupplierPayment>> {
   const amount = round2(input.amount)
   if (!(amount > 0)) throw new Error('Укажите сумму оплаты')
@@ -252,6 +326,10 @@ export async function createSupplierPaymentSafe(
     const s = usePosStore.getState().suppliers.find(x => x.id === supplierId)
     return supplierPayVersion(s)
   }
+  const supplierName = usePosStore.getState().suppliers.find(s => s.id === supplierId)?.name || ''
+  const cash = input.payFrom
+    ? await resolveSupplierCash(supplierName, amount, input.payFrom, input.method === 'card' ? 'card' : 'cash')
+    : null
 
   // Browser online: O8 requires clientRef on every debt-family mutation
   if (!isTradeLocalFirst()) {
@@ -261,6 +339,7 @@ export async function createSupplierPaymentSafe(
       note: input.note,
       expectedPayVersion: snapPayVersion(),
       clientRef,
+      ...(cash || {}),
     })
     return { offline: false, data: pay }
   }
@@ -274,25 +353,45 @@ export async function createSupplierPaymentSafe(
     amount,
     note: input.note,
     paidAtIso,
+    createdAtIso: paidAtIso,
     expectedPayVersion,
+    ...(cash || {}),
   }
 
   const applyLocal = async () => {
     const localId = newLocalId('spay')
-    const supplier = usePosStore.getState().suppliers.find(s => s.id === supplierId)
     const pay: SupplierPayment = {
       id: localId,
       supplierId,
-      supplierName: supplier?.name || '',
+      supplierName,
       amount,
       paidAtIso,
       note: input.note,
       clientRef,
+      payFrom: cash ? cash.payFrom : 'book',
+      method: cash?.method,
+      shiftId: cash?.shiftId,
     }
-    await useOfflineSync.getState().queueOp('supplier_payment_create', payload, {
-      localId,
-      clientRef,
-    })
+    if (cash) {
+      const { applyMoneyOutLocal } = await import('./offlinePosOps')
+      applyMoneyOutLocal({
+        amount,
+        payFrom: cash.payFrom,
+        method: cash.method,
+        dir: 1,
+        shiftId: cash.shiftId,
+        posId: cash.posId,
+      })
+    }
+    try {
+      await useOfflineSync.getState().queueOp('supplier_payment_create', payload, {
+        localId,
+        clientRef,
+      })
+    } catch (e) {
+      if (cash) await revertLocalSupplierCashOnReject(payload)
+      throw e
+    }
     applyPaymentToSupplier(supplierId, amount)
     shadowMirrorPut('supplier', supplierId, usePosStore.getState().suppliers.find(s => s.id === supplierId))
     return pay
@@ -305,6 +404,7 @@ export async function createSupplierPaymentSafe(
         note: input.note,
         clientRef,
         expectedPayVersion,
+        ...(cash || {}),
       })
       applyPaymentToSupplier(supplierId, amount)
       return pay
