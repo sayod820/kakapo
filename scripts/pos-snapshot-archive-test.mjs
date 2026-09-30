@@ -41,7 +41,7 @@ const DAY = 86_400_000
 const iso = daysAgo => new Date(Date.now() - daysAgo * DAY).toISOString()
 const sales = [
   { id: 'a', createdAtIso: iso(100) },
-  { id: 'b', createdAtIso: iso(2) },
+  { id: 'b', createdAtIso: iso(0.5) },
   { id: 'c', createdAtIso: iso(40) },
   { id: 'd', createdAtIso: iso(0) },
   { id: 'e', createdAtIso: iso(30) },

@@ -412,7 +412,8 @@ function scheduleSnapshotWrite(): void {
  * (sync keeps the same object for an unchanged sale) — the main snapshot stays small.
  */
 const POS_SNAPSHOT_ARCHIVE_KEY = 'pos_snapshot_sales_archive'
-const POS_SNAPSHOT_RECENT_DAYS = 21
+/** ~200 receipts/day: every extra day adds ~0.25 s of freeze to each snapshot write */
+const POS_SNAPSHOT_RECENT_DAYS = 1
 let archiveWrittenRefs: unknown[] | null = null
 
 function sameRefs(a: unknown[], b: unknown[] | null): boolean {
