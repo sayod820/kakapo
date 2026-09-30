@@ -641,7 +641,8 @@ export const api = {
       method: 'DELETE',
       body: data ? JSON.stringify(data) : undefined,
     }),
-  createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
+  /** Photo in the body makes this slow on phones; a retry is only safe with data.clientRef */
+  createProduct: (data: any) => request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }, 0, 45_000),
   updateProduct: (id: number, data: any) => request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProduct: (id: number, data?: { clientRef?: string }) =>
     request(`/products/${id}`, {

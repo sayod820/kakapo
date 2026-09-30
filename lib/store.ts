@@ -822,7 +822,7 @@ interface ProductsStore {
   /** Bumped on stock patches (lists that filter by stock). */
   stockEpoch: number
   fetchProducts: () => Promise<void>
-  saveProduct: (data: Partial<Product> & { art?: string; id?: number }) => Promise<Product | null>
+  saveProduct: (data: Partial<Product> & { art?: string; id?: number; clientRef?: string }) => Promise<Product | null>
   updateProduct: (id: number, updates: Partial<Product>) => void
   /**
    * One catalog pass: patch stock for affected ids only.
@@ -996,7 +996,7 @@ export const useProducts = create<ProductsStore>((set, get) => ({
           discount: 0,
         })
         set(s => ({
-          products: [...s.products, { ...p, old: null, discount: 0 }],
+          products: [...s.products.filter(x => x.id !== p.id), { ...p, old: null, discount: 0 }],
           catalogEpoch: s.catalogEpoch + 1,
         }))
         return { ...p, old: null, discount: 0 }

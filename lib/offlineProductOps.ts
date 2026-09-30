@@ -48,7 +48,8 @@ export async function saveProductSafe(
 
   // Полный офлайн не включён — обычный онлайн API (как раньше)
   if (!isTradeLocalFirst()) {
-    const saved = await useProducts.getState().saveProduct(cleaned)
+    // clientRef: a timed-out create that the server did finish replays instead of «артикул уже занят»
+    const saved = await useProducts.getState().saveProduct(cleaned.id ? cleaned : { ...cleaned, clientRef })
     if (!saved) throw new Error('Не удалось сохранить товар')
     shadowMirrorPut('product', String(saved.id), saved)
     return { offline: false, data: saved }

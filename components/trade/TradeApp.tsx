@@ -203,6 +203,26 @@ const CSS = `
     background:var(--gold);box-shadow:0 0 0 2px rgba(255,184,0,.25)
   }
   .k-wo-fab,.k-rev-fab{display:none}
+  .k-rcpt-fab-wrap{
+    position:fixed;right:22px;bottom:112px;z-index:200;
+    display:flex;flex-direction:column;align-items:flex-end;gap:10px
+  }
+  .k-rcpt-fab{
+    width:56px;height:56px;border-radius:16px;border:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#1FD760,#14b24f);color:#05210D;
+    font-size:30px;font-weight:900;line-height:1;
+    box-shadow:0 8px 22px rgba(31,215,96,.4)
+  }
+  .k-rcpt-fab-wrap.is-open .k-rcpt-fab{background:var(--card);color:var(--text);box-shadow:0 6px 18px rgba(0,0,0,.18);border:1px solid var(--border)}
+  .k-rcpt-fab-menu{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .k-rcpt-fab-item{
+    border:1px solid var(--border);border-radius:12px;cursor:pointer;
+    padding:12px 16px;min-height:46px;white-space:nowrap;
+    background:var(--panel);color:var(--text);font-size:14px;font-weight:800;
+    box-shadow:0 6px 18px rgba(0,0,0,.16)
+  }
+  .k-rcpt-fab-item:hover{border-color:var(--green)}
   .k-clients-mod{padding-bottom:72px}
   .k-suppliers-mod{padding-bottom:72px}
   .k-cli-sync-bar{font-size:11px;color:var(--muted);margin:0 0 8px;font-weight:700}
@@ -2003,6 +2023,7 @@ const CSS = `
       grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;
       padding:6px 8px calc(8px + env(safe-area-inset-bottom,0px))
     }
+    .k-rcpt-fab-wrap{right:12px;bottom:calc(120px + env(safe-area-inset-bottom,0px))}
     .k-rcpt-stat{padding:6px 7px;border-radius:8px;gap:0}
     .k-rcpt-stat b{font-size:12px}
     .k-rcpt-stat span{font-size:9px;line-height:1.2}

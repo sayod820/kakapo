@@ -413,6 +413,7 @@ export default function WarehouseReceiptsPanel({
   const [editingSupplier, setEditingSupplier] = useState<PosSupplier | null>(null)
   const [labelReceipt, setLabelReceipt] = useState<StockReceipt | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [fabOpen, setFabOpen] = useState(false)
   /** Черновик заполнен копированием прихода — подсказка про остатки */
   const [copiedFromHint, setCopiedFromHint] = useState(false)
 
@@ -1426,30 +1427,11 @@ export default function WarehouseReceiptsPanel({
                 <div className="k-rcpt-main">
                   <div className="k-rcpt-main-h">
                     <b>Товары ({totals.withProduct})</b>
-                    <div className="k-rcpt-main-actions">
-                      <button
-                        type="button"
-                        className="k-btn k-btn-s"
-                        onClick={() => {
-                          setAddOpen(false)
-                          ensurePendingThen(() => openNewProduct(pendingKey, ''))
-                        }}
-                      >
-                        + Создать товар
-                      </button>
-                      <button
-                        type="button"
-                        className="k-btn k-btn-g k-btn-s"
-                        onClick={() => setAddOpen(true)}
-                      >
-                        Найти товар
-                      </button>
-                    </div>
                   </div>
 
                   {filledLines.length === 0 ? (
                     <div className="k-rcpt-empty">
-                      Нажмите «Найти товар» (поиск / сканер) или «Создать товар»
+                      Нажмите «+» справа внизу: создать товар или добавить из существующих
                     </div>
                   ) : (
                     <div className="k-rcpt-table">
@@ -1520,6 +1502,45 @@ export default function WarehouseReceiptsPanel({
               </div>
             </div>
           </div>
+
+          {!showAdd && !newProductOpen && !activeLineKey && (
+            <div className={`k-rcpt-fab-wrap${fabOpen ? ' is-open' : ''}`}>
+              {fabOpen && (
+                <div className="k-rcpt-fab-menu">
+                  <button
+                    type="button"
+                    className="k-rcpt-fab-item"
+                    onClick={() => {
+                      setFabOpen(false)
+                      setAddOpen(false)
+                      ensurePendingThen(() => openNewProduct(pendingKey, ''))
+                    }}
+                  >
+                    📦 Создать товар
+                  </button>
+                  <button
+                    type="button"
+                    className="k-rcpt-fab-item"
+                    onClick={() => {
+                      setFabOpen(false)
+                      setAddOpen(true)
+                    }}
+                  >
+                    🔍 Добавить из существующих
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="k-rcpt-fab"
+                aria-label={fabOpen ? 'Закрыть' : 'Добавить товар'}
+                title={fabOpen ? 'Закрыть' : 'Добавить товар'}
+                onClick={() => setFabOpen(v => !v)}
+              >
+                {fabOpen ? '×' : '+'}
+              </button>
+            </div>
+          )}
 
           {showAdd && (
             <div
