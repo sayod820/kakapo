@@ -35,7 +35,7 @@ const js = ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTar
 
 const kv = new Map()
 const readCachedData = async key => (kv.has(`data_${key}`) ? structuredClone(kv.get(`data_${key}`)) : null)
-const mod = new Function('readCachedData', `${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, sameRefs, POS_SNAPSHOT_ARCHIVE_KEY }`)(readCachedData)
+const mod = new Function('readCachedData', `${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, sameRefs, archiveSig, POS_SNAPSHOT_ARCHIVE_KEY, storedSig: () => archiveStoredSig }`)(readCachedData)
 
 const DAY = 86_400_000
 const iso = daysAgo => new Date(Date.now() - daysAgo * DAY).toISOString()
@@ -101,6 +101,34 @@ await test('archive unchanged refs → no rewrite needed; changed sale → rewri
   expect(mod.sameRefs(s2.archive, s1.archive), 'new recent sale keeps archive')
   const edited = next.map(x => (x.id === 'c' ? { ...x, returned: true } : x))
   expect(!mod.sameRefs(mod.splitSalesForSnapshot(edited).archive, s1.archive), 'edited old sale → rewrite')
+})
+
+await test('signature: same content with new objects (restart / full pull) → equal; edited old sale → differs', () => {
+  const s1 = mod.splitSalesForSnapshot(sales)
+  const copy = structuredClone(sales)
+  const s2 = mod.splitSalesForSnapshot([{ id: 'n', createdAtIso: iso(0) }, ...copy])
+  expect(!mod.sameRefs(s2.archive, s1.archive), 'refs differ')
+  expect(mod.archiveSig(s2.archive) === mod.archiveSig(s1.archive), 'content sig equal despite shifted positions')
+  const edited = copy.map(x => (x.id === 'c' ? { ...x, status: 'returned', returns: [{ id: 'r' }] } : x))
+  expect(mod.archiveSig(mod.splitSalesForSnapshot(edited).archive) !== mod.archiveSig(s1.archive), 'edit changes sig')
+  const reordered = [copy[4], copy[1], copy[2], copy[3], copy[0], copy[5]]
+  expect(mod.archiveSig(mod.splitSalesForSnapshot(reordered).archive) !== mod.archiveSig(s1.archive), 'order changes sig')
+})
+
+await test('read: stored signature trusted only when archive present and positions match', async () => {
+  kv.clear()
+  const s = mod.splitSalesForSnapshot(sales)
+  const sig = mod.archiveSig(s.archive)
+  store(s, { salesArchiveSig: sig })
+  const snap = await mod.readCachedPosSnapshot()
+  expect(!('salesArchiveSig' in snap), 'sig stripped from store data')
+  expect(mod.storedSig() === sig, 'sig remembered')
+  kv.delete(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`)
+  await mod.readCachedPosSnapshot()
+  expect(mod.storedSig() === null, 'missing archive → force rewrite')
+  store(s, { salesArchiveSig: sig, salesArchivePos: [0] })
+  await mod.readCachedPosSnapshot()
+  expect(mod.storedSig() === null, 'positions out of sync → force rewrite')
 })
 
 await test('cutoff is day-aligned (archive stable within a day)', () => {
