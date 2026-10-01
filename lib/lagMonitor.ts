@@ -130,6 +130,7 @@ function flush(): void {
     navN: navList.length,
     navMax: Math.round(navMax),
     navTop: topEntries(byNav, 5),
+    shell: typeof window !== 'undefined' && (window as { kakapoDesktop?: { isDesktop?: boolean } }).kakapoDesktop?.isDesktop ? 'desktop' : 'web',
     ...extra,
   })
 }

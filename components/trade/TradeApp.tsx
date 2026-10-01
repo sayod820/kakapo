@@ -3,7 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
-import { lagNavShown, lagNavStart } from '@/lib/lagMonitor'
+import { lagNavShown, lagNavStart, startLagMonitor } from '@/lib/lagMonitor'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -3233,6 +3233,11 @@ function TradeAppInner({
 
   // Каталог уже подтягивает hydrate + useApiSync — лишний fetch на mount не нужен
   // (на слабом интернете дублировал тяжёлую загрузку)
+
+  useEffect(() => {
+    if (!USE_API) return
+    startLagMonitor((message, context) => { void api.reportClientError('lag', message, context) })
+  }, [])
 
   useEffect(() => {
     setMenuOpen(false)
