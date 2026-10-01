@@ -424,6 +424,17 @@ function sameRefs(a: unknown[], b: unknown[] | null): boolean {
   return true
 }
 
+let writtenOpenShiftsSig: string | null = null
+
+function openShiftsSig(shifts: unknown): string {
+  if (!Array.isArray(shifts)) return ''
+  return shifts
+    .filter(s => String((s as { status?: unknown })?.status || '') === 'open')
+    .map(s => String((s as { id?: unknown })?.id ?? ''))
+    .sort()
+    .join(',')
+}
+
 /** Order-sensitive; positions are excluded — they live in the main snapshot and shift with new receipts. */
 function archiveSig(sales: unknown[]): string {
   let h = 0x811c9dc5
@@ -467,6 +478,7 @@ function splitSalesForSnapshot<T extends { createdAtIso?: string }>(sales: T[]):
 /** pos_snapshot with archived receipts put back in their original order. */
 export async function readCachedPosSnapshot<T = Record<string, unknown>>(): Promise<T | null> {
   const snap = await readCachedData<Record<string, unknown>>('pos_snapshot')
+  if (snap) writtenOpenShiftsSig = openShiftsSig(snap.shifts)
   if (!snap || !snap.salesArchived) return snap as T | null
   const recent = Array.isArray(snap.sales) ? snap.sales as unknown[] : []
   const storedArchive = await readCachedData<unknown[]>(POS_SNAPSHOT_ARCHIVE_KEY)
@@ -546,6 +558,7 @@ async function writePosSnapshotFromStore(): Promise<void> {
     } catch { /* ignore */ }
   }
   await cacheData('pos_snapshot', payload)
+  writtenOpenShiftsSig = openShiftsSig(payload.shifts)
   snapshotWriteCount += 1
   if (t0) {
     const ms = performance.now() - t0
@@ -592,7 +605,13 @@ async function drainPosSnapshotWrites(force = false): Promise<void> {
  */
 export async function persistPosSnapshot(opts?: { force?: boolean }): Promise<void> {
   try {
-    if (opts?.force) {
+    let force = !!opts?.force
+    if (!force && writtenOpenShiftsSig !== null) {
+      // Shift open/close must reach disk before a quit: the next start may be offline
+      const { usePosStore } = await import('./posStore')
+      force = openShiftsSig(usePosStore.getState().shifts) !== writtenOpenShiftsSig
+    }
+    if (force) {
       if (snapshotTimer) {
         clearTimeout(snapshotTimer)
         snapshotTimer = null
@@ -631,6 +650,7 @@ export function __resetPosSnapshotPersistDebug() {
   snapshotFirstDirtyAt = 0
   archiveWrittenRefs = null
   archiveStoredSig = null
+  writtenOpenShiftsSig = null
 }
 
 // ── Очередь операций ──

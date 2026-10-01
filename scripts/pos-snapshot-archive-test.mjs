@@ -35,7 +35,7 @@ const js = ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTar
 
 const kv = new Map()
 const readCachedData = async key => (kv.has(`data_${key}`) ? structuredClone(kv.get(`data_${key}`)) : null)
-const mod = new Function('readCachedData', `${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, sameRefs, archiveSig, POS_SNAPSHOT_ARCHIVE_KEY, storedSig: () => archiveStoredSig }`)(readCachedData)
+const mod = new Function('readCachedData', `${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, sameRefs, archiveSig, POS_SNAPSHOT_ARCHIVE_KEY, storedSig: () => archiveStoredSig, openShiftsSig, writtenOpenSig: () => writtenOpenShiftsSig }`)(readCachedData)
 
 const DAY = 86_400_000
 const iso = daysAgo => new Date(Date.now() - daysAgo * DAY).toISOString()
@@ -129,6 +129,24 @@ await test('read: stored signature trusted only when archive present and positio
   store(s, { salesArchiveSig: sig, salesArchivePos: [0] })
   await mod.readCachedPosSnapshot()
   expect(mod.storedSig() === null, 'positions out of sync → force rewrite')
+})
+
+await test('open shifts signature: close/open changes it, other edits do not; read remembers disk state', async () => {
+  const open = [{ id: 's1', status: 'open', salesCount: 1 }, { id: 's0', status: 'closed' }]
+  const sig = mod.openShiftsSig(open)
+  expect(sig === 's1', `sig ${sig}`)
+  expect(mod.openShiftsSig([{ ...open[0], salesCount: 9 }, open[1]]) === sig, 'counters ignored')
+  expect(mod.openShiftsSig([{ ...open[0], status: 'closed' }, open[1]]) !== sig, 'close changes sig')
+  expect(mod.openShiftsSig(null) === '', 'no shifts')
+  kv.clear()
+  kv.set('data_pos_snapshot', { sales: [], shifts: open })
+  await mod.readCachedPosSnapshot()
+  expect(mod.writtenOpenSig() === 's1', 'disk state remembered on read')
+})
+
+await test('persist forces write when open shifts differ from disk', () => {
+  expect(/openShiftsSig\(usePosStore\.getState\(\)\.shifts\) !== writtenOpenShiftsSig/.test(src), 'force on shift change')
+  expect(/writtenOpenShiftsSig = openShiftsSig\(payload\.shifts\)/.test(src), 'updated after write')
 })
 
 await test('cutoff is day-aligned (archive stable within a day)', () => {

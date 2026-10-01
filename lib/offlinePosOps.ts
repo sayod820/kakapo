@@ -291,7 +291,7 @@ export async function openShiftSafe(input: {
       _revert: { fromVault: openingCash > 0.001 ? openingCash : 0 },
     }, { localId })
     usePosStore.setState(s => ({ shifts: [shift, ...s.shifts] }))
-    void persistPosSnapshot()
+    void persistPosSnapshot({ force: true })
     return shift
   }
 
@@ -356,7 +356,7 @@ export async function closeShiftSafe(
     if (current) {
       applyLocalVaultTransfer({ ...current, ...patch })
     }
-    void persistPosSnapshot()
+    void persistPosSnapshot({ force: true })
     return current ? { ...current, ...patch } : null
   }
 
@@ -372,8 +372,10 @@ export async function closeShiftSafe(
   if (res.data) {
     shadowMirrorShift(res.data)
     if (res.data.status === 'closed' && !res.offline) {
+      patchShift(shiftId, res.data)
       applyLocalVaultTransfer(res.data)
-      void persistPosSnapshot()
+      // Online writes are deferred up to minutes; quitting right after close left the next offline start with an open shift
+      void persistPosSnapshot({ force: true })
     }
   }
   return res
