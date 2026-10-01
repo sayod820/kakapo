@@ -92,5 +92,14 @@ expect(/useState\(\(\) => takeShiftHandoverCash\(\) \?\? '0\.00'\)/.test(cm), 'h
 const ta = fs.readFileSync(path.join(root, 'components/trade/TradeApp.tsx'), 'utf8')
 expect(/<CashierModule[\s\S]{0,700}onLogout=\{onLogout\}/.test(ta), 'TradeApp passes onLogout')
 
+console.log('--- offline queue while logged out')
+const off = fs.readFileSync(path.join(root, 'lib/offline.ts'), 'utf8')
+const flushFn = off.slice(off.indexOf('export async function flushQueue('), off.indexOf('export async function flushQueue(') + 600)
+expect(/if \(tradeQueueWaitsForLogin\(\)\) return \{ sent: 0, failed: 0, stopped: true/.test(flushFn), 'flushQueue pauses while nobody logged in')
+expect(/function tradeQueueWaitsForLogin\(\)[\s\S]{0,500}!loadTradeEmployeeSession\(\)\?\.employeeId/.test(off), 'pause = trade context without employee session')
+const cls = await import('../lib/outboxErrorClassifierCore.mjs')
+const e403 = Object.assign(new Error('Недостаточно прав'), { status: 403, code: 'AUTH_FORBIDDEN' })
+expect(cls.classifyOutboxError('sale', e403).class === 'RETRYABLE', 'sale 403 AUTH_FORBIDDEN retried automatically')
+
 console.log(`\nshift-owner: ${pass}/${pass + fail}`)
 process.exit(fail ? 1 : 0)

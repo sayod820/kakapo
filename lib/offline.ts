@@ -16,6 +16,21 @@ import { browserSaysOffline, recentlyApiOk } from './apiReachability'
 import { androidPersist } from './androidPersist'
 import { isPerfEnabled, perfCount, perfNote } from './devTelemetry'
 import { lagMark } from './lagMonitor'
+import { isKakapoDesktop } from './desktopBridge'
+import { isTradeAndroidNative } from './tradeAndroid'
+import { loadTradeEmployeeSession } from './employeeSession'
+
+/**
+ * Касса на экране входа (сотрудник вышел после «Сдать смену»): запросы ушли бы без сотрудника
+ * и сервер ответил бы 403 — очередь ждёт входа, ничего не отправляем.
+ */
+function tradeQueueWaitsForLogin(): boolean {
+  if (typeof window === 'undefined') return false
+  const path = window.location?.pathname || ''
+  const trade = isKakapoDesktop() || isTradeAndroidNative() || path.includes('/trade') || path.includes('/pos')
+  if (!trade) return false
+  return !loadTradeEmployeeSession()?.employeeId
+}
 
 export type PosSalePayload = Parameters<typeof api.createPosSale>[0]
 
@@ -2767,6 +2782,7 @@ export async function flushQueue(
   onProgress?: (done: number, total: number) => void,
 ): Promise<FlushResult> {
   if (flushing) return { sent: 0, failed: 0, stopped: true, remaining: (await getPending()).length }
+  if (tradeQueueWaitsForLogin()) return { sent: 0, failed: 0, stopped: true, remaining: (await getPending()).length }
   flushing = true
   let sent = 0
   let failed = 0

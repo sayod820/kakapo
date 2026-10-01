@@ -75,6 +75,12 @@ t('product validation → INVALID', () =>
   eq(classifyOutboxError('product_upsert', httpErr('Название обязательно', 400)).class, C.INVALID))
 t('403 → INVALID', () => eq(classifyOutboxError('client_upsert', httpErr('nope', 403)).class, C.INVALID))
 t('shift_close 403 → NEEDS_REPAIR', () => eq(classifyOutboxError('shift_close', httpErr('nope', 403)).class, C.NEEDS_REPAIR))
+t('sale 403 AUTH_FORBIDDEN (logged out) → RETRYABLE', () =>
+  eq(classifyOutboxError('sale', httpErr('Недостаточно прав', 403, 'AUTH_FORBIDDEN')).class, C.RETRYABLE))
+t('shift_close 403 AUTH_SHIFT_OWNER → RETRYABLE', () =>
+  eq(classifyOutboxError('shift_close', httpErr('Нет доступа к чужой смене', 403, 'AUTH_SHIFT_OWNER')).class, C.RETRYABLE))
+t('AUTH_STAFF_ONLY in message → RETRYABLE', () =>
+  eq(classifyOutboxError('debt_repay', 'Только персонал [AUTH_STAFF_ONLY]').class, C.RETRYABLE))
 t('unknown 400 → NEEDS_REPAIR', () => eq(classifyOutboxError('finance_move', httpErr('что-то странное', 400)).class, C.NEEDS_REPAIR))
 
 t('backoff: NEEDS_REPAIR ≥ 60s, ≤ 10min', () => {
