@@ -1582,6 +1582,23 @@ export interface FlushResult {
 let flushing = false
 
 /** Ошибка «ссылка на операцию, которая не ушла» — дальше повторять бессмысленно */
+/**
+ * Открытие ждёт только закрытия, сделанные раньше него. Закрытие этой же смены
+ * само ждёт её открытия — иначе обе строки ждут друг друга вечно.
+ */
+export function shiftCloseBlocksOpen(close: PendingOp, open: PendingOp): boolean {
+  if (close.kind !== 'shift_close' || close.clientRef === open.clientRef) return false
+  const closedShiftId = String((close.payload as { shiftId?: string })?.shiftId || '')
+  if (open.localId && closedShiftId === String(open.localId)) return false
+  const cs = Number(close.seq)
+  const os = Number(open.seq)
+  if (Number.isFinite(cs) && Number.isFinite(os) && cs > 0 && os > 0) return cs < os
+  const ct = Date.parse(String(close.createdAtIso || ''))
+  const ot = Date.parse(String(open.createdAtIso || ''))
+  if (Number.isFinite(ct) && Number.isFinite(ot)) return ct <= ot
+  return true
+}
+
 class BrokenRefError extends Error {
   name = 'BrokenRefError'
 }
@@ -1939,7 +1956,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       // Barrier: wait for any pending shift_close (close before open)
       {
         const pending = await getPending()
-        const blocking = pending.find(r => r.kind === 'shift_close' && r.clientRef !== row.clientRef)
+        const blocking = pending.find(r => shiftCloseBlocksOpen(r, row))
         if (blocking) {
           throw new BrokenRefError('Сначала закройте предыдущую смену')
         }

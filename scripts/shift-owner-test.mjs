@@ -101,6 +101,29 @@ const cls = await import('../lib/outboxErrorClassifierCore.mjs')
 const e403 = Object.assign(new Error('Недостаточно прав'), { status: 403, code: 'AUTH_FORBIDDEN' })
 expect(cls.classifyOutboxError('sale', e403).class === 'RETRYABLE', 'sale 403 AUTH_FORBIDDEN retried automatically')
 
+console.log('--- shift_open barrier: no deadlock with close of the same shift')
+const barrierFn = off.slice(off.indexOf('export function shiftCloseBlocksOpen('), off.indexOf('class BrokenRefError'))
+expect(/closedShiftId === String\(open\.localId\)\) return false/.test(barrierFn), 'close of the same shift never blocks its open')
+expect(/return cs < os/.test(barrierFn), 'only earlier closes block an open')
+expect(/pending\.find\(r => shiftCloseBlocksOpen\(r, row\)\)/.test(off), 'shift_open uses the barrier helper')
+{
+  const ts = await import('typescript').catch(() => null)
+  if (ts) {
+    const js = ts.transpileModule(`${barrierFn}`, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText
+    const mod = await import(`data:text/javascript,${encodeURIComponent(js)}`)
+    const openA = { kind: 'shift_open', clientRef: 'oa', seq: 10, localId: 'off-shift-A', createdAtIso: '2026-10-01T10:08:00Z', payload: {} }
+    const closeA = { kind: 'shift_close', clientRef: 'ca', seq: 20, createdAtIso: '2026-10-01T10:35:00Z', payload: { shiftId: 'off-shift-A' } }
+    const openB = { kind: 'shift_open', clientRef: 'ob', seq: 21, localId: 'off-shift-B', createdAtIso: '2026-10-01T10:35:01Z', payload: {} }
+    const closeOld = { kind: 'shift_close', clientRef: 'co', seq: 5, createdAtIso: '2026-10-01T09:00:00Z', payload: { shiftId: 'SHIFT-old' } }
+    expect(!mod.shiftCloseBlocksOpen(closeA, openA), 'Madina 15:08 open not blocked by her own 15:35 close')
+    expect(mod.shiftCloseBlocksOpen(closeA, openB), '15:35 open waits for 15:35 close of previous shift')
+    expect(mod.shiftCloseBlocksOpen(closeOld, openA), 'earlier close of another shift still blocks')
+    expect(!mod.shiftCloseBlocksOpen({ ...closeA, seq: 0, createdAtIso: '2026-10-01T11:00:00Z', payload: { shiftId: 'X' } }, { ...openA, seq: 0 }), 'later close (by time) does not block')
+  } else {
+    expect(false, 'typescript available for barrier logic test')
+  }
+}
+
 console.log('--- cashier create does not wait for full snapshot flush')
 const idx = fs.readFileSync(path.join(root, 'server/kakapo-api/index.js'), 'utf8')
 const cashierRoutes = idx.slice(idx.indexOf('async function saveCashierRow('), idx.indexOf("app.patch('/cashiers/:id'") + 600)
