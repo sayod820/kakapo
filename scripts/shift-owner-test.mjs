@@ -101,5 +101,13 @@ const cls = await import('../lib/outboxErrorClassifierCore.mjs')
 const e403 = Object.assign(new Error('Недостаточно прав'), { status: 403, code: 'AUTH_FORBIDDEN' })
 expect(cls.classifyOutboxError('sale', e403).class === 'RETRYABLE', 'sale 403 AUTH_FORBIDDEN retried automatically')
 
+console.log('--- cashier create does not wait for full snapshot flush')
+const idx = fs.readFileSync(path.join(root, 'server/kakapo-api/index.js'), 'utf8')
+const cashierRoutes = idx.slice(idx.indexOf('async function saveCashierRow('), idx.indexOf("app.patch('/cashiers/:id'") + 600)
+expect(/touched: \[\{ collection: 'cashiers', row \}\]/.test(cashierRoutes), 'cashier row written alone')
+expect(/markResponseEphemeral\(res\)/.test(cashierRoutes), 'response skips full snapshot flush')
+expect(/app\.post\('\/cashiers', async[\s\S]{0,200}saveCashierRow\(res, 'cashier_upsert'/.test(cashierRoutes), 'POST /cashiers uses row write')
+expect(/app\.patch\('\/cashiers\/:id', async[\s\S]{0,200}saveCashierRow\(res, 'cashier_update'/.test(cashierRoutes), 'PATCH /cashiers uses row write')
+
 console.log(`\nshift-owner: ${pass}/${pass + fail}`)
 process.exit(fail ? 1 : 0)

@@ -3192,20 +3192,37 @@ app.delete('/assemblers/:id', (req, res) => {
 app.get('/cashiers', (_req, res) => {
   res.json(listCashiers(db))
 })
-app.post('/cashiers', (req, res) => {
-  try {
-    const row = createCashier(db, req.body || {})
+/** Полная запись снимка базы дольше таймаута кассы — пишем только строку кассира. */
+async function saveCashierRow(res, operationKind, mutateRow) {
+  if (!isPostgresEnabled()) {
+    const row = mutateRow()
     persist()
+    return row
+  }
+  const { result } = await runDurableMasterCreate(db, {
+    clientRef: '',
+    operationKind,
+    mutate: () => {
+      const row = mutateRow()
+      return { result: row, touched: [{ collection: 'cashiers', row }] }
+    },
+  })
+  markResponseEphemeral(res)
+  return result
+}
+
+app.post('/cashiers', async (req, res) => {
+  try {
+    const row = await saveCashierRow(res, 'cashier_upsert', () => createCashier(db, req.body || {}))
     broadcastPosUpdate({ kind: 'cashier', id: row.id })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось создать кассира' })
   }
 })
-app.patch('/cashiers/:id', (req, res) => {
+app.patch('/cashiers/:id', async (req, res) => {
   try {
-    const row = updateCashier(db, req.params.id, req.body || {})
-    persist()
+    const row = await saveCashierRow(res, 'cashier_update', () => updateCashier(db, req.params.id, req.body || {}))
     broadcastPosUpdate({ kind: 'cashier', id: row.id })
     res.json(row)
   } catch (e) {
