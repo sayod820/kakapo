@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useApiSync } from '@/lib/useApiSync'
 import { useOfflineSync } from '@/lib/offlineSync'
+import { lagNavShown, lagNavStart } from '@/lib/lagMonitor'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { useAppNavigation } from '@/lib/useAppNavigation'
 import AppNavigationBoundary from '@/components/shared/AppNavigationBoundary'
@@ -3427,6 +3428,7 @@ function TradeAppInner({
     if (!canAccessTradePage(session.permissions, p)) return
     setMenuOpen(false)
     if (p !== 'sales') setPosSurface('dashboard')
+    if (p !== current) lagNavStart(p)
     // Тяжёлые экраны (Товар / Склад) — не блокируем клик синхронным рендером
     startTransition(() => {
       setPage(p)
@@ -3435,6 +3437,7 @@ function TradeAppInner({
 
   useEffect(() => {
     if (current !== 'sales') setPosSurface('dashboard')
+    lagNavShown(current)
   }, [current])
 
   const MOB_QUICK: { id: TradePage; label: string; icon: string }[] = useMemo(() => {

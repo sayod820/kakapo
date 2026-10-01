@@ -7,7 +7,6 @@ import {
   CARD_STATUS_LABELS,
   cardHasDebtSection,
   cardLoyaltyFromCard,
-  cardNumsMatch,
   type AdminCard,
   type CardLoyaltyForm,
 } from '@/lib/cardCrm'
@@ -33,6 +32,7 @@ import {
   type ClientProfileForm,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
+import { compareLocale, compareRu, findLinkedCardByClientId, findLinkedCardByNum, salesForClient } from '@/lib/fastLookup'
 import { isTradeLocalFirst } from '@/lib/offlineV2'
 import {
   loadDebtHistory,
@@ -125,10 +125,10 @@ function bonusPercentForLevel(level: ClientLevel, vip: boolean): number {
 
 function cardForClient(client: AdminClient, cards: AdminCard[]): AdminCard | undefined {
   if (client.card) {
-    const byNum = cards.find(c => cardNumsMatch(c.num, client.card) && c.status !== 'unlinked')
+    const byNum = findLinkedCardByNum(cards, client.card)
     if (byNum) return byNum
   }
-  return cards.find(c => c.clientId === client.id && c.status !== 'unlinked')
+  return findLinkedCardByClientId(cards, client.id)
 }
 
 function clientShownDebt(client: AdminClient, cards: AdminCard[]): number {
@@ -186,7 +186,7 @@ function buildHistory(client: EnrichedClient, debtRows: DebtHistoryEntry[], sale
       desc: `Заказ в кредит ${o.id}`,
     })
   }
-  return rows.sort((a, b) => String(b.dateIso || '').localeCompare(String(a.dateIso || '')))
+  return rows.sort((a, b) => compareLocale(String(b.dateIso || ''), String(a.dateIso || '')))
 }
 
 function LoyaltyMiniCard({ client, cards }: { client: EnrichedClient; cards: AdminCard[] }) {
@@ -318,10 +318,10 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
     }
     const sorted = [...list]
     if (sort === 'debt') sorted.sort((a, b) => clientShownDebt(b, cards) - clientShownDebt(a, cards))
-    else if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    else if (sort === 'name') sorted.sort((a, b) => compareRu(a.name, b.name))
     else if (sort === 'spent') sorted.sort((a, b) => (Number(b.spent) || 0) - (Number(a.spent) || 0))
     else if (sort === 'bonus') sorted.sort((a, b) => (Number(b.bonus) || 0) - (Number(a.bonus) || 0))
-    else sorted.sort((a, b) => String(b.lastOrderAt || b.createdAt || '').localeCompare(String(a.lastOrderAt || a.createdAt || '')))
+    else sorted.sort((a, b) => compareLocale(String(b.lastOrderAt || b.createdAt || ''), String(a.lastOrderAt || a.createdAt || '')))
     return sorted
   }, [clients, cards, search, sort, filter])
 
@@ -337,10 +337,7 @@ export default function ClientsModule({ search = '' }: { search?: string }) {
   }, [cashForm.open, cashForm.cashAmount, loyaltyCfgTick])
 
   function salesFor(client: EnrichedClient): PosSale[] {
-    return sales.filter(s =>
-      (s.clientId && s.clientId === client.id)
-      || (s.clientPhone && phonesMatch(s.clientPhone, client.phone)),
-    )
+    return salesForClient(sales, client)
   }
 
   function creditOrdersFor(client: EnrichedClient): Order[] {

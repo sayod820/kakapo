@@ -7,7 +7,6 @@ import { syncCardsFromApi, useCardStore } from '@/lib/cardStore'
 import {
   CARD_STATUS_LABELS,
   cardHasDebtSection,
-  cardNumsMatch,
   type AdminCard,
 } from '@/lib/cardCrm'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
@@ -17,12 +16,12 @@ import {
   CLIENT_LEVEL_COLORS,
   CLIENT_LEVEL_OPTIONS,
   mergeClientsWithOrders,
-  phonesMatch,
   type AdminClient,
   type ClientLevel,
 } from '@/lib/clientCrm'
 import { syncClientsFromApi, useClientStore } from '@/lib/clientStore'
 import { getBoundPosIdSync } from '@/lib/tradeDevice'
+import { compareLocale, compareRu, findLinkedCardByNum, salesForClient } from '@/lib/fastLookup'
 import { pushBackHandler } from '@/lib/hardwareBack'
 import {
   buildDebtOrderBalances,
@@ -174,7 +173,7 @@ function saleLabel(s: { number?: number; orderId?: string; id: string }): string
 
 function cardForClient(client: EnrichedClient, cards: AdminCard[]): AdminCard | undefined {
   if (!client.card) return undefined
-  return cards.find(c => cardNumsMatch(c.num, client.card) && c.status !== 'unlinked')
+  return findLinkedCardByNum(cards, client.card)
 }
 
 async function repayDebtIntoOpenShift(
@@ -219,10 +218,7 @@ async function repayDebtIntoOpenShift(
 }
 
 function salesFor(client: EnrichedClient, sales: PosSale[]): PosSale[] {
-  return sales.filter(s =>
-    (s.clientId && s.clientId === client.id)
-    || (s.clientPhone && phonesMatch(s.clientPhone, client.phone)),
-  )
+  return salesForClient(sales, client)
 }
 
 function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[] {
@@ -268,7 +264,7 @@ function posDebtSalesFor(client: EnrichedClient, sales: PosSale[]): PosDebtSale[
       }
     })
     .filter(s => s.debtAdded > 0.001)
-    .sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)))
+    .sort((a, b) => compareLocale(String(b.dateIso), String(a.dateIso)))
 }
 
 function paymentMethodLabel(method: string, partial: boolean): string {
@@ -559,7 +555,7 @@ export default function DebtsModule({
       )
     }
     const sorted = [...list]
-    if (sort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    if (sort === 'name') sorted.sort((a, b) => compareRu(a.name, b.name))
     else sorted.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0))
     return sorted
   }, [debtClients, search, sort, filter])

@@ -15,6 +15,7 @@ import {
   addCalendarDays,
   KAKAPO_TZ,
 } from '@/lib/kakapoTime'
+import { compareLocale, compareRu, isoMs } from '@/lib/fastLookup'
 
 export type ReportPeriod = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'all' | 'custom'
 export type ReportTab =
@@ -191,7 +192,7 @@ export function lookbackRange(days: number): { from: number; to: number } {
 export function inPeriod(iso: string | undefined | null, from: number | null, to: number | null) {
   if (from == null && to == null) return true
   if (!iso) return false
-  const t = new Date(iso).getTime()
+  const t = typeof iso === 'string' ? isoMs(iso) : new Date(iso).getTime()
   if (Number.isNaN(t)) return false
   if (from != null && t < from) return false
   if (to != null && t > to) return false
@@ -306,7 +307,7 @@ export function filterSales(sales: PosSale[], f: SaleFilters) {
       if (qDigits && String(s.number || '').includes(qDigits)) return true
       return false
     })
-    .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+    .sort((a, b) => compareLocale(String(b.createdAtIso || ''), String(a.createdAtIso || '')))
 }
 
 export function filterShifts(
@@ -324,7 +325,7 @@ export function filterShifts(
       if (!cashierId) return true
       return s.cashierId === cashierId || s.cashierName === cashierId
     })
-    .sort((a, b) => String(b.openedAtIso || '').localeCompare(String(a.openedAtIso || '')))
+    .sort((a, b) => compareLocale(String(b.openedAtIso || ''), String(a.openedAtIso || '')))
 }
 
 export type SalesAgg = {
@@ -490,7 +491,7 @@ export function lastSupplierByProduct(
   receipts: StockReceipt[],
 ): Map<number, { key: string; name: string }> {
   const map = new Map<number, { key: string; name: string }>()
-  const ordered = [...receipts].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
+  const ordered = [...receipts].sort((a, b) => compareLocale(String(a.createdAtIso || ''), String(b.createdAtIso || '')))
   for (const r of ordered) {
     if (r.stockAdjustment) continue
     const name = String(r.supplierName || '').trim() || 'Без поставщика'
@@ -542,12 +543,12 @@ export function buildProductInsights(
       profit: round2(revenue - (qty > 0 ? cogs : 0)),
       supplierName: sup?.name || '—',
     }
-  }).sort((a, b) => b.revenue - a.revenue || a.productName.localeCompare(b.productName, 'ru'))
+  }).sort((a, b) => b.revenue - a.revenue || compareRu(a.productName, b.productName))
 
   const top = all.filter(r => r.qty > 0)
   const unsold = all
     .filter(r => !(r.qty > 0))
-    .sort((a, b) => b.stock - a.stock || a.productName.localeCompare(b.productName, 'ru'))
+    .sort((a, b) => b.stock - a.stock || compareRu(a.productName, b.productName))
   const deadStock = unsold.filter(r => r.stock > 0)
 
   const catAcc = new Map<string, CategoryInsightRow>()
@@ -693,7 +694,7 @@ export function dailyBreakdown(sales: PosSale[]): DayRow[] {
     row.credit = round2(row.credit + (Number(s.debtAdded) || 0))
     acc.set(day, row)
   }
-  return Array.from(acc.values()).sort((a, b) => b.day.localeCompare(a.day))
+  return Array.from(acc.values()).sort((a, b) => compareLocale(b.day, a.day))
 }
 
 export function filterByCreatedAt<T extends { createdAtIso?: string }>(
@@ -703,7 +704,7 @@ export function filterByCreatedAt<T extends { createdAtIso?: string }>(
 ) {
   return rows
     .filter(r => inPeriod(r.createdAtIso, from, to))
-    .sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+    .sort((a, b) => compareLocale(String(b.createdAtIso || ''), String(a.createdAtIso || '')))
 }
 
 export function sumReceiptCost(receipts: StockReceipt[]) {

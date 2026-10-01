@@ -19,6 +19,8 @@ const marks: Mark[] = []
 let longTasks: LongTask[] = []
 let slowEvents: SlowEvent[] = []
 let renders = 0
+let navs: { page: string; ms: number }[] = []
+let navPending: { page: string; t: number } | null = null
 let contextProvider: (() => Record<string, string | number | boolean | undefined>) | null = null
 let sender: ((message: string, context: Record<string, string | number | boolean | undefined>) => void) | null = null
 
@@ -30,6 +32,25 @@ export function lagMark(k: string): void {
 
 export function lagRender(): void {
   if (started) renders += 1
+}
+
+/** Section switch clicked; lagNavShown() closes the measurement once the new section is painted. */
+export function lagNavStart(page: string): void {
+  if (!started) return
+  lagMark(`nav:${page}`)
+  navPending = { page, t: performance.now() }
+}
+
+export function lagNavShown(page: string): void {
+  const p = navPending
+  if (!started || !p || p.page !== page) return
+  navPending = null
+  const done = () => {
+    navs.push({ page, ms: performance.now() - p.t })
+    if (navs.length > 200) navs.splice(0, navs.length - 200)
+  }
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(done, 0))
+  else done()
 }
 
 export function setLagContextProvider(fn: typeof contextProvider): void {
@@ -59,10 +80,19 @@ function flush(): void {
   const tasks = longTasks
   const events = slowEvents
   const renderCount = renders
+  const navList = navs
   longTasks = []
   slowEvents = []
   renders = 0
-  if (!tasks.length && !events.length) return
+  navs = []
+  if (!tasks.length && !events.length && !navList.length) return
+
+  const byNav = new Map<string, number>()
+  let navMax = 0
+  for (const n of navList) {
+    byNav.set(n.page, Math.max(byNav.get(n.page) || 0, n.ms))
+    if (n.ms > navMax) navMax = n.ms
+  }
 
   const byMark = new Map<string, number>()
   let totalMs = 0
@@ -97,6 +127,9 @@ function flush(): void {
     evDelayMax: Math.round(evDelayMax),
     evTop: topEntries(byEvent, 3),
     renders: renderCount,
+    navN: navList.length,
+    navMax: Math.round(navMax),
+    navTop: topEntries(byNav, 5),
     ...extra,
   })
 }

@@ -5,6 +5,7 @@ import { formatBulkPricingHint, hasBulkPricing } from '@/lib/productBulkPricing'
 import { isWeighted } from '@/lib/productWeight'
 import type { Product, ProductStockLayer } from '@/lib/types'
 import { buildProductCodeIndex, filterProductsByQuery } from '@/lib/productSearchIndex'
+import { compareRu } from '@/lib/fastLookup'
 import { categoryDisplayLabel, useCategories } from '@/lib/useCategories'
 import ProductArrivalsPanel from '../products/ProductArrivalsPanel'
 import TradeProductThumb from '@/components/trade/TradeProductThumb'
@@ -191,7 +192,7 @@ export default function WarehouseStockPanel({
 
     list = [...list].sort((a, b) => {
       let cmp = 0
-      if (sort === 'name') cmp = a.name.localeCompare(b.name, 'ru')
+      if (sort === 'name') cmp = compareRu(a.name, b.name)
       else if (sort === 'stock') cmp = stockOf(a) - stockOf(b)
       else if (aggCache) {
         const aa = aggCache.get(a.id)!

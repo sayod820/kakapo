@@ -112,6 +112,7 @@ import { saveWarehouseTab } from '@/components/trade/warehouse/receiptDraftStora
 import { getOfflineV2Mode, isTradeLocalFirst, setOfflineV2Mode } from '@/lib/offlineV2'
 import { isPerfEnabled, perfCount, perfScenario, perfTime } from '@/lib/devTelemetry'
 import { lagRender, setLagContextProvider, startLagMonitor } from '@/lib/lagMonitor'
+import { compareRu, findCardByNum } from '@/lib/fastLookup'
 import { beginCashierCritical, endCashierCritical, isCashierPaymentCritical, noteCashierSearchActivity, clearCashierSearchActivity } from '@/lib/cashierUiGate'
 import {
   printPosReceipt,
@@ -3145,7 +3146,7 @@ export default function CashierModule({
     () => products
       .filter(p => liveStockForProduct(p) > 0)
       .slice()
-      .sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+      .sort((a, b) => compareRu(a.name, b.name)),
     [products, liveStockForProduct],
   )
   /** Быстрый индекс штрихкод/артикул/PLU → productId (не Product — stock-патч не stale) */
@@ -3210,7 +3211,7 @@ export default function CashierModule({
       if (!(c.name || '').toLowerCase().includes(qLower)) continue
       hits.push(c)
     }
-    return hits.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'))
+    return hits.sort((a, b) => compareRu(a.name || '', b.name || ''))
   }, [categories, roots, catModalQ])
 
   const visibleProducts = useMemo(() => {
@@ -3327,7 +3328,7 @@ export default function CashierModule({
     const query = clientQ.trim().toLowerCase()
     const qDigits = query.replace(/\s/g, '')
     const debtOf = (c: AdminClient) => {
-      const card = c.card ? cards.find(x => cardNumsMatch(x.num, c.card)) : undefined
+      const card = c.card ? findCardByNum(cards, c.card) : undefined
       return resolveAuthoritativeCustomerDebt({
         clientDebt: c.debt,
         cardDebt: card?.debt,
@@ -3347,7 +3348,7 @@ export default function CashierModule({
         || (c.phone || '').replace(/\s/g, '').includes(qDigits)
         || (c.card || '').toLowerCase().includes(query),
       )
-      .sort((a, b) => debtOf(b) - debtOf(a) || a.name.localeCompare(b.name, 'ru'))
+      .sort((a, b) => debtOf(b) - debtOf(a) || compareRu(a.name, b.name))
       .slice(0, 20)
   }, [clients, clientQ, cards])
 
