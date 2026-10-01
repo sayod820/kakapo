@@ -33,6 +33,7 @@ import {
 import { maybeL13Hold } from './pg/l13Chaos.js'
 import { isPostgresEnabled } from './pg/client.js'
 import { recordEntityUpsert } from './syncChangeLog.js'
+import { findCashierById, normalizeCashierName } from './cashierIdentity.js'
 import {
   requireClientRef,
   CLIENT_REF_REQUIRED,
@@ -1215,6 +1216,29 @@ export async function handleO8SupplierPaymentDelete(req, res, ctx) {
   }
 }
 
+/**
+ * Сотрудник открывает смену только на себя: нельзя открыть на имя другого сотрудника.
+ * Офлайн-повтор (есть openedAtIso) уходит под текущим входом кассы, а не того, кто открыл, — не проверяем.
+ */
+export function checkShiftOpenOwner(db, req) {
+  const auth = req?.auth
+  if (!auth || (auth.principal !== 'STAFF' && auth.principal !== 'CASHIER')) return { ok: true }
+  if (String(req.body?.openedAtIso || '').trim()) return { ok: true }
+  const employees = Array.isArray(db?.employees) ? db.employees : []
+  const me = employees.find(e => String(e?.id) === String(auth.subjectId || ''))
+  if (!me) return { ok: true }
+  const cashier = findCashierById(db, req.body?.cashierId)
+  const names = [req.body?.cashierName, cashier?.name].map(normalizeCashierName).filter(n => n && n !== 'кассир')
+  const myName = normalizeCashierName(me.name)
+  const other = employees.find(e => (
+    e && String(e.id) !== String(me.id) && e.active !== false
+    && names.includes(normalizeCashierName(e.name))
+    && normalizeCashierName(e.name) !== myName
+  ))
+  if (!other) return { ok: true }
+  return { ok: false, detail: `Смену можно открыть только на себя. Сейчас вошёл ${me.name || 'другой сотрудник'}.` }
+}
+
 export async function handleO8ShiftOpen(req, res, ctx) {
   const { db, openPosShift, auditFromReq, broadcastPosUpdate } = ctx
   const refGate = requireClientRef(req.body?.clientRef, { fallback: String(req.body?.localId || req.body?.id || '').trim() })
@@ -1222,6 +1246,10 @@ export async function handleO8ShiftOpen(req, res, ctx) {
     return res.status(refGate.status).json({ detail: refGate.detail, code: refGate.code || CLIENT_REF_REQUIRED })
   }
   const clientRef = refGate.clientRef
+  const ownerGate = checkShiftOpenOwner(db, req)
+  if (!ownerGate.ok) {
+    return res.status(403).json({ detail: ownerGate.detail, code: 'SHIFT_EMPLOYEE_MISMATCH' })
+  }
   const openingCash = round2(req.body?.openingCash)
   const actorSubject = authSubjectKey(req?.auth)
   // Body cashierId never grants authority — ownership is authenticated actor.

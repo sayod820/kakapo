@@ -3943,7 +3943,7 @@ export async function deletePosPointSafe(id: string): Promise<OfflineResult<{ id
   )
 }
 
-function normalizeCashierName(name: unknown): string {
+export function normalizeCashierName(name: unknown): string {
   return String(name || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/ё/g, 'е')
 }
 

@@ -27,6 +27,7 @@ import {
   updatePosPointSafe,
   deletePosPointSafe,
   ensureCashierSafe,
+  normalizeCashierName,
 } from '@/lib/offlinePosOps'
 import { provisionLoyaltyCardSafe } from '@/lib/offlineClientOps'
 import { USE_API } from '@/lib/config'
@@ -303,6 +304,31 @@ function buildPosLoyaltyMeta(client: AdminClient, cardList: AdminCard[]): PosLoy
     bonusEligibleFrom: card?.bonusEligibleFrom ?? client.bonusEligibleFrom,
     levelAssignMode: card?.levelAssignMode ?? client.levelAssignMode,
     accountGeneration: client.accountGeneration,
+  }
+}
+
+const SHIFT_HANDOVER_KEY = 'kakapo_pos_shift_handover'
+const SHIFT_HANDOVER_TTL_MS = 12 * 60 * 60_000
+
+/** Сколько наличных оставил сдавший смену — подставляется следующему кассиру при открытии. */
+function saveShiftHandoverCash(cash: number) {
+  try {
+    localStorage.setItem(SHIFT_HANDOVER_KEY, JSON.stringify({ cash, at: Date.now() }))
+  } catch { /* ignore */ }
+}
+
+function takeShiftHandoverCash(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(SHIFT_HANDOVER_KEY)
+    if (!raw) return null
+    localStorage.removeItem(SHIFT_HANDOVER_KEY)
+    const row = JSON.parse(raw) as { cash?: number; at?: number }
+    const cash = Number(row?.cash)
+    if (!(cash >= 0) || !(Date.now() - Number(row?.at || 0) < SHIFT_HANDOVER_TTL_MS)) return null
+    return cash.toFixed(2)
+  } catch {
+    return null
   }
 }
 
@@ -1165,8 +1191,11 @@ export default function CashierModule({
   onDashboardBind,
   theme: themeProp,
   onThemeChange,
+  onLogout,
 }: {
   onExit?: () => void
+  /** Выход сотрудника (после «Сдать смену») — экран входа по паролю */
+  onLogout?: () => void
   onNavigate?: (page: NavTarget) => void
   /** Встроена в правую панель «Торговля» (с боковым меню) */
   embedded?: boolean
@@ -1471,7 +1500,7 @@ export default function CashierModule({
   /** Закрытие вкладки чека с товарами — спросить подтверждение */
   const [closeTicketConfirmId, setCloseTicketConfirmId] = useState<string | null>(null)
 
-  const [gateCash, setGateCash] = useState('0.00')
+  const [gateCash, setGateCash] = useState(() => takeShiftHandoverCash() ?? '0.00')
   const [gateName, setGateName] = useState(settings.cashierName)
   const [pickedCashierId, setPickedCashierId] = useState(settings.cashierId)
 
@@ -1575,7 +1604,6 @@ export default function CashierModule({
     return () => onDashboardBind(null)
   }, [embedded, onDashboardBind, openCreatePosDashboard])
   const [dashMenuPosId, setDashMenuPosId] = useState<string | null>(null)
-  const [switchCashierId, setSwitchCashierId] = useState('')
   const [receiptSaleId, setReceiptSaleId] = useState<string | null>(null)
   const [receiptQ, setReceiptQ] = useState('')
   const receiptQDeferred = useDeferredValue(receiptQ)
@@ -2848,6 +2876,39 @@ export default function CashierModule({
     if (cashiers.length) return cashiers.filter(c => c.active !== false)
     return [{ id: 'local', name: settings.cashierName || 'Кассир', pin: '0000', active: true, salesCount: 0, salesTotal: 0 }]
   }, [cashiers, settings.cashierName])
+
+  /** Смена всегда на того, кто вошёл по паролю. */
+  const sessionEmployeeName = useMemo(() => {
+    try { return String(loadTradeEmployeeSession()?.name || '').trim() } catch { return '' }
+  }, [employeeId])
+  const sessionCashierOpt = useMemo(() => {
+    const key = normalizeCashierName(sessionEmployeeName)
+    if (!key) return null
+    return cashierOptions.find(c => normalizeCashierName(c.name) === key) || null
+  }, [cashierOptions, sessionEmployeeName])
+  const activeShiftOwnerName = useMemo(() => {
+    if (!activeShift) return ''
+    const named = String(activeShift.cashierName || '').trim()
+    if (named && !/^кассир$/i.test(named)) return named
+    return cashiers.find(c => c.id === activeShift.cashierId)?.name || named
+  }, [activeShift, cashiers])
+  const shiftOwnedByOther = !!activeShift
+    && !!sessionEmployeeName
+    && !!activeShiftOwnerName
+    && normalizeCashierName(activeShiftOwnerName) !== normalizeCashierName(sessionEmployeeName)
+  const cartsHaveItems = tickets.some(t => t.cart.length > 0)
+
+  useEffect(() => {
+    if (!activeShift || shiftOwnedByOther || !sessionEmployeeName) return
+    if (normalizeCashierName(settings.cashierName) === normalizeCashierName(sessionEmployeeName)) return
+    const s = {
+      cashierId: activeShift.cashierId,
+      cashierName: activeShiftOwnerName,
+      initials: initialsOf(activeShiftOwnerName),
+    }
+    saveSettings(s)
+    setSettings(s)
+  }, [activeShift?.id, activeShift?.cashierId, activeShiftOwnerName, shiftOwnedByOther, sessionEmployeeName, settings.cashierName])
 
   const search = q
   const deferredSearch = useDeferredValue(search)
@@ -4490,8 +4551,9 @@ export default function CashierModule({
           }
         }
       } catch { /* continue to open */ }
-      const picked = cashierOptions.find(c => c.id === pickedCashierId)
-      const cashier = await ensureCashier(picked?.name || gateName, pickedCashierId)
+      const cashier = sessionEmployeeName
+        ? await ensureCashier(sessionEmployeeName, sessionCashierOpt?.id)
+        : await ensureCashier(cashierOptions.find(c => c.id === pickedCashierId)?.name || gateName, pickedCashierId)
       const next = { cashierId: cashier.id, cashierName: cashier.name, initials: initialsOf(cashier.name) }
       saveSettings(next)
       setSettings(next)
@@ -4869,12 +4931,19 @@ export default function CashierModule({
     setShiftReconcileOpen(false)
   }
 
+  function blockIfShiftNotMine(): boolean {
+    if (!shiftOwnedByOther) return false
+    showToast('Смена другого кассира', `Открыта смена «${activeShiftOwnerName}» — сначала примите её`)
+    return true
+  }
+
+  /** Своя смена — сдать и выйти; чужая (вошёл другой сотрудник) — принять на себя. */
   async function switchCashier() {
     if (!activeShift) return
     if (shiftBusyRef.current || busy) return
-    const next = cashierOptions.find(c => c.id === switchCashierId)
-    if (!next) {
-      setMsg('Выберите кассира')
+    const accepting = shiftOwnedByOther
+    if (!accepting && cartsHaveItems) {
+      setMsg('Сначала пробейте или очистите открытые чеки')
       return
     }
     if (!shiftReconciled) {
@@ -4902,8 +4971,23 @@ export default function CashierModule({
         note: rec.move?.text || rec.summary.text,
       })
       closedOk = true
+      if (!accepting) {
+        saveShiftHandoverCash(cash)
+        if (!closed.offline) void refresh()
+        else void useOfflineSync.getState().syncNow()
+        setShiftReconcileOpen(false)
+        setShiftReconciled(false)
+        setCashierScreen(null)
+        setCashierMenuOpen(false)
+        setPosSurface('dashboard')
+        setCart([])
+        setClient(null)
+        showToast('Смена сдана', `В кассе ${fmtMoney(cash)} · следующий кассир входит по своему паролю`)
+        onLogout?.()
+        return
+      }
       // Do not flip cashier settings until new shift opens (avoid half-switch)
-      const cashier = await ensureCashier(next.name, next.id)
+      const cashier = await ensureCashier(sessionEmployeeName, sessionCashierOpt?.id)
       const opened = await openShiftSafe({
         cashierId: cashier.id,
         cashierName: cashier.name,
@@ -4927,9 +5011,9 @@ export default function CashierModule({
       setGateCash(String(cash.toFixed(2)))
       setPickedCashierId(cashier.id)
       setGateName(cashier.name)
-      showToast('Кассир сменён', `${cashier.name} · в кассе ${fmtMoney(cash)}`)
+      showToast('Смена принята', `${cashier.name} · в кассе ${fmtMoney(cash)}`)
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : 'Не удалось сменить кассира'
+      const errMsg = e instanceof Error ? e.message : (accepting ? 'Не удалось принять смену' : 'Не удалось сдать смену')
       await refresh()
       if (closedOk) {
         // Old shift is closed on server — do not show it as open
@@ -4969,7 +5053,6 @@ export default function CashierModule({
     setClosingCard(expectedCard > 0 ? expectedCard.toFixed(2) : '0.00')
     setShiftReconcileOpen(false)
     setShiftReconciled(false)
-    setSwitchCashierId(settings.cashierId || pickedCashierId || cashierOptions[0]?.id || '')
     setCashierScreen(kind)
   }
 
@@ -4990,6 +5073,7 @@ export default function CashierModule({
   async function submitTillMove() {
     if (!activeShift || !tillMoveKind) return
     if (tillBusyRef.current || busy) return
+    if (blockIfShiftNotMine()) return
     tillBusyRef.current = true
     setBusy(true)
     setMsg('')
@@ -5860,6 +5944,7 @@ export default function CashierModule({
   async function executeReturnConfirm() {
     const pending = returnConfirm
     if (!pending || busy || returnBusyRef.current) return
+    if (blockIfShiftNotMine()) return
     if (pending.step === 'confirm' && pending.needAdmin) {
       setReturnConfirm({ ...pending, step: 'admin', adminCode: '' })
       return
@@ -7161,6 +7246,7 @@ export default function CashierModule({
     const ticketId = opts?.ticketId || activeTicketIdRef.current
     const ticketSnap = ticketsRef.current.find(t => t.id === ticketId)
     if (!activeShift || !ticketSnap?.cart.length) return false
+    if (blockIfShiftNotMine()) return false
     if (sellingTicketIdRef.current === ticketId) return false
     // Блокируем дабл-клик до любой валидации/await
     sellingTicketIdRef.current = ticketId
@@ -7803,6 +7889,7 @@ export default function CashierModule({
   async function submitTopup() {
     if (!client) return
     if (topupBusyRef.current || busy) return
+    if (blockIfShiftNotMine()) return
     if (!activeShift) {
       showToast('Смена закрыта', 'Сначала откройте смену')
       return
@@ -7849,6 +7936,7 @@ export default function CashierModule({
 
   async function submitDebtRepay() {
     if (!client || busy || repayBusyRef.current) return
+    if (blockIfShiftNotMine()) return
     const amount = Number(repayBuf) || 0
     const prevDebt = clientDebt
     if (amount <= 0) return
@@ -8218,7 +8306,18 @@ export default function CashierModule({
                       )}
                     </div>
                     <div className="odoo-card-actions">
-                      {shift && isMine ? (
+                      {shift && isMine && shiftOwnedByOther && shift.id === activeShift?.id ? (
+                        <button
+                          type="button"
+                          className="odoo-btn-primary go"
+                          onClick={() => {
+                            setDashMenuPosId(null)
+                            openCashierScreen('switch')
+                          }}
+                        >
+                          Принять смену
+                        </button>
+                      ) : shift && isMine ? (
                         <>
                           <button
                             type="button"
@@ -8280,6 +8379,18 @@ export default function CashierModule({
                 {visiblePosPoints.find(p => p.id === openingPosId)?.name
                   || 'Укажите кассира и наличные в кассе'}
               </div>
+              {sessionEmployeeName ? (
+                <>
+                  <span className="gate-label">Кассир</span>
+                  <div className="cashier-grid">
+                    <div className="cashier-opt on">
+                      <div className="av">{initialsOf(sessionEmployeeName)}</div>
+                      <span>{sessionEmployeeName}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+              <>
               <span className="gate-label">Кто работает?</span>
               <div className="cashier-grid">
                 {cashierOptions.slice(0, 6).map(c => (
@@ -8299,6 +8410,8 @@ export default function CashierModule({
                   <span className="gate-label">Имя кассира</span>
                   <input className="gate-input" value={gateName} onChange={e => setGateName(e.target.value)} placeholder="Кассир" />
                 </>
+              )}
+              </>
               )}
               <span className="gate-label">Наличные на сдачу · из основного ящика</span>
               <input className="gate-input" value={gateCash} onChange={e => setGateCash(sanitizeDecimalInput(e.target.value))} inputMode="decimal" />
@@ -9546,8 +9659,8 @@ export default function CashierModule({
                 >
                   <span className="ami-ic">🔁</span>
                   <span>
-                    <b>Сменить кассира</b>
-                    <i>Закрыть смену и открыть на другого</i>
+                    <b>Сдать смену</b>
+                    <i>Пересчитать кассу и выйти для другого кассира</i>
                   </span>
                 </button>
                 <button
@@ -12798,6 +12911,27 @@ export default function CashierModule({
         </div>
       )}
 
+      {shiftOwnedByOther && !cashierScreen && (
+        <div className="gate gate-modal">
+          <div className="gate-bg" />
+          <div className="gate-card">
+            <div className="gate-logo">K</div>
+            <div className="gate-title">Смена другого кассира</div>
+            <div className="gate-sub">
+              Открыта смена «{activeShiftOwnerName}», а вошли вы: {sessionEmployeeName}. Чтобы продавать, примите смену: пересчитайте деньги в кассе.
+            </div>
+            <button type="button" className="btn-gate" disabled={busy} onClick={() => openCashierScreen('switch')}>
+              Принять смену
+            </button>
+            {onLogout && (
+              <button type="button" className="btn-switch-till" style={{ marginTop: 10 }} disabled={busy} onClick={onLogout}>
+                Выйти
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {cashierScreen && cashierScreen !== 'receipts' && activeShift && (
         <div className="cashier-screen">
           <div className="cashier-screen-inner">
@@ -12811,8 +12945,8 @@ export default function CashierModule({
                 ← Назад
               </button>
               <div>
-                <h2>{cashierScreen === 'close' ? 'Закрытие смены' : 'Сменить кассира'}</h2>
-                <p>{settings.cashierName} · смена открыта</p>
+                <h2>{cashierScreen === 'close' ? 'Закрытие смены' : (shiftOwnedByOther ? 'Принять смену' : 'Сдать смену')}</h2>
+                <p>{activeShiftOwnerName || settings.cashierName} · смена открыта</p>
               </div>
             </div>
 
@@ -12827,20 +12961,11 @@ export default function CashierModule({
 
             {cashierScreen === 'switch' && (
               <div className="cashier-switch-block">
-                <div className="gate-label">Новый кассир</div>
-                <div className="cashier-grid switch-grid">
-                  {cashierOptions.slice(0, 9).map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`cashier-opt ${switchCashierId === c.id ? 'on' : ''}`}
-                      onClick={() => setSwitchCashierId(c.id)}
-                    >
-                      <div className="av">{initialsOf(c.name)}</div>
-                      <span>{c.name.split(' ')[0]}</span>
-                    </button>
-                  ))}
-                </div>
+                <p className="shift-reconcile-hint">
+                  {shiftOwnedByOther
+                    ? `Пересчитайте деньги в кассе. Смена «${activeShiftOwnerName}» закроется, и откроется ваша: ${sessionEmployeeName}.`
+                    : 'Пересчитайте деньги в кассе. Смена закроется, и касса выйдет. Следующий кассир войдёт по своему паролю и откроет свою смену с этой суммой.'}
+                </p>
               </div>
             )}
 
@@ -12882,7 +13007,9 @@ export default function CashierModule({
                 </button>
               ) : (
                 <button type="button" className="btn-confirm" disabled={busy || !shiftReconciled} onClick={() => void switchCashier()}>
-                  {busy ? 'Меняем…' : 'Сменить и открыть'}
+                  {shiftOwnedByOther
+                    ? (busy ? 'Принимаем…' : 'Принять смену')
+                    : (busy ? 'Сдаём…' : 'Сдать смену и выйти')}
                 </button>
               )}
             </div>

@@ -3664,6 +3664,7 @@ function TradeAppInner({
               onDashboardBind={setPosDashboardApi}
               onExit={() => goTo(homePage)}
               onNavigate={p => goTo(p as TradePage)}
+              onLogout={onLogout}
             />
             </div>
           )}
