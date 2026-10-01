@@ -4974,7 +4974,13 @@ export default function CashierModule({
       if (!accepting) {
         saveShiftHandoverCash(cash)
         if (!closed.offline) void refresh()
-        else void useOfflineSync.getState().syncNow()
+        else {
+          // Закрытие должно уйти под этим сотрудником, пока вход ещё не сброшен
+          await Promise.race([
+            useOfflineSync.getState().syncNow().catch(() => {}),
+            new Promise(r => setTimeout(r, 10_000)),
+          ])
+        }
         setShiftReconcileOpen(false)
         setShiftReconciled(false)
         setCashierScreen(null)

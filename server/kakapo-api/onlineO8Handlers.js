@@ -1310,6 +1310,22 @@ export async function handleO8ShiftOpen(req, res, ctx) {
   }
 }
 
+/**
+ * Сдача/приём смены: другой сотрудник закрывает смену на той же физической кассе
+ * (ключ устройства, привязанного к точке этой смены). Чужое устройство — нет.
+ */
+export function isShiftHandoverOnSameTill(db, req, shift) {
+  const auth = req?.auth
+  if (!auth?.deviceAuth) return false
+  if (auth.principal !== 'STAFF' && auth.principal !== 'CASHIER') return false
+  const deviceId = String(auth.deviceId || '').trim()
+  const posId = String(shift?.posId || '').trim()
+  if (!deviceId || !posId) return false
+  if ((db.revokedPosDevices || []).some(d => String(d.id) === deviceId)) return false
+  const pos = (db.posPoints || []).find(p => String(p.id) === posId && p.active !== false)
+  return !!pos && (Array.isArray(pos.devices) ? pos.devices : []).some(d => String(d.id) === deviceId)
+}
+
 export async function handleO8ShiftClose(req, res, ctx) {
   const { db, closePosShift, auditFromReq, broadcastPosUpdate } = ctx
   const shiftId = req.params.id
@@ -1333,7 +1349,7 @@ export async function handleO8ShiftClose(req, res, ctx) {
       fingerprint,
       mutate: () => {
         const existing = (db.posShifts || []).find(s => String(s.id) === String(shiftId))
-        if (existing && actorSubject && req.auth?.principal !== 'ADMIN') {
+        if (existing && actorSubject && req.auth?.principal !== 'ADMIN' && !isShiftHandoverOnSameTill(db, req, existing)) {
           const owner = String(existing.openedByAuthSubject || '')
           if (owner && owner !== actorSubject) {
             const err = new Error('Нет доступа к чужой смене')

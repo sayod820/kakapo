@@ -5,7 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkShiftOpenOwner } from '../server/kakapo-api/onlineO8Handlers.js'
+import { checkShiftOpenOwner, isShiftHandoverOnSameTill } from '../server/kakapo-api/onlineO8Handlers.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let pass = 0
@@ -45,6 +45,27 @@ expect(checkShiftOpenOwner(db, req('EMP-UNKNOWN', { cashierId: 'C-B' })).ok, 'un
 const denied = checkShiftOpenOwner(db, req('EMP-A', { cashierId: 'C-B' }))
 expect(/только на себя/.test(denied.detail || ''), 'denial message')
 
+console.log('--- server isShiftHandoverOnSameTill')
+const tillDb = {
+  posPoints: [
+    { id: 'POS-1', active: true, devices: [{ id: 'DEV-1' }] },
+    { id: 'POS-2', active: true, devices: [{ id: 'DEV-2' }] },
+  ],
+  revokedPosDevices: [{ id: 'DEV-OLD' }],
+}
+const shift1 = { id: 'S1', posId: 'POS-1' }
+const dreq = (auth) => ({ auth })
+expect(isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'STAFF', subjectId: 'EMP-B', deviceAuth: true, deviceId: 'DEV-1' }), shift1), 'B on same till may close A shift')
+expect(isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'CASHIER', subjectId: 'EMP-B', deviceAuth: true, deviceId: 'DEV-1' }), shift1), 'CASHIER on same till')
+expect(!isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'STAFF', subjectId: 'EMP-B', deviceAuth: true, deviceId: 'DEV-2' }), shift1), 'other till cannot')
+expect(!isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'STAFF', subjectId: 'EMP-B', deviceId: 'DEV-1' }), shift1), 'login token (no device key) cannot')
+expect(!isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'DEVICE', subjectId: 'DEV-1', deviceAuth: true, deviceId: 'DEV-1' }), shift1), 'device without employee cannot')
+expect(!isShiftHandoverOnSameTill({ ...tillDb, revokedPosDevices: [{ id: 'DEV-1' }] }, dreq({ principal: 'STAFF', deviceAuth: true, deviceId: 'DEV-1' }), shift1), 'revoked device cannot')
+expect(!isShiftHandoverOnSameTill(tillDb, dreq({ principal: 'STAFF', deviceAuth: true, deviceId: 'DEV-1' }), { id: 'S0' }), 'shift without pos cannot')
+const handlersSrc = fs.readFileSync(path.join(root, 'server/kakapo-api/onlineO8Handlers.js'), 'utf8')
+const closeFn = handlersSrc.slice(handlersSrc.indexOf('export async function handleO8ShiftClose'))
+expect(/!isShiftHandoverOnSameTill\(db, req, existing\)[\s\S]{0,400}AUTH_SHIFT_OWNER/.test(closeFn.slice(0, 2500)), 'close owner check skipped only for same-till handover')
+
 console.log('--- handler wiring')
 const handlers = fs.readFileSync(path.join(root, 'server/kakapo-api/onlineO8Handlers.js'), 'utf8')
 const openFn = handlers.slice(handlers.indexOf('export async function handleO8ShiftOpen'))
@@ -58,7 +79,8 @@ expect(/sessionEmployeeName\s*\n?\s*\? await ensureCashier\(sessionEmployeeName/
 const sw = cm.slice(cm.indexOf('async function switchCashier()'), cm.indexOf('function openCashierScreen('))
 expect(/const accepting = shiftOwnedByOther/.test(sw), 'switch: accept vs handover by owner')
 expect(/!accepting && cartsHaveItems/.test(sw), 'handover blocked with open carts')
-expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,700}onLogout\?\.\(\)/.test(sw), 'handover saves cash then logs out')
+expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,1100}onLogout\?\.\(\)/.test(sw), 'handover saves cash then logs out')
+expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,500}await Promise\.race\(\[\s*useOfflineSync\.getState\(\)\.syncNow\(\)/.test(sw), 'offline close flushed before logout')
 expect(/ensureCashier\(sessionEmployeeName, sessionCashierOpt\?\.id\)/.test(sw), 'accept opens on logged-in employee')
 expect(!/switchCashierId/.test(cm), 'no free cashier picker on switch')
 for (const fn of ['async function submitSale(', 'async function submitTillMove()', 'async function executeReturnConfirm()', 'async function submitTopup()', 'async function submitDebtRepay()']) {
