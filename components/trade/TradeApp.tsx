@@ -215,13 +215,15 @@ const CSS = `
     box-shadow:0 8px 22px rgba(31,215,96,.4)
   }
   .k-rcpt-fab-wrap.is-open .k-rcpt-fab{background:var(--card);color:var(--text);box-shadow:0 6px 18px rgba(0,0,0,.18);border:1px solid var(--border)}
-  .k-rcpt-fab-menu{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .k-rcpt-fab-menu{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:230px}
   .k-rcpt-fab-item{
+    display:flex;align-items:center;gap:12px;text-align:left;
     border:1px solid var(--border);border-radius:12px;cursor:pointer;
-    padding:12px 16px;min-height:46px;white-space:nowrap;
+    padding:0 16px;height:48px;white-space:nowrap;
     background:var(--panel);color:var(--text);font-size:14px;font-weight:800;
     box-shadow:0 6px 18px rgba(0,0,0,.16)
   }
+  .k-rcpt-fab-ico{width:22px;flex:0 0 22px;text-align:center;font-size:17px;line-height:1}
   .k-rcpt-fab-item:hover{border-color:var(--green)}
   .k-clients-mod{padding-bottom:72px}
   .k-suppliers-mod{padding-bottom:72px}

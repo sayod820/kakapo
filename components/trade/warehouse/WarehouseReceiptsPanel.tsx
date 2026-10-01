@@ -1431,7 +1431,7 @@ export default function WarehouseReceiptsPanel({
 
                   {filledLines.length === 0 ? (
                     <div className="k-rcpt-empty">
-                      Нажмите «+» справа внизу: создать товар или добавить из существующих
+                      Нажмите «+» справа внизу, чтобы создать новый товар или выбрать его из каталога
                     </div>
                   ) : (
                     <div className="k-rcpt-table">
@@ -1516,7 +1516,8 @@ export default function WarehouseReceiptsPanel({
                       ensurePendingThen(() => openNewProduct(pendingKey, ''))
                     }}
                   >
-                    📦 Создать товар
+                    <span className="k-rcpt-fab-ico" aria-hidden>📦</span>
+                    <span>Новый товар</span>
                   </button>
                   <button
                     type="button"
@@ -1526,7 +1527,8 @@ export default function WarehouseReceiptsPanel({
                       setAddOpen(true)
                     }}
                   >
-                    🔍 Добавить из существующих
+                    <span className="k-rcpt-fab-ico" aria-hidden>🔍</span>
+                    <span>Выбрать из каталога</span>
                   </button>
                 </div>
               )}
