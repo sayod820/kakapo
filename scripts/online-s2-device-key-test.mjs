@@ -283,10 +283,38 @@ try {
   expect(ghost.status === 403 && !ghost.body?.deviceToken, `unbound device gets no key (${ghost.status})`)
   const keyAfterG = keyG
 
+  // ── G3 смена пароля в админке — сразу в PG одной строкой, без полной записи базы ──
+  console.log('\n--- G3 admin password change ---')
+  const pgHash = async () => {
+    if (!REAL_PG) return null
+    const { withClient } = await import('../server/kakapo-api/pg/client.js')
+    return withClient(async (c) => {
+      const r = await c.query("SELECT data->>'passwordHash' AS h, data ? '_txCommittedAt' AS stamped FROM docs WHERE collection='employees' AND id=$1", [empId])
+      return r.rows[0] || null
+    })
+  }
+  const h0 = await pgHash()
+  const t0 = Date.now()
+  const pw = await fetchJson(`${api.base}/employees/${encodeURIComponent(empId)}`, {
+    method: 'PATCH', headers: adminH, body: JSON.stringify({ password: 'S2-new-pass-5678' }),
+  })
+  const pwMs = Date.now() - t0
+  expect(pw.ok, `admin password change ok (${pw.status})`)
+  expect(pwMs < 3000, `admin password change answers fast (${pwMs}ms)`)
+  const h1 = await pgHash()
+  if (REAL_PG) {
+    expect(h1?.h && h1.h !== h0?.h, 'new password hash is in PG right after the answer')
+    expect(h1 && h1.stamped === false, 'employee row has no stale tx stamp')
+  }
+
   // ── H перезапуск API — ключ живёт (сессии в PG) ──
   console.log('\n--- H restart ---')
   await killApi(api.child)
   api = await startApi(PORT + 1)
+  if (REAL_PG) {
+    const h2 = await pgHash()
+    expect(h2?.h === h1?.h, 'new password hash survives API restart')
+  }
   const afterRestart = await fetchJson(`${api.base}/pos/sales`, { headers: staffH(keyAfterG) })
   expect(afterRestart.ok, `device key survives API restart (${afterRestart.status})`)
 

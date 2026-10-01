@@ -3192,23 +3192,40 @@ app.delete('/assemblers/:id', (req, res) => {
 app.get('/cashiers', (_req, res) => {
   res.json(listCashiers(db))
 })
-/** Полная запись снимка базы дольше таймаута кассы — пишем только строку кассира. */
-async function saveCashierRow(res, operationKind, mutateRow) {
+/**
+ * Полная запись снимка базы дольше таймаута кассы и админки — пишем только свои строки.
+ * mutate → { result, touched?, deletes? }
+ */
+async function saveMasterRows(res, operationKind, mutate) {
   if (!isPostgresEnabled()) {
-    const row = mutateRow()
+    const { result } = mutate()
     persist()
-    return row
+    return result
   }
-  const { result } = await runDurableMasterCreate(db, {
-    clientRef: '',
-    operationKind,
-    mutate: () => {
-      const row = mutateRow()
-      return { result: row, touched: [{ collection: 'cashiers', row }] }
-    },
-  })
+  const { result } = await runDurableMasterCreate(db, { clientRef: '', operationKind, mutate })
   markResponseEphemeral(res)
   return result
+}
+
+/**
+ * Строка без _txCommittedAt: иначе следующая полная запись снимка (вход сотрудника,
+ * офлайн-отпечатки пароля) считается устаревшей и молча пропускается.
+ */
+function plainDoc(collection, row) {
+  const { _txCommittedAt: _t, ...data } = JSON.parse(JSON.stringify(row))
+  return { collection, id: String(row.id), data }
+}
+
+function saveCashierRow(res, operationKind, mutateRow) {
+  return saveMasterRows(res, operationKind, () => {
+    const row = mutateRow()
+    return { result: row, docs: [plainDoc('cashiers', row)] }
+  })
+}
+
+function employeeDocs(id) {
+  const row = (db.employees || []).find(e => String(e.id) === String(id))
+  return row ? [plainDoc('employees', row)] : []
 }
 
 app.post('/cashiers', async (req, res) => {
@@ -3279,7 +3296,10 @@ app.post('/employees', async (req, res) => {
         return respondMasterTxError(res, e, 'Не удалось создать сотрудника')
       }
     }
-    const row = createEmployee(db, req.body || {})
+    const row = await saveMasterRows(res, 'employee_create', () => {
+      const created = createEmployee(db, req.body || {})
+      return { result: created, docs: employeeDocs(created.id) }
+    })
     auditFromReq(db, req, {
       action: 'create',
       entity: 'employee',
@@ -3288,45 +3308,51 @@ app.post('/employees', async (req, res) => {
       summary: `Создан сотрудник «${row.name}» · ${row.role || row.roleLabel || ''}`,
       after: { name: row.name, role: row.role, active: row.active },
     })
-    persist()
     broadcastPosUpdate({ kind: 'employee', id: row.id })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось создать сотрудника' })
   }
 })
-app.patch('/employees/:id', (req, res) => {
+app.patch('/employees/:id', async (req, res) => {
   try {
-    const before = (db.employees || []).find(e => e.id === req.params.id)
-    const row = updateEmployee(db, req.params.id, req.body || {})
+    const found = (db.employees || []).find(e => e.id === req.params.id)
+    const before = found ? { name: found.name, role: found.role, active: found.active } : null
+    const row = await saveMasterRows(res, 'employee_update', () => ({
+      result: updateEmployee(db, req.params.id, req.body || {}),
+      docs: employeeDocs(req.params.id),
+    }))
     auditFromReq(db, req, {
       action: 'update',
       entity: 'employee',
       entityId: row.id,
       entityName: row.name,
       summary: `Изменён сотрудник «${row.name}»`,
-      before: before ? { name: before.name, role: before.role, active: before.active } : undefined,
+      before: before || undefined,
       after: { name: row.name, role: row.role, active: row.active },
     })
-    persist()
     broadcastPosUpdate({ kind: 'employee', id: row.id })
     res.json(row)
   } catch (e) {
     res.status(400).json({ detail: e?.message || 'Не удалось обновить' })
   }
 })
-app.delete('/employees/:id', (req, res) => {
+app.delete('/employees/:id', async (req, res) => {
   try {
-    const row = deleteEmployee(db, req.params.id)
+    const found = (db.employees || []).find(e => e.id === req.params.id)
+    const gone = found ? { name: found.name, role: found.role } : { name: '', role: '' }
+    const row = await saveMasterRows(res, 'employee_delete', () => ({
+      result: deleteEmployee(db, req.params.id),
+      deletes: [{ collection: 'employees', id: String(req.params.id) }],
+    }))
     auditFromReq(db, req, {
       action: 'delete',
       entity: 'employee',
       entityId: row.id,
-      entityName: row.name,
-      summary: `Удалён сотрудник «${row.name}»`,
-      before: { name: row.name, role: row.role },
+      entityName: gone.name,
+      summary: `Удалён сотрудник «${gone.name}»`,
+      before: gone,
     })
-    persist()
     broadcastPosUpdate({ kind: 'employee', id: row.id, deleted: true })
     res.json(row)
   } catch (e) {
