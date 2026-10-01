@@ -408,15 +408,20 @@ function scheduleSnapshotWrite(): void {
 }
 
 /**
- * Old receipts live in their own KV key, rewritten only when one of them changes
- * (sync keeps the same object for an unchanged sale) — the main snapshot stays small.
+ * Old receipts live outside the main snapshot, one KV key per UTC day, and a day is rewritten
+ * only when one of its receipts changes — a single archive key meant rewriting every receipt
+ * (~7 s freeze) each morning when yesterday moved into the archive.
  */
 const POS_SNAPSHOT_ARCHIVE_KEY = 'pos_snapshot_sales_archive'
+const POS_SNAPSHOT_ARCHIVE_DAY_PREFIX = 'pos_snapshot_sales_archive:'
 /** ~200 receipts/day: every extra day adds ~0.25 s of freeze to each snapshot write */
 const POS_SNAPSHOT_RECENT_DAYS = 1
-let archiveWrittenRefs: unknown[] | null = null
-/** Signature of the archive on disk; after restart / full pull refs differ but content usually doesn't. */
-let archiveStoredSig: string | null = null
+let archiveWrittenRefs = new Map<string, unknown[]>()
+/** Per-day signatures on disk; after restart / full pull refs differ but content usually doesn't. */
+let archiveStoredSigs = new Map<string, string>()
+let legacyArchivePresent = false
+
+type ArchiveDayIndex = { day: string; sig: string; n: number }
 
 function sameRefs(a: unknown[], b: unknown[] | null): boolean {
   if (!b || a.length !== b.length) return false
@@ -453,26 +458,60 @@ function archiveSig(sales: unknown[]): string {
   return `${sales.length}:${(h >>> 0).toString(36)}`
 }
 
+/** archive / archivePos are grouped by day (ascending) so each day is a contiguous slice. */
 function splitSalesForSnapshot<T extends { createdAtIso?: string }>(sales: T[]): {
   recent: T[]
   archive: T[]
   archivePos: number[]
+  days: { day: string; sales: T[] }[]
 } {
   // Day-aligned: a sliding cutoff would move a receipt into the archive on almost every write
   const cutoff = (Math.floor(Date.now() / 86_400_000) - POS_SNAPSHOT_RECENT_DAYS) * 86_400_000
   const recent: T[] = []
-  const archive: T[] = []
-  const archivePos: number[] = []
+  const byDay = new Map<string, { sales: T[]; pos: number[] }>()
   ;(sales || []).forEach((s, i) => {
     const t = Date.parse(String(s?.createdAtIso || ''))
     if (Number.isFinite(t) && t < cutoff) {
-      archive.push(s)
-      archivePos.push(i)
+      const day = new Date(t).toISOString().slice(0, 10)
+      let g = byDay.get(day)
+      if (!g) byDay.set(day, g = { sales: [], pos: [] })
+      g.sales.push(s)
+      g.pos.push(i)
     } else {
       recent.push(s)
     }
   })
-  return { recent, archive, archivePos }
+  const archive: T[] = []
+  const archivePos: number[] = []
+  const days: { day: string; sales: T[] }[] = []
+  for (const day of [...byDay.keys()].sort()) {
+    const g = byDay.get(day)!
+    archive.push(...g.sales)
+    archivePos.push(...g.pos)
+    days.push({ day, sales: g.sales })
+  }
+  return { recent, archive, archivePos, days }
+}
+
+async function readArchiveFromDisk(snap: Record<string, unknown>): Promise<{ archive: unknown[]; complete: boolean }> {
+  archiveStoredSigs = new Map()
+  archiveWrittenRefs = new Map()
+  const index = Array.isArray(snap.salesArchiveDays) ? snap.salesArchiveDays as ArchiveDayIndex[] : null
+  if (!index) {
+    const stored = await readCachedData<unknown[]>(POS_SNAPSHOT_ARCHIVE_KEY)
+    legacyArchivePresent = !!stored
+    return { archive: stored || [], complete: !!stored }
+  }
+  const chunks = await Promise.all(index.map(d => readCachedData<unknown[]>(POS_SNAPSHOT_ARCHIVE_DAY_PREFIX + d.day)))
+  const archive: unknown[] = []
+  let complete = true
+  index.forEach((d, i) => {
+    const chunk = chunks[i]
+    if (Array.isArray(chunk)) archive.push(...chunk)
+    if (Array.isArray(chunk) && chunk.length === d.n && typeof d.sig === 'string') archiveStoredSigs.set(d.day, d.sig)
+    else complete = false
+  })
+  return { archive, complete }
 }
 
 /** pos_snapshot with archived receipts put back in their original order. */
@@ -481,13 +520,11 @@ export async function readCachedPosSnapshot<T = Record<string, unknown>>(): Prom
   if (snap) writtenOpenShiftsSig = openShiftsSig(snap.shifts)
   if (!snap || !snap.salesArchived) return snap as T | null
   const recent = Array.isArray(snap.sales) ? snap.sales as unknown[] : []
-  const storedArchive = await readCachedData<unknown[]>(POS_SNAPSHOT_ARCHIVE_KEY)
-  const archive = storedArchive || []
+  const { archive, complete } = await readArchiveFromDisk(snap)
   const pos = Array.isArray(snap.salesArchivePos) ? snap.salesArchivePos as number[] : []
-  const { salesArchived: _a, salesArchivePos: _p, salesArchiveSig: sig, ...rest } = snap
-  archiveStoredSig = storedArchive && pos.length === archive.length && typeof sig === 'string' ? sig : null
+  const { salesArchived: _a, salesArchivePos: _p, salesArchiveSig: _s, salesArchiveDays: _d, ...rest } = snap
   let sales: unknown[]
-  if (pos.length === archive.length) {
+  if (complete && pos.length === archive.length) {
     sales = new Array(recent.length + archive.length)
     const taken = new Set<number>()
     pos.forEach((p, i) => {
@@ -521,14 +558,25 @@ async function writePosSnapshotFromStore(): Promise<void> {
   const { usePosStore } = await import('./posStore')
   const cur = usePosStore.getState()
   const split = splitSalesForSnapshot(cur.sales || [])
-  if (!sameRefs(split.archive, archiveWrittenRefs)) {
-    const sig = archiveSig(split.archive)
-    if (sig !== archiveStoredSig) {
-      lagMark('posSnapshotArchive')
-      await cacheData(POS_SNAPSHOT_ARCHIVE_KEY, split.archive)
-      archiveStoredSig = sig
+  const index: ArchiveDayIndex[] = []
+  for (const { day, sales } of split.days) {
+    if (!sameRefs(sales, archiveWrittenRefs.get(day) || null)) {
+      const sig = archiveSig(sales)
+      if (sig !== archiveStoredSigs.get(day)) {
+        lagMark('posSnapshotArchive')
+        await cacheData(POS_SNAPSHOT_ARCHIVE_DAY_PREFIX + day, sales)
+        archiveStoredSigs.set(day, sig)
+      }
+      archiveWrittenRefs.set(day, sales)
     }
-    archiveWrittenRefs = split.archive
+    index.push({ day, sig: archiveStoredSigs.get(day) || '', n: sales.length })
+  }
+  const live = new Set(split.days.map(d => d.day))
+  for (const day of [...archiveStoredSigs.keys()]) {
+    if (live.has(day)) continue
+    archiveStoredSigs.delete(day)
+    archiveWrittenRefs.delete(day)
+    await cacheData(POS_SNAPSHOT_ARCHIVE_DAY_PREFIX + day, null)
   }
   const payload = {
     cashiers: cur.cashiers,
@@ -537,7 +585,7 @@ async function writePosSnapshotFromStore(): Promise<void> {
     sales: split.recent,
     salesArchived: true,
     salesArchivePos: split.archivePos,
-    salesArchiveSig: archiveStoredSig,
+    salesArchiveDays: index,
     receipts: cur.receipts,
     writeoffs: cur.writeoffs,
     revisions: cur.revisions,
@@ -559,6 +607,10 @@ async function writePosSnapshotFromStore(): Promise<void> {
   }
   await cacheData('pos_snapshot', payload)
   writtenOpenShiftsSig = openShiftsSig(payload.shifts)
+  if (legacyArchivePresent) {
+    legacyArchivePresent = false
+    await cacheData(POS_SNAPSHOT_ARCHIVE_KEY, null)
+  }
   snapshotWriteCount += 1
   if (t0) {
     const ms = performance.now() - t0
@@ -648,8 +700,9 @@ export function __resetPosSnapshotPersistDebug() {
   snapshotCoalesced = 0
   snapshotLastWriteAt = 0
   snapshotFirstDirtyAt = 0
-  archiveWrittenRefs = null
-  archiveStoredSig = null
+  archiveWrittenRefs = new Map()
+  archiveStoredSigs = new Map()
+  legacyArchivePresent = false
   writtenOpenShiftsSig = null
 }
 

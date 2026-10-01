@@ -1,5 +1,5 @@
 /**
- * pos_snapshot: old receipts in a separate KV key, restored in original order.
+ * pos_snapshot: old receipts in per-day KV keys, restored in original order.
  * Run: node scripts/pos-snapshot-archive-test.mjs
  */
 import fs from 'node:fs'
@@ -28,14 +28,28 @@ function expect(cond, msg) {
 
 const src = fs.readFileSync(path.join(root, 'lib', 'offline.ts'), 'utf8')
 const start = src.indexOf('const POS_SNAPSHOT_ARCHIVE_KEY')
-const end = src.indexOf('async function writePosSnapshotFromStore')
+const end = src.indexOf('async function drainPosSnapshotWrites')
 expect(start > 0 && end > start, 'snippet markers')
-const snippet = src.slice(start, end).replace(/export async function/g, 'async function')
+const snippet = src.slice(start, end)
+  .replace(/export async function/g, 'async function')
+  .replace("await import('./posStore')", 'await posStoreStub()')
 const js = ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None } }).outputText
 
 const kv = new Map()
+const writes = []
 const readCachedData = async key => (kv.has(`data_${key}`) ? structuredClone(kv.get(`data_${key}`)) : null)
-const mod = new Function('readCachedData', `${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, sameRefs, archiveSig, POS_SNAPSHOT_ARCHIVE_KEY, storedSig: () => archiveStoredSig, openShiftsSig, writtenOpenSig: () => writtenOpenShiftsSig }`)(readCachedData)
+const cacheData = async (key, value) => {
+  writes.push(key)
+  if (value == null) kv.delete(`data_${key}`)
+  else kv.set(`data_${key}`, structuredClone(value))
+}
+let storeState = { sales: [], shifts: [] }
+const posStoreStub = async () => ({ usePosStore: { getState: () => storeState } })
+const noop = () => {}
+const mod = new Function(
+  'readCachedData', 'cacheData', 'posStoreStub', 'lagMark', 'isPerfEnabled', 'perfNote', 'perfCount',
+  `let snapshotWriteCount = 0\n${js}\nreturn { splitSalesForSnapshot, readCachedPosSnapshot, writePosSnapshotFromStore, sameRefs, archiveSig, POS_SNAPSHOT_ARCHIVE_KEY, POS_SNAPSHOT_ARCHIVE_DAY_PREFIX, storedSigs: () => archiveStoredSigs, openShiftsSig, writtenOpenSig: () => writtenOpenShiftsSig, reset: () => { archiveStoredSigs = new Map(); archiveWrittenRefs = new Map(); legacyArchivePresent = false } }`,
+)(readCachedData, cacheData, posStoreStub, noop, () => false, noop, noop)
 
 const DAY = 86_400_000
 const iso = daysAgo => new Date(Date.now() - daysAgo * DAY).toISOString()
@@ -47,88 +61,142 @@ const sales = [
   { id: 'e', createdAtIso: iso(30) },
   { id: 'f' },
 ]
+const archDays = () => [...kv.keys()].filter(k => k.startsWith(`data_${mod.POS_SNAPSHOT_ARCHIVE_DAY_PREFIX}`)).length
 
-function store(split, extra = {}) {
-  kv.set(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`, split.archive)
-  kv.set('data_pos_snapshot', { shifts: [{ id: 's1' }], sales: split.recent, salesArchived: true, salesArchivePos: split.archivePos, ...extra })
-}
-
-await test('split: old to archive, recent + no date stay in main', () => {
+await test('split: old to archive grouped by day, recent + no date stay in main', () => {
   const s = mod.splitSalesForSnapshot(sales)
   expect(s.archive.map(x => x.id).join() === 'a,c,e', `archive ${s.archive.map(x => x.id)}`)
   expect(s.recent.map(x => x.id).join() === 'b,d,f', `recent ${s.recent.map(x => x.id)}`)
   expect(s.archivePos.join() === '0,2,4', 'positions')
+  expect(s.days.length === 3 && s.days.every(d => /^\d{4}-\d{2}-\d{2}$/.test(d.day)), 'day keys')
 })
 
-await test('read: restores all receipts in original order + other fields', async () => {
-  store(mod.splitSalesForSnapshot(sales))
+await test('split: unsorted store order → archive/positions grouped per day, still aligned', () => {
+  const t = Date.now() - 10 * DAY
+  const mixed = [
+    { id: 'x1', createdAtIso: new Date(t).toISOString() },
+    { id: 'y1', createdAtIso: new Date(t - DAY).toISOString() },
+    { id: 'x2', createdAtIso: new Date(t + 1000).toISOString() },
+  ]
+  const s = mod.splitSalesForSnapshot(mixed)
+  s.archive.forEach((sale, i) => expect(mixed[s.archivePos[i]] === sale, `pos ${i}`))
+  expect(s.days.map(d => d.sales.map(x => x.id).join('+')).join() === 'y1,x1+x2', 'grouped')
+})
+
+await test('write → read round trip: all receipts back in original order', async () => {
+  kv.clear(); mod.reset(); writes.length = 0
+  storeState = { sales, shifts: [{ id: 's1', status: 'open' }] }
+  await mod.writePosSnapshotFromStore()
+  expect(archDays() === 3, `day keys ${archDays()}`)
+  mod.reset()
   const snap = await mod.readCachedPosSnapshot()
   expect(snap.sales.map(x => x.id).join() === 'a,b,c,d,e,f', `order ${snap.sales.map(x => x.id)}`)
   expect(snap.shifts?.[0]?.id === 's1', 'shifts kept')
-  expect(!('salesArchived' in snap) && !('salesArchivePos' in snap), 'markers stripped')
+  expect(!('salesArchived' in snap) && !('salesArchivePos' in snap) && !('salesArchiveDays' in snap), 'markers stripped')
+})
+
+await test('new recent sale → no archive day rewritten', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  writes.length = 0
+  storeState = { sales: [{ id: 'n', createdAtIso: iso(0) }, ...sales], shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  expect(writes.join() === 'pos_snapshot', `writes ${writes}`)
+})
+
+await test('after restart (same content, new objects) → no archive day rewritten', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  mod.reset()
+  const snap = await mod.readCachedPosSnapshot()
+  writes.length = 0
+  storeState = { sales: structuredClone(snap.sales), shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  expect(writes.join() === 'pos_snapshot', `writes ${writes}`)
+})
+
+await test('a new day entering the archive writes only that day', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  writes.length = 0
+  storeState = { sales: [...sales, { id: 'old', createdAtIso: iso(20) }], shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  const dayWrites = writes.filter(k => k.startsWith(mod.POS_SNAPSHOT_ARCHIVE_DAY_PREFIX))
+  expect(dayWrites.length === 1, `day writes ${dayWrites}`)
+})
+
+await test('edited old receipt rewrites only its day; removed day key is dropped', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  writes.length = 0
+  const edited = sales.map(x => (x.id === 'c' ? { ...x, status: 'returned', returns: [{ id: 'r' }] } : x))
+  storeState = { sales: edited, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  expect(writes.filter(k => k.startsWith(mod.POS_SNAPSHOT_ARCHIVE_DAY_PREFIX)).length === 1, `writes ${writes}`)
+  storeState = { sales: edited.filter(x => x.id !== 'a'), shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  expect(archDays() === 2, `days left ${archDays()}`)
+})
+
+await test('legacy single-key archive is read, then migrated to day keys and removed', async () => {
+  kv.clear(); mod.reset()
+  const s = mod.splitSalesForSnapshot(sales)
+  kv.set(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`, s.archive)
+  kv.set('data_pos_snapshot', { shifts: [], sales: s.recent, salesArchived: true, salesArchivePos: s.archivePos, salesArchiveSig: 'x' })
+  const snap = await mod.readCachedPosSnapshot()
+  expect(snap.sales.map(x => x.id).join() === 'a,b,c,d,e,f', `legacy order ${snap.sales.map(x => x.id)}`)
+  expect(!('salesArchiveSig' in snap), 'legacy sig stripped')
+  storeState = { sales: snap.sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  expect(archDays() === 3, 'migrated to day keys')
+  expect(!kv.has(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`), 'legacy key removed')
 })
 
 await test('read: legacy snapshot (no archive) unchanged', async () => {
-  kv.clear()
+  kv.clear(); mod.reset()
   kv.set('data_pos_snapshot', { sales: sales.slice(0, 2), shifts: [] })
   const snap = await mod.readCachedPosSnapshot()
   expect(snap.sales.length === 2 && snap.sales[0].id === 'a', 'legacy')
 })
 
-await test('read: positions out of sync (crash between writes) → nothing lost, no duplicates', async () => {
-  kv.clear()
-  const s = mod.splitSalesForSnapshot(sales)
-  store(s)
-  kv.set(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`, [...s.archive, { id: 'g', createdAtIso: iso(50) }, { id: 'b', createdAtIso: iso(2) }])
+await test('read: missing day chunk (crash between writes) → nothing duplicated, day rewritten next time', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  const someDay = [...kv.keys()].find(k => k.startsWith(`data_${mod.POS_SNAPSHOT_ARCHIVE_DAY_PREFIX}`))
+  kv.delete(someDay)
+  mod.reset()
+  const snap = await mod.readCachedPosSnapshot()
+  const ids = snap.sales.map(x => x.id)
+  expect(new Set(ids).size === ids.length, `no dupes ${ids}`)
+  expect(['b', 'd', 'f'].every(id => ids.includes(id)), `recent kept ${ids}`)
+  expect(mod.storedSigs().size === 2, 'missing day not trusted')
+})
+
+await test('read: wrong chunk length → that day not trusted, others kept', async () => {
+  kv.clear(); mod.reset()
+  storeState = { sales, shifts: [] }
+  await mod.writePosSnapshotFromStore()
+  const someDay = [...kv.keys()].find(k => k.startsWith(`data_${mod.POS_SNAPSHOT_ARCHIVE_DAY_PREFIX}`))
+  kv.set(someDay, [...kv.get(someDay), { id: 'g', createdAtIso: iso(50) }])
+  mod.reset()
   const snap = await mod.readCachedPosSnapshot()
   const ids = snap.sales.map(x => x.id)
   expect(['a', 'b', 'c', 'd', 'e', 'f', 'g'].every(id => ids.includes(id)), `all ids ${ids}`)
   expect(new Set(ids).size === ids.length, `no dupes ${ids}`)
+  expect(mod.storedSigs().size === 2, 'bad day not trusted')
 })
 
-await test('read: no archive key yet → recent only, no crash', async () => {
-  kv.clear()
-  const s = mod.splitSalesForSnapshot(sales)
-  kv.set('data_pos_snapshot', { sales: s.recent, salesArchived: true, salesArchivePos: s.archivePos })
-  const snap = await mod.readCachedPosSnapshot()
-  expect(snap.sales.map(x => x.id).join() === 'b,d,f', `recent ${snap.sales.map(x => x.id)}`)
-})
-
-await test('archive unchanged refs → no rewrite needed; changed sale → rewrite', () => {
-  const s1 = mod.splitSalesForSnapshot(sales)
-  const next = [...sales, { id: 'h', createdAtIso: iso(0) }]
-  const s2 = mod.splitSalesForSnapshot(next)
-  expect(mod.sameRefs(s2.archive, s1.archive), 'new recent sale keeps archive')
-  const edited = next.map(x => (x.id === 'c' ? { ...x, returned: true } : x))
-  expect(!mod.sameRefs(mod.splitSalesForSnapshot(edited).archive, s1.archive), 'edited old sale → rewrite')
-})
-
-await test('signature: same content with new objects (restart / full pull) → equal; edited old sale → differs', () => {
-  const s1 = mod.splitSalesForSnapshot(sales)
+await test('signature: content-based, order-sensitive', () => {
   const copy = structuredClone(sales)
-  const s2 = mod.splitSalesForSnapshot([{ id: 'n', createdAtIso: iso(0) }, ...copy])
-  expect(!mod.sameRefs(s2.archive, s1.archive), 'refs differ')
-  expect(mod.archiveSig(s2.archive) === mod.archiveSig(s1.archive), 'content sig equal despite shifted positions')
-  const edited = copy.map(x => (x.id === 'c' ? { ...x, status: 'returned', returns: [{ id: 'r' }] } : x))
-  expect(mod.archiveSig(mod.splitSalesForSnapshot(edited).archive) !== mod.archiveSig(s1.archive), 'edit changes sig')
-  const reordered = [copy[4], copy[1], copy[2], copy[3], copy[0], copy[5]]
-  expect(mod.archiveSig(mod.splitSalesForSnapshot(reordered).archive) !== mod.archiveSig(s1.archive), 'order changes sig')
-})
-
-await test('read: stored signature trusted only when archive present and positions match', async () => {
-  kv.clear()
-  const s = mod.splitSalesForSnapshot(sales)
-  const sig = mod.archiveSig(s.archive)
-  store(s, { salesArchiveSig: sig })
-  const snap = await mod.readCachedPosSnapshot()
-  expect(!('salesArchiveSig' in snap), 'sig stripped from store data')
-  expect(mod.storedSig() === sig, 'sig remembered')
-  kv.delete(`data_${mod.POS_SNAPSHOT_ARCHIVE_KEY}`)
-  await mod.readCachedPosSnapshot()
-  expect(mod.storedSig() === null, 'missing archive → force rewrite')
-  store(s, { salesArchiveSig: sig, salesArchivePos: [0] })
-  await mod.readCachedPosSnapshot()
-  expect(mod.storedSig() === null, 'positions out of sync → force rewrite')
+  expect(mod.archiveSig(copy) === mod.archiveSig(sales), 'equal for same content')
+  const edited = copy.map(x => (x.id === 'c' ? { ...x, status: 'returned' } : x))
+  expect(mod.archiveSig(edited) !== mod.archiveSig(sales), 'edit changes sig')
+  expect(mod.archiveSig([...copy].reverse()) !== mod.archiveSig(sales), 'order changes sig')
 })
 
 await test('open shifts signature: close/open changes it, other edits do not; read remembers disk state', async () => {

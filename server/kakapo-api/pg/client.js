@@ -27,10 +27,19 @@ export async function getPool() {
   }
   if (!pool) {
     const Pool = await loadPoolClass()
+    // Without these a stuck transaction holds its locks forever: every later write to the same
+    // product waits until the client gives up (seen as 499s). 0 disables.
+    const lockMs = Number(process.env.PG_LOCK_TIMEOUT_MS ?? 20_000)
+    const idleTxMs = Number(process.env.PG_IDLE_TX_TIMEOUT_MS ?? 60_000)
+    const opts = [
+      lockMs > 0 ? `-c lock_timeout=${lockMs}` : '',
+      idleTxMs > 0 ? `-c idle_in_transaction_session_timeout=${idleTxMs}` : '',
+    ].filter(Boolean).join(' ')
     pool = new Pool({
       connectionString: getDatabaseUrl(),
       max: Number(process.env.PG_POOL_MAX) || 10,
       idleTimeoutMillis: 30_000,
+      ...(opts ? { options: opts } : {}),
     })
     pool.on('error', err => {
       console.error('[pg] pool error', err?.message || err)

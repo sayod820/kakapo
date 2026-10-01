@@ -334,6 +334,8 @@ function enqueueFlush() {
       console.error('[db] flush failed', err?.message || err)
       // keep dirty so next flush retries
       saveDirty = true
+      // Lost a deadlock / lock wait to a business tx: retry soon instead of waiting for the next write
+      if (err?.code === '40P01' || err?.code === '55P03') setTimeout(() => scheduleSaveDb(), 2_000)
     })
   return flushChain
 }
