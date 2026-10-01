@@ -372,6 +372,7 @@ export async function closeShiftSafe(
   if (res.data) {
     shadowMirrorShift(res.data)
     if (res.data.status === 'closed' && !res.offline) {
+      void import('./offline').then(m => m.markShiftCloseAcked(shiftId)).catch(() => {})
       patchShift(shiftId, res.data)
       applyLocalVaultTransfer(res.data)
       // Online writes are deferred up to minutes; quitting right after close left the next offline start with an open shift
@@ -402,6 +403,8 @@ export async function ensureDurableShiftCloses(opts?: { reason?: string }): Prom
     const id = String(sh.id || '')
     if (!id || isLocalId(id)) continue
     if (pendingCloseIds.has(id)) continue
+    // Server stamps closeClientRef on close: a pulled closed shift needs no re-send (was re-closing every shift of the last 72h on each start)
+    if ((sh as { closeClientRef?: string }).closeClientRef) continue
     if (await isShiftCloseAcked(id)) continue
     if (sh.closingCash == null && sh.actualCash == null) continue
     const closedMs = Date.parse(String(sh.closedAtIso || ''))

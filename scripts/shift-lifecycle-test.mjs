@@ -238,6 +238,14 @@ test('T8 ensureDurableShiftCloses wired in softSync', () => {
   expect(posStore.includes('ensureDurableShiftCloses'), 'posStore')
 })
 
+test('T8b server-closed shifts are not re-sent; online close is acked', () => {
+  const i = ops.indexOf('export async function ensureDurableShiftCloses')
+  const body = ops.slice(i, i + 1600)
+  expect(/closeClientRef\?: string \}\)\.closeClientRef\) continue/.test(body), 'skip server-stamped close')
+  const c = ops.indexOf('export async function closeShiftSafe')
+  expect(/markShiftCloseAcked\(shiftId\)/.test(ops.slice(c, c + 6000)), 'online close acked')
+})
+
 test('T9 active shift still prefers server open (1.2.177)', () => {
   const ghost = { id: 'off-shift-1', status: 'open', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-11T01:00:00.000Z', salesCount: 5 }
   const srv = { id: 'SHIFT-real', status: 'open', posId: 'POS-DEFAULT', cashierId: 'C1', openedAtIso: '2026-09-10T02:00:00.000Z', salesCount: 100 }

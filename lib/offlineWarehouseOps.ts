@@ -1156,6 +1156,7 @@ export async function updateStockLayerSafe(
 
   const res = await raceWarehouseOp(
     () => api.updateProductStockLayer(receiptId, productId, {
+      clientRef,
       costPrice: body.costPrice,
       retailPrice: body.retailPrice,
       bulkPricing: body.bulkPricing,
