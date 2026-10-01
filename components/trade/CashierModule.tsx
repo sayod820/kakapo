@@ -4976,10 +4976,7 @@ export default function CashierModule({
         if (!closed.offline) void refresh()
         else {
           // Закрытие должно уйти под этим сотрудником, пока вход ещё не сброшен
-          await Promise.race([
-            useOfflineSync.getState().syncNow().catch(() => {}),
-            new Promise(r => setTimeout(r, 10_000)),
-          ])
+          await useOfflineSync.getState().flushShiftCloseBeforeLogout(10_000).catch(() => false)
         }
         setShiftReconcileOpen(false)
         setShiftReconciled(false)

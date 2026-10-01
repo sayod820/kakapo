@@ -3893,6 +3893,7 @@ function TradeAppGate() {
           onSuccess={s => {
             saveTradeEmployeeSession(s)
             setSession(s)
+            useOfflineSync.getState().kickAfterLogin()
           }}
         />
       </div>

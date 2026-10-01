@@ -80,7 +80,7 @@ const sw = cm.slice(cm.indexOf('async function switchCashier()'), cm.indexOf('fu
 expect(/const accepting = shiftOwnedByOther/.test(sw), 'switch: accept vs handover by owner')
 expect(/!accepting && cartsHaveItems/.test(sw), 'handover blocked with open carts')
 expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,1100}onLogout\?\.\(\)/.test(sw), 'handover saves cash then logs out')
-expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,500}await Promise\.race\(\[\s*useOfflineSync\.getState\(\)\.syncNow\(\)/.test(sw), 'offline close flushed before logout')
+expect(/saveShiftHandoverCash\(cash\)[\s\S]{0,500}await useOfflineSync\.getState\(\)\.flushShiftCloseBeforeLogout\(/.test(sw), 'offline close flushed before logout')
 expect(/ensureCashier\(sessionEmployeeName, sessionCashierOpt\?\.id\)/.test(sw), 'accept opens on logged-in employee')
 expect(!/switchCashierId/.test(cm), 'no free cashier picker on switch')
 for (const fn of ['async function submitSale(', 'async function submitTillMove()', 'async function executeReturnConfirm()', 'async function submitTopup()', 'async function submitDebtRepay()']) {
@@ -123,6 +123,13 @@ expect(/pending\.find\(r => shiftCloseBlocksOpen\(r, row\)\)/.test(off), 'shift_
     expect(false, 'typescript available for barrier logic test')
   }
 }
+
+console.log('--- queue goes by itself on handover')
+const os = fs.readFileSync(path.join(root, 'lib/offlineSync.ts'), 'utf8')
+expect(/flushShiftCloseBeforeLogout\(10_000\)/.test(sw), 'handover waits for the close itself, not a syncNow that may return early')
+expect(/flushShiftCloseBeforeLogout: async[\s\S]{0,600}syncLock \|\| get\(\)\.syncing[\s\S]{0,300}await get\(\)\.flush\(\)/.test(os), 'waits for running sync, then flushes directly')
+expect(/kickAfterLogin: \(\) => \{[\s\S]{0,200}lastStuckFingerprint = ''[\s\S]{0,120}scheduleReconnect\(get, set, 300\)/.test(os), 'login resets stuck pause and sends at once')
+expect(/saveTradeEmployeeSession\(s\)\s*\n\s*setSession\(s\)\s*\n\s*useOfflineSync\.getState\(\)\.kickAfterLogin\(\)/.test(ta), 'login screen kicks the queue')
 
 console.log('--- cashier create does not wait for full snapshot flush')
 const idx = fs.readFileSync(path.join(root, 'server/kakapo-api/index.js'), 'utf8')

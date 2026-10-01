@@ -57,6 +57,10 @@ interface OfflineSyncState {
    * и несколько раз подряд прогнать отправку (для «застрявших»).
    */
   forceSync: (opts?: { clientRef?: string }) => Promise<void>
+  /** Сотрудник вошёл — очередь стояла на паузе, шлём сразу, без паузы «застрявшей» очереди */
+  kickAfterLogin: () => void
+  /** Перед выходом: дождаться отправки закрытия смены под текущим сотрудником */
+  flushShiftCloseBeforeLogout: (maxMs: number) => Promise<boolean>
   /** запустить слушатели online/offline и периодический flush */
   start: () => void
 }
@@ -643,6 +647,31 @@ export const useOfflineSync = create<OfflineSyncState>((set, get) => ({
       syncLock = false
       if (get().syncing) set({ syncing: false, progress: { done: 0, total: 0 } })
     }
+  },
+
+  kickAfterLogin: () => {
+    lastStuckFingerprint = ''
+    lastStuckAt = 0
+    resetBackoff()
+    scheduleReconnect(get, set, 300)
+  },
+
+  flushShiftCloseBeforeLogout: async (maxMs) => {
+    const deadline = Date.now() + Math.max(0, maxMs)
+    const closeLeft = async () => (await getPending()).some(r => r.kind === 'shift_close')
+    while (Date.now() < deadline) {
+      if (!(await closeLeft())) return true
+      if (syncLock || get().syncing) {
+        await new Promise(r => setTimeout(r, 250))
+        continue
+      }
+      lastStuckFingerprint = ''
+      lastStuckAt = 0
+      await get().flush()
+      if (!(await closeLeft())) return true
+      await new Promise(r => setTimeout(r, 500))
+    }
+    return !(await closeLeft())
   },
 
   forceSync: async (opts) => {
