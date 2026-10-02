@@ -28,6 +28,8 @@ const EPHEMERAL_PATH_RE = [
   /^\/health$/,
   /^\/auth\/otp\//,
   /^\/pos\/devices\/heartbeat$/,
+  // 5-min pairing code: full snapshot flush outlasted the client timeout, code never shown
+  /^\/pos\/points\/[^/]+\/pair-code$/,
   /^\/notifications\/(deliver|read-all|[^/]+\/read)$/,
   /^\/push\/(send|settings)$/,
   /^\/sync\/woocommerce$/,

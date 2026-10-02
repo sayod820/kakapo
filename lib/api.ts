@@ -1226,6 +1226,8 @@ export const api = {
     request<{ posId: string; name: string; code: string; expiresAtIso: string }>(
       `/pos/points/${encodeURIComponent(posId)}/pair-code`,
       { method: 'POST', body: '{}' },
+      0,
+      30000,
     ),
   unbindPosDevice: (posId: string, deviceId: string) =>
     request<PosPoint>(

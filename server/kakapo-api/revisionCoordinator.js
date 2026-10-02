@@ -43,7 +43,8 @@ export function recordDeviceHeartbeat(db, payload = {}) {
   if (!deviceId || !posId) throw new Error('deviceId и posId обязательны')
 
   const rt = ensureDeviceRuntime(db)
-  const stamp = String(payload.sentAtIso || nowIso())
+  // Server clock: a device clock running behind made a live kassa look offline
+  const stamp = nowIso()
   rt[deviceId] = {
     deviceId,
     posId,
@@ -71,6 +72,9 @@ export function recordDeviceHeartbeat(db, payload = {}) {
   return rt[deviceId]
 }
 
+/** Idle kassa pings every 3–6 min (throttled polling), so 3 min showed it offline most of the time */
+const DEVICE_ONLINE_MS = 7 * 60 * 1000
+
 export function listDeviceStatuses(db) {
   ensurePosCollections(db)
   ensureDeviceRuntime(db)
@@ -82,7 +86,7 @@ export function listDeviceStatuses(db) {
       if (!deviceId) continue
       const rt = db.deviceRuntime[deviceId] || {}
       const hb = Date.parse(rt.lastHeartbeatAtIso || device.lastSeenAtIso || '') || 0
-      const online = hb > 0 && (Date.now() - hb) < 3 * 60 * 1000
+      const online = hb > 0 && (Date.now() - hb) < DEVICE_ONLINE_MS
       out.push({
         deviceId,
         posId,
