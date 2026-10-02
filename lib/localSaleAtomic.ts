@@ -156,7 +156,11 @@ export async function restoreCommittedSaleUi(opts: {
     const sh = await desk.localDbMirrorGet('shift', shiftId)
     if (sh && typeof sh === 'object' && (sh as any).id) {
       usePosStore.setState(st => ({
-        shifts: st.shifts.map(x => (x.id === shiftId ? { ...x, ...(sh as PosShift) } : x)),
+        shifts: st.shifts.map(x => {
+          if (x.id !== shiftId) return x
+          if (x.status === 'closed' && (sh as PosShift).status !== 'closed') return x
+          return { ...x, ...(sh as PosShift) }
+        }),
       }))
     }
   }
@@ -205,6 +209,12 @@ export async function reconcileLocalSalesFromDurables(): Promise<{ salesMerged: 
   try {
     const saleRows = await desk.localDbMirrorList('sale', 300)
     const shiftRows = await desk.localDbMirrorList('shift', 80)
+    const { isShiftCloseAcked } = await import('./offline')
+    const closeAcked = new Set<string>()
+    for (const row of shiftRows || []) {
+      const id = String((row?.data as PosShift | undefined)?.id || row?.id || '')
+      if (id && await isShiftCloseAcked(id)) closeAcked.add(id)
+    }
     usePosStore.setState(st => {
       let sales = st.sales.slice()
       let shifts = st.shifts.slice()
@@ -230,12 +240,26 @@ export async function reconcileLocalSalesFromDurables(): Promise<{ salesMerged: 
         const id = String(sh.id || row.id || '')
         if (!id) continue
         const idx = shifts.findIndex(x => x.id === id)
+        // Mirror row is written at sale time (status open) and never on close
+        if (String(sh.status || '') === 'open' && closeAcked.has(id)) continue
         if (idx < 0) {
+          if (String(sh.status || '') === 'open') {
+            const openedMs = Date.parse(String(sh.openedAtIso || '')) || 0
+            const pos = String(sh.posId || '')
+            const cref = String(sh.clientRef || '')
+            const superseded = shifts.some(x =>
+              (cref && String(x.clientRef || '') === cref)
+              || ((!pos || !x.posId || String(x.posId) === pos)
+                && (Date.parse(String(x.openedAtIso || '')) || 0) > openedMs),
+            )
+            if (superseded) continue
+          }
           shifts = [sh, ...shifts]
           shiftsMerged += 1
         } else {
           // Mirror is post-COMMIT truth for counters when snapshot lagged
           const cur = shifts[idx]
+          if (String(cur.status || '') === 'closed' && String(sh.status || '') !== 'closed') continue
           const mirrorCount = Number(sh.salesCount) || 0
           const curCount = Number(cur.salesCount) || 0
           if (mirrorCount >= curCount) {
