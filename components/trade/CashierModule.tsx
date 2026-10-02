@@ -1630,6 +1630,8 @@ export default function CashierModule({
   const [returnQtyByIdx, setReturnQtyByIdx] = useState<Record<number, number>>({})
   const [closingCash, setClosingCash] = useState('')
   const [closingCard, setClosingCard] = useState('')
+  /** Сумма, подставленная автоматически; пока кассир её не менял — обновляем после подтяжки погашений с сервера. */
+  const closingCashAutoRef = useRef<string | null>(null)
   const [shiftReconcileOpen, setShiftReconcileOpen] = useState(false)
   /** Сверка подтверждена «ОК» — смена ещё открыта, видны +/− */
   const [shiftReconciled, setShiftReconciled] = useState(false)
@@ -5053,12 +5055,33 @@ export default function CashierModule({
     }
     const expected = activeShift ? expectedTillCash(activeShift) : 0
     const expectedCard = activeShift ? (Number(activeShift.salesCard) || 0) : 0
-    setClosingCash(expected > 0 ? expected.toFixed(2) : '0.00')
+    const prefill = expected > 0 ? expected.toFixed(2) : '0.00'
+    closingCashAutoRef.current = prefill
+    setClosingCash(prefill)
     setClosingCard(expectedCard > 0 ? expectedCard.toFixed(2) : '0.00')
     setShiftReconcileOpen(false)
     setShiftReconciled(false)
     setCashierScreen(kind)
+    if (activeShift?.id) {
+      const shiftId = String(activeShift.id)
+      void import('@/lib/debtRepayCashJournal')
+        .then(({ hydrateDebtRepayCashFromJournal }) => hydrateDebtRepayCashFromJournal({ force: true, shiftId }))
+        .catch(() => {})
+    }
   }
+
+  useEffect(() => {
+    if (cashierScreen !== 'close' && cashierScreen !== 'switch') {
+      closingCashAutoRef.current = null
+      return
+    }
+    const auto = closingCashAutoRef.current
+    if (auto == null || closingCash !== auto) return
+    const next = tillExpected > 0 ? tillExpected.toFixed(2) : '0.00'
+    if (next === auto) return
+    closingCashAutoRef.current = next
+    setClosingCash(next)
+  }, [cashierScreen, tillExpected, closingCash])
 
   function openTillMove(kind: 'in' | 'out') {
     if (!activeShift) {

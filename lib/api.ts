@@ -1000,6 +1000,8 @@ export const api = {
     orderId?: string
     /** Снимок debtPayVersion; отказ, если погашения уже меняли */
     expectedDebtPayVersion?: number
+    /** Время на часах кассы */
+    createdAtIso?: string
   }) => request<{
     card: AdminCard
     amount: number

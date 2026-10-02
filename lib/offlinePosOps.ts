@@ -1814,6 +1814,7 @@ export async function debtRepaySafe(
     expectedDebtPayVersion,
     orderId: unsafeTarget ? undefined : orderId,
     histKey: histKey || undefined,
+    createdAtIso: new Date().toISOString(),
     ...(parentCaRef || unsafeTarget
       ? {
           parentCashAdvanceClientRef: parentCaRef,
@@ -1855,6 +1856,7 @@ export async function debtRepaySafe(
         clientRef,
         orderId,
         expectedDebtPayVersion: ver,
+        createdAtIso: payload.createdAtIso,
       } as any)
       let res: unknown
       try {

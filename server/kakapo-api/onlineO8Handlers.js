@@ -1789,6 +1789,7 @@ export async function handleO8DebtRepay(req, res, ctx) {
           clientRef,
           orderId: repayOrderId,
           clientId: linkedClient?.id || req.body?.clientId,
+          createdAtIso: req.body?.createdAtIso,
         })
         const shift = till?.shiftId ? (db.posShifts || []).find(s => s.id === till.shiftId) : null
         const result = {

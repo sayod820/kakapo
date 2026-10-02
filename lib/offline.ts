@@ -1364,6 +1364,11 @@ export async function rememberId(localId: string, serverId: string): Promise<voi
   map[localId] = serverId
   idMap = map
   await kvSet(KEY_IDMAP, map)
+  if (isLocalId(localId) && serverId && !isLocalId(serverId)) {
+    void import('./debtRepayCashLedger')
+      .then(({ remapCashDebtRepayShiftId }) => { remapCashDebtRepayShiftId(localId, serverId) })
+      .catch(() => {})
+  }
 }
 
 export async function markShiftCloseAcked(shiftId: string): Promise<void> {
@@ -2102,6 +2107,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         nextDebt: p.nextDebt,
         orderId: p.orderId,
         expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
+        createdAtIso: p.createdAtIso,
       } as any)
       try {
         const res = await send(p.expectedDebtPayVersion)

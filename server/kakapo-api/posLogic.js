@@ -141,7 +141,7 @@ function findClosedShiftForLateSale(db, claimed, data, clientRef) {
 }
 
 /** Закрытая смена получила поздний чек: пересчитать ожидаемое и расхождение (факт не меняется). */
-function recomputeClosedShiftReconcile(shift) {
+export function recomputeClosedShiftReconcile(shift) {
   const expectedCash = shiftExpectedCash(shift)
   const expectedCard = round2(Number(shift.salesCard) || 0)
   const actualCash = round2(Number(shift.actualCash ?? shift.closingCash) || 0)
@@ -151,6 +151,49 @@ function recomputeClosedShiftReconcile(shift) {
   shift.cashDiff = round2(actualCash - expectedCash)
   shift.cardDiff = round2(actualCard - expectedCard)
   shift.lateSalesCount = (Number(shift.lateSalesCount) || 0) + 1
+  syncShiftReconcileNote(shift)
+}
+
+function buildShiftReconcileNote(cashDiff, cardDiff) {
+  const cashReason = Math.abs(cashDiff) < 0.009
+    ? 'нал · без расхождения'
+    : cashDiff < 0
+      ? `нал · недостача ${Math.abs(cashDiff).toFixed(2)}`
+      : `нал · излишек ${cashDiff.toFixed(2)}`
+  const cardReason = Math.abs(cardDiff) < 0.009
+    ? 'карта · без расхождения'
+    : cardDiff < 0
+      ? `карта · недостача ${Math.abs(cardDiff).toFixed(2)}`
+      : `карта · излишек ${cardDiff.toFixed(2)}`
+  const net = round2(cashDiff + cardDiff)
+  const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
+    && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
+  if (moved) {
+    return cashDiff < 0
+      ? `Переместили ${Math.abs(cashDiff).toFixed(2)} сом с нал → карта`
+      : `Переместили ${Math.abs(cardDiff).toFixed(2)} сом с карта → нал`
+  }
+  return Math.abs(cashDiff) < 0.009 && Math.abs(cardDiff) < 0.009
+    ? 'Всё совпало'
+    : [cashReason, cardReason].join(' · ')
+}
+
+/** Пометка сверки по текущим cashDiff/cardDiff; ручная заметка кассира не трогается. Возвращает true, если что-то поменялось. */
+function syncShiftReconcileNote(shift) {
+  if (!shift || shift.status !== 'closed') return false
+  const want = buildShiftReconcileNote(round2(shift.cashDiff), round2(shift.cardDiff))
+  let changed = false
+  if (String(shift.reconcileNote || '') !== want) {
+    shift.reconcileNote = want
+    changed = true
+  }
+  const note = String(shift.note || '').trim()
+  const bothMoved = /^Переместили /.test(note) && /^Переместили /.test(want)
+  if ((!note || isAutoReconcileNote(note)) && note !== want && !bothMoved) {
+    shift.note = want
+    changed = true
+  }
+  return changed
 }
 
 /** Открытая смена: сначала по posId, иначе любая. */
@@ -1687,6 +1730,10 @@ export function closePosShift(db, id, data = {}) {
     transferClosedShiftToVault(db, row)
     return row
   }
+  const closeClientMs = String(data.clientRef || '').trim()
+    ? Date.parse(String(data.closedAtIso || ''))
+    : NaN
+  if (Number.isFinite(closeClientMs)) moveLateDebtRepaysToVault(db, row, closeClientMs)
   const expectedCash = round2(
     (Number(row.openingCash) || 0)
     + (Number(row.salesCash) || 0)
@@ -1711,26 +1758,7 @@ export function closePosShift(db, id, data = {}) {
   row.closingCard = actualCard
   row.cardDiff = cardDiff
   row.note = String(data.note || row.note || '').trim()
-  const cashReason = Math.abs(cashDiff) < 0.009
-    ? 'нал · без расхождения'
-    : cashDiff < 0
-      ? `нал · недостача ${Math.abs(cashDiff).toFixed(2)}`
-      : `нал · излишек ${cashDiff.toFixed(2)}`
-  const cardReason = Math.abs(cardDiff) < 0.009
-    ? 'карта · без расхождения'
-    : cardDiff < 0
-      ? `карта · недостача ${Math.abs(cardDiff).toFixed(2)}`
-      : `карта · излишек ${cardDiff.toFixed(2)}`
-  const net = round2(cashDiff + cardDiff)
-  const moved = Math.abs(cashDiff) >= 0.009 && Math.abs(cardDiff) >= 0.009
-    && Math.abs(net) < 0.009 && Math.sign(cashDiff) !== Math.sign(cardDiff)
-  row.reconcileNote = moved
-    ? (cashDiff < 0
-      ? `Переместили ${Math.abs(cashDiff).toFixed(2)} сом с нал → карта`
-      : `Переместили ${Math.abs(cardDiff).toFixed(2)} сом с карта → нал`)
-    : (Math.abs(cashDiff) < 0.009 && Math.abs(cardDiff) < 0.009
-      ? 'Всё совпало'
-      : [cashReason, cardReason].join(' · '))
+  row.reconcileNote = buildShiftReconcileNote(cashDiff, cardDiff)
   if (isAutoReconcileNote(row.note) && row.note !== row.reconcileNote) row.note = row.reconcileNote
   if (!row.note && row.reconcileNote) row.note = row.reconcileNote
   appendMoneyLedger(db, {
@@ -1766,18 +1794,68 @@ export function repairAutoReconcileShiftNotes(db) {
   const fixed = []
   for (const row of db.posShifts || []) {
     if (row.status !== 'closed') continue
-    const rec = String(row.reconcileNote || '').trim()
-    const note = String(row.note || '').trim()
-    if (!rec || note === rec || !isAutoReconcileNote(note)) continue
-    if (/^Переместили /.test(note) && /^Переместили /.test(rec)) continue
-    fixed.push({ id: row.id, from: note, to: rec })
-    row.note = rec
-    row.updatedAtIso = new Date().toISOString()
+    const from = String(row.note || '').trim()
+    if (row.cashDiff != null || row.cardDiff != null) {
+      if (!syncShiftReconcileNote(row)) continue
+    } else {
+      const rec = String(row.reconcileNote || '').trim()
+      if (!rec || from === rec || !isAutoReconcileNote(from)) continue
+      if (/^Переместили /.test(from) && /^Переместили /.test(rec)) continue
+      row.note = rec
+    }
+    fixed.push({ id: row.id, from, to: row.reconcileNote })
+    const now = new Date().toISOString()
+    row.updatedAtIso = now
+    // Snapshot upsert keeps the newer of updated_at; tx-committed rows need a fresh stamp or the note is dropped.
+    if (row._txCommittedAt) row._txCommittedAt = now
     try {
       recordEntityUpsert(db, 'shift', row.id, row)
     } catch { /* ignore */ }
   }
   return fixed
+}
+
+/**
+ * Погашение долга нал, пробитое на кассе уже после её закрытия смены (закрытие дошло позже):
+ * в пересчёт смены не идёт — сразу в основной ящик. Идемпотентно по clientRef.
+ * Сравниваются только часы кассы (meta.clientAtIso vs closedAtIso), без часов сервера.
+ */
+function moveLateDebtRepaysToVault(db, shift, closeClientMs) {
+  const done = new Set((shift.lateDebtRepayToVault || []).map(x => String(x.clientRef || '')))
+  const late = (db.moneyLedger || []).filter(r => {
+    if (String(r.type || '') !== 'debt_repay_cash') return false
+    if (String(r.shiftId || '') !== String(shift.id)) return false
+    const ref = String(r.clientRef || r.id || '')
+    if (!ref || done.has(ref)) return false
+    const clientMs = Date.parse(String(r.meta?.clientAtIso || ''))
+    return Number.isFinite(clientMs) && clientMs > closeClientMs
+  })
+  if (!late.length) return
+  if (!Array.isArray(shift.lateDebtRepayToVault)) shift.lateDebtRepayToVault = []
+  for (const r of late) {
+    const amount = round2(r.amount)
+    if (!(amount > 0)) continue
+    const clientRef = String(r.clientRef || r.id || '')
+    shift.salesCash = round2((Number(shift.salesCash) || 0) - amount)
+    shift.lateDebtRepayToVault.push({ clientRef, amount, ledgerId: r.id || '' })
+    db.cashVault.cashTotal = round2((Number(db.cashVault.cashTotal) || 0) + amount)
+    bumpVaultVersion(db)
+    appendMoneyLedger(db, {
+      type: 'vault_cash_in',
+      amount,
+      direction: 'in',
+      cashAffect: false,
+      posId: shift.posId || '',
+      shiftId: shift.id,
+      cashierId: r.cashierId || shift.cashierId || '',
+      cashierName: r.cashierName || shift.cashierName || '',
+      refType: 'debt_repay_late',
+      refId: clientRef,
+      reason: `Погашение долга после закрытия смены → ящик · ${String(r.meta?.clientName || r.refId || '').trim()}`,
+      meta: { clientRef, ledgerId: r.id || '' },
+    })
+  }
+  touchShift(shift)
 }
 
 /** Сдача закрытой смены в основной ящик (нал факт + карта). Идемпотентно по shiftId. */
@@ -2566,6 +2644,9 @@ export function applyDebtRepayToShift(db, data = {}) {
       clientRef: clientRef || undefined,
       orderId: data.orderId || undefined,
       clientId: data.clientId || undefined,
+      clientAtIso: clientRef && data.createdAtIso && !Number.isNaN(Date.parse(data.createdAtIso))
+        ? new Date(data.createdAtIso).toISOString()
+        : undefined,
     },
   })
 

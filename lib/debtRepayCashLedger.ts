@@ -8,6 +8,7 @@ import {
   cashDebtRepayRowsForShift as rowsCore,
   uniqueCashDebtRepayTotalForShift as totalCore,
   withPreservedDebtRepayCash as preserveCore,
+  remapCashDebtRepayShiftId as remapCore,
   loadDebtRepayCashLedger,
   replaceDebtRepayCashLedger,
   _resetDebtRepayCashLedgerForTests,
@@ -53,6 +54,12 @@ export function forgetCashDebtRepay(clientRef: string): boolean {
   const ok = forgetCore(clientRef)
   if (ok) mirrorToKv()
   return ok
+}
+
+export function remapCashDebtRepayShiftId(fromId: string, toId: string): number {
+  const n = remapCore(fromId, toId)
+  if (n) mirrorToKv()
+  return n
 }
 
 export function cashDebtRepayRowsForShift(shiftId: string) {
