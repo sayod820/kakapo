@@ -297,6 +297,22 @@ function onAdminPage() {
   return p === '/admin' || p.startsWith('/admin/')
 }
 
+function onStorePage() {
+  if (typeof window === 'undefined') return false
+  const p = window.location.pathname || ''
+  return p === '/' || p === '/store' || p.startsWith('/store/')
+}
+
+/** Shop PCs kept the store tab open: denied CRM reads were re-polled every few seconds (~15k 401 in 3 days). */
+const STORE_DENIED_BACKOFF_MS = 10 * 60_000
+const storeDeniedUntil = new Map<string, number>()
+
+function storeReadKey(url: string, options: RequestInit): string {
+  if (!onStorePage()) return ''
+  if (String(options.method || 'GET').toUpperCase() !== 'GET') return ''
+  return url.split('?')[0]
+}
+
 /** Мёртвый вход админки иначе крутит опрос с 403 и переподключения /ws/admin с 401 бесконечно. */
 async function checkAdminSessionAlive() {
   if (!onAdminPage()) return
@@ -331,6 +347,17 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
 
   if (browserOffline()) {
     throw new NetworkError('Нет связи с сервером. Проверьте интернет.')
+  }
+
+  const deniedKey = storeReadKey(url, options)
+  if (deniedKey) {
+    const until = storeDeniedUntil.get(deniedKey) || 0
+    if (until > Date.now()) {
+      const err = new Error('Нет доступа') as Error & { status?: number; code?: string }
+      err.status = 401
+      err.code = 'AUTH_REQUIRED'
+      throw err
+    }
   }
 
   let res: Response
@@ -397,6 +424,9 @@ async function requestUrl<T>(url: string, options: RequestInit = {}, attempt = 0
     }
     if ((res.status === 401 || res.status === 403) && err.code && ADMIN_AUTH_FAIL_CODES.has(err.code)) {
       void checkAdminSessionAlive()
+    }
+    if (deniedKey && (res.status === 401 || res.status === 403)) {
+      storeDeniedUntil.set(deniedKey, Date.now() + STORE_DENIED_BACKOFF_MS)
     }
     throw err
   }

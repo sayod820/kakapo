@@ -20,9 +20,18 @@ import {
   insertSnapshotJournalRows,
   commitPersistedHashes,
   isJournaledCollection,
+  hashJson,
 } from './snapshotChangeJournal.js'
 
 const INSERT_BATCH = 200
+
+/**
+ * JSON hash of every doc as last loaded from / written to PG.
+ * A flush upserts only rows whose hash changed — a full ~66k-row upsert outlasted the HTTP timeout (499).
+ * Entries are set only after commit and dropped on delete, so a skipped row is always already in PG.
+ */
+const writtenDocHash = new Map()
+const docKey = (collection, id) => `${collection}\0${id}`
 
 const UPSERT_SQL = `INSERT INTO docs (collection, id, data, sort_idx, updated_at)
  VALUES ($1, $2, $3::jsonb, $4, COALESCE($5::timestamptz, NOW()))
@@ -220,7 +229,7 @@ function collectDeleted(removed, res) {
   for (const row of res?.rows || []) removed.push({ collection: row.collection, id: String(row.id) })
 }
 
-async function applyExplicitDeletes(client, deletes, removed = null) {
+async function applyExplicitDeletes(client, deletes, removed = null, prunedAll = null) {
   if (!Array.isArray(deletes) || !deletes.length) return
   for (const d of deletes) {
     const collection = String(d.collection || '').trim()
@@ -231,6 +240,7 @@ async function applyExplicitDeletes(client, deletes, removed = null) {
       [collection, id],
     )
     collectDeleted(removed, res)
+    collectDeleted(prunedAll, res)
   }
 }
 
@@ -246,8 +256,9 @@ async function upsertDocs(client, docRows, collections, opts = {}, track = {}) {
     ...(opts.noPruneCollections ? [...opts.noPruneCollections] : []),
   ])
   const removed = track.removed || null
+  const prunedAll = track.prunedAll || null
 
-  const conflicts = await upsertDocRows(client, docRows, track.written || null)
+  const conflicts = await upsertDocRows(client, track.writeRows || docRows, track.written || null)
 
   // Do not prune using loser attempted ids that lost an idempotency race
   const skipIds = new Set(
@@ -268,10 +279,11 @@ async function upsertDocs(client, docRows, collections, opts = {}, track = {}) {
     }
     const ids = byCol.get(col) || []
     const journaled = removed && isJournaledCollection(col)
-    const ret = journaled ? ' RETURNING collection, id' : ''
+    const ret = ' RETURNING collection, id'
     if (!ids.length) {
       const res = await client.query(`DELETE FROM docs WHERE collection = $1${ret}`, [col])
       if (journaled) collectDeleted(removed, res)
+      collectDeleted(prunedAll, res)
       continue
     }
     const res = await client.query(
@@ -279,26 +291,30 @@ async function upsertDocs(client, docRows, collections, opts = {}, track = {}) {
       [col, ids],
     )
     if (journaled) collectDeleted(removed, res)
+    collectDeleted(prunedAll, res)
   }
 
   // Drop unknown collections, but never drop protected append collections
   // even if this snapshot omitted the key entirely.
   const protectedList = [...noPrune]
+  let dropRes
   if (collections.length) {
-    await client.query(
+    dropRes = await client.query(
       `DELETE FROM docs
        WHERE NOT (collection = ANY($1::text[]))
-         AND NOT (collection = ANY($2::text[]))`,
+         AND NOT (collection = ANY($2::text[]))
+       RETURNING collection, id`,
       [collections, protectedList],
     )
   } else if (!protectedList.length) {
-    await client.query('DELETE FROM docs')
+    dropRes = await client.query('DELETE FROM docs RETURNING collection, id')
   } else {
-    await client.query(
-      'DELETE FROM docs WHERE NOT (collection = ANY($1::text[]))',
+    dropRes = await client.query(
+      'DELETE FROM docs WHERE NOT (collection = ANY($1::text[])) RETURNING collection, id',
       [protectedList],
     )
   }
+  collectDeleted(prunedAll, dropRes)
 
   return conflicts
 }
@@ -337,10 +353,21 @@ export async function saveSnapshotToPg(client, snapshot, opts = {}) {
   const { candidates } = diffSnapshotRows(docRows)
   const written = new Set()
   const removed = []
+  const prunedAll = []
+
+  const full = opts.full === true || process.env.KAKAPO_SNAPSHOT_FULL_WRITE === '1'
+  const rowHash = new Map()
+  const writeRows = []
+  for (const r of docRows) {
+    const k = docKey(r.key, r.id)
+    const h = hashJson(r.json)
+    rowHash.set(k, h)
+    if (full || writtenDocHash.get(k) !== h) writeRows.push(r)
+  }
 
   await upsertMeta(client, metaEntries)
-  const conflicts = await upsertDocs(client, docRows, collections, opts, { written, removed })
-  await applyExplicitDeletes(client, opts.deletes || [], removed)
+  const conflicts = await upsertDocs(client, docRows, collections, opts, { written, removed, prunedAll, writeRows })
+  await applyExplicitDeletes(client, opts.deletes || [], removed, prunedAll)
 
   const upserts = [...candidates.entries()]
     .filter(([k]) => written.has(k))
@@ -361,21 +388,53 @@ export async function saveSnapshotToPg(client, snapshot, opts = {}) {
       console.error('[pg] snapshot sync journal failed (docs still saved, will retry)', e?.message || e)
     }
   }
-  return { conflicts: conflicts || [], journal }
+  const docHashes = []
+  for (const k of written) {
+    const h = rowHash.get(k)
+    if (h) docHashes.push([k, h])
+  }
+  const docDrops = prunedAll.map(d => docKey(d.collection, d.id))
+  return {
+    conflicts: conflicts || [],
+    journal,
+    docHashes,
+    docDrops,
+    stats: { rows: docRows.length, written: writeRows.length, full },
+  }
 }
 
 /** Baseline hashes from the in-memory snapshot right after boot (ids as in saveSnapshotToPg). */
 export function seedSnapshotJournalBaseline(snapshot) {
+  writtenDocHash.clear()
   for (const [key, value] of Object.entries(snapshot || {})) {
-    if (!Array.isArray(value) || !isJournaledCollection(key)) continue
+    if (!Array.isArray(value)) continue
+    const journaled = isJournaledCollection(key)
     const used = new Set()
     for (let i = 0; i < value.length; i++) {
       let id = rowIdForItem(value[i], i)
       if (used.has(id)) id = `${id}#${i}`
       used.add(id)
-      seedPersistedHash(key, id, value[i])
+      writtenDocHash.set(docKey(key, id), hashJson(JSON.stringify(value[i] ?? null)))
+      if (journaled) seedPersistedHash(key, id, value[i])
     }
   }
+}
+
+/** Rows deleted in PG by a business tx: the next flush must not treat a memory copy as already stored. */
+export function forgetWrittenDocHashes(deletes = []) {
+  for (const d of deletes || []) {
+    if (d?.collection != null && d?.id != null) writtenDocHash.delete(docKey(String(d.collection), String(d.id)))
+  }
+}
+
+/** @internal tests */
+export function __writtenDocHashSize() {
+  return writtenDocHash.size
+}
+
+/** @internal tests */
+export function __resetWrittenDocHashes() {
+  writtenDocHash.clear()
 }
 
 /** Explicit single-row delete (append collections must use this, not snapshot absence). */
@@ -389,6 +448,7 @@ export async function deleteDoc(collection, id) {
       [col, docId],
     )
   })
+  writtenDocHash.delete(docKey(col, docId))
   return { ok: true, collection: col, id: docId }
 }
 
@@ -405,6 +465,8 @@ export async function persistSnapshot(snapshot, opts = {}) {
     return saveSnapshotToPg(client, snapshot, opts)
   })
   if (out?.journal) commitPersistedHashes(out.journal.upserts, out.journal.deletes)
+  for (const [k, h] of out?.docHashes || []) writtenDocHash.set(k, h)
+  for (const k of out?.docDrops || []) writtenDocHash.delete(k)
   return out
 }
 

@@ -97,7 +97,11 @@ export function useStoreProfileSync(
     }
 
     run()
-    const poll = setInterval(run, USE_API ? 3000 : 2000)
+    // Admin edits arrive via CRM_SYNC events / focus; the timer is only a fallback (each run downloads clients + cards)
+    const poll = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      run()
+    }, USE_API ? 60_000 : 2000)
 
     const onStorage = (e: StorageEvent) => {
       if (

@@ -304,7 +304,12 @@ async function persistNow() {
   const deletes = pendingDocDeletes.slice()
   lastPersistConflicts = []
   if (engine === 'postgres') {
+    const t0 = Date.now()
     const result = await persistSnapshot(snapshot, { deletes })
+    const ms = Date.now() - t0
+    if (ms > 3000 && result?.stats) {
+      console.warn(`[db] slow snapshot flush ${ms}ms rows=${result.stats.rows} written=${result.stats.written}`)
+    }
     const conflicts = result?.conflicts || []
     lastPersistConflicts = conflicts
     if (conflicts.length) {
