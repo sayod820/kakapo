@@ -18,7 +18,7 @@ import {
   reverseSupplierSettlementPayment,
   SETTLEMENT_METHOD,
 } from './supplierSettlement.js'
-import { parseReportRange, inReportRange } from './kakapoTime.js'
+import { parseReportRange, inReportRange, ymdBusiness } from './kakapoTime.js'
 import {
   resolveCashierId,
   findCashierById,
@@ -4517,6 +4517,70 @@ function isSaleFullyReturnedRow(sale) {
 
 function saleLineLeftQty(it) {
   return Math.max(0, round2((Number(it.qty) || 0) - (Number(it.returnedQty) || 0)))
+}
+
+const DASHBOARD_LOW_STOCK = 3
+const DASHBOARD_RECENT_SALE_DAYS = 14
+
+/** Admin dashboard: today's kassa revenue, open shifts, real low-stock items. */
+export function getAdminDashboardPos(db, now = new Date()) {
+  ensurePosCollections(db)
+  const today = ymdBusiness(now)
+  const recentFromMs = now.getTime() - DASHBOARD_RECENT_SALE_DAYS * 86400000
+  let posRevenueToday = 0
+  let posCashToday = 0
+  let posCardToday = 0
+  let posSalesToday = 0
+  const soldRecently = new Map()
+  for (const sale of db.posSales || []) {
+    const iso = sale?.createdAtIso
+    const t = iso ? new Date(iso).getTime() : NaN
+    if (!(t >= recentFromMs)) continue
+    if (isSaleFullyReturnedRow(sale)) continue
+    for (const it of sale.items || []) {
+      const key = String(it.productId)
+      soldRecently.set(key, round2((soldRecently.get(key) || 0) + saleLineLeftQty(it)))
+    }
+    if (ymdBusiness(iso) !== today) continue
+    posSalesToday += 1
+    posRevenueToday = round2(posRevenueToday + (Number(sale.total) || 0))
+    posCashToday = round2(posCashToday + (Number(sale.paidCash) || 0))
+    posCardToday = round2(posCardToday + (Number(sale.paidCard) || 0))
+  }
+
+  let outCount = 0
+  let lowCount = 0
+  const hot = []
+  for (const p of db.products || []) {
+    const stock = Number(p?.stock) || 0
+    const out = stock <= 0
+    const low = !out && stock <= DASHBOARD_LOW_STOCK
+    if (out) outCount += 1
+    else if (low) lowCount += 1
+    else continue
+    const sold = soldRecently.get(String(p.id)) || 0
+    if (sold > 0) hot.push({ id: p.id, name: p.name, stock: round2(stock), unit: p.unit || '', sold14d: sold })
+  }
+  hot.sort((a, b) => (a.stock - b.stock) || (b.sold14d - a.sold14d))
+
+  const openShifts = (db.posShifts || [])
+    .filter(s => s.status === 'open')
+    .map(s => ({
+      id: s.id,
+      cashierName: s.cashierName || '',
+      openedAtIso: s.openedAtIso || s.createdAtIso || null,
+      stale: !!(s.openedAtIso || s.createdAtIso) && ymdBusiness(s.openedAtIso || s.createdAtIso) !== today,
+    }))
+
+  return {
+    today,
+    posRevenueToday,
+    posCashToday,
+    posCardToday,
+    posSalesToday,
+    lowStock: { threshold: DASHBOARD_LOW_STOCK, outCount, lowCount, items: hot.slice(0, 8) },
+    openShifts,
+  }
 }
 
 /** Canonical POS report summary — net of returns; COGS from sales (not purchase receipts). */

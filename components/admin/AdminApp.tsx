@@ -7798,9 +7798,50 @@ function DashboardPage({setPage}) {
   const activeCourierCount = couriers.filter(c => c.status === 'busy' || c.status === 'available').length;
   const workingAssemblers = assemblers.filter(a => a.status === 'working' || a.status === 'available').length;
   const clients = useClients();
-  const storeDayRevenue = orders
-    .filter(o => o.type === 'market')
-    .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const [dash, setDash] = useState<any>(null);
+  useEffect(() => {
+    if (!USE_API) return;
+    let alive = true;
+    const load = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      api.getDashboard().then(d => { if (alive) setDash(d) }).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(t) };
+  }, []);
+  const fmtSm = (n: number) => `${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ru-RU')} ЅМ`;
+  const posToday = Number(dash?.posRevenueToday) || 0;
+  const onlineToday = Number(dash?.onlineRevenueToday) || 0;
+  const dayRevenueLabel = dash ? fmtSm(posToday + onlineToday) : '…';
+  const dayRevenueSub = dash
+    ? `Касса ${fmtSm(posToday)} (${dash.posSalesToday || 0} чек.) · Онлайн ${fmtSm(onlineToday)}`
+    : '';
+  const attention = useMemo(() => {
+    if (!dash) return null;
+    const list: { e: string; t: string; s: string; c: string; a: string }[] = [];
+    for (const sh of dash.openShifts || []) {
+      if (!sh.stale) continue;
+      const opened = sh.openedAtIso ? new Date(sh.openedAtIso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      list.push({ e: '🧾', t: `Смена не закрыта${sh.cashierName ? ` — ${sh.cashierName}` : ''}`, s: `Открыта ${opened}`, c: '#FF4545', a: 'cash' });
+    }
+    for (const p of (dash.lowStock?.items || []).slice(0, 5)) {
+      const out = Number(p.stock) <= 0;
+      list.push({
+        e: out ? '📭' : '📦',
+        t: out ? `${p.name} — закончился` : `${p.name} — ${p.stock} ${p.unit || ''}`.trim(),
+        s: `${out ? 'Нет на складе' : 'Мало на складе'} · продано за 14 дн.: ${p.sold14d}`,
+        c: out ? '#FF4545' : '#FFB800',
+        a: 'products',
+      });
+    }
+    const out = Number(dash.lowStock?.outCount) || 0;
+    const low = Number(dash.lowStock?.lowCount) || 0;
+    if (out || low) {
+      list.push({ e: '📊', t: `Всего: нет — ${out}, мало (≤${dash.lowStock?.threshold ?? 3}) — ${low}`, s: 'Открыть товары', c: '#FFB800', a: 'products' });
+    }
+    return list;
+  }, [dash]);
   return (
     <div>
       {/* 4 apps */}
@@ -7821,10 +7862,11 @@ function DashboardPage({setPage}) {
       </div>
       {/* Revenue */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        {[{l:'Выручка магазин/день',v:`${storeDayRevenue.toLocaleString()} ЅМ`,c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия КАКАПО',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:String(clients.length),c:'#00D4C8',e:'👥'}].map((s,i)=>(
+        {[{l:'Выручка за сегодня',v:dayRevenueLabel,s:dayRevenueSub,c:'#1FD760',e:'🛒'},{l:'Выручка рестораны/мес',v:`${totalRestRev.toLocaleString()} ЅМ`,c:'#FF8C00',e:'🍽'},{l:'Комиссия КАКАПО',v:`${totalComm.toLocaleString()} ЅМ`,c:'#FFB800',e:'💰'},{l:'Клиентов всего',v:String(clients.length),c:'#00D4C8',e:'👥'}].map((s,i)=>(
           <div key={i} className="ac" style={{padding:16}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><div style={{fontSize:11,color:'var(--t2)',fontWeight:600}}>{s.l}</div><span style={{fontSize:20}}>{s.e}</span></div>
             <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:s.c}}>{s.v}</div>
+            {s.s ? <div style={{fontSize:10,color:'var(--t3)',marginTop:4}}>{s.s}</div> : null}
           </div>
         ))}
       </div>
@@ -7851,8 +7893,12 @@ function DashboardPage({setPage}) {
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
           <div className="ac" style={{padding:16}}>
             <div style={{fontWeight:800,fontSize:13,marginBottom:12}}>⚠️ Требует внимания</div>
-            {[{e:'🥛',t:'Молоко закончилось',s:'Пополнить склад',c:'#FF4545'},{e:'🥐',t:'Круассан — 2 шт',s:'Мало на складе',c:'#FFB800'},{e:'🍽',t:'Фаст-фуд закрыт',s:'Проверить партнёра',c:'#FF8C00'},{e:'⭐',t:'2 новых жалобы',s:'Чайхона Оромгох',c:'#FF4545'}].map((a,i)=>(
-              <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:i<3?'1px solid var(--b1)':'none'}}>
+            {attention === null ? (
+              <div style={{fontSize:12,color:'var(--t3)'}}>Загрузка…</div>
+            ) : attention.length === 0 ? (
+              <div style={{fontSize:12,color:'#1FD760',fontWeight:700}}>✓ Всё в порядке</div>
+            ) : attention.map((a,i)=>(
+              <div key={i} onClick={()=>setPage(a.a)} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',cursor:'pointer',borderBottom:i<attention.length-1?'1px solid var(--b1)':'none'}}>
                 <div style={{width:30,height:30,borderRadius:9,background:`${a.c}14`,border:`1px solid ${a.c}25`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{a.e}</div>
                 <div style={{flex:1}}><div style={{fontSize:12,fontWeight:700}}>{a.t}</div><div style={{fontSize:10,color:'var(--t3)'}}>{a.s}</div></div>
                 <div style={{width:6,height:6,borderRadius:'50%',background:a.c,animation:'pulse 2s infinite'}}/>
@@ -8477,7 +8523,8 @@ function CourierOrdersPage() {
 }
 
 function BannersPage() {
-  // Баннеры и тикер хранятся локально (без сервера). Пусто по умолчанию — админ добавляет сам.
+  // Хранятся на сервере (/settings/showcase), магазин показывает их покупателям.
+  // Старые локальные ключи — только для одноразового переноса на сервер.
   const TICKERS_KEY = 'kakapo-admin-tickers';
   const BANNERS_KEY = 'kakapo-admin-banners';
   const loadLS = (key: string): any[] => {
@@ -8485,37 +8532,73 @@ function BannersPage() {
     try { const raw = localStorage.getItem(key); const v = raw ? JSON.parse(raw) : []; return Array.isArray(v) ? v : []; } catch { return []; }
   };
 
+  const [tickers,setTickers] = useState<any[]>([]);
+  const [banners,setBanners] = useState<any[]>([]);
+  const [loaded,setLoaded] = useState(false);
+  const [saveState,setSaveState] = useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.getShowcase().then(s => {
+      if (!alive) return;
+      const srvB = Array.isArray(s?.banners) ? s.banners : [];
+      const srvT = Array.isArray(s?.tickers) ? s.tickers : [];
+      const lsB = loadLS(BANNERS_KEY), lsT = loadLS(TICKERS_KEY);
+      if (!srvB.length && !srvT.length && (lsB.length || lsT.length)) {
+        setBanners(lsB); setTickers(lsT); dirtyRef.current = true;
+      } else {
+        setBanners(srvB); setTickers(srvT);
+      }
+      setLoaded(true);
+    }).catch(() => { if (alive) setSaveState('error'); });
+    return () => { alive = false };
+  }, []);
+
+  const markDirty = () => { dirtyRef.current = true };
+  useEffect(() => {
+    if (!loaded || !dirtyRef.current) return;
+    setSaveState('saving');
+    const t = setTimeout(() => {
+      api.saveShowcase({ banners, tickers })
+        .then(() => {
+          dirtyRef.current = false;
+          setSaveState('saved');
+          try { localStorage.removeItem(BANNERS_KEY); localStorage.removeItem(TICKERS_KEY); } catch { /* private mode */ }
+        })
+        .catch(() => setSaveState('error'));
+    }, 700);
+    return () => clearTimeout(t);
+  }, [banners, tickers, loaded]);
+
   /* ── Тикер ── */
-  const [tickers,setTickers] = useState<any[]>(() => loadLS(TICKERS_KEY));
   const [newTick,setNewTick] = useState('');
-  // Любое изменение сразу пишем в кэш (localStorage): переживает обновление, без демо и мелькания
-  useEffect(() => { try { localStorage.setItem(TICKERS_KEY, JSON.stringify(tickers)); } catch { /* quota */ } }, [tickers]);
-  const addTick  = () => { if(!newTick.trim()) return; setTickers(ts=>[...ts,{id:Date.now(),text:newTick.trim(),on:true}]); setNewTick(''); };
-  const rmTick   = id => setTickers(ts=>ts.filter(t=>t.id!==id));
-  const togTick  = id => setTickers(ts=>ts.map(t=>t.id===id?{...t,on:!t.on}:t));
-  const editTick = (id,val) => setTickers(ts=>ts.map(t=>t.id===id?{...t,text:val}:t));
+  const setTickersD = (fn: (ts: any[]) => any[]) => { markDirty(); setTickers(fn); };
+  const setBannersD = (v: any[] | ((bs: any[]) => any[])) => { markDirty(); setBanners(v as any); };
+  const addTick  = () => { if(!newTick.trim()) return; setTickersD(ts=>[...ts,{id:String(Date.now()),text:newTick.trim(),on:true}]); setNewTick(''); };
+  const rmTick   = id => setTickersD(ts=>ts.filter(t=>t.id!==id));
+  const togTick  = id => setTickersD(ts=>ts.map(t=>t.id===id?{...t,on:!t.on}:t));
+  const editTick = (id,val) => setTickersD(ts=>ts.map(t=>t.id===id?{...t,text:val}:t));
 
   /* ── Баннеры ── */
   const DEF = {badge:'',title:'',sub:'',disc:'',e:'🎁',bg:'linear-gradient(135deg,#0A1A0A,#1A3020)',ac:'#1FD760',on:true};
-  const [banners,setBanners] = useState<any[]>(() => loadLS(BANNERS_KEY));
-  useEffect(() => { try { localStorage.setItem(BANNERS_KEY, JSON.stringify(banners)); } catch { /* quota */ } }, [banners]);
   const [form,setForm] = useState(DEF);
   const [editId,setEditId] = useState(null);
   const [showForm,setShowForm] = useState(false);
 
-  const toggle = id => setBanners(bs=>bs.map(b=>b.id===id?{...b,on:!b.on}:b));
-  const remove = id => setBanners(bs=>bs.filter(b=>b.id!==id));
+  const toggle = id => setBannersD(bs=>bs.map(b=>b.id===id?{...b,on:!b.on}:b));
+  const remove = id => setBannersD(bs=>bs.filter(b=>b.id!==id));
   const move   = (id,d) => {
     const idx=banners.findIndex(b=>b.id===id), nb=[...banners], to=idx+d;
     if(to<0||to>=nb.length) return;
-    [nb[idx],nb[to]]=[nb[to],nb[idx]]; setBanners(nb);
+    [nb[idx],nb[to]]=[nb[to],nb[idx]]; setBannersD(nb);
   };
   const startEdit = b => { setForm({...b,disc:String(b.disc)}); setEditId(b.id); setShowForm(true); };
   const startAdd  = () => { setForm(DEF); setEditId(null); setShowForm(true); };
   const save = () => {
     if(!form.title.trim()) return;
-    if(editId!==null) setBanners(bs=>bs.map(b=>b.id===editId?{...b,...form,disc:Number(form.disc)}:b));
-    else setBanners(bs=>[...bs,{...form,id:Date.now(),disc:Number(form.disc)}]);
+    if(editId!==null) setBannersD(bs=>bs.map(b=>b.id===editId?{...b,...form,disc:Number(form.disc)}:b));
+    else setBannersD(bs=>[...bs,{...form,id:String(Date.now()),disc:Number(form.disc)}]);
     setShowForm(false); setEditId(null); setForm(DEF);
   };
   // render-функция (не компонент): вызывать как {field(...)}, иначе input теряет фокус при вводе
@@ -8540,11 +8623,18 @@ function BannersPage() {
           </div>
         ))}
       </div>
+      <div style={{fontSize:11,fontWeight:700,marginBottom:14,color:saveState==='error'?'#FF4545':saveState==='saving'?'var(--t2)':'#1FD760'}}>
+        {!loaded && saveState!=='error' ? 'Загрузка с сервера…'
+          : saveState==='saving' ? 'Сохранение…'
+          : saveState==='error' ? '⚠ Не удалось сохранить на сервер — проверьте связь, изменения повторятся при следующей правке'
+          : saveState==='saved' ? '✓ Сохранено — покупатели видят в магазине'
+          : 'Изменения сохраняются автоматически и сразу видны в магазине'}
+      </div>
 
       {/* ── Тикер ── */}
       <div className="ac" style={{padding:18,marginBottom:20}}>
         <div className="ub" style={{fontSize:13,fontWeight:900,marginBottom:4}}>📢 Бегущая строка (тикер)</div>
-        <div style={{fontSize:11,color:'var(--t2)',marginBottom:14}}>Отображается в шапке страницы Акций</div>
+        <div style={{fontSize:11,color:'var(--t2)',marginBottom:14}}>Отображается на главной странице магазина под баннером</div>
 
         {/* Превью */}
         <div style={{background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.18)',borderRadius:10,padding:'7px 0',overflow:'hidden',marginBottom:14}}>

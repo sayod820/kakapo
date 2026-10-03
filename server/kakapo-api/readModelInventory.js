@@ -160,6 +160,7 @@ export const READ_ENDPOINTS = [
   { route: 'GET /settings/loyalty', kind: 'ENTITY_READ', sources: 'settings' },
   { route: 'GET /settings/admin', kind: 'ADMIN_READ' },
   { route: 'GET /settings/store', kind: 'ENTITY_READ', sources: 'settings' },
+  { route: 'GET /settings/showcase', kind: 'ENTITY_READ', sources: 'settings' },
 
   { route: 'GET /reviews', kind: 'ENTITY_READ', sources: 'reviews' },
   { route: 'GET /push', kind: 'ADMIN_READ' },
@@ -168,8 +169,8 @@ export const READ_ENDPOINTS = [
   {
     route: 'GET /admin/dashboard',
     kind: 'DASHBOARD',
-    sources: 'orders',
-    canonical: 'orders where ymdBusiness(createdAtIso)=today',
+    sources: 'orders, posSales, posShifts, products',
+    canonical: 'orders/posSales where ymdBusiness(createdAtIso)=today',
     tz: 'Asia/Dushanbe',
   },
   { route: 'GET /admin/ai/status', kind: 'EPHEMERAL' },

@@ -505,12 +505,53 @@ function insetChipBg(light: boolean, alphaDark = 0.25) {
   return light ? 'rgba(12,26,16,.05)' : `rgba(0,0,0,${alphaDark})`
 }
 
-function storeBannerSlides(light: boolean) {
+const SHOWCASE_CACHE_KEY = 'kakapo_store_showcase_v1'
+
+type StoreShowcase = { banners: any[]; tickers: any[] }
+
+function readShowcaseCache(): StoreShowcase | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = JSON.parse(localStorage.getItem(SHOWCASE_CACHE_KEY) || 'null')
+    return v && Array.isArray(v.banners) && Array.isArray(v.tickers) ? v : null
+  } catch { return null }
+}
+
+function useStoreShowcase(): StoreShowcase {
+  const [sc, setSc] = useState<StoreShowcase>(() => readShowcaseCache() || { banners: [], tickers: [] })
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      api.getShowcase().then(s => {
+        if (!alive) return
+        const next = { banners: Array.isArray(s?.banners) ? s.banners : [], tickers: Array.isArray(s?.tickers) ? s.tickers : [] }
+        setSc(next)
+        try { localStorage.setItem(SHOWCASE_CACHE_KEY, JSON.stringify(next)) } catch { /* quota */ }
+      }).catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 5 * 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+  return sc
+}
+
+function storeBannerSlides(light: boolean, showcase: StoreShowcase) {
+  const fromAdmin = showcase.banners
+    .filter(b => b && b.on !== false && String(b.title || '').trim())
+    .map(b => ({
+      e: b.e || '🎁',
+      title: String(b.title),
+      sub: String(b.sub || ''),
+      badge: String(b.badge || ''),
+      disc: Number(b.disc) > 0 ? Number(b.disc) : null as number | null,
+      ac: b.ac || 'var(--gr)',
+      bg: b.bg || softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)'),
+    }))
+  if (fromAdmin.length) return fromAdmin
   return [
-    { e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочную продукцию', badge: 'Сегодня', disc: 30, ac: 'var(--gr)', bg: softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
-    { e: '🥩', title: 'Мясные выходные', sub: 'Скидки до 25% на мясо и птицу', badge: 'Сб–Вс', disc: 25, ac: 'var(--red)', bg: softAccentSurface('#DC2626', light, 'linear-gradient(135deg,#1A0608,#3A1014)') },
-    { e: '🥦', title: 'Органик-день', sub: '20% на органические продукты', badge: 'Пятница', disc: 20, ac: '#56C956', bg: softAccentSurface('#56C956', light, 'linear-gradient(135deg,#061A08,#102A14)') },
-    { e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', badge: 'Всегда', disc: null as number | null, bg: softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#060820,#0E1840)'), ac: 'var(--blue)' },
+    { e: '🛒', title: 'КАКАПО', sub: 'Продукты с доставкой по Явану', badge: '', disc: null as number | null, ac: 'var(--gr)', bg: softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
   ]
 }
 
@@ -1532,7 +1573,9 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const light = false;
-  const banners = storeBannerSlides(light);
+  const showcase = useStoreShowcase();
+  const banners = useMemo(() => storeBannerSlides(light, showcase), [light, showcase]);
+  const tickerItems = showcase.tickers.filter(t => t && t.on !== false && String(t.text || '').trim());
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, ready: catsReady } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
@@ -1545,7 +1588,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const [bi, setBi] = useState(0);
   useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % banners.length), 4000); return () => clearInterval(t); }, [banners.length]);
-  const b = banners[bi];
+  const b = banners[bi % banners.length];
   const bannerTitle = light ? 'var(--t1)' : '#fff';
   const bannerSub = light ? 'var(--t2)' : 'rgba(255,255,255,.6)';
   const restTileBg = softAccentSurface('#EA580C', light, 'linear-gradient(145deg,#1A0808,#3A1010)');
@@ -1560,7 +1603,7 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
-                <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span>
+                {b.badge ? <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span> : null}
                 <div className="ub" style={{ fontSize:22, fontWeight:900, color:bannerTitle, lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
                 <div style={{ fontSize:12, color:bannerSub, marginBottom:12 }}>{b.sub}</div>
                 {b.disc && <div style={{ padding:"7px 16px", borderRadius:11, background:b.ac, color:"white", fontFamily:"Unbounded", fontSize:20, fontWeight:900, display:"inline-block" }}>−{b.disc}%</div>}
@@ -1568,10 +1611,19 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
               <div style={{ fontSize:52, animation:"float 2.5s ease-in-out infinite", flexShrink:0 }}>{b.e}</div>
             </div>
             <div style={{ display:"flex", gap:5, marginTop:12 }}>
-              {banners.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac: light ? "rgba(12,26,16,.15)" : "rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
+              {banners.length > 1 && banners.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi % banners.length?20:6, height:6, borderRadius:3, background:i===bi % banners.length?b.ac: light ? "rgba(12,26,16,.15)" : "rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
             </div>
           </div>
         </div>
+        {tickerItems.length > 0 && (
+          <div style={{ background:"rgba(255,69,69,.08)", border:"1px solid rgba(255,69,69,.18)", borderRadius:12, padding:"8px 0", overflow:"hidden", marginTop:-8, marginBottom:20 }}>
+            <div style={{ display:"inline-flex", whiteSpace:"nowrap", animation:`ticker ${Math.max(12, tickerItems.length * 8)}s linear infinite` }}>
+              {[...tickerItems, ...tickerItems].map((t, i) => (
+                <span key={i} style={{ fontSize:12, fontWeight:700, color:"var(--red)", padding:"0 28px", flexShrink:0 }}>{t.text}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Категории</div>
           <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>

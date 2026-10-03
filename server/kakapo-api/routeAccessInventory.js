@@ -41,6 +41,7 @@ const OVERRIDES = {
   'GET /settings/pricing': { access: 'PUBLIC_STORE', public: true, domain: 'settings' },
   'GET /settings/loyalty': { access: 'PUBLIC_STORE', public: true, domain: 'settings' },
   'GET /settings/store': { access: 'PUBLIC_STORE', public: true, domain: 'settings' },
+  'GET /settings/showcase': { access: 'PUBLIC_STORE', public: true, domain: 'settings' },
   'GET /reviews': { access: 'PUBLIC_STORE', public: true, domain: 'reviews' },
   'POST /reviews': { access: 'PUBLIC_STORE', public: true, domain: 'reviews' },
   'GET /clients/session-check': { access: 'PUBLIC_STORE', public: true, domain: 'crm' },
@@ -78,6 +79,7 @@ const OVERRIDES = {
   'DELETE /employees/:id': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'staff', requireCaps: [CAP.STAFF_EDIT] },
   'GET /settings/admin': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'settings', requireCaps: [CAP.SETTINGS_EDIT] },
   'PATCH /settings/admin': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'settings', requireCaps: [CAP.SETTINGS_EDIT] },
+  'PUT /settings/showcase': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'settings', requireCaps: [CAP.SETTINGS_EDIT] },
   'POST /sync/woocommerce': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'sync', requireCaps: [CAP.ADMIN_RECOVERY] },
 
   // High-risk trade mutations — explicit caps

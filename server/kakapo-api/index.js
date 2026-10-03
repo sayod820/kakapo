@@ -288,6 +288,7 @@ import {
   returnPosSale,
   getPosFinanceSummary,
   getPosReport,
+  getAdminDashboardPos,
 } from './posLogic.js'
 import * as revisionCoordinator from './revisionCoordinator.js'
 import {
@@ -4759,6 +4760,52 @@ app.get('/settings/store', (_req, res) => {
   res.json({ ...(a.store || DEFAULT_ADMIN_SETTINGS.store) })
 })
 
+function sanitizeShowcase(body = {}) {
+  const str = (v, max) => String(v ?? '').slice(0, max)
+  const banners = (Array.isArray(body.banners) ? body.banners : []).slice(0, 12).map((b, i) => ({
+    id: str(b?.id || `b${Date.now()}${i}`, 40),
+    badge: str(b?.badge, 40),
+    title: str(b?.title, 80),
+    sub: str(b?.sub, 160),
+    disc: Math.max(0, Math.min(100, Math.round(Number(b?.disc) || 0))),
+    e: str(b?.e, 16),
+    bg: str(b?.bg, 300),
+    ac: str(b?.ac, 40),
+    on: b?.on !== false,
+  })).filter(b => b.title.trim())
+  const tickers = (Array.isArray(body.tickers) ? body.tickers : []).slice(0, 20).map((t, i) => ({
+    id: str(t?.id || `t${Date.now()}${i}`, 40),
+    text: str(t?.text, 200),
+    on: t?.on !== false,
+  })).filter(t => t.text.trim())
+  return { banners, tickers }
+}
+
+function getShowcase() {
+  if (!db.settings) db.settings = {}
+  const s = db.settings.showcase
+  return s && typeof s === 'object' ? { banners: s.banners || [], tickers: s.tickers || [], updatedAtIso: s.updatedAtIso || null } : { banners: [], tickers: [], updatedAtIso: null }
+}
+
+app.get('/settings/showcase', (_req, res) => {
+  res.json(getShowcase())
+})
+
+app.put('/settings/showcase', (req, res) => {
+  const next = { ...sanitizeShowcase(req.body || {}), updatedAtIso: new Date().toISOString() }
+  if (!db.settings) db.settings = {}
+  db.settings.showcase = next
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'showcase',
+    entityName: 'Баннеры и бегущая строка',
+    summary: `Баннеров: ${next.banners.length}, строк: ${next.tickers.length}`,
+  })
+  persist()
+  res.json(next)
+})
+
 app.patch('/settings/admin', (req, res) => {
   const current = ensureAdminSettings()
   const body = req.body || {}
@@ -5871,11 +5918,15 @@ app.post('/audit/:id/restore', (req, res) => {
 app.get('/admin/dashboard', (_req, res) => {
   const today = ymdBusiness(new Date())
   const ordersToday = (db.orders || []).filter(o => ymdBusiness(o.createdAtIso || o.createdAt) === today)
+  const liveOrdersToday = ordersToday.filter(o => o.status !== 'cancelled')
   res.json({
     ordersToday: ordersToday.length,
     revenueToday: ordersToday.reduce((s, o) => s + bonusEligibleTotal(o), 0),
+    onlineOrdersToday: liveOrdersToday.length,
+    onlineRevenueToday: Math.round(liveOrdersToday.reduce((s, o) => s + (Number(o.total) || 0), 0) * 100) / 100,
     activeCouriers: (db.couriers || []).filter(c => c.active !== false).length,
     activeRestaurants: (db.restaurants || []).length,
+    ...getAdminDashboardPos(db),
   })
 })
 

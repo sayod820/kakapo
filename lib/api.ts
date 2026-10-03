@@ -38,6 +38,30 @@ import { clearTradeDeviceToken, getTradeDeviceIdSync, getTradeDeviceTokenSync, s
 import { noteApiFail, noteApiOk, recentlyApiOk, shouldSkipFetchAsOffline } from './apiReachability'
 import { isTradeLocalFirst } from './offlineV2'
 
+export interface ShowcaseBanner {
+  id: string
+  badge: string
+  title: string
+  sub: string
+  disc: number
+  e: string
+  bg: string
+  ac: string
+  on: boolean
+}
+
+export interface ShowcaseTicker {
+  id: string
+  text: string
+  on: boolean
+}
+
+export interface ShowcaseSettings {
+  banners: ShowcaseBanner[]
+  tickers: ShowcaseTicker[]
+  updatedAtIso?: string | null
+}
+
 // ── Сетевые ошибки (нет связи / таймаут) для офлайн-режима ──
 export class NetworkError extends Error {
   constructor(message: string) {
@@ -1119,6 +1143,9 @@ export const api = {
 
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
+  getShowcase: () => request<ShowcaseSettings>('/settings/showcase'),
+  saveShowcase: (data: Pick<ShowcaseSettings, 'banners' | 'tickers'>) =>
+    request<ShowcaseSettings>('/settings/showcase', { method: 'PUT', body: JSON.stringify(data) }),
   resetOperationalData: (data: { confirm: string; currentPassword: string }) =>
     request<{
       ok: boolean
