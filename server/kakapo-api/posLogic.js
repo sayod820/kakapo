@@ -18,7 +18,7 @@ import {
   reverseSupplierSettlementPayment,
   SETTLEMENT_METHOD,
 } from './supplierSettlement.js'
-import { parseReportRange, inReportRange, ymdBusiness } from './kakapoTime.js'
+import { parseReportRange, inReportRange, ymdBusiness, addCalendarDays } from './kakapoTime.js'
 import {
   resolveCashierId,
   findCashierById,
@@ -105,7 +105,8 @@ function shiftExpectedCash(shift) {
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
     + (Number(shift.cashInTotal) || 0)
-    - (Number(shift.expenseTotal) || 0),
+    - (Number(shift.expenseTotal) || 0)
+    - (Number(shift.otherShiftReturnCash) || 0),
   )
 }
 
@@ -143,7 +144,7 @@ function findClosedShiftForLateSale(db, claimed, data, clientRef) {
 /** Закрытая смена получила поздний чек: пересчитать ожидаемое и расхождение (факт не меняется). */
 export function recomputeClosedShiftReconcile(shift) {
   const expectedCash = shiftExpectedCash(shift)
-  const expectedCard = round2(Number(shift.salesCard) || 0)
+  const expectedCard = round2((Number(shift.salesCard) || 0) - (Number(shift.otherShiftReturnCard) || 0))
   const actualCash = round2(Number(shift.actualCash ?? shift.closingCash) || 0)
   const actualCard = round2(Number(shift.actualCard ?? shift.closingCard ?? expectedCard) || 0)
   shift.expectedCash = expectedCash
@@ -1738,9 +1739,10 @@ export function closePosShift(db, id, data = {}) {
     (Number(row.openingCash) || 0)
     + (Number(row.salesCash) || 0)
     + (Number(row.cashInTotal) || 0)
-    - (Number(row.expenseTotal) || 0),
+    - (Number(row.expenseTotal) || 0)
+    - (Number(row.otherShiftReturnCash) || 0),
   )
-  const expectedCard = round2(Number(row.salesCard) || 0)
+  const expectedCard = round2((Number(row.salesCard) || 0) - (Number(row.otherShiftReturnCard) || 0))
   const actualCash = round2(data.closingCash)
   const cashDiff = round2(actualCash - expectedCash)
   const actualCard = data.closingCard != null && data.closingCard !== ''
@@ -4147,6 +4149,29 @@ export function createClientOrderFromPosSale(db, sale, extras = {}) {
   return order
 }
 
+/**
+ * Из какой смены выдаются деньги за возврат.
+ * Своя открытая смена → она сама; чек из закрытой смены → текущая открытая смена кассы.
+ * Старые кассы не шлют currentShiftId: берём открытую смену той же кассы, открытую до возврата.
+ */
+function resolveReturnTillShift(db, sale, saleShift, meta = {}) {
+  const shifts = db.posShifts || []
+  const wantId = String(meta.currentShiftId || '').trim()
+  if (wantId) {
+    const cur = shifts.find(s => String(s.id) === wantId)
+    if (cur && cur.status === 'open') return cur
+  }
+  if (saleShift && saleShift.status === 'open') return saleShift
+  const posId = String(sale.posId || meta.posId || '').trim()
+  if (!posId) return null
+  const cur = shifts.find(s => s.status === 'open' && String(s.posId || '') === posId)
+  if (!cur) return null
+  const atMs = Date.parse(meta.createdAtIso || '') || Date.now()
+  const openedMs = Date.parse(cur.openedAtIso || '')
+  if (Number.isFinite(openedMs) && openedMs > atMs) return null
+  return cur
+}
+
 export function returnPosSale(db, saleId, meta = {}) {
   ensurePosCollections(db)
   const sale = (db.posSales || []).find(s => String(s.id) === String(saleId))
@@ -4388,8 +4413,15 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashier.salesTotal = Math.max(0, round2((Number(cashier.salesTotal) || 0) - returnTotal))
   }
   const shift = sale.shiftId ? db.posShifts.find(s => s.id === sale.shiftId) : null
+  const tillShift = resolveReturnTillShift(db, sale, shift, meta)
   // Итоги смены считает только сервер (касса их не присылает): skipBalances не должен пропускать смену
-  if (shift && shift.status === 'open') {
+  if (tillShift && tillShift !== shift) {
+    // Чек из закрытой смены: деньги выдаются из кассы текущей смены, старую смену не трогаем
+    tillShift.otherShiftReturnCash = round2((Number(tillShift.otherShiftReturnCash) || 0) + cutCash)
+    tillShift.otherShiftReturnCard = round2((Number(tillShift.otherShiftReturnCard) || 0) + cutCard)
+    tillShift.otherShiftReturnCount = (Number(tillShift.otherShiftReturnCount) || 0) + 1
+    touchShift(tillShift)
+  } else if (shift && shift.status === 'open') {
     if (fullyReturned) shift.salesCount = Math.max(0, Number(shift.salesCount || 0) - 1)
     shift.salesCash = Math.max(0, round2((Number(shift.salesCash) || 0) - cutCash))
     shift.salesCard = Math.max(0, round2((Number(shift.salesCard) || 0) - cutCard))
@@ -4411,6 +4443,7 @@ export function returnPosSale(db, saleId, meta = {}) {
     cashierId: String(resolveCashierId(db, meta.cashierId) || '').trim(),
     items: returnLines,
     clientRef: retClientRef || undefined,
+    tillShiftId: tillShift && tillShift !== shift ? tillShift.id : undefined,
   }
   const pendingIdx = retClientRef
     ? sale.returns.findIndex(r => String(r.clientRef || '') === retClientRef && r._pending)
@@ -4429,14 +4462,16 @@ export function returnPosSale(db, saleId, meta = {}) {
     sale.totalCost = Math.max(0, round2((Number(sale.totalCost) || 0) - cutCost))
     sale.profit = round2((Number(sale.total) || 0) - (Number(sale.totalCost) || 0))
   }
+  const otherTill = tillShift && tillShift !== shift
   const ledBase = {
-    posId: sale.posId || '',
-    shiftId: sale.shiftId || '',
+    posId: otherTill ? (tillShift.posId || sale.posId || '') : (sale.posId || ''),
+    shiftId: otherTill ? tillShift.id : (sale.shiftId || ''),
     cashierId: String(resolveCashierId(db, meta.cashierId || sale.cashierId) || ''),
     cashierName: sale.cashierName || '',
     refType: 'sale_return',
     refId: sale.id,
     clientRef: retClientRef || undefined,
+    ...(otherTill ? { meta: { originalShiftId: sale.shiftId || '' } } : {}),
   }
   if (cutCash > 0) {
     appendMoneyLedger(db, {
@@ -4581,6 +4616,75 @@ export function getAdminDashboardPos(db, now = new Date()) {
     lowStock: { threshold: DASHBOARD_LOW_STOCK, outCount, lowCount, items: hot.slice(0, 8) },
     openShifts,
   }
+}
+
+function saleRowCogs(row, productsById) {
+  if (row.totalCost != null) return Number(row.totalCost) || 0
+  let cogs = 0
+  for (const it of row.items || []) {
+    const left = saleLineLeftQty(it)
+    if (!(left > 0)) continue
+    if (it.lineCost != null && Number(it.qty) > 0) {
+      cogs += (Number(it.lineCost) || 0) * (left / Number(it.qty))
+    } else {
+      const p = productsById.get(Number(it.productId))
+      cogs += (Number(it.unitCost) || Number(p?.costPrice) || 0) * left
+    }
+  }
+  return cogs
+}
+
+/** Admin finance: kassa by business day (Asia/Dushanbe) for the last `days` days, net of returns. */
+export function getPosDailyFinance(db, { days = 30, now = new Date() } = {}) {
+  ensurePosCollections(db)
+  const n = Math.max(1, Math.min(366, Math.round(Number(days) || 30)))
+  const todayYmd = ymdBusiness(now)
+  const dayList = []
+  for (let i = n - 1; i >= 0; i--) dayList.push(addCalendarDays(todayYmd, -i))
+  const byDay = new Map(dayList.map(d => [d, {
+    date: d, revenue: 0, cash: 0, card: 0, debt: 0, returns: 0, sales: 0, cogs: 0, profit: 0, expenses: 0,
+  }]))
+  const fromYmd = dayList[0]
+  const productsById = new Map((db.products || []).map(p => [Number(p.id), p]))
+
+  for (const row of db.posSales || []) {
+    const iso = row?.createdAtIso
+    if (!iso) continue
+    const ymd = ymdBusiness(iso)
+    if (ymd < fromYmd) continue
+    const day = byDay.get(ymd)
+    if (!day) continue
+    if (isSaleFullyReturnedRow(row)) {
+      day.returns += Number(row.originalTotal) || Number(row.lastReturnTotal) || Number(row.total) || 0
+      continue
+    }
+    if ((row.items || []).some(it => (Number(it.returnedQty) || 0) > 0)) {
+      day.returns += Number(row.lastReturnTotal) || 0
+    }
+    day.sales += 1
+    day.revenue += Number(row.total) || 0
+    day.cash += Number(row.paidCash) || 0
+    day.card += Number(row.paidCard) || 0
+    day.debt += Number(row.debtAdded) || 0
+    day.cogs += saleRowCogs(row, productsById)
+  }
+  for (const e of db.expenses || []) {
+    const ymd = e?.createdAtIso ? ymdBusiness(e.createdAtIso) : ''
+    const day = ymd && ymd >= fromYmd ? byDay.get(ymd) : null
+    if (day) day.expenses += Number(e.amount) || 0
+  }
+
+  const totals = { revenue: 0, cash: 0, card: 0, debt: 0, returns: 0, sales: 0, cogs: 0, profit: 0, expenses: 0 }
+  const out = dayList.map(d => {
+    const row = byDay.get(d)
+    for (const k of ['revenue', 'cash', 'card', 'debt', 'returns', 'cogs', 'expenses']) row[k] = round2(row[k])
+    row.profit = round2(row.revenue - row.cogs)
+    for (const k of Object.keys(totals)) totals[k] = round2(totals[k] + row[k])
+    return row
+  })
+  totals.avgCheck = totals.sales ? round2(totals.revenue / totals.sales) : 0
+  const costKnown = out.some(r => r.cogs > 0)
+  return { from: fromYmd, to: todayYmd, days: out, totals, costKnown }
 }
 
 /** Canonical POS report summary — net of returns; COGS from sales (not purchase receipts). */

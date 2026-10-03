@@ -143,7 +143,8 @@ export function shiftExpectedCash(shift) {
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
     + (Number(shift.cashInTotal) || 0)
-    - (Number(shift.expenseTotal) || 0),
+    - (Number(shift.expenseTotal) || 0)
+    - (Number(shift.otherShiftReturnCash) || 0),
   )
 }
 

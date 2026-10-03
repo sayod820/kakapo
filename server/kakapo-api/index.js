@@ -289,6 +289,7 @@ import {
   getPosFinanceSummary,
   getPosReport,
   getAdminDashboardPos,
+  getPosDailyFinance,
 } from './posLogic.js'
 import * as revisionCoordinator from './revisionCoordinator.js'
 import {
@@ -311,6 +312,8 @@ import {
   ensureDefaultEmployees,
   migrateEmployeeCredentials,
   employeesAuthRev,
+  syncEmployeeCashier,
+  linkEmployeesToCashiers,
 } from './employeesLogic.js'
 import {
   askAdminAi,
@@ -494,6 +497,13 @@ if (ensurePosSaleNumbers(db)) persist()
       })
     }
     console.log('[cashiers] merged duplicates', JSON.stringify(cashierMerge))
+    persist()
+  }
+}
+{
+  const linked = linkEmployeesToCashiers(db)
+  if (linked) {
+    console.log('[employees] linked to cashiers', linked)
     persist()
   }
 }
@@ -2987,8 +2997,13 @@ app.get('/payouts', (req, res) => {
   res.json(list)
 })
 app.patch('/restaurants/:id/commission', (req, res) => {
-  const r = db.restaurants.find(x => x.id === req.params.id)
-  r.commission = Number(req.query.commission)
+  const r = (db.restaurants || []).find(x => x.id === req.params.id)
+  if (!r) return res.status(404).json({ detail: 'Ресторан не найден' })
+  const commission = Number(req.query.commission ?? req.body?.commission)
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    return res.status(400).json({ detail: 'Комиссия должна быть от 0 до 100%' })
+  }
+  r.commission = commission
   persist()
   res.json(r)
 })
@@ -3319,10 +3334,15 @@ app.patch('/employees/:id', async (req, res) => {
   try {
     const found = (db.employees || []).find(e => e.id === req.params.id)
     const before = found ? { name: found.name, role: found.role, active: found.active } : null
-    const row = await saveMasterRows(res, 'employee_update', () => ({
-      result: updateEmployee(db, req.params.id, req.body || {}),
-      docs: employeeDocs(req.params.id),
-    }))
+    const row = await saveMasterRows(res, 'employee_update', () => {
+      const result = updateEmployee(db, req.params.id, req.body || {})
+      const emp = (db.employees || []).find(e => String(e.id) === String(req.params.id))
+      const cashier = syncEmployeeCashier(db, emp, before?.name || '')
+      return {
+        result,
+        docs: [...employeeDocs(req.params.id), ...(cashier ? [plainDoc('cashiers', cashier)] : [])],
+      }
+    })
     auditFromReq(db, req, {
       action: 'update',
       entity: 'employee',
@@ -5805,6 +5825,10 @@ app.get('/finance/summary', (_req, res) => {
 
 app.get('/finance/pos-summary', (_req, res) => {
   res.json(getPosFinanceSummary(db))
+})
+
+app.get('/finance/pos-daily', (req, res) => {
+  res.json(getPosDailyFinance(db, { days: req.query.days }))
 })
 
 app.get('/reports/pos', (_req, res) => {

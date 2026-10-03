@@ -90,7 +90,7 @@ import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncExpiry, softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
 import { pickActiveOpenShift } from '@/lib/shiftReconcile'
-import { overlayShiftSaleTotalsWithDebtRepay, expectedTillCashFromShift } from '@/lib/shiftSaleTotals'
+import { overlayShiftSaleTotalsWithDebtRepay, expectedTillCashFromShift, expectedCardFromShift } from '@/lib/shiftSaleTotals'
 import { resolveAuthoritativeCustomerDebt } from '@/lib/debtUiProjectionCore.mjs'
 import {
   buildCashierAlertGroups,
@@ -571,8 +571,9 @@ function expectedTillCash(shift: {
   debtRepayCash?: number
   cashInTotal?: number
   expenseTotal?: number
+  otherShiftReturnCash?: number
 }) {
-  return expectedTillCashFromShift(shift)
+  return expectedTillCashFromShift(shift as Parameters<typeof expectedTillCashFromShift>[0])
 }
 
 function roundMoney2(n: number) {
@@ -4888,7 +4889,7 @@ export default function CashierModule({
         closingCash,
         closingCard,
         expectedTillCash(activeShift),
-        Number(activeShift.salesCard) || 0,
+        expectedCardFromShift(activeShift),
       )
       const closed = await closeShiftSafe(activeShift.id, {
         closingCash: cash,
@@ -4966,7 +4967,7 @@ export default function CashierModule({
         closingCash,
         closingCard,
         expectedTillCash(activeShift),
-        Number(activeShift.salesCard) || 0,
+        expectedCardFromShift(activeShift),
       )
       const closed = await closeShiftSafe(activeShift.id, {
         closingCash: cash,
@@ -5054,7 +5055,7 @@ export default function CashierModule({
       return
     }
     const expected = activeShift ? expectedTillCash(activeShift) : 0
-    const expectedCard = activeShift ? (Number(activeShift.salesCard) || 0) : 0
+    const expectedCard = activeShift ? expectedCardFromShift(activeShift) : 0
     const prefill = expected > 0 ? expected.toFixed(2) : '0.00'
     closingCashAutoRef.current = prefill
     setClosingCash(prefill)
@@ -5458,8 +5459,6 @@ export default function CashierModule({
   async function verifyReturnAdminCode(raw: string): Promise<boolean> {
     const pin = String(raw || '').trim()
     if (pin.length < 4) return false
-    const upper = pin.toUpperCase()
-    if (upper === 'АДМИН' || upper === 'ADMIN') return true
     try {
       const { loadAdminCreds } = await import('@/lib/adminSession')
       const creds = loadAdminCreds()
@@ -5979,7 +5978,7 @@ export default function CashierModule({
     if (pending.step === 'admin') {
       const ok = await verifyReturnAdminCode(pending.adminCode)
       if (!ok) {
-        showToast('Неверный код', 'Нужен АДМИН / ADMIN или пароль старшего')
+        showToast('Неверный пароль', 'Нужен пароль администратора или старшего сотрудника')
         return
       }
     }
@@ -6010,6 +6009,7 @@ export default function CashierModule({
         note: pending.mode === 'all' ? 'Полный возврат с кассы' : 'Частичный возврат с кассы',
         cashierId: settings.cashierId || activeShift?.cashierId,
         ...(pending.payloadItems ? { items: pending.payloadItems } : {}),
+        currentShiftId: activeShift?.status === 'open' ? activeShift.id : undefined,
       })
       // Close confirm only after ACK
       setReturnConfirm(null)
@@ -10611,9 +10611,8 @@ export default function CashierModule({
               <>
                 <h3>Код администратора</h3>
                 <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.45, marginBottom: 12 }}>
-                  Чек из смены другого кассира. Введите один из вариантов:
-                  <br />• код <b>АДМИН</b> или <b>ADMIN</b>
-                  <br />• пароль старшего сотрудника (как при входе в Торговлю)
+                  Чек из другой смены. Введите пароль администратора или старшего сотрудника
+                  (как при входе в Торговлю). Деньги выдаются из кассы текущей смены.
                 </div>
                 <input
                   className="cash-recv-field"
@@ -10626,7 +10625,8 @@ export default function CashierModule({
                       void executeReturnConfirm()
                     }
                   }}
-                  placeholder="АДМИН / пароль старшего"
+                  type="password"
+                  placeholder="Пароль старшего"
                   style={{ marginBottom: 16 }}
                 />
                 <div className="modal-card-actions" style={{ gap: 8 }}>
@@ -12983,6 +12983,14 @@ export default function CashierModule({
               <div className="z-stat"><div className="l">Наличные</div><div className="v" style={{ color: 'var(--accent)' }}>{fmtMoney(activeShift.salesCash)}</div></div>
               <div className="z-stat"><div className="l">Карта</div><div className="v" style={{ color: 'var(--blue)' }}>{fmtMoney(activeShift.salesCard)}</div></div>
               <div className="z-stat"><div className="l">В долг</div><div className="v" style={{ color: 'var(--org)' }}>{fmtMoney(activeShift.salesCredit)}</div></div>
+              {((Number(activeShift.otherShiftReturnCash) || 0) + (Number(activeShift.otherShiftReturnCard) || 0)) > 0.001 && (
+                <div className="z-stat">
+                  <div className="l">Возвраты чеков прошлых смен</div>
+                  <div className="v" style={{ color: 'var(--red)' }}>
+                    −{fmtMoney((Number(activeShift.otherShiftReturnCash) || 0) + (Number(activeShift.otherShiftReturnCard) || 0))}
+                  </div>
+                </div>
+              )}
               <div className="z-stat"><div className="l">Ожид. в кассе</div><div className="v">{fmtMoney(expectedTillCash(activeShift))}</div></div>
             </div>
 
@@ -13014,7 +13022,7 @@ export default function CashierModule({
                   closingCash,
                   closingCard,
                   expectedTillCash(activeShift),
-                  Number(activeShift.salesCard) || 0,
+                  expectedCardFromShift(activeShift),
                 )}
               />
             )}
@@ -13079,7 +13087,7 @@ export default function CashierModule({
 
               <div className="shift-reconcile-block">
                 <label className="gate-label">Карта (факт)</label>
-                <div className="shift-reconcile-expected">Должно: {fmtMoney(activeShift.salesCard)}</div>
+                <div className="shift-reconcile-expected">Должно: {fmtMoney(expectedCardFromShift(activeShift))}</div>
                 <input
                   className="gate-input"
                   value={closingCard}
@@ -13091,7 +13099,7 @@ export default function CashierModule({
                   <button type="button" onClick={() => setClosingCard('0.00')}>0</button>
                   <button
                     type="button"
-                    onClick={() => setClosingCard(Number(activeShift.salesCard || 0).toFixed(2))}
+                    onClick={() => setClosingCard(expectedCardFromShift(activeShift).toFixed(2))}
                   >
                     Должно
                   </button>
@@ -13104,7 +13112,7 @@ export default function CashierModule({
                 closingCash,
                 closingCard,
                 expectedTillCash(activeShift),
-                Number(activeShift.salesCard) || 0,
+                expectedCardFromShift(activeShift),
               )
               return a.ready ? <ShiftReconcileReport a={a} /> : (
                 <div className="shift-reconcile-hint" style={{ margin: '8px 0' }}>

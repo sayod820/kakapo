@@ -138,6 +138,14 @@ export const READ_ENDPOINTS = [
     aggregation: 'getPosFinanceSummary',
   },
   {
+    route: 'GET /finance/pos-daily',
+    kind: 'REPORT',
+    sources: 'posSales,expenses,products',
+    canonical: 'net posSales per ymdBusiness(createdAtIso); sale COGS; expenses by createdAtIso',
+    tz: 'Asia/Dushanbe',
+    aggregation: 'getPosDailyFinance',
+  },
+  {
     route: 'GET /reports/pos',
     kind: 'REPORT',
     sources: 'posSales,posShifts',

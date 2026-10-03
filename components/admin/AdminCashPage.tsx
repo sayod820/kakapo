@@ -50,6 +50,7 @@ function openShiftExpected(s: PosShift) {
     + (Number(s.salesCash) || 0)
     + (Number(s.cashInTotal) || 0)
     - (Number(s.expenseTotal) || 0)
+    - (Number(s.otherShiftReturnCash) || 0)
   ) * 100) / 100
 }
 

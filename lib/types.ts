@@ -307,6 +307,9 @@ export interface PosShift {
    * Expected till = opening + salesCash(sale rows) + debtRepayCash + cashIn − expense.
    */
   debtRepayCash?: number
+  /** Возвраты по чекам закрытых смен, выданные из этой кассы (нал / карта) */
+  otherShiftReturnCash?: number
+  otherShiftReturnCard?: number
   expenseTotal: number
   /** Внесения наличных в смену (не продажи) */
   cashInTotal?: number
@@ -693,6 +696,8 @@ export interface PosSaleReturn {
   cutDebt?: number
   note?: string
   cashierId?: string
+  /** Смена, из кассы которой выданы деньги (если чек из другой, закрытой смены) */
+  tillShiftId?: string
   items: PosSaleReturnLine[]
 }
 

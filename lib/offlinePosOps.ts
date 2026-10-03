@@ -23,7 +23,7 @@ import { getBoundDeviceNameSync, getTradeDeviceIdSync } from './tradeDevice'
 import { isPerfEnabled, perfNote } from './devTelemetry'
 import type { FinanceMove, PosExpense, PosSale, PosShift, MoneyPayFrom, MoneyPayMethod } from './types'
 import { pickActiveOpenShift } from './shiftReconcile'
-import { expectedTillCashFromShift, overlayShiftSaleTotalsWithDebtRepay } from './shiftSaleTotals'
+import { expectedCardFromShift, expectedTillCashFromShift, overlayShiftSaleTotalsWithDebtRepay } from './shiftSaleTotals'
 
 /**
  * Sticky clientRef for one logical money attempt (browser timeout-after-commit).
@@ -136,13 +136,14 @@ function shiftById(shiftId: string): PosShift | undefined {
   return usePosStore.getState().shifts.find(s => s.id === shiftId)
 }
 
-export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash'>): number {
+export function shiftExpectedCashLocal(shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash' | 'otherShiftReturnCash'>): number {
   return round2(
     (Number(shift.openingCash) || 0)
     + (Number(shift.salesCash) || 0)
     + (Number(shift.debtRepayCash) || 0)
     + (Number(shift.cashInTotal) || 0)
-    - (Number(shift.expenseTotal) || 0),
+    - (Number(shift.expenseTotal) || 0)
+    - (Number(shift.otherShiftReturnCash) || 0),
   )
 }
 
@@ -318,7 +319,7 @@ export async function closeShiftSafe(
     const expected = current
       ? expectedTillCashFromShift(overlayShiftSaleTotalsWithDebtRepay(current, usePosStore.getState().sales))
       : payload.closingCash
-    const expectedCard = current ? round2(Number(current.salesCard) || 0) : 0
+    const expectedCard = current ? expectedCardFromShift(overlayShiftSaleTotalsWithDebtRepay(current, usePosStore.getState().sales)) : 0
     const actualCard = payload.closingCard != null ? payload.closingCard : expectedCard
     const cashDiff = round2(payload.closingCash - expected)
     const cardDiff = round2(actualCard - expectedCard)
@@ -2193,6 +2194,8 @@ export async function returnSaleSafe(
     note?: string
     cashierId?: string
     items?: { index?: number; productId?: number; qty: number }[]
+    /** Открытая смена этой кассы: из неё выдаются деньги, если чек из другой смены */
+    currentShiftId?: string
   },
 ): Promise<OfflineResult<PosSale>> {
   // Риск 5.4: возврат чека, который ещё не на сервере — ломает цепочку
@@ -2249,9 +2252,11 @@ export async function returnSaleSafe(
     returns: Array.isArray(sale.returns) ? [...sale.returns] : [],
   }
 
+  const currentShiftId = String(input.currentShiftId || '').trim() || undefined
+
   const applyAndQueue = async () => {
     const debtBefore = saleDebtBeforeReturn(sale)
-    const returned = applyLocalReturn(sale, input.items)
+    const returned = applyLocalReturn(sale, input.items, currentShiftId)
     const partyAfter = resolveSaleClientAndCard({
       clientId: returned.clientId || sale.clientId,
       clientPhone: returned.clientPhone || sale.clientPhone,
@@ -2276,10 +2281,12 @@ export async function returnSaleSafe(
       cutDebt,
       expectedDebtPayVersion: cutDebt > 0.001 ? expectedDebtPayVersion : undefined,
       expectedBonusPayVersion: cutBonus > 0.001 ? expectedBonusPayVersion : undefined,
+      currentShiftId,
       _revert: {
         saleId: sale.id,
         saleBefore,
         shiftId: sale.shiftId,
+        tillShiftId: lastRet?.tillShiftId || undefined,
         cutCash,
         cutCard,
         cutDebt,
@@ -2308,6 +2315,7 @@ export async function returnSaleSafe(
       items: input.items,
       expectedDebtPayVersion: expectedDebtPayVersion || undefined,
       expectedBonusPayVersion: expectedBonusPayVersion || undefined,
+      currentShiftId,
     }),
     applyAndQueue,
   )
@@ -2423,7 +2431,11 @@ function computeReturnCuts(sale: PosSale, returnTotal: number) {
 function applyLocalReturn(
   sale: PosSale,
   items?: { index?: number; productId?: number; qty: number }[],
+  currentShiftId?: string,
 ): PosSale {
+  const tillShiftId = currentShiftId && currentShiftId !== String(sale.shiftId || '')
+    ? currentShiftId
+    : undefined
   const lines = Array.isArray(sale.items) ? sale.items : []
   const backByProduct = new Map<number, number>()
   const restoreLines: Array<{
@@ -2478,6 +2490,7 @@ function applyLocalReturn(
     cutDebt: cuts.cutDebt,
     cutWallet: cuts.cutWallet,
     cutBonus: cuts.cutBonus,
+    ...(tillShiftId ? { tillShiftId } : {}),
     items: restoreLines.map(l => ({
       productId: l.productId,
       productName: l.productName,
@@ -2503,7 +2516,13 @@ function applyLocalReturn(
 
   usePosStore.setState(s => ({ sales: s.sales.map(x => (x.id === sale.id ? updated : x)) }))
 
-  if (sale.shiftId) {
+  const tillShift = tillShiftId ? shiftById(tillShiftId) : undefined
+  if (tillShift) {
+    patchShift(tillShift.id, {
+      otherShiftReturnCash: round2((Number(tillShift.otherShiftReturnCash) || 0) + cuts.cutCash),
+      otherShiftReturnCard: round2((Number(tillShift.otherShiftReturnCard) || 0) + cuts.cutCard),
+    })
+  } else if (sale.shiftId) {
     const shift = shiftById(sale.shiftId)
     if (shift && shift.status === 'open') {
       patchShift(sale.shiftId, {
@@ -2655,9 +2674,18 @@ export function revertLocalSaleReturnOnReject(payload: Record<string, unknown>) 
   const cutWallet = round2(Number(rev.cutWallet) || 0)
   const cutBonus = round2(Number(rev.cutBonus) || 0)
   const shiftId = String(rev.shiftId || '').trim()
+  const tillShiftId = String(rev.tillShiftId || '').trim()
   const fullyReturned = !!rev.fullyReturned
 
-  if (shiftId) {
+  const tillShift = tillShiftId ? shiftById(tillShiftId) : undefined
+  if (tillShiftId) {
+    if (tillShift) {
+      patchShift(tillShiftId, {
+        otherShiftReturnCash: round2(Math.max(0, (Number(tillShift.otherShiftReturnCash) || 0) - cutCash)),
+        otherShiftReturnCard: round2(Math.max(0, (Number(tillShift.otherShiftReturnCard) || 0) - cutCard)),
+      })
+    }
+  } else if (shiftId) {
     const shift = shiftById(shiftId)
     if (shift) {
       patchShift(shiftId, {

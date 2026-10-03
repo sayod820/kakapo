@@ -12,6 +12,51 @@ import {
   checkOfflineVerifier,
 } from './passwordHash.js'
 import { createHash } from 'node:crypto'
+import { normalizeCashierName, findCashierById, findCashierByName } from './cashierIdentity.js'
+
+/**
+ * Сотрудник ↔ кассир по id (employee.cashierId), а не только по имени.
+ * Переименование сотрудника переименовывает его кассира, чтобы касса (ensureCashier по имени)
+ * нашла того же кассира, а не создала нового с пустой историей.
+ * @returns {object|null} изменённый кассир (для записи), иначе null
+ */
+export function syncEmployeeCashier(db, employee, previousName = '') {
+  if (!employee) return null
+  const linked = findCashierById(db, employee.cashierId)
+    || findCashierByName(db, previousName || employee.name)
+  if (!linked) return null
+  let changed = null
+  if (normalizeCashierName(linked.name) !== normalizeCashierName(employee.name)) {
+    const clash = findCashierByName(db, employee.name, linked.id)
+    if (clash) {
+      employee.cashierId = clash.id
+      return null
+    }
+    const now = nowIso()
+    linked.name = employee.name
+    linked.updatedAtIso = now
+    if (linked._txCommittedAt) linked._txCommittedAt = now
+    changed = linked
+  }
+  employee.cashierId = linked.id
+  return changed
+}
+
+/** При старте: проставить cashierId сотрудникам, у кого кассир с тем же именем уже есть. */
+export function linkEmployeesToCashiers(db) {
+  ensureEmployees(db)
+  let linked = 0
+  for (const e of db.employees) {
+    if (!e || findCashierById(db, e.cashierId)) continue
+    const c = findCashierByName(db, e.name)
+    if (!c) continue
+    e.cashierId = c.id
+    // Snapshot upsert keeps the newer updated_at; tx-committed rows need a fresh stamp.
+    if (e._txCommittedAt) e._txCommittedAt = nowIso()
+    linked += 1
+  }
+  return linked
+}
 
 /** Offline credentials shipped to bound devices (never the bcrypt hash). */
 function setOfflineCredentials(row, password) {

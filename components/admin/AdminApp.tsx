@@ -169,7 +169,9 @@ import { getCourierCommissionPercent, getCourierBalance, getMinCourierCommission
 import { formatCourierAccountDisplay, findCourierByAccount } from '@/lib/courierAccount'
 import type { CourierWalletTx } from '@/lib/courierWalletTx'
 import { formatWalletTxTime, getLocalCourierWalletTransactions, walletTxLabel } from '@/lib/courierWalletTx'
-import { restIdToPickupId } from '@/lib/pickups'
+import { restIdToPickupId, resolveCheckoutPickupIds } from '@/lib/pickups'
+import { normalizeOrder } from '@/lib/orderParts'
+import { formatKakapoOrderTime } from '@/lib/kakapoTime'
 import { resolveOrderDeliveryFee } from '@/lib/deliveryFee'
 import { useProductPhotos, resolvePhotoUrl } from '@/lib/productPhotos'
 import PhotoUploadField from '@/components/shared/PhotoUploadField'
@@ -1835,7 +1837,13 @@ function PartnersPage() {
   const deleteRestaurantApi = useRestaurants(s => s.deleteRestaurant);
   const updateRestaurantApi = useRestaurants(s => s.updateRestaurant);
   const toggleMenuApi = useRestaurants(s => s.toggleMenuItem);
+  const updateCommissionApi = useRestaurants(s => s.updateCommission);
+  const apiOrdersAll = useOrders(s => s.orders);
   const [rests, setRests] = useState<any[]>(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r }))));
+  const [dishForm, setDishForm] = useState<{ open: boolean; name: string; price: string; cat: string; e: string; saving: boolean; error: string }>({ open: false, name: '', price: '', cat: '', e: '🍽', saving: false, error: '' });
+  const [commDraft, setCommDraft] = useState<number | null>(null);
+  const [commSaving, setCommSaving] = useState(false);
+  const [commMsg, setCommMsg] = useState('');
   const [savingInfo, setSavingInfo] = useState(false);
   useEffect(() => {
     if (USE_API && restaurantsLoaded) {
@@ -1870,6 +1878,63 @@ function PartnersPage() {
     toggleMenuApi(rId, mId);
     setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: r.menu.map(m => m.id === mId ? { ...m, inStock: !m.inStock } : m) } : r));
   };
+  const saveMenu = async (rId: string, menu: any[]) => {
+    const saved: any = USE_API ? await api.updateRestaurant(rId, { menu } as any) : null;
+    const next = Array.isArray(saved?.menu) ? saved.menu : menu;
+    if (USE_API) void fetchRestaurantsApi();
+    setRests(rs => rs.map(r => r.id === rId ? { ...r, menu: next } : r));
+    setSel((s: any) => (s && s.id === rId ? { ...s, menu: next } : s));
+  };
+  const addDish = async () => {
+    if (!sel) return;
+    const name = dishForm.name.trim();
+    const price = Number(String(dishForm.price).replace(',', '.'));
+    if (!name) { setDishForm(f => ({ ...f, error: 'Укажите название' })); return; }
+    if (!(price > 0)) { setDishForm(f => ({ ...f, error: 'Укажите цену' })); return; }
+    setDishForm(f => ({ ...f, saving: true, error: '' }));
+    try {
+      await saveMenu(sel.id, [...(sel.menu || []), { id: Date.now(), name, price, cat: dishForm.cat.trim() || 'Блюда', e: dishForm.e || '🍽', inStock: true }]);
+      setDishForm({ open: false, name: '', price: '', cat: '', e: '🍽', saving: false, error: '' });
+    } catch (e: any) {
+      setDishForm(f => ({ ...f, saving: false, error: e?.message || 'Не удалось сохранить' }));
+    }
+  };
+  const removeDish = async (item: any) => {
+    if (!sel || !window.confirm(`Удалить блюдо «${item.name}»?`)) return;
+    try {
+      await saveMenu(sel.id, (sel.menu || []).filter((m: any) => m.id !== item.id));
+    } catch (e: any) {
+      window.alert(e?.message || 'Не удалось удалить');
+    }
+  };
+  const saveCommission = async () => {
+    if (!sel || commDraft == null || commSaving) return;
+    setCommSaving(true);
+    setCommMsg('');
+    try {
+      if (USE_API) { await api.setCommission(sel.id, commDraft); void fetchRestaurantsApi(); }
+      else await updateCommissionApi(sel.id, commDraft);
+      setRests(rs => rs.map(r => r.id === sel.id ? { ...r, commission: commDraft } : r));
+      setSel((s: any) => (s ? { ...s, commission: commDraft } : s));
+      setCommMsg('✓ Комиссия сохранена');
+    } catch (e: any) {
+      setCommMsg(e?.message || 'Не удалось сохранить');
+    } finally {
+      setCommSaving(false);
+    }
+  };
+  const selOrders = useMemo(() => {
+    if (!sel) return [];
+    const mine = (apiOrdersAll || []).filter((o: any) =>
+      String(o.restId || '') === String(sel.id)
+      || (o.items || []).some((it: any) => String(it.restId || '') === String(sel.id)));
+    return mapOrdersForAdmin(mine, rests).slice(0, 50);
+  }, [apiOrdersAll, sel, rests]);
+  useEffect(() => {
+    setCommDraft(null);
+    setCommMsg('');
+    setDishForm({ open: false, name: '', price: '', cat: '', e: '🍽', saving: false, error: '' });
+  }, [sel?.id]);
   const totalComm = rests.reduce((s, r) => {
     const paidGross = r.paidRevenueMonth || 0;
     const pendingGross = Math.max(0, (r.revenueMonth || 0) - paidGross);
@@ -2318,7 +2383,7 @@ function PartnersPage() {
               <button onClick={()=>setSel(null)} className="ab" style={{background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',width:32,height:32,padding:0,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:10,fontSize:16}}>✕</button>
             </div>
             <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
-              {[{id:'info',l:'📋 Инфо'},{id:'menu',l:'🍽 Меню'},{id:'orders',l:'📦 Заказы'},{id:'commission',l:'💰 Комиссия'},{id:'access',l:'🔑 Доступ'}].map(t=>(
+              {[{id:'info',l:'📋 Инфо'},{id:'menu',l:'🍽 Меню'},{id:'orders',l:'📦 Заказы'},{id:'commission',l:'💰 Комиссия'}].map(t=>(
                 <button key={t.id} onClick={()=>setTab(t.id)} className="ab" style={{padding:'6px 13px',fontSize:11,background:tab===t.id?'rgba(31,215,96,.12)':'var(--l3)',border:`1.5px solid ${tab===t.id?'rgba(31,215,96,.35)':'var(--b1)'}`,color:tab===t.id?'#1FD760':'var(--t2)'}}>{t.l}</button>
               ))}
             </div>
@@ -2397,8 +2462,20 @@ function PartnersPage() {
               <div>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
                   <span style={{fontSize:12,color:'var(--t2)'}}>{sel.menu.length} блюд · стоп-лист: {sel.menu.filter(m=>!m.inStock).length}</span>
-                  <button className="ab abp" style={{padding:'5px 13px',fontSize:11}}>+ Добавить</button>
+                  <button onClick={()=>setDishForm(f=>({...f,open:!f.open,error:''}))} className="ab abp" style={{padding:'5px 13px',fontSize:11}}>{dishForm.open?'Отмена':'+ Добавить'}</button>
                 </div>
+                {dishForm.open&&(
+                  <div style={{padding:12,borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',marginBottom:10}}>
+                    <div style={{display:'grid',gridTemplateColumns:'60px 1fr 110px',gap:8,marginBottom:8}}>
+                      <input className="ai" value={dishForm.e} onChange={e=>setDishForm(f=>({...f,e:e.target.value}))} placeholder="🍽"/>
+                      <input className="ai" value={dishForm.name} onChange={e=>setDishForm(f=>({...f,name:e.target.value}))} placeholder="Название блюда"/>
+                      <input className="ai" value={dishForm.price} onChange={e=>setDishForm(f=>({...f,price:e.target.value}))} placeholder="Цена ЅМ" inputMode="decimal"/>
+                    </div>
+                    <input className="ai" value={dishForm.cat} onChange={e=>setDishForm(f=>({...f,cat:e.target.value}))} placeholder="Категория (необязательно)" style={{marginBottom:8}}/>
+                    {dishForm.error&&<div style={{fontSize:11,color:'#FF4545',marginBottom:8}}>⚠️ {dishForm.error}</div>}
+                    <button onClick={addDish} disabled={dishForm.saving} className="ab abp" style={{width:'100%',padding:9,opacity:dishForm.saving?.7:1}}>{dishForm.saving?'Сохранение…':'✓ Добавить блюдо'}</button>
+                  </div>
+                )}
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {sel.menu.map(item=>(
                     <div key={item.id} style={{display:'flex',alignItems:'center',gap:11,padding:'10px 13px',background:'var(--l3)',borderRadius:11,border:`1px solid ${item.inStock?'var(--b1)':'rgba(255,69,69,.3)'}`}}>
@@ -2406,7 +2483,7 @@ function PartnersPage() {
                       <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{item.name}</div><div style={{fontSize:10,color:'var(--t3)'}}>{item.cat}</div></div>
                       <span className="ub" style={{fontSize:12,fontWeight:800,color:'#FFB800'}}>{item.price} ЅМ</span>
                       <button onClick={()=>toggleMenu(sel.id,item.id)} style={{padding:'4px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:item.inStock?'rgba(31,215,96,.12)':'rgba(255,69,69,.12)',color:item.inStock?'#1FD760':'#FF4545',border:`1px solid ${item.inStock?'rgba(31,215,96,.3)':'rgba(255,69,69,.3)'}`,cursor:'pointer',fontFamily:'Nunito'}}>{item.inStock?'✓ Есть':'✕ Стоп'}</button>
-                      <button style={{padding:'4px 8px',borderRadius:8,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',color:'#FF4545',cursor:'pointer',fontSize:12}}>🗑</button>
+                      <button onClick={()=>removeDish(item)} title="Удалить блюдо" style={{padding:'4px 8px',borderRadius:8,background:'rgba(255,69,69,.08)',border:'1px solid rgba(255,69,69,.25)',color:'#FF4545',cursor:'pointer',fontSize:12}}>🗑</button>
                     </div>
                   ))}
                 </div>
@@ -2414,7 +2491,8 @@ function PartnersPage() {
             )}
             {tab==='orders'&&(
               <div>
-                {ALL_ORDERS.map((o,i)=>{
+                {selOrders.length===0&&<div style={{fontSize:12,color:'var(--t3)',padding:'12px 0'}}>Заказов этого ресторана пока нет</div>}
+                {selOrders.map((o,i)=>{
                   const s=SC_STATUS[o.status]||{l:o.status,c:'var(--t2)'};
                   return (
                     <div key={i} style={{padding:'10px 13px',background:'var(--l3)',borderRadius:11,border:`1px solid ${s.c}20`,marginBottom:8}}>
@@ -2432,19 +2510,10 @@ function PartnersPage() {
                     <div key={i} style={{background:'var(--l3)',borderRadius:11,padding:'13px',border:'1px solid var(--b1)'}}><div style={{fontSize:10,color:'var(--t3)',marginBottom:5}}>{s.l}</div><div className="ub" style={{fontSize:18,fontWeight:900,color:s.c}}>{s.v}</div></div>
                   ))}
                 </div>
-                <div style={{marginBottom:12}}><div style={{fontSize:11,color:'var(--t2)',marginBottom:8,fontWeight:700}}>Быстрый выбор %</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[10,12,15,18,20,25].map(v=><button key={v} className="ab" style={{padding:'7px 14px',fontSize:12,background:sel.commission===v?'rgba(255,69,69,.15)':'var(--l3)',border:`1.5px solid ${sel.commission===v?'rgba(255,69,69,.4)':'var(--b1)'}`,color:sel.commission===v?'#FF4545':'var(--t2)'}}>{v}%</button>)}</div></div>
-                <button onClick={() => openPay(sel)} className="ab" style={{width:'100%',padding:10,marginTop:8,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплатить партнёру</button>
-                <button className="ab abp" style={{width:'100%',padding:10}}>✓ Сохранить комиссию</button>
-              </div>
-            )}
-            {tab==='access'&&(
-              <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                <div style={{padding:'13px 15px',borderRadius:12,background:'rgba(31,215,96,.05)',border:'1px solid rgba(31,215,96,.2)'}}>
-                  <div style={{fontWeight:800,fontSize:13,marginBottom:10}}>Данные для входа</div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div><div style={{fontSize:11,color:'var(--t2)',marginBottom:4,fontWeight:700}}>Email</div><input className="ai" defaultValue={sel.email}/></div><div><div style={{fontSize:11,color:'var(--t2)',marginBottom:4,fontWeight:700}}>Новый пароль</div><input className="ai" type="password" placeholder="Оставить пустым"/></div></div>
-                </div>
-                <div style={{padding:'10px 13px',borderRadius:10,background:'rgba(255,184,0,.06)',border:'1px solid rgba(255,184,0,.2)',fontSize:12,color:'var(--t2)'}}>💡 Ресторан входит в <span style={{color:'#FFB800',fontWeight:700}}>kakapo-restaurant.jsx</span></div>
-                <div style={{display:'flex',gap:9}}><button className="ab abp" style={{flex:1,padding:10}}>✓ Обновить доступ</button><button className="ab" style={{padding:'10px 15px',background:'rgba(59,142,240,.1)',border:'1.5px solid rgba(59,142,240,.3)',color:'#3B8EF0'}}>📧 Письмо</button><button className="ab abd" style={{padding:'10px 15px'}}>🚫 Блок</button></div>
+                <div style={{marginBottom:12}}><div style={{fontSize:11,color:'var(--t2)',marginBottom:8,fontWeight:700}}>Быстрый выбор %</div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{[10,12,15,18,20,25].map(v=>{const cur=commDraft??sel.commission;return <button key={v} onClick={()=>{setCommDraft(v);setCommMsg('');}} className="ab" style={{padding:'7px 14px',fontSize:12,background:cur===v?'rgba(255,69,69,.15)':'var(--l3)',border:`1.5px solid ${cur===v?'rgba(255,69,69,.4)':'var(--b1)'}`,color:cur===v?'#FF4545':'var(--t2)'}}>{v}%</button>;})}</div></div>
+                <button onClick={() => openPay(sel)} className="ab" style={{width:'100%',padding:10,marginTop:8,marginBottom:8,background:'rgba(255,184,0,.1)',border:'1.5px solid rgba(255,184,0,.3)',color:'#FFB800'}}>💰 Выплатить партнёру</button>
+                <button onClick={saveCommission} disabled={commSaving||commDraft==null||commDraft===sel.commission} className="ab abp" style={{width:'100%',padding:10,opacity:(commSaving||commDraft==null||commDraft===sel.commission)?.6:1}}>{commSaving?'Сохранение…':`✓ Сохранить комиссию${commDraft!=null&&commDraft!==sel.commission?` ${commDraft}%`:''}`}</button>
+                {commMsg&&<div style={{fontSize:11,marginTop:8,color:commMsg.startsWith('✓')?'#1FD760':'#FF4545'}}>{commMsg}</div>}
               </div>
             )}
           </div>
@@ -6980,6 +7049,125 @@ function PushPage() {
 }
 
 /* ── ФИНАНСЫ ────────────────────────────────────── */
+function KassaFinancePanel() {
+  const [days, setDays] = useState(30)
+  const [data, setData] = useState<import('@/lib/api').PosDailyFinance | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!USE_API) return
+    let alive = true
+    setLoading(true)
+    setError('')
+    api.getPosDailyFinance(days)
+      .then(d => { if (alive) setData(d) })
+      .catch(e => { if (alive) setError(e?.message || 'Не удалось загрузить') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [days])
+
+  const sm = (n: number) => `${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ЅМ`
+  const dayLabel = (ymd: string) => { const [, m, d] = ymd.split('-'); return `${d}.${m}` }
+  const t = data?.totals
+  const rows = data?.days || []
+  const maxRev = Math.max(1, ...rows.map(r => r.revenue))
+  const chartRows = rows.slice(-31)
+
+  const exportCsv = () => {
+    if (!data) return
+    downloadCsv(`kakapo-kassa-${data.from}_${data.to}.csv`,
+      ['Дата', 'Чеков', 'Выручка', 'Наличные', 'Карта', 'В долг', 'Возвраты', 'Себестоимость', 'Прибыль', 'Расходы'],
+      rows.map(r => [r.date, r.sales, r.revenue, r.cash, r.card, r.debt, r.returns, r.cogs, r.profit, r.expenses]))
+  }
+  const exportPdf = () => {
+    if (!data) return
+    printFinanceReport(`КАКАПО — Касса ${dayLabel(data.from)}–${dayLabel(data.to)}`,
+      `<p>Выручка: ${sm(t!.revenue)} · Чеков: ${t!.sales} · Наличные: ${sm(t!.cash)} · Карта: ${sm(t!.card)} · В долг: ${sm(t!.debt)} · Прибыль: ${sm(t!.profit)} · Расходы: ${sm(t!.expenses)}</p>
+      <table><thead><tr><th>Дата</th><th>Чеков</th><th>Выручка</th><th>Нал</th><th>Карта</th><th>Долг</th><th>Возвраты</th><th>Прибыль</th><th>Расходы</th></tr></thead><tbody>${
+        rows.slice().reverse().map(r => `<tr><td>${dayLabel(r.date)}</td><td>${r.sales}</td><td>${sm(r.revenue)}</td><td>${sm(r.cash)}</td><td>${sm(r.card)}</td><td>${sm(r.debt)}</td><td>${sm(r.returns)}</td><td>${sm(r.profit)}</td><td>${sm(r.expenses)}</td></tr>`).join('')
+      }</tbody></table>`)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 700 }}>Период:</span>
+        {[{ d: 1, l: 'Сегодня' }, { d: 7, l: '7 дней' }, { d: 30, l: '30 дней' }, { d: 90, l: '90 дней' }].map(p => (
+          <button key={p.d} type="button" onClick={() => setDays(p.d)} className="ab"
+            style={{ padding: '6px 12px', fontSize: 12, background: days === p.d ? 'rgba(31,215,96,.12)' : 'var(--l3)', border: `1.5px solid ${days === p.d ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`, color: days === p.d ? '#1FD760' : 'var(--t2)' }}>{p.l}</button>
+        ))}
+        {loading && <span style={{ fontSize: 11, color: 'var(--t3)' }}>Загрузка…</span>}
+        {error && <span style={{ fontSize: 11, color: '#FF4545' }}>⚠ {error}</span>}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 14 }}>
+        <StatCard l="Выручка кассы" v={t ? sm(t.revenue) : '…'} c="#1FD760" e="🧾" />
+        <StatCard l="Чеков" v={t ? t.sales : '…'} c="#3B8EF0" e="🛒" />
+        <StatCard l="Средний чек" v={t ? sm(t.avgCheck) : '…'} c="#00D4C8" e="📊" />
+        <StatCard l={data && !data.costKnown ? 'Прибыль (нет закупочных цен)' : 'Прибыль (выручка − закуп)'} v={t ? sm(t.profit) : '…'} c="#9B6DFF" e="📈" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 22 }}>
+        <StatCard l="Наличными" v={t ? sm(t.cash) : '…'} c="#1FD760" e="💵" />
+        <StatCard l="Картой" v={t ? sm(t.card) : '…'} c="#3B8EF0" e="💳" />
+        <StatCard l="В долг" v={t ? sm(t.debt) : '…'} c="#FFB800" e="📒" />
+        <StatCard l="Возвраты / расходы" v={t ? `${sm(t.returns)} / ${sm(t.expenses)}` : '…'} c="#FF4545" e="↩️" />
+      </div>
+
+      {days > 1 && (
+        <div className="ac" style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div className="ub" style={{ fontSize: 14, fontWeight: 800 }}>Выручка кассы по дням</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={exportCsv} className="ab abg" style={{ padding: '6px 12px', fontSize: 12 }}>📊 Excel</button>
+              <button type="button" onClick={exportPdf} className="ab abg" style={{ padding: '6px 12px', fontSize: 12 }}>📄 PDF</button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 130 }}>
+            {chartRows.map(r => (
+              <div key={r.date} title={`${dayLabel(r.date)}: ${sm(r.revenue)} · ${r.sales} чек.`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: '#1FD760', opacity: .85, height: `${Math.round(r.revenue / maxRev * 105)}px`, minHeight: r.revenue ? 2 : 0 }} />
+                <div style={{ fontSize: 8, color: 'var(--t3)' }}>{r.date.slice(8)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="ac" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--b1)', fontWeight: 800, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+          <span>По дням</span>
+          {days === 1 && (
+            <span style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={exportCsv} className="ab abg" style={{ padding: '4px 10px', fontSize: 11 }}>📊 Excel</button>
+              <button type="button" onClick={exportPdf} className="ab abg" style={{ padding: '4px 10px', fontSize: 11 }}>📄 PDF</button>
+            </span>
+          )}
+        </div>
+        <table className="at">
+          <thead><tr><th>Дата</th><th>Чеков</th><th>Выручка</th><th>Нал</th><th>Карта</th><th>В долг</th><th>Возвраты</th><th>Прибыль</th><th>Расходы</th></tr></thead>
+          <tbody>{rows.slice().reverse().filter(r => r.sales || r.returns || r.expenses).map(r => (
+            <tr key={r.date}>
+              <td style={{ fontWeight: 700 }}>{dayLabel(r.date)}</td>
+              <td>{r.sales}</td>
+              <td><span className="ub" style={{ color: '#1FD760', fontWeight: 800 }}>{sm(r.revenue)}</span></td>
+              <td>{sm(r.cash)}</td>
+              <td>{sm(r.card)}</td>
+              <td style={{ color: r.debt ? '#FFB800' : undefined }}>{sm(r.debt)}</td>
+              <td style={{ color: r.returns ? '#FF4545' : undefined }}>{sm(r.returns)}</td>
+              <td style={{ color: '#9B6DFF' }}>{sm(r.profit)}</td>
+              <td>{sm(r.expenses)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {data && !rows.some(r => r.sales || r.returns || r.expenses) && (
+          <div style={{ padding: 16, fontSize: 12, color: 'var(--t3)' }}>За этот период продаж нет</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FinancePage() {
   const apiOrders = useOrders(s => s.orders)
   const apiRests = useRestaurants(s => s.restaurants)
@@ -6990,7 +7178,7 @@ function FinancePage() {
   const pricing = usePricingStore(s => s.pricing)
   const { roadKm } = useOrderRoadKm(apiOrders)
 
-  const [tab, setTab] = useState<FinanceTab>('shop')
+  const [tab, setTab] = useState<FinanceTab>('kassa')
   const [payouts, setPayouts] = useState<any[]>([])
   const [localRests, setLocalRests] = useState(() => (USE_API ? [] : RESTAURANTS.map(r => ({ ...r, paidRevenueMonth: r.paidRevenueMonth ?? 0 }))))
   const [payTarget, setPayTarget] = useState<any>(null)
@@ -7130,7 +7318,7 @@ function FinancePage() {
   }
 
   const statCards = tab === 'shop' ? [
-    { l: 'Выручка магазина', v: formatSm(summary.shop.revenue), c: '#1FD760', e: '🛒' },
+    { l: 'Выручка онлайн-заказов', v: formatSm(summary.shop.revenue), c: '#1FD760', e: '🛒' },
     { l: 'Заказов доставлено', v: summary.shop.orders, c: '#3B8EF0', e: '📦' },
     { l: 'Средний чек', v: formatSm(summary.shop.avgCheck), c: '#00D4C8', e: '🧾' },
     { l: 'Оборот товаров', v: formatSm(summary.totalTurnover), c: '#9B6DFF', e: '📈' },
@@ -7168,6 +7356,8 @@ function FinancePage() {
               ))}
             </div>
 
+      {tab === 'kassa' && <KassaFinancePanel />}
+      {tab !== 'kassa' && (<>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 22 }}>
         {statCards.map((s, i) => <StatCard key={i} l={s.l} v={s.v} c={s.c} e={s.e} />)}
           </div>
@@ -7352,6 +7542,7 @@ function FinancePage() {
           </table>
     </div>
       )}
+      </>)}
 
       {payTarget && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => !paySaving && setPayTarget(null)}>
@@ -8443,9 +8634,38 @@ function PickupsPage() {
 function CourierOrdersPage() {
   const pricing = usePricingStore(s => s.pricing);
   const pickups = usePickupStore(s => s.pickups);
-  // Демо-заказы курьеров убраны — раздел наполняется реальными данными
-  const orders: any[] = [];
-  const { roadKm, loading: kmLoading } = useOrderRoadKm(orders, true);
+  const apiOrders = useOrders(s => s.orders);
+  const activeRaw = useMemo(
+    () => (apiOrders || []).filter((o: any) => o && o.status !== 'delivered' && o.status !== 'cancelled'),
+    [apiOrders],
+  );
+  const orders: any[] = useMemo(() => activeRaw.map((raw: any) => {
+    const o = normalizeOrder(raw);
+    const status = String(o.status || 'new');
+    const step = status === 'courier_picked' || status === 'delivering'
+      ? 'toClient'
+      : o.courier?.name ? 'toPickup' : 'new';
+    const restIds = Array.from(new Set((o.items || []).map((it: any) => it.restId).filter(Boolean).map(String)));
+    if (o.restId && !restIds.includes(String(o.restId))) restIds.push(String(o.restId));
+    const pickupIds = Array.isArray(o.pickupIds) && o.pickupIds.length
+      ? o.pickupIds
+      : resolveCheckoutPickupIds({ hasMarketItems: o.type !== 'restaurant', restIds });
+    return {
+      id: o.id,
+      time: formatKakapoOrderTime(o),
+      courier: o.courier?.name || '— не назначен',
+      client: o.client?.name || '',
+      addr: o.client?.addr || '',
+      step,
+      pickupIds,
+      pickupIdx: 0,
+      deliveryFee: o.deliveryFee,
+      sum: o.total,
+      weight: o.weightKg,
+      raw: o,
+    };
+  }), [activeRaw]);
+  const { roadKm, loading: kmLoading } = useOrderRoadKm(activeRaw, true);
   const PM: Record<string,{e:string,name:string;color:string}> = Object.fromEntries(
     pickups.map(p => [p.id, { e: p.e, name: p.name.split(' ')[0], color: p.color }])
   );
@@ -8472,8 +8692,7 @@ function CourierOrdersPage() {
             {orders.map(o=>{
               const ss = SS[o.step] || SS.new;
               const km = roadKm[o.id];
-              const mockOrder = { id: o.id, status: o.step === 'done' ? 'delivered' as const : 'delivering' as const, deliveryFee: o.deliveryFee, deliveryFeeLocked: o.step === 'done', total: o.sum, weightKg: o.weight, items: [] };
-              const dlv = resolveOrderDeliveryFee(mockOrder as import('@/lib/types').Order, pricing, roadKm);
+              const dlv = resolveOrderDeliveryFee(o.raw as import('@/lib/types').Order, pricing, roadKm);
               return (
                 <tr key={o.id}>
                   <td><div style={{fontWeight:800,color:'#3B8EF0',fontFamily:'Unbounded',fontSize:12}}>{o.id}</div><div style={{fontSize:10,color:'var(--t3)'}}>{o.time}</div></td>
@@ -8517,6 +8736,9 @@ function CourierOrdersPage() {
             })}
           </tbody>
         </table>
+        {orders.length === 0 && (
+          <div style={{ padding: 18, fontSize: 12, color: 'var(--t3)' }}>Активных заказов с доставкой сейчас нет — здесь появятся заказы из онлайн-магазина, пока их не доставят.</div>
+        )}
       </div>
     </div>
   );

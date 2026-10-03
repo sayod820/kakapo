@@ -2446,6 +2446,10 @@ export async function handleO8SaleReturn(req, res, ctx) {
         if (last && !last.clientRef) last.clientRef = clientRef
         recordEntityUpsert(db, 'sale', row.id, row, { sourceClientRef: clientRef })
         const shift = row.shiftId ? (db.posShifts.find(s => s.id === row.shiftId)) : null
+        const tillShiftId = String(last?.tillShiftId || '')
+        const tillShift = tillShiftId && tillShiftId !== String(shift?.id || '')
+          ? db.posShifts.find(s => String(s.id) === tillShiftId)
+          : null
         const touched = [
           ...touchedFromSale(db, row),
           ...touchedFromFinance(db, {
@@ -2454,6 +2458,7 @@ export async function handleO8SaleReturn(req, res, ctx) {
             clientRef,
             includeRecentLedger: true,
           }),
+          ...(tillShift ? touchedFromFinance(db, { shift: tillShift }) : []),
         ]
         return { result: row, touched, meta: metaCashVault(db) }
       },

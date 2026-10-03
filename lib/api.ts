@@ -56,6 +56,27 @@ export interface ShowcaseTicker {
   on: boolean
 }
 
+export interface PosDailyFinanceRow {
+  date: string
+  revenue: number
+  cash: number
+  card: number
+  debt: number
+  returns: number
+  sales: number
+  cogs: number
+  profit: number
+  expenses: number
+}
+
+export interface PosDailyFinance {
+  from: string
+  to: string
+  days: PosDailyFinanceRow[]
+  totals: Omit<PosDailyFinanceRow, 'date'> & { avgCheck: number }
+  costKnown: boolean
+}
+
 export interface ShowcaseSettings {
   banners: ShowcaseBanner[]
   tickers: ShowcaseTicker[]
@@ -1158,6 +1179,7 @@ export const api = {
       body: JSON.stringify(data),
     }, 0, 300_000),
   getFinanceSummary: () => request<any>('/finance/summary'),
+  getPosDailyFinance: (days = 30) => request<PosDailyFinance>(`/finance/pos-daily?days=${days}`),
   getAdminAiStatus: () =>
     request<{
       configured: boolean
@@ -1408,6 +1430,7 @@ export const api = {
     cutDebt?: number
     expectedDebtPayVersion?: number
     expectedBonusPayVersion?: number
+    currentShiftId?: string
   }) =>
     request<PosSale>(`/pos/sales/${encodeURIComponent(id)}/return`, {
       method: 'POST',

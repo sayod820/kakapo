@@ -8,7 +8,7 @@ import { matchesAssemblerAssignment } from './assemblerTeam'
 import { courierDeliveryEarning } from './courierStats'
 import { orderGoodsTotal } from './orderLoyaltyAmount'
 
-export type FinanceTab = 'shop' | 'restaurants' | 'couriers' | 'assemblers'
+export type FinanceTab = 'kassa' | 'shop' | 'restaurants' | 'couriers' | 'assemblers'
 
 /** Оплата сборщику за собранный заказ магазина (ЅМ) */
 export const ASSEMBLER_PAY_PER_ORDER = 3
@@ -326,7 +326,8 @@ ${htmlBody}
 }
 
 export const FINANCE_TAB_OPTIONS: { id: FinanceTab; label: string; icon: string }[] = [
-  { id: 'shop', label: 'Магазин', icon: '🛒' },
+  { id: 'kassa', label: 'Касса', icon: '🧾' },
+  { id: 'shop', label: 'Онлайн-заказы', icon: '🛒' },
   { id: 'restaurants', label: 'Рестораны', icon: '🍽' },
   { id: 'couriers', label: 'Курьеры', icon: '🛵' },
   { id: 'assemblers', label: 'Сборщики', icon: '📦' },

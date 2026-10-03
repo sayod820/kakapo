@@ -14,6 +14,7 @@ import {
   aggregateShiftSaleTotals as aggregateShiftSaleTotalsCore,
   overlayShiftSaleTotals as overlayShiftSaleTotalsCore,
   expectedTillCashFromShift as expectedTillCashFromShiftCore,
+  expectedCardFromShift as expectedCardFromShiftCore,
   uniqueDebtRepayCashForShift as uniqueDebtRepayCashForShiftCore,
 } from './shiftSaleTotalsCore.mjs'
 
@@ -90,7 +91,13 @@ export function overlayShiftSaleTotalsWithDebtRepay(
 }
 
 export function expectedTillCashFromShift(
-  shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash'>,
+  shift: Pick<PosShift, 'openingCash' | 'salesCash' | 'cashInTotal' | 'expenseTotal' | 'debtRepayCash' | 'otherShiftReturnCash'>,
 ): number {
   return expectedTillCashFromShiftCore(shift)
+}
+
+export function expectedCardFromShift(
+  shift: Pick<PosShift, 'salesCard' | 'otherShiftReturnCard'>,
+): number {
+  return expectedCardFromShiftCore(shift)
 }

@@ -2054,6 +2054,9 @@ async function sendOp(row: PendingOp): Promise<string> {
     case 'sale_return': {
       const p = await resolveRefs(row.payload, ['saleId'])
       const { _revert: _drop, ...rest } = (p || {}) as Record<string, unknown>
+      if (isLocalId(rest.currentShiftId)) {
+        rest.currentShiftId = (await resolveLocalId(String(rest.currentShiftId))) || undefined
+      }
       const sale = await api.returnPosSale(String(rest.saleId), {
         clientRef: rest.clientRef,
         note: rest.note,
@@ -2065,6 +2068,7 @@ async function sendOp(row: PendingOp): Promise<string> {
         cutDebt: rest.cutDebt,
         expectedDebtPayVersion: rest.expectedDebtPayVersion != null ? Number(rest.expectedDebtPayVersion) : undefined,
         expectedBonusPayVersion: rest.expectedBonusPayVersion != null ? Number(rest.expectedBonusPayVersion) : undefined,
+        currentShiftId: rest.currentShiftId ? String(rest.currentShiftId) : undefined,
       } as any)
       return String((sale as any)?.id || '')
     }

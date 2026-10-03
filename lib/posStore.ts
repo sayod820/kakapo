@@ -348,6 +348,8 @@ function softListSig(rows: {
   cashInTotal?: number
   openingCash?: number
   debtRepayCash?: number
+  otherShiftReturnCash?: number
+  otherShiftReturnCard?: number
   closingCash?: number
   updatedAtIso?: string
   createdAtIso?: string
@@ -372,6 +374,8 @@ function softListSig(rows: {
       + (Number(r.cashInTotal) || 0)
       + (Number(r.openingCash) || 0)
       + (Number(r.debtRepayCash) || 0)
+      + (Number(r.otherShiftReturnCash) || 0)
+      + (Number(r.otherShiftReturnCard) || 0)
       + (Number(r.closingCash) || 0)
     counts += Number(r.salesCount) || 0
     if (Array.isArray(r.items)) {
