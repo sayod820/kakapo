@@ -1,7 +1,9 @@
 'use client'
 
+import { useEffect } from 'react'
 import type { MoneyPayFrom, MoneyPayMethod } from '@/lib/types'
 import { fmtMoney } from '@/components/trade/warehouse/warehouseShared'
+import { refreshCashVault, usePosStore } from '@/lib/posStore'
 
 export type MoneySourceValue = {
   payFrom: MoneyPayFrom
@@ -40,8 +42,13 @@ export default function MoneySourceFields({
 }: Props) {
   const payFrom = hideShift ? 'vault' : value.payFrom
   const method = value.method
+  // Ящик меняется с других аппаратов; телефон без полной загрузки иначе видит 0
+  const liveVault = usePosStore(s => s.cashVault)
+  useEffect(() => { void refreshCashVault() }, [])
+  const vaultCashNow = liveVault ? Math.round((Number(liveVault.cashTotal) || 0) * 100) / 100 : vaultCash
+  const vaultCardNow = liveVault ? Math.round((Number(liveVault.cardTotal) || 0) * 100) / 100 : vaultCard
   const avail = payFrom === 'vault'
-    ? (method === 'card' ? vaultCard : vaultCash)
+    ? (method === 'card' ? vaultCardNow : vaultCashNow)
     : (method === 'card' ? shiftCard : shiftCash)
 
   return (

@@ -841,6 +841,32 @@ export async function softSyncExpiry(opts?: { expiryDays?: number; force?: boole
   return expirySoftSyncInFlight
 }
 
+/** Основной ящик с сервера (его нет в /sync/changes). Не чаще раза в 15 с. */
+let cashVaultInFlight: Promise<void> | null = null
+let cashVaultFetchedAt = 0
+
+export async function refreshCashVault(force = false) {
+  if (cashVaultInFlight) return cashVaultInFlight
+  if (!force && Date.now() - cashVaultFetchedAt < 15_000) return
+  cashVaultInFlight = (async () => {
+    try {
+      // Неотправленная операция уже списала ящик локально — серверная сумма вернула бы деньги назад
+      const { getPending } = await import('./offline')
+      if ((await getPending()).some(r => !r.failed)) return
+      const cashVault = await api.getCashVault()
+      cashVaultFetchedAt = Date.now()
+      if (cashVault) {
+        usePosStore.setState({ cashVault: mergeCashVault(usePosStore.getState().cashVault, cashVault) })
+        await persistSoftPosSnapshot()
+      }
+    } catch { /* нет связи — остаётся кэш */ }
+    finally {
+      cashVaultInFlight = null
+    }
+  })()
+  return cashVaultInFlight
+}
+
 /** Вклады / расходы / ящик с другого аппарата — без полного POS-снимка. */
 let financeSoftSyncInFlight: Promise<void> | null = null
 
@@ -855,20 +881,8 @@ export async function softSyncFinance() {
       const { pullSyncChanges } = await import('./syncPull')
       const res = await pullSyncChanges({ forceFull: false })
       if (res.skipped === 'pending') return
-
-      // cashVault нет в /sync/changes — точечный GET
-      const cashVault = await api.getCashVault().catch(() => null)
-      if (cashVault) {
-        const cur = usePosStore.getState()
-        usePosStore.setState({
-          cashVault: mergeCashVault(cur.cashVault, cashVault),
-          apiReady: true,
-          apiError: '',
-        })
-        await persistSoftPosSnapshot()
-      } else {
-        usePosStore.setState({ apiReady: true, apiError: '' })
-      }
+      await refreshCashVault(true)
+      usePosStore.setState({ apiReady: true, apiError: '' })
     } catch { /* нет связи */ }
     finally {
       financeSoftSyncInFlight = null
