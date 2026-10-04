@@ -251,6 +251,24 @@ export async function querySyncChangesPg(afterCursor, opts = {}) {
   })
 }
 
+/**
+ * Trim sync_changes older than keepDays (the newest row always stays so the head cursor survives)
+ * and drop the legacy docs copy of the memory mirror (syncChangeLog is no longer persisted).
+ */
+export async function pruneSyncJournalPg({ keepDays = 60 } = {}) {
+  const days = Math.max(14, Math.floor(Number(keepDays) || 60))
+  return withClient(async (client) => {
+    const journal = await client.query(
+      `DELETE FROM sync_changes
+       WHERE created_at < now() - ($1::int * interval '1 day')
+         AND change_seq < (SELECT MAX(change_seq) FROM sync_changes)`,
+      [days],
+    )
+    const mirror = await client.query(`DELETE FROM docs WHERE collection = 'syncChangeLog'`)
+    return { journalDeleted: journal.rowCount || 0, mirrorDocsDeleted: mirror.rowCount || 0, keepDays: days }
+  })
+}
+
 export async function getSyncChangesHeadPg() {
   return withClient(async (client) => {
     const headRes = await client.query('SELECT COALESCE(MAX(change_seq), 0)::bigint AS head FROM sync_changes')

@@ -67,6 +67,28 @@ export function ensureSyncChangeLog(db) {
   return ensureChangeLogState(db)
 }
 
+export const PG_MIRROR_RETENTION = Object.freeze({
+  maxAgeMs: 3 * 24 * 60 * 60 * 1000,
+  maxRows: 200_000,
+})
+
+/** sync_changes keeps this many days; an older kassa cursor gets CURSOR_EXPIRED and falls back to the v1 pull. */
+export const PG_JOURNAL_KEEP_DAYS = 60
+
+/**
+ * PG upkeep: trim the memory mirror, drop its legacy docs copy, trim sync_changes.
+ * Business collections are not touched.
+ */
+export async function runSyncJournalMaintenance(db) {
+  if (!isPostgresEnabled()) return null
+  ensureSyncChangeLog(db)
+  const before = db.syncChangeLog.length
+  pruneChangeLog(db, PG_MIRROR_RETENTION)
+  const { pruneSyncJournalPg } = await import('./pg/syncChangesJournal.js')
+  const pg = await pruneSyncJournalPg({ keepDays: PG_JOURNAL_KEEP_DAYS })
+  return { mirrorBefore: before, mirrorAfter: db.syncChangeLog.length, ...pg }
+}
+
 function normalizeEntry(opts = {}) {
   const entityType = String(opts.entityType || opts.kind || '').trim()
   const entityId = String(opts.entityId ?? opts.id ?? '').trim()
@@ -165,11 +187,8 @@ export async function flushSyncChangeJournal(db) {
       bumpMetrics(row, !!row.duplicate)
     }
     metrics.journalFlushes += 1
-    // Retention: prune memory mirror only (PG retained separately)
-    pruneChangeLog(db, {
-      maxAgeMs: 90 * 24 * 60 * 60 * 1000,
-      maxRows: 5_000_000, // ~90d at 50k/day — do not use 500k (≈10d)
-    })
+    // Memory mirror only (not persisted with PG); the real journal is sync_changes
+    pruneChangeLog(db, PG_MIRROR_RETENTION)
     return { ok: true, count: rows.length, pending: 0 }
   } catch (e) {
     metrics.journalWriteFailures += 1

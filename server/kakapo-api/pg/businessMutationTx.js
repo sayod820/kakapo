@@ -161,15 +161,29 @@ export function snapshotCollections(db, collections = TX_COLLECTIONS) {
     if (Array.isArray(db[col])) snap[col] = deepClone(db[col])
   }
   if (db._pendingSyncChanges) snap._pendingSyncChanges = deepClone(db._pendingSyncChanges)
-  if (db.syncChangeLog) snap.syncChangeLog = deepClone(db.syncChangeLog)
+  // Журнал только дописывается: откат = убрать строки новее запомненного changeSeq (без копии ~25 МБ на каждую операцию)
+  if (Array.isArray(db.syncChangeLog)) snap._syncChangeLogMaxSeq = maxChangeSeq(db.syncChangeLog)
   if (db._seq) snap._seq = deepClone(db._seq)
   return snap
+}
+
+function maxChangeSeq(rows) {
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r?.changeSeq) || 0
+    if (n > max) max = n
+  }
+  return max
 }
 
 export function restoreCollections(db, snap) {
   if (!snap) return
   if (snap._cashVault != null) {
     db.cashVault = deepClone(snap._cashVault)
+  }
+  if (snap._syncChangeLogMaxSeq != null && Array.isArray(db.syncChangeLog)) {
+    const maxSeq = Number(snap._syncChangeLogMaxSeq) || 0
+    db.syncChangeLog = db.syncChangeLog.filter((r) => (Number(r?.changeSeq) || 0) <= maxSeq)
   }
   for (const [col, rows] of Object.entries(snap)) {
     if (col.startsWith('_') && col !== '_pendingSyncChanges' && col !== '_seq') continue

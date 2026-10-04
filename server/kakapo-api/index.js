@@ -140,7 +140,7 @@ import {
   isAckLostCompatibleReplay,
 } from './debtOpIdempotency.js'
 import { buildSyncChanges, buildSyncChangesAsync } from './syncChanges.js'
-import { getSafeHeadCursor } from './syncChangeLog.js'
+import { getSafeHeadCursor, runSyncJournalMaintenance } from './syncChangeLog.js'
 import { recordSyncDelete } from './syncDeletes.js'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
@@ -6186,6 +6186,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     }
   }, 6 * 60 * 60 * 1000)
   auditTimer.unref()
+  const runJournalUpkeep = () => {
+    runSyncJournalMaintenance(db)
+      .then((r) => { if (r) console.log('[sync-journal] upkeep', JSON.stringify(r)) })
+      .catch((e) => console.error('[sync-journal] upkeep failed', e?.message || e))
+  }
+  setTimeout(runJournalUpkeep, 60_000).unref()
+  setInterval(runJournalUpkeep, 24 * 60 * 60 * 1000).unref()
   const revisionTimer = setInterval(runRevisionCoordinator, 5000)
   revisionTimer.unref()
   setImmediate(() => runRevisionCoordinator())

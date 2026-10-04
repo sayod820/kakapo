@@ -72,6 +72,13 @@ export const APPEND_NO_PRUNE_COLLECTIONS = Object.freeze([
 
 const NO_PRUNE = new Set(APPEND_NO_PRUNE_COLLECTIONS)
 
+/**
+ * Only in memory when PG is on: syncChangeLog mirrors the sync_changes table (the real journal).
+ * Rows are keyed by array index, so trimming it would rewrite every row and leave stale tails.
+ */
+export const PG_MEMORY_ONLY_COLLECTIONS = Object.freeze(['syncChangeLog'])
+const PG_MEMORY_ONLY = new Set(PG_MEMORY_ONLY_COLLECTIONS)
+
 export function isAppendNoPruneCollection(name) {
   return NO_PRUNE.has(String(name || ''))
 }
@@ -336,6 +343,7 @@ export async function saveSnapshotToPg(client, snapshot, opts = {}) {
   const collections = []
 
   for (const [key, value] of Object.entries(snapshot || {})) {
+    if (PG_MEMORY_ONLY.has(key)) continue
     if (Array.isArray(value)) {
       collections.push(key)
       const used = new Set()
@@ -407,7 +415,7 @@ export async function saveSnapshotToPg(client, snapshot, opts = {}) {
 export function seedSnapshotJournalBaseline(snapshot) {
   writtenDocHash.clear()
   for (const [key, value] of Object.entries(snapshot || {})) {
-    if (!Array.isArray(value)) continue
+    if (!Array.isArray(value) || PG_MEMORY_ONLY.has(key)) continue
     const journaled = isJournaledCollection(key)
     const used = new Set()
     for (let i = 0; i < value.length; i++) {
