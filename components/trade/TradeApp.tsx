@@ -3713,8 +3713,25 @@ function TradeAppInner({
   )
 }
 
+/** Касса ПК: при запуске сотрудник остаётся вошедшим только посреди СВОЕЙ открытой смены. */
+async function desktopSessionKeepsOpenShift(s: TradeEmployeeSession): Promise<boolean> {
+  const [{ usePosStore }, { pickActiveOpenShift }, { normalizeCashierName }, { getBoundPosIdSync }] = await Promise.all([
+    import('@/lib/posStore'),
+    import('@/lib/shiftReconcile'),
+    import('@/lib/offlinePosOps'),
+    import('@/lib/tradeDevice'),
+  ])
+  const st = usePosStore.getState()
+  const shift = pickActiveOpenShift(st.shifts || [], { posId: getBoundPosIdSync() || undefined })
+  if (!shift) return false
+  let owner = String(shift.cashierName || '').trim()
+  if (!owner || /^кассир$/i.test(owner)) owner = (st.cashiers || []).find(c => c.id === shift.cashierId)?.name || owner
+  return !!owner && normalizeCashierName(owner) === normalizeCashierName(s.name)
+}
+
 function TradeAppGate() {
   const [session, setSession] = useState<TradeEmployeeSession | null>(null)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [ready, setReady] = useState(false)
   const [theme, setTheme] = useState<TradeTheme>(() => loadTradeTheme())
   /** null = ещё проверяем диск; true = установка ок; false = нужен первый скач */
@@ -3813,10 +3830,25 @@ function TradeAppGate() {
       m.ensureDesktopLocalFirst()
       void m.ensureBrowserOnlineOnly()
     }).catch(() => {})
-    void hydrateOfflineCaches().catch(() => {}).then(() => {
+    const saved = loadTradeEmployeeSession()
+    const hydrated = hydrateOfflineCaches().catch(() => {})
+    void hydrated.then(() => {
       useOfflineSync.getState().start()
     })
-    setSession(loadTradeEmployeeSession())
+    if (saved && isKakapoDesktop()) {
+      // Смена закрыта (или чужая) — без пароля не пускаем, в т.ч. без интернета (пароль сверяется локально).
+      const timeout = new Promise<false>(resolve => window.setTimeout(() => resolve(false), 8000))
+      void Promise.race([hydrated.then(() => desktopSessionKeepsOpenShift(saved)), timeout])
+        .catch(() => false)
+        .then(keep => {
+          if (keep) setSession(saved)
+          else clearTradeEmployeeSession()
+          setSessionChecked(true)
+        })
+    } else {
+      setSession(saved)
+      setSessionChecked(true)
+    }
     setTheme(loadTradeTheme())
   }, [])
 
@@ -3850,7 +3882,7 @@ function TradeAppGate() {
     saveTradeTheme(next)
   }
 
-  if (!ready || localDbReady === null) {
+  if (!ready || localDbReady === null || !sessionChecked) {
     return (
       <div className="k-trade" data-theme={theme} style={{ minHeight: '100vh', alignItems: 'center', justifyContent: 'center' }}>
         <style>{CSS}</style>

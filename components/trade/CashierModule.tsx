@@ -6,6 +6,7 @@ import { flushSync } from 'react-dom'
 import { api } from '@/lib/api'
 import { useOfflineSync } from '@/lib/offlineSync'
 import OfflineQueuePanel from '@/components/trade/OfflineQueuePanel'
+import { LOGIN_NOTICE_KEY } from '@/components/trade/TradeLoginPage'
 import { newClientRef, isOnline } from '@/lib/offline'
 import { allocPosOpSeq, ensurePosOpSeqReady } from '@/lib/posOpSeq'
 import { getBoundPosIdSync, getBoundDeviceNameSync, getTradeDeviceIdSync } from '@/lib/tradeDevice'
@@ -4897,7 +4898,10 @@ export default function CashierModule({
         note: rec.move?.text || rec.summary.text,
       })
       if (!closed.offline) void refresh()
-      else void useOfflineSync.getState().syncNow()
+      else {
+        // Закрытие должно уйти под этим сотрудником, пока вход ещё не сброшен
+        await useOfflineSync.getState().flushShiftCloseBeforeLogout(10_000).catch(() => false)
+      }
       setShiftReconcileOpen(false)
       setShiftReconciled(false)
       setCashierScreen(null)
@@ -4907,12 +4911,14 @@ export default function CashierModule({
       setClient(null)
       setGateCash(String(cash.toFixed(2)))
       const diffNote = rec.move?.text || rec.summary.text
-      showToast(
-        'Смена закрыта',
-        closed.offline
-          ? `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · в ящик${diffNote ? ` · ${diffNote}` : ''}`
-          : `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · основной ящик${diffNote ? ` · ${diffNote}` : ''}`,
-      )
+      const closedText = closed.offline
+        ? `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · в ящик${diffNote ? ` · ${diffNote}` : ''}`
+        : `${fmtMoney(cash)} нал · ${fmtMoney(card)} карта · основной ящик${diffNote ? ` · ${diffNote}` : ''}`
+      showToast('Смена закрыта', closedText)
+      if (onLogout) {
+        try { sessionStorage.setItem(LOGIN_NOTICE_KEY, `Смена закрыта: ${closedText}. Следующий кассир входит по своему паролю.`) } catch { /* ignore */ }
+        onLogout()
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Не удалось закрыть смену')
     } finally {
