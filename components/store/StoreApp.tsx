@@ -88,7 +88,7 @@ import {
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
-import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { isWeighted, isOutOfStock, stockCartCap, minWeight as productMinWeight, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { activeProductPromos } from "@/lib/productPromos";
 import { inferScheduleMode } from "@/lib/promoSchedule";
@@ -98,6 +98,10 @@ import { preloadLeaflet } from "@/lib/leafletLoader";
 import { useForcedDarkTheme } from "@/lib/appTheme";
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
+/** Bonuses and VIP credit need a verified customer (SMS login is postponed); the server ignores them for store orders. */
+const STORE_BONUS_CREDIT_ENABLED = false;
+/** Self-delete acts on a typed phone number, so it stays off until SMS login exists. */
+const STORE_ACCOUNT_DELETE_ENABLED = false;
 const CSS = `
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 :root{
@@ -1554,7 +1558,11 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
           overflow:"hidden",
         }}>{bulkHint || "\u00A0"}</div>
         <div style={{ marginTop:"auto", paddingTop:4 }}>
-        {qty === 0 ? (
+        {qty === 0 && isOutOfStock(p) ? (
+          <div style={{ width:"100%", padding:"9px", fontSize:12, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t3)", fontWeight:700, textAlign:"center" }}>
+            Нет в наличии
+          </div>
+        ) : qty === 0 ? (
           <button className="btn" onClick={add} style={{ width:"100%", padding:"9px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4, animation:pop ? "cartPop .3s ease" : "none" }}>
             <Ic n="plus" s={12} c="white" w={2.5}/>В корзину
           </button>
@@ -1992,6 +2000,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const lineTotal = calcLineTotal(p, qty);
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
+  const outOfStock = isOutOfStock(p);
   const storeRevLabel = storeRevCount == null ? '…' : String(storeRevCount);
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
@@ -2024,7 +2033,9 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
           <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
-          <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>
+          {outOfStock
+            ? <span style={{ fontSize:11, color:"var(--red)", fontWeight:700 }}>Нет в наличии</span>
+            : <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>}
         </div>
         <div className="card" style={{ padding:"18px", marginBottom:16 }}>
           <div style={{ display:"flex", alignItems:"flex-end", gap:10, marginBottom:4 }}>
@@ -2043,12 +2054,14 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
               {bulkPricingHintForQty(p, qty)}
             </div>
           )}
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+          {outOfStock && qty === 0 ? (
+            <div style={{ padding:"14px", fontSize:14, borderRadius:14, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t3)", fontWeight:700, textAlign:"center" }}>Нет в наличии</div>
+          ) : <div style={{ display:"flex", gap:10, alignItems:"center" }}>
             <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
             <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:qty>0?"rgba(31,215,96,.14)":"linear-gradient(135deg,var(--gr2),var(--gr))", border:qty>0?"1.5px solid rgba(31,215,96,.35)":"none", color:qty>0?"var(--gr)":"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:qty>0?"none":"0 6px 20px rgba(31,215,96,.28)" }}>
               <Ic n="bag" s={18} c={qty>0?"var(--gr)":"white"}/>{qty===0 ? "В корзину" : `В корзине · ${lineTotal.toFixed(2)} ЅМ`}
             </button>
-          </div>
+          </div>}
         </div>
         <div style={{ borderBottom:"1px solid var(--b1)", display:"flex", marginBottom:18 }}>
           {[{id:"desc",l:"Описание"},{id:"spec",l:"Характеристики"},{id:"rev",l:`Отзывы (${storeRevLabel})`}].map(t => (
@@ -2115,9 +2128,13 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
                     <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{rp.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                   </div>
                   <div style={{ padding:"0 10px 10px" }}>
-                    <button onClick={e => { e.stopPropagation(); onAdd(rp.id); }} className="btn" style={{ width:"100%", padding:"8px", borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}>
-                      <Ic n="plus" s={11} c="white" w={2.5}/>В корзину
-                    </button>
+                    {isOutOfStock(rp) ? (
+                      <div style={{ width:"100%", padding:"8px", borderRadius:10, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t3)", fontSize:11, fontWeight:700, textAlign:"center" }}>Нет в наличии</div>
+                    ) : (
+                      <button onClick={e => { e.stopPropagation(); onAdd(rp.id); }} className="btn" style={{ width:"100%", padding:"8px", borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}>
+                        <Ic n="plus" s={11} c="white" w={2.5}/>В корзину
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2134,7 +2151,9 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
               <span style={{ fontSize:13, color:"var(--gd)", fontWeight:700 }}>ЅМ</span>
             </div>
           </div>
-          {qty === 0 ? (
+          {qty === 0 && outOfStock ? (
+            <div style={{ flex:2, padding:"14px", fontSize:14, borderRadius:16, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t3)", fontWeight:700, textAlign:"center" }}>Нет в наличии</div>
+          ) : qty === 0 ? (
             <button onClick={add} className="btn" style={{ flex:2, padding:"14px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
               <Ic n="bag" s={18} c="white"/>В корзину
             </button>
@@ -2231,8 +2250,8 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
                         <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
-                        <button onClick={() => (isWeighted(p) ? p.qty <= (p.minWeight || 100) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
-                          {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
+                        <button onClick={() => (isWeighted(p) ? p.qty <= productMinWeight(p) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= productMinWeight(p)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
+                          {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= productMinWeight(p))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
                         </button>
                         <span className="ub" style={{ minWidth:36, textAlign:"center", fontSize:12, fontWeight:800, color:"var(--gr)" }}>{isWeighted(p) ? formatCartQtyStepper(p, p.qty) : p.qty}</span>
                         <button onClick={() => onAdd(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", background:"transparent", fontSize:18 }}>+</button>
@@ -2495,13 +2514,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const useCreditPay = pay === 'credit';
   const effectiveDelivery = deliveryFee;
   const orderTotal = sub + effectiveDelivery;
-  const bonusUsable = useBonus ? getBonusUsable(user, sub) : 0;
+  const bonusUsable = STORE_BONUS_CREDIT_ENABLED && useBonus ? getBonusUsable(user, sub) : 0;
   const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
   const creditGoods = useCreditPay ? Math.max(0, Math.round((payable - effectiveDelivery) * 100) / 100) : 0;
 
   const payOptions = useMemo(() => {
     const opts = [...CHECKOUT_PAYS_BASE];
-    if (credit.enabled && credit.available > 0) {
+    if (STORE_BONUS_CREDIT_ENABLED && credit.enabled && credit.available > 0) {
       opts.push({
         id: 'credit',
         icon: '👑',
@@ -2819,7 +2838,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         </div>
           )}
         </div>
-        {(user?.bonus || 0) > 0 && (
+        {STORE_BONUS_CREDIT_ENABLED && (user?.bonus || 0) > 0 && (
         <div className="card" style={{
           padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between",
           background: useBonus ? 'rgba(255,184,0,.12)' : 'rgba(255,184,0,.06)',
@@ -3308,7 +3327,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               ))}
             </div>
 
-        <div className="card" style={cardAccent}>
+        {STORE_ACCOUNT_DELETE_ENABLED && <div className="card" style={cardAccent}>
           {confirmDelete ? (
             <div style={{ padding:"14px" }}>
               <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
@@ -3375,7 +3394,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="card" style={cardAccent}>
           <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
@@ -7239,10 +7258,19 @@ function KakapoAppInner() {
     markCartTouched();
     const p = prods.find(x => x.id == id);
     if (p && !restId) {
+      if (isOutOfStock(p)) {
+        if (!silent) showToast('Нет в наличии');
+        return;
+      }
       const promo = activeProductPromos(apiPromos).find(pr => Number(pr.productId) === Number(p.id));
       setCart(c => {
         const cur = c[id] || 0;
         let next = nextCartQty(p, cur, true);
+        const cap = stockCartCap(p);
+        if (cap != null && next > cap) {
+          if (!silent) showToast(`В наличии только ${formatCartQty(p, cap)}`);
+          return c;
+        }
         if (promo) {
           const room = promoCartRoom(promo, cur);
           if (room != null && room <= 0) {

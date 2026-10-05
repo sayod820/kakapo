@@ -247,8 +247,8 @@ export function buildProductPayload(
     organic: data.organic,
     bulkPricing: existing?.bulkPricing,
     ...(isWeight ? {
-      weightStep: 1,
-      minWeight: 1,
+      weightStep: 100,
+      minWeight: 100,
       unitGrams: 1000,
       packWeightGrams: undefined,
     } : {

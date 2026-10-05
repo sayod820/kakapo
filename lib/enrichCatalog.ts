@@ -15,7 +15,8 @@ export function enrichProducts(api: Product[], seed: any[]): any[] {
   const list = Array.isArray(api) ? api : []
   if (!list.length) return USE_API ? [] : seed
   return list.map(p => {
-    const base = seed.find(s => s.id === p.id || s.art === p.art) || {}
+    // Demo seed ids/arts collide with real catalog rows, so it only fills offline demo mode.
+    const base = USE_API ? {} : (seed.find(s => s.id === p.id || s.art === p.art) || {})
     const discount = p.discount ?? (p.old && p.old > p.price ? Math.round((1 - p.price / p.old) * 100) : 0)
     const catId = productCatSlug({ catId: p.catId || base.catId, cat: base.cat })
     const seedRating = !USE_API && typeof base.r === 'number' ? base.r : 0
@@ -52,7 +53,7 @@ export function enrichRestaurants(api: Restaurant[], seed: any[]): any[] {
   const list = Array.isArray(api) ? api : []
   if (!list.length) return USE_API ? [] : seed.map(r => ({ ...r, rating: 0, reviews: 0 }))
   return list.map(r => {
-    const base = seed.find(s => s.id === r.id) || {}
+    const base = USE_API ? {} : (seed.find(s => s.id === r.id) || {})
     const { rating: _seedRating, reviews: _seedReviews, ...baseUi } = base
     return {
       ...baseUi,

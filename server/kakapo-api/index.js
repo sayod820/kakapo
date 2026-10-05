@@ -154,6 +154,9 @@ import {
   productPhotoNeedsConvert,
   UPLOAD_ROOT,
 } from './productPhotoPipeline.js'
+import { isStaffPrincipal, toPublicProduct, requestSeesFullProducts } from './publicProductView.js'
+import { priceStoreOrderBody } from './storeOrderGuard.js'
+import { isAuthEnforced } from './apiAuth.js'
 import {
   processAndSaveRestaurantPhoto,
   deleteManagedRestaurantPhoto,
@@ -1118,9 +1121,11 @@ function broadcast(event, order) {
 
 function broadcastProduct(product) {
   // Catalog invalidation remains receivable by public/catalog + staff + client.
-  const msg = JSON.stringify({ event: 'product_update', product: stripHeavyPhotoFields(product) })
+  const row = stripHeavyPhotoFields(product)
+  const msg = JSON.stringify({ event: 'product_update', product: row })
+  const publicMsg = JSON.stringify({ event: 'product_update', product: toPublicProduct(row) })
   for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(msg)
+    if (ws.readyState === 1) ws.send(isStaffPrincipal(ws.wsPrincipal) || !isAuthEnforced() ? msg : publicMsg)
   }
 }
 
@@ -1707,9 +1712,10 @@ app.patch('/auth/admin', (req, res) => {
   res.json({ ok: true, login: nextLogin })
 })
 
-app.get('/products', (_req, res) => {
+app.get('/products', (req, res) => {
   kickProductPhotoMigration()
-  res.json((db.products || []).map(stripHeavyPhotoFields))
+  const full = requestSeesFullProducts(req)
+  res.json((db.products || []).map(p => (full ? stripHeavyPhotoFields(p) : toPublicProduct(stripHeavyPhotoFields(p)))))
 })
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
@@ -2615,7 +2621,14 @@ function findDuplicateRecentOrder(db, order) {
 }
 
 app.post('/orders', async (req, res) => {
-  const body = req.body || {}
+  let body = req.body || {}
+  if (!requestSeesFullProducts(req)) {
+    try {
+      body = priceStoreOrderBody(db, body)
+    } catch (e) {
+      return res.status(e?.status || 400).json({ detail: e?.message || 'Заказ не принят', code: e?.code || 'STORE_ORDER_INVALID' })
+    }
+  }
   const clientRef = takeClientRef(req)
   const refGate = isPostgresEnabled() ? requireClientRef(clientRef) : { ok: true, clientRef }
   if (!refGate.ok) {

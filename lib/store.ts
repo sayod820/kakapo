@@ -397,10 +397,10 @@ export const useOrders = create<OrdersStore>((set, get) => ({
       try {
         const order = await api.createOrder(prepared)
         const normalized = normalizeOrder({
-          ...order,
           ...prepared,
-          items: (prepared.items as Order['items']) ?? order.items,
-          status: 'new',
+          ...order,
+          items: order.items ?? (prepared.items as Order['items']),
+          status: order.status || 'new',
         })
         patchOrders(set, get, s => [normalized, ...s])
         return normalized
@@ -838,6 +838,17 @@ interface ProductsStore {
   removeProduct: (id: number) => Promise<void>
   removeProducts: (ids: number[]) => Promise<{ removed: number }>
 }
+/** Public catalog omits costPrice (store visitors); a staff app with an expired session must not lose it. */
+function keepKnownCostPrice(incoming: Product[], current: Product[]): Product[] {
+  if (!current.length) return incoming
+  const prevById = new Map(current.map(p => [Number(p.id), p]))
+  return incoming.map(p => {
+    if (Object.prototype.hasOwnProperty.call(p, 'costPrice')) return p
+    const prev = prevById.get(Number(p.id))
+    return prev?.costPrice != null ? { ...p, costPrice: prev.costPrice } : p
+  })
+}
+
 export const useProducts = create<ProductsStore>((set, get) => ({
   products: USE_API ? [] : PRODUCTS,
   loaded: !USE_API,
@@ -876,7 +887,7 @@ export const useProducts = create<ProductsStore>((set, get) => ({
         })
       } catch { /* ignore */ }
       const { sanitizeProductForLocalCache, cacheProducts, getPending } = await import('./offline')
-      let products = raw.map(sanitizeProductForLocalCache)
+      let products = keepKnownCostPrice(raw.map(sanitizeProductForLocalCache), get().products)
       try {
         const pending = await getPending()
         const STOCK_KINDS = new Set([

@@ -1,7 +1,18 @@
 import { BACKEND_URL } from '@/lib/config'
 
 const RETRY_STATUS = new Set([500, 502, 503, 504])
+/** Backend was not reached, so a non-idempotent write did not run. */
+const RETRY_STATUS_UNSAFE = new Set([502, 503])
 const RETRY_DELAY_MS = 5000
+
+function hasClientRef(body: RequestInit['body']): boolean {
+  if (typeof body !== 'string' || !body.includes('clientRef')) return false
+  try {
+    return !!String((JSON.parse(body) as { clientRef?: unknown })?.clientRef || '').trim()
+  } catch {
+    return false
+  }
+}
 
 export async function wakeBackend() {
   try {
@@ -15,6 +26,9 @@ export async function backendFetch(
   attempts = 4,
 ): Promise<Response> {
   let lastRes: Response | null = null
+  const method = String(init.method || 'GET').toUpperCase()
+  const safeToRepeat = method === 'GET' || method === 'HEAD' || hasClientRef(init.body)
+  const retryStatus = safeToRepeat ? RETRY_STATUS : RETRY_STATUS_UNSAFE
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * i))
     else await wakeBackend()
@@ -29,10 +43,10 @@ export async function backendFetch(
         cache: 'no-store',
         signal: AbortSignal.timeout(25000),
       })
-      if (res.ok || !RETRY_STATUS.has(res.status) || i === attempts - 1) return res
+      if (res.ok || !retryStatus.has(res.status) || i === attempts - 1) return res
       lastRes = res
     } catch (e) {
-      if (i === attempts - 1) throw e
+      if (i === attempts - 1 || !safeToRepeat) throw e
     }
   }
   return lastRes!

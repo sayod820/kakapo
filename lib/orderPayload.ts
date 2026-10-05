@@ -96,6 +96,8 @@ export function sanitizeOrderPayload(raw: Record<string, unknown>) {
     pay: String(raw.payment_method ?? raw.pay ?? 'cash'),
     priority: 'normal',
   }
+  const clientRef = String(raw.clientRef ?? '').trim()
+  if (clientRef) payload.clientRef = clientRef.slice(0, 120)
 
   const creditAmt = Number(raw.creditAmount)
   if (raw.payment_method === 'credit' || raw.pay === 'credit') {

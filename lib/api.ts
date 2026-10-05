@@ -159,6 +159,10 @@ export const getToken = (): string | null => {
         }
       }
     } catch { /* ignore */ }
+    // Customer store (/, /store): the shop PC may hold an admin login in the same browser;
+    // the store must stay a public client and never fetch staff data with it.
+    const path = window.location.pathname || '/'
+    if (path === '/' || path.startsWith('/store')) return null
   }
   if (_token) return _token
   if (typeof window !== 'undefined') {
