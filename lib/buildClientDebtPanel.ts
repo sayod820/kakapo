@@ -228,6 +228,7 @@ export function buildClientDebtPanel({
     posSales,
     history,
     normalizedCardDebt,
+    client.debtLedger,
   )
 
   const manual = history.filter(isManualDebtHistoryEntry)

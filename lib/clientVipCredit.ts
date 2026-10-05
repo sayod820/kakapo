@@ -368,6 +368,7 @@ export function buildSaleDebtStatuses(
   sales: { id: string; orderId?: string; debtAdded: number; dateIso: string }[],
   history: DebtHistoryEntry[],
   cardDebt: number,
+  debtLedger?: Array<{ saleId?: string; remaining?: number }> | null,
 ): { saleStatus: Record<string, SaleDebtStatus>; posOriginal: number; posRemain: number; cashOnCard: number } {
   const debt = Math.max(0, Math.round(cardDebt * 100) / 100)
 
@@ -379,6 +380,7 @@ export function buildSaleDebtStatuses(
     historyRemainBySaleId,
     debt,
     {
+      debtLedger: debtLedger || undefined,
       isLinked: (s) => {
         const keys = saleOrderKeys(s)
         return history.some(h =>

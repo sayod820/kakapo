@@ -296,7 +296,10 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: Pos
   const manual = history.filter(isManualDebtHistoryEntry)
   const totals = debtHistoryTotals(manual)
   const posSales = posDebtSalesFor(client, sales)
-  const { posRemain, cashOnCard } = buildSaleDebtStatuses(posSales, history, debt)
+  const { posRemain, cashOnCard } = buildSaleDebtStatuses(
+    posSales, history, debt,
+    client.debtLedger?.length ? client.debtLedger : (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
+  )
   return {
     ...client,
     debt,
@@ -614,6 +617,9 @@ export default function DebtsModule({
       posSales,
       history,
       cardDebt,
+      detailClient.debtLedger?.length
+        ? detailClient.debtLedger
+        : (cardForClient(detailClient, cards) as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
     )
     const totalDebt = cardDebt
     const cashChargeSum = Math.round(

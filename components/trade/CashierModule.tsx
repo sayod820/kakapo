@@ -3454,6 +3454,7 @@ export default function CashierModule({
       posSales,
       history,
       cardDebt,
+      (client as { debtLedger?: { saleId?: string; remaining?: number }[] }).debtLedger,
     )
 
     const manual = history.filter(isManualDebtHistoryEntry)
@@ -7694,7 +7695,8 @@ export default function CashierModule({
                     number: s.number,
                   }))
                   .filter(s => s.debtAdded > 0.001)
-                const { saleStatus: preStatus } = buildSaleDebtStatuses(creditSalesPre, historyPre, prevDebt)
+                const ledgerPre = (soldClient as { debtLedger?: { saleId?: string; remaining?: number }[] }).debtLedger
+                const { saleStatus: preStatus } = buildSaleDebtStatuses(creditSalesPre, historyPre, prevDebt, ledgerPre)
                 const openTargets = creditSalesPre
                   .filter(s => (preStatus[s.id]?.remain || 0) > 0.001)
                   .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
@@ -7725,7 +7727,7 @@ export default function CashierModule({
                   const histKey = histKeyPre
                   const history = historyPre
                   const creditSales = creditSalesPre
-                  const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt)
+                  const { saleStatus } = buildSaleDebtStatuses(creditSales, history, prevDebt, ledgerPre)
                   const targets = creditSales
                     .filter(s => (saleStatus[s.id]?.remain || 0) > 0.001)
                     .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
