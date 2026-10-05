@@ -1320,7 +1320,23 @@ function installApiCorsBypass() {
   })
 }
 
+// Вторая копия кассы делила бы SQLite, весы и принтер с первой — сразу выходим и показываем уже открытое окно.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.exit(0)
+} else {
+  app.on('second-instance', () => {
+    bootLog('second-instance blocked')
+    const win = mainWindow
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    if (!win.isVisible()) win.show()
+    win.focus()
+  })
+}
+
 app.whenReady().then(async () => {
+  if (!gotSingleInstanceLock) return
   bootLog('whenReady', { version: app.getVersion(), electron: process.versions.electron })
   try { buildAppMenu() } catch (e) { bootLog('menu', e?.message || String(e)) }
   try { installApiCorsBypass() } catch (e) { bootLog('cors bypass', e?.message || String(e)) }
