@@ -290,6 +290,7 @@ import {
   getPosReport,
   getAdminDashboardPos,
   getPosDailyFinance,
+  getPosAdminReports,
 } from './posLogic.js'
 import * as revisionCoordinator from './revisionCoordinator.js'
 import {
@@ -5829,6 +5830,10 @@ app.get('/finance/pos-summary', (_req, res) => {
 
 app.get('/finance/pos-daily', (req, res) => {
   res.json(getPosDailyFinance(db, { days: req.query.days }))
+})
+
+app.get('/admin/reports', (req, res) => {
+  res.json(getPosAdminReports(db, { days: req.query.days }))
 })
 
 app.get('/reports/pos', (_req, res) => {

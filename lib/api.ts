@@ -77,6 +77,24 @@ export interface PosDailyFinance {
   costKnown: boolean
 }
 
+export interface PosAdminReports {
+  from: string
+  to: string
+  cashiers: Array<{
+    cashier: string; sales: number; revenue: number; cash: number; card: number
+    debt: number; returns: number; profit: number; avgCheck: number
+  }>
+  products: Array<{
+    id: number; name: string; unit: string; sales: number
+    qty: number; revenue: number; cogs: number; profit: number
+  }>
+  lowStock: Array<{
+    id: number; name: string; unit: string; stock: number
+    sold30d: number; perDay: number; daysLeft: number; suggestQty: number
+  }>
+  lowStockDaysLeft: number
+}
+
 export interface ShowcaseSettings {
   banners: ShowcaseBanner[]
   tickers: ShowcaseTicker[]
@@ -1180,6 +1198,7 @@ export const api = {
     }, 0, 300_000),
   getFinanceSummary: () => request<any>('/finance/summary'),
   getPosDailyFinance: (days = 30) => request<PosDailyFinance>(`/finance/pos-daily?days=${days}`),
+  getAdminReports: (days = 30) => request<PosAdminReports>(`/admin/reports?days=${days}`),
   getAdminAiStatus: () =>
     request<{
       configured: boolean

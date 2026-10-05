@@ -4687,6 +4687,107 @@ export function getPosDailyFinance(db, { days = 30, now = new Date() } = {}) {
   return { from: fromYmd, to: todayYmd, days: out, totals, costKnown }
 }
 
+const REPORT_LOW_STOCK_DAYS_LEFT = 7
+
+/** Admin reports: kassa by cashier, by product, and products running out (net of returns). */
+export function getPosAdminReports(db, { days = 30, now = new Date() } = {}) {
+  ensurePosCollections(db)
+  const n = Math.max(1, Math.min(366, Math.round(Number(days) || 30)))
+  const todayYmd = ymdBusiness(now)
+  const fromYmd = addCalendarDays(todayYmd, -(n - 1))
+  const productsById = new Map((db.products || []).map(p => [Number(p.id), p]))
+  const byCashier = new Map()
+  const byProduct = new Map()
+  const sold30 = new Map()
+  const from30Ms = now.getTime() - 30 * 86400000
+
+  for (const row of db.posSales || []) {
+    const iso = row?.createdAtIso
+    if (!iso) continue
+    const fullyReturned = isSaleFullyReturnedRow(row)
+    const t = new Date(iso).getTime()
+    if (!fullyReturned && t >= from30Ms) {
+      for (const it of row.items || []) {
+        const key = Number(it.productId)
+        sold30.set(key, (sold30.get(key) || 0) + saleLineLeftQty(it))
+      }
+    }
+    if (ymdBusiness(iso) < fromYmd) continue
+    const cashierKey = String(row.cashierName || row.cashierId || '—').trim() || '—'
+    let c = byCashier.get(cashierKey)
+    if (!c) {
+      c = { cashier: cashierKey, sales: 0, revenue: 0, cash: 0, card: 0, debt: 0, returns: 0, profit: 0 }
+      byCashier.set(cashierKey, c)
+    }
+    if (fullyReturned) {
+      c.returns += Number(row.originalTotal) || Number(row.lastReturnTotal) || Number(row.total) || 0
+      continue
+    }
+    if ((row.items || []).some(it => (Number(it.returnedQty) || 0) > 0)) c.returns += Number(row.lastReturnTotal) || 0
+    const total = Number(row.total) || 0
+    c.sales += 1
+    c.revenue += total
+    c.cash += Number(row.paidCash) || 0
+    c.card += Number(row.paidCard) || 0
+    c.debt += Number(row.debtAdded) || 0
+    c.profit += total - saleRowCogs(row, productsById)
+
+    const lines = (row.items || []).map(it => {
+      const qty = Number(it.qty) || 0
+      const left = saleLineLeftQty(it)
+      const lineTotal = Number(it.lineTotal) || (Number(it.price) || 0) * qty
+      return { it, left, gross: qty > 0 ? lineTotal * (left / qty) : 0 }
+    }).filter(l => l.left > 0)
+    const grossSum = lines.reduce((s, l) => s + l.gross, 0)
+    const scale = grossSum > 0 ? total / grossSum : 0
+    for (const { it, left, gross } of lines) {
+      const key = Number(it.productId)
+      const p = productsById.get(key)
+      let r = byProduct.get(key)
+      if (!r) {
+        r = { id: key, name: p?.name || it.productName || `#${key}`, unit: p?.unit || it.unit || '', qty: 0, revenue: 0, cogs: 0, sales: 0 }
+        byProduct.set(key, r)
+      }
+      const cost = it.lineCost != null && Number(it.qty) > 0
+        ? (Number(it.lineCost) || 0) * (left / Number(it.qty))
+        : (Number(it.unitCost) || Number(p?.costPrice) || 0) * left
+      r.qty += left
+      r.revenue += gross * scale
+      r.cogs += cost
+      r.sales += 1
+    }
+  }
+
+  const cashiers = [...byCashier.values()].map(c => {
+    for (const k of ['revenue', 'cash', 'card', 'debt', 'returns', 'profit']) c[k] = round2(c[k])
+    return { ...c, avgCheck: c.sales ? round2(c.revenue / c.sales) : 0 }
+  }).sort((a, b) => b.revenue - a.revenue)
+
+  const products = [...byProduct.values()].map(r => ({
+    id: r.id, name: r.name, unit: r.unit, sales: r.sales,
+    qty: round2(r.qty), revenue: round2(r.revenue), cogs: round2(r.cogs), profit: round2(r.revenue - r.cogs),
+  })).sort((a, b) => b.revenue - a.revenue)
+
+  const lowStock = []
+  for (const p of db.products || []) {
+    if (p?.deleted || p?.archived) continue
+    const sold = sold30.get(Number(p.id)) || 0
+    if (!(sold > 0)) continue
+    const stock = round2(Number(p.stock) || 0)
+    const perDay = sold / 30
+    const daysLeft = stock <= 0 ? 0 : Math.floor(stock / perDay)
+    if (daysLeft > REPORT_LOW_STOCK_DAYS_LEFT) continue
+    lowStock.push({
+      id: p.id, name: p.name, unit: p.unit || '', stock,
+      sold30d: round2(sold), perDay: round2(perDay), daysLeft,
+      suggestQty: Math.max(0, Math.ceil(perDay * 14 - Math.max(0, stock))),
+    })
+  }
+  lowStock.sort((a, b) => (a.daysLeft - b.daysLeft) || (b.perDay - a.perDay))
+
+  return { from: fromYmd, to: todayYmd, cashiers, products, lowStock, lowStockDaysLeft: REPORT_LOW_STOCK_DAYS_LEFT }
+}
+
 /** Canonical POS report summary — net of returns; COGS from sales (not purchase receipts). */
 export function getPosFinanceSummary(db) {
   ensurePosCollections(db)

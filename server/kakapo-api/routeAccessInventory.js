@@ -59,6 +59,7 @@ const OVERRIDES = {
   'POST /admin/reset-operational': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'admin', requireCaps: [CAP.ADMIN_RECOVERY], businessRisk: 'critical' },
   'POST /admin/ai/ask': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'admin', requireCaps: [CAP.ADMIN_RECOVERY] },
   'GET /admin/dashboard': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'admin', requireCaps: [CAP.READ_STAFF] },
+  'GET /admin/reports': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'admin', requireCaps: [CAP.READ_STAFF] },
   'GET /admin/ai/status': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'admin', requireCaps: [CAP.READ_STAFF] },
   'GET /audit': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'audit', requireCaps: [CAP.ADMIN_RECOVERY] },
   'POST /audit/:id/restore': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'audit', requireCaps: [CAP.ADMIN_RECOVERY], businessRisk: 'critical' },

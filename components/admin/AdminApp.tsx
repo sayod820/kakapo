@@ -520,16 +520,32 @@ const NAV_GROUPS = [
   {g:'Маркетплейс',items:[{id:'partners',icon:'🍽',l:'Рестораны'},{id:'reviews',icon:'⭐',l:'Отзывы'},{id:'pickups',icon:'📍',l:'Точки забора'}]},
           {g:'Команда',   items:[{id:'couriers',icon:'🛵',l:'Курьеры'},{id:'assemblers',icon:'🛒',l:'Сборщики'},{id:'employees',icon:'👤',l:'Сотрудники'},{id:'pospoints',icon:'🖥',l:'Точки кассы'},{id:'courierorders',icon:'🗺',l:'Заказы курьеров'}]},
   {g:'Клиенты',   items:[{id:'clients',icon:'👥',l:'Клиенты'},{id:'cards',icon:'💳',l:'Карты'},{id:'debts',icon:'📒',l:'Долги VIP'},{id:'push',icon:'🔔',l:'Push'}]},
-  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'cash',icon:'💵',l:'Касса'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
+  {g:'Финансы',   items:[{id:'finance',icon:'💰',l:'Финансы'},{id:'reports',icon:'📈',l:'Отчёты'},{id:'cash',icon:'💵',l:'Касса'},{id:'tariff',icon:'🚚',l:'Тариф доставки'}]},
   {g:'Контент',   items:[{id:'banners',icon:'🖼',l:'Баннеры / Слайдеры'}]},
   {g:'Система',   items:[{id:'ai',icon:'🧠',l:'ИИ-ассистент'},{id:'audit',icon:'📜',l:'История действий'},{id:'settings',icon:'⚙️',l:'Настройки'}]},
 ];
+/** Разделы без данных (нет ресторанов/курьеров/сборщиков) — скрыты из меню, страницы остаются по ?p=. */
+const HIDDEN_NAV = new Set(['partners','couriers','assemblers','courierorders']);
+const SHOW_HIDDEN_NAV_KEY = 'kakapo_admin_show_hidden_nav';
 
 function Layout({page,setPage,children,title,subtitle,session,onLogout,theme,onThemeChange}) {
   const apiOrders = useOrders(s => s.orders);
   const storedCards = useCards();
   const clients = useClients();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showHiddenNav, setShowHiddenNav] = useState(false);
+  useEffect(() => {
+    try { if (window.localStorage.getItem(SHOW_HIDDEN_NAV_KEY) === '1') setShowHiddenNav(true); } catch { /* ignore */ }
+  }, []);
+  const toggleHiddenNav = () => {
+    setShowHiddenNav(v => {
+      try { window.localStorage.setItem(SHOW_HIDDEN_NAV_KEY, v ? '0' : '1'); } catch { /* ignore */ }
+      return !v;
+    });
+  };
+  const navGroups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(n => showHiddenNav || !HIDDEN_NAV.has(n.id) || page === n.id) }))
+    .filter(g => g.items.length > 0);
   const orders = useMemo(
     () => (USE_API ? mapOrdersForAdmin(apiOrders) : ALL_ORDERS),
     [apiOrders],
@@ -567,7 +583,7 @@ function Layout({page,setPage,children,title,subtitle,session,onLogout,theme,onT
           <button type="button" className="admin-mob-btn" onClick={() => setMenuOpen(false)} aria-label="Закрыть" style={{width:34,height:34,fontSize:16}}>✕</button>
         </div>
         <nav style={{flex:1,padding:'8px',display:'flex',flexDirection:'column',gap:0}}>
-          {NAV_GROUPS.map(g=>(
+          {navGroups.map(g=>(
             <div key={g.g} style={{marginBottom:4}}>
               <div style={{fontSize:9,fontWeight:800,color:'var(--t3)',textTransform:'uppercase',letterSpacing:1,padding:'6px 10px 3px'}}>{g.g}</div>
               {g.items.map(n=>(
@@ -580,6 +596,10 @@ function Layout({page,setPage,children,title,subtitle,session,onLogout,theme,onT
               ))}
             </div>
           ))}
+          <button type="button" onClick={toggleHiddenNav} className="btn"
+            style={{marginTop:6,padding:'7px 11px',borderRadius:10,background:'transparent',border:'1px dashed var(--b1)',color:'var(--t3)',fontSize:11,fontWeight:600,textAlign:'left',cursor:'pointer',width:'100%'}}>
+            {showHiddenNav ? '▴ Скрыть пустые разделы' : `▾ Показать скрытые разделы (${HIDDEN_NAV.size})`}
+          </button>
         </nav>
         <div style={{padding:'10px 14px 16px',borderTop:'1px solid var(--b1)',flexShrink:0}}>
           <div style={{fontSize:11,fontWeight:700,color:'var(--t2)',marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
@@ -4091,6 +4111,13 @@ function ClientsPage() {
 
   const detailClient = detailId ? clients.find(c => c.id === detailId) : null;
 
+  const exportClientsCsv = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`kakapo-klienty-${today}.csv`,
+      ['ID', 'Имя', 'Телефон', 'Карта', 'Уровень', 'Заказов', 'Потрачено', 'Бонусы', 'Кошелёк', 'Долг', 'Лимит долга', 'Заблокирован'],
+      filtered.map(c => [c.id, c.name, c.phone, c.card || '', c.level, c.orders, c.spent, c.bonus, c.wallet || 0, c.debt, c.debtLimit, c.blocked ? 'да' : '']));
+  };
+
   const openAdd = () => {
     setForm(emptyClientProfileForm());
     setFormErr('');
@@ -4312,6 +4339,7 @@ function ClientsPage() {
               {purgingDemo ? 'Удаление демо…' : '🧹 Убрать демо-клиентов'}
             </button>
           )}
+          <button type="button" onClick={exportClientsCsv} disabled={!filtered.length} className="ab abg">📊 Excel</button>
           <button onClick={openAdd} className="ab abp">+ Добавить клиента</button>
         </div>
       </div>
@@ -5503,6 +5531,13 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
     return [...list].sort((a, b) => b.debt - a.debt);
   }, [debtCards, filter, search]);
 
+  const exportDebtsCsv = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`kakapo-dolgi-${today}.csv`,
+      ['Карта', 'Клиент', 'Телефон', 'Долг', 'Лимит', 'Превышен лимит'],
+      filtered.map(c => [c.num, c.client, c.phone, c.debt, c.debtLimit, c.debtLimit > 0 && c.debt > c.debtLimit ? 'да' : '']));
+  };
+
   const creditOrders = useMemo(() => {
     if (!detail?.phone) return [];
     return apiOrders
@@ -5705,6 +5740,7 @@ function DebtsPage({ setPage }: { setPage: (p: string) => void }) {
             {f.l}
           </button>
         ))}
+        <button type="button" onClick={exportDebtsCsv} disabled={!filtered.length} className="ab abg" style={{ marginLeft: 'auto', padding: '7px 14px', fontSize: 12 }}>📊 Excel</button>
       </div>
 
       <div className="ac">
@@ -7164,6 +7200,163 @@ function KassaFinancePanel() {
           <div style={{ padding: 16, fontSize: 12, color: 'var(--t3)' }}>За этот период продаж нет</div>
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── ОТЧЁТЫ ─────────────────────────────────────── */
+function ReportsPage({ setPage }) {
+  const [tab, setTab] = useState<'days' | 'cashiers' | 'products' | 'low'>('days')
+  const [days, setDays] = useState(30)
+  const [data, setData] = useState<import('@/lib/api').PosAdminReports | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [productSort, setProductSort] = useState<'revenue' | 'qty' | 'profit'>('revenue')
+
+  useEffect(() => {
+    if (!USE_API || tab === 'days') return
+    let alive = true
+    setLoading(true)
+    setError('')
+    api.getAdminReports(days)
+      .then(d => { if (alive) setData(d) })
+      .catch(e => { if (alive) setError(e?.message || 'Не удалось загрузить') })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [days, tab])
+
+  const sm = (n: number) => `${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ЅМ`
+  const qn = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('ru-RU')
+  const period = data ? `${data.from}_${data.to}` : ''
+  const cashiers = data?.cashiers || []
+  const products = useMemo(() => (data?.products || []).slice().sort((a, b) => b[productSort] - a[productSort]), [data, productSort])
+  const lowStock = data?.lowStock || []
+
+  const exportCashiers = () => downloadCsv(`kakapo-kassiry-${period}.csv`,
+    ['Кассир', 'Чеков', 'Выручка', 'Наличные', 'Карта', 'В долг', 'Возвраты', 'Средний чек', 'Прибыль'],
+    cashiers.map(c => [c.cashier, c.sales, c.revenue, c.cash, c.card, c.debt, c.returns, c.avgCheck, c.profit]))
+  const exportProducts = () => downloadCsv(`kakapo-tovary-${period}.csv`,
+    ['Товар', 'Ед.', 'Продано', 'Чеков', 'Выручка', 'Себестоимость', 'Прибыль'],
+    products.map(p => [p.name, p.unit, p.qty, p.sales, p.revenue, p.cogs, p.profit]))
+  const exportLow = () => downloadCsv(`kakapo-zakanchivaetsya-${data?.to || ''}.csv`,
+    ['Товар', 'Ед.', 'Остаток', 'Продано за 30 дн', 'В день', 'Хватит на (дн)', 'Заказать на 2 недели'],
+    lowStock.map(p => [p.name, p.unit, p.stock, p.sold30d, p.perDay, p.daysLeft, p.suggestQty]))
+
+  const tabs = [
+    { id: 'days', l: '📅 По дням' },
+    { id: 'cashiers', l: '👤 Кассиры' },
+    { id: 'products', l: '🥦 Товары' },
+    { id: 'low', l: '⚠️ Заканчивается' },
+  ] as const
+  const btn = (active: boolean) => ({
+    padding: '6px 12px', fontSize: 12,
+    background: active ? 'rgba(31,215,96,.12)' : 'var(--l3)',
+    border: `1.5px solid ${active ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`,
+    color: active ? '#1FD760' : 'var(--t2)',
+  })
+  const empty = (text: string) => <div style={{ padding: 16, fontSize: 12, color: 'var(--t3)' }}>{text}</div>
+  const head = (title: string, onExport?: () => void) => (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--b1)', fontWeight: 800, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span>{title}</span>
+      {onExport && <button type="button" onClick={onExport} className="ab abg" style={{ padding: '4px 10px', fontSize: 11 }}>📊 Excel</button>}
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {tabs.map(t => (
+          <button key={t.id} type="button" onClick={() => setTab(t.id)} className="ab" style={btn(tab === t.id)}>{t.l}</button>
+        ))}
+      </div>
+
+      {tab === 'days' && <KassaFinancePanel />}
+
+      {tab !== 'days' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          {tab !== 'low' && <>
+            <span style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 700 }}>Период:</span>
+            {[{ d: 1, l: 'Сегодня' }, { d: 7, l: '7 дней' }, { d: 30, l: '30 дней' }, { d: 90, l: '90 дней' }].map(p => (
+              <button key={p.d} type="button" onClick={() => setDays(p.d)} className="ab" style={btn(days === p.d)}>{p.l}</button>
+            ))}
+          </>}
+          {tab === 'low' && <span style={{ fontSize: 12, color: 'var(--t2)' }}>
+            Товары, которых по скорости продаж (за 30 дней) хватит не больше чем на {data?.lowStockDaysLeft ?? 7} дн.
+          </span>}
+          {loading && <span style={{ fontSize: 11, color: 'var(--t3)' }}>Загрузка…</span>}
+          {error && <span style={{ fontSize: 11, color: '#FF4545' }}>⚠ {error}</span>}
+        </div>
+      )}
+
+      {tab === 'cashiers' && (
+        <div className="ac" style={{ marginBottom: 16 }}>
+          {head('Продажи по кассирам', cashiers.length ? exportCashiers : undefined)}
+          <table className="at">
+            <thead><tr><th>Кассир</th><th>Чеков</th><th>Выручка</th><th>Нал</th><th>Карта</th><th>В долг</th><th>Возвраты</th><th>Средний чек</th><th>Прибыль</th></tr></thead>
+            <tbody>{cashiers.map(c => (
+              <tr key={c.cashier}>
+                <td style={{ fontWeight: 700 }}>{c.cashier}</td>
+                <td>{c.sales}</td>
+                <td><span className="ub" style={{ color: '#1FD760', fontWeight: 800 }}>{sm(c.revenue)}</span></td>
+                <td>{sm(c.cash)}</td>
+                <td>{sm(c.card)}</td>
+                <td style={{ color: c.debt ? '#FFB800' : undefined }}>{sm(c.debt)}</td>
+                <td style={{ color: c.returns ? '#FF4545' : undefined }}>{sm(c.returns)}</td>
+                <td>{sm(c.avgCheck)}</td>
+                <td style={{ color: '#9B6DFF' }}>{sm(c.profit)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {data && !cashiers.length && empty('За этот период продаж нет')}
+        </div>
+      )}
+
+      {tab === 'products' && (
+        <div className="ac" style={{ marginBottom: 16 }}>
+          {head(`Товары (${products.length})`, products.length ? exportProducts : undefined)}
+          <div style={{ display: 'flex', gap: 8, padding: '10px 16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--t2)', fontWeight: 700 }}>Сортировка:</span>
+            {([['revenue', 'По выручке'], ['qty', 'По количеству'], ['profit', 'По прибыли']] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setProductSort(k)} className="ab" style={btn(productSort === k)}>{l}</button>
+            ))}
+          </div>
+          <table className="at">
+            <thead><tr><th>#</th><th>Товар</th><th>Продано</th><th>Чеков</th><th>Выручка</th><th>Себестоимость</th><th>Прибыль</th></tr></thead>
+            <tbody>{products.slice(0, 200).map((p, i) => (
+              <tr key={p.id}>
+                <td style={{ color: 'var(--t3)' }}>{i + 1}</td>
+                <td style={{ fontWeight: 700 }}>{p.name}</td>
+                <td>{qn(p.qty)} {p.unit}</td>
+                <td>{p.sales}</td>
+                <td><span className="ub" style={{ color: '#1FD760', fontWeight: 800 }}>{sm(p.revenue)}</span></td>
+                <td>{p.cogs ? sm(p.cogs) : '—'}</td>
+                <td style={{ color: '#9B6DFF' }}>{p.cogs ? sm(p.profit) : '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {products.length > 200 && empty(`Показаны первые 200 из ${products.length} — полный список в Excel`)}
+          {data && !products.length && empty('За этот период продаж нет')}
+        </div>
+      )}
+
+      {tab === 'low' && (
+        <div className="ac" style={{ marginBottom: 16 }}>
+          {head(`Заканчивается (${lowStock.length})`, lowStock.length ? exportLow : undefined)}
+          <table className="at">
+            <thead><tr><th>Товар</th><th>Остаток</th><th>Продаётся в день</th><th>Хватит на</th><th>Заказать на 2 недели</th></tr></thead>
+            <tbody>{lowStock.map(p => (
+              <tr key={p.id} onClick={() => setPage('products')} style={{ cursor: 'pointer' }}>
+                <td style={{ fontWeight: 700 }}>{p.name}</td>
+                <td style={{ color: p.stock <= 0 ? '#FF4545' : '#FFB800', fontWeight: 800 }}>{qn(p.stock)} {p.unit}</td>
+                <td>{qn(p.perDay)} {p.unit}</td>
+                <td style={{ color: p.daysLeft <= 0 ? '#FF4545' : undefined, fontWeight: 700 }}>{p.daysLeft <= 0 ? 'нет в наличии' : `${p.daysLeft} дн.`}</td>
+                <td>{p.suggestQty ? `${qn(p.suggestQty)} ${p.unit}` : '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {data && !lowStock.length && empty('Всё в порядке — ничего не заканчивается')}
+        </div>
+      )}
     </div>
   )
 }
@@ -9031,8 +9224,8 @@ function AdminAppInner({
     useProductPhotos.getState().hydrate();
     return () => {};
   }, []);
-  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',pospoints:'Точки кассы',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
-  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',pospoints:'Касса магазина · устройства · код привязки · ревизия',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
+  const TITLES={dashboard:'Dashboard',categories:'Категории товаров',orders:'Все заказы',products:'Товары',promos:'Акции',banners:'Баннеры / Слайдеры',partners:'Рестораны-партнёры',reviews:'Отзывы',couriers:'Курьеры',assemblers:'Сборщики',employees:'Сотрудники',pospoints:'Точки кассы',clients:'Клиенты',cards:'Карты',debts:'Долги VIP',push:'Push уведомления',finance:'Финансы',reports:'Отчёты',cash:'Касса',ai:'ИИ-ассистент',audit:'История действий',settings:'Настройки',pickups:'Точки забора',courierorders:'Заказы курьеров',tariff:'Тариф доставки'};
+  const SUBS={dashboard:'Управление всеми 4 приложениями · г. Яван',categories:'Управление разделами каталога',orders:'Магазин и рестораны · в реальном времени',products:'Каталог · артикулы KAK-XXXX · остатки',promos:'Скидки на товары · категории в магазине автоматически',banners:'Слайдер на главной и в разделе Акций',partners:'Управление, меню, комиссии, выплаты',reviews:'Магазин и рестораны · отдельные вкладки',couriers:'GPS трекинг · kakapo-courier',assemblers:'Команда сборки · kakapo-assembler',employees:'Доступ в приложение Торговля · пароль и разделы',pospoints:'Касса магазина · устройства · код привязки · ревизия',clients:'CRM · все клиенты',cards:'Карты КАКАПО-XXXX · бонусы · долги',debts:'VIP-кредит · долги клиентов · погашение через поддержку',push:'Рассылка клиентам всех приложений',finance:'Выручка · комиссии · выплаты · курьеры · сборщики',reports:'Касса · по дням · кассиры · товары · что заканчивается',cash:'Наличка в кассах · открытые смены · недостачи и излишки',ai:'Gemini · анализ кассы, товаров, долгов, курьеров, сборщиков и ресторанов · Alt+0…9',audit:'Админка и Торговля · кто что изменил · хранение 30 дней',settings:'Доступ · SMS · контакты',pickups:'Магазин и рестораны · адреса и координаты',courierorders:'Активные заказы с маршрутами · kakapo-courier',tariff:'Тариф доставки · магазин · курьеры · OSRM'};
   return (
     <Layout page={page} setPage={setPage} title={TITLES[page]||page} subtitle={SUBS[page]||''} session={session} onLogout={onLogout} theme={theme} onThemeChange={setTheme}>
       {page==='dashboard'  && <DashboardPage  setPage={setPage}/>}
@@ -9055,6 +9248,7 @@ function AdminAppInner({
       {page==='tariff'     && <TariffPage/>}
       {page==='courierorders' && <CourierOrdersPage/>}
       {page==='finance'    && <FinancePage/>}
+      {page==='reports'    && <ReportsPage setPage={setPage}/>}
       {page==='cash'       && <AdminCashPage/>}
       {page==='ai'         && <AdminAiAssistantPage/>}
       {page==='audit'      && <AuditLogPage/>}
