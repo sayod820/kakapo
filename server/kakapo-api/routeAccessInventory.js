@@ -33,6 +33,7 @@ const OVERRIDES = {
   'PATCH /auth/admin': { access: 'ADMIN', adminOnly: true, authRequired: true, domain: 'auth', requireCaps: [CAP.SETTINGS_EDIT] },
 
   'GET /products': { access: 'PUBLIC_STORE', public: true, domain: 'catalog' },
+  'GET /products/top': { access: 'PUBLIC_STORE', public: true, domain: 'catalog', businessRisk: 'ids only, ranked by receipt count' },
   'GET /categories': { access: 'PUBLIC_STORE', public: true, domain: 'catalog' },
   'GET /categories/tree': { access: 'PUBLIC_STORE', public: true, domain: 'catalog' },
   'GET /promos': { access: 'PUBLIC_STORE', public: true, domain: 'catalog' },

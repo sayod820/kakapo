@@ -3,7 +3,7 @@
  * weighted lines use grams with a sane minimum, promo / bulk / delivery match the catalog.
  */
 import { priceStoreOrderBody, isPromoActiveForStore } from '../server/kakapo-api/storeOrderGuard.js'
-import { toPublicProduct } from '../server/kakapo-api/publicProductView.js'
+import { toPublicProduct, topSellingProductIds } from '../server/kakapo-api/publicProductView.js'
 
 let pass = 0
 let fail = 0
@@ -71,6 +71,22 @@ check('daily promo 11:50–12:30 active at 12:00',
 const pub = toPublicProduct(db.products[0])
 check('public product hides costPrice', pub.costPrice === undefined && pub.price === 39.5)
 check('public product hides supplier', toPublicProduct(db.products[1]).supplierName === undefined)
+
+const salesDb = {
+  products: [
+    { id: 1, price: 5, stock: 10 }, { id: 2, price: 5, stock: 10 }, { id: 3, price: 5, stock: 0 },
+    { id: 4, price: 0, stock: 10 }, { id: 5, price: 5, stock: 10, deleted: true },
+  ],
+  posSales: [
+    { createdAtIso: '2026-10-04T10:00:00Z', items: [{ productId: 2, qty: 1 }, { productId: 2, qty: 3 }, { productId: 1, qty: 1 }] },
+    { createdAtIso: '2026-10-03T10:00:00Z', items: [{ productId: 2, qty: 1 }, { productId: 3, qty: 9 }, { productId: 4, qty: 9 }, { productId: 5, qty: 9 }] },
+    { createdAtIso: '2026-10-02T10:00:00Z', status: 'returned', items: [{ productId: 1, qty: 50 }] },
+    { createdAtIso: '2026-10-01T10:00:00Z', items: [{ productId: 1, qty: 2, returnedQty: 2 }] },
+    { createdAtIso: '2026-08-01T10:00:00Z', items: [{ productId: 1, qty: 99 }] },
+  ],
+}
+const top = topSellingProductIds(salesDb, { now: now.getTime() })
+check('top: ranked by receipts, skips stock 0 / no price / deleted / returned / old', JSON.stringify(top) === '[2,1]')
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

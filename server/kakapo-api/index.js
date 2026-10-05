@@ -154,7 +154,7 @@ import {
   productPhotoNeedsConvert,
   UPLOAD_ROOT,
 } from './productPhotoPipeline.js'
-import { isStaffPrincipal, toPublicProduct, requestSeesFullProducts } from './publicProductView.js'
+import { isStaffPrincipal, toPublicProduct, requestSeesFullProducts, topSellingProductIds } from './publicProductView.js'
 import { priceStoreOrderBody } from './storeOrderGuard.js'
 import { isAuthEnforced } from './apiAuth.js'
 import {
@@ -1716,6 +1716,14 @@ app.get('/products', (req, res) => {
   kickProductPhotoMigration()
   const full = requestSeesFullProducts(req)
   res.json((db.products || []).map(p => (full ? stripHeavyPhotoFields(p) : toPublicProduct(stripHeavyPhotoFields(p)))))
+})
+let topProductsCache = { at: 0, ids: [] }
+app.get('/products/top', (req, res) => {
+  if (Date.now() - topProductsCache.at > 10 * 60 * 1000) {
+    topProductsCache = { at: Date.now(), ids: topSellingProductIds(db, { limit: 24 }) }
+  }
+  const limit = Math.max(1, Math.min(24, Number(req.query.limit) || 12))
+  res.json({ ids: topProductsCache.ids.slice(0, limit) })
 })
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)

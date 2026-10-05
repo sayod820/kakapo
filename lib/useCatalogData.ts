@@ -19,14 +19,16 @@ export function useCatalogData(fallbackProds: any[], fallbackRests: any[]) {
     const rawProds = USE_API
       ? (productsLoaded ? enrichProducts(products, fallbackProds) : [])
       : fallbackProds
-    const prods = applyActiveProductPromos(rawProds, promos)
+    // Store shows only sellable rows: no price means the server rejects the order line.
+    const sellable = rawProds.filter((p: any) => Number(p?.price) > 0 && !p?.deleted && !p?.archived)
+    const prods = applyActiveProductPromos(sellable, promos)
     return {
       prods,
       catalogReady,
       restaurantsReady,
       promosReady,
       restaurants: USE_API
-        ? (restaurantsLoaded ? enrichRestaurants(restaurants, fallbackRests) : [])
+        ? (restaurantsLoaded ? enrichRestaurants(restaurants, fallbackRests).filter((r: any) => !r.blocked) : [])
         : fallbackRests,
     }
   }, [products, productsLoaded, promos, promosLoaded, restaurants, restaurantsLoaded, fallbackProds, fallbackRests])

@@ -1187,6 +1187,7 @@ export const api = {
   // ── Админ ──
   getDashboard: () => request<any>('/admin/dashboard'),
   getShowcase: () => request<ShowcaseSettings>('/settings/showcase'),
+  getTopProductIds: (limit = 12) => request<{ ids: number[] }>(`/products/top?limit=${limit}`),
   saveShowcase: (data: Pick<ShowcaseSettings, 'banners' | 'tickers'>) =>
     request<ShowcaseSettings>('/settings/showcase', { method: 'PUT', body: JSON.stringify(data) }),
   resetOperationalData: (data: { confirm: string; currentPassword: string }) =>

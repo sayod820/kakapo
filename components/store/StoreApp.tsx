@@ -2,7 +2,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type MouseEvent } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
-import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
+import { hydrateCourierStores, usePickups, usePricing } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto, resolvePhotoUrl } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
@@ -419,7 +419,7 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
               <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
                 <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
                 <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
-                  {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
+                  {isVip ? "VIP · г. Яван" : "г. Яван · Доставка продуктов"}
                 </span>
               </div>
             </>
@@ -641,6 +641,31 @@ const HOT_HITS_CAT = {
   bg: "linear-gradient(145deg,#2A1000,#4A2000)",
   color: "var(--org)",
 };
+
+let topProductIdsCache = null;
+let topProductIdsRequest = null;
+/** «Хиты»: products flagged hot by the admin first, then the most frequent in kassa receipts (30 days). */
+function useTopProducts(prods, limit = 12) {
+  const [ids, setIds] = useState(topProductIdsCache);
+  useEffect(() => {
+    if (!USE_API || topProductIdsCache) return;
+    let alive = true;
+    topProductIdsRequest = topProductIdsRequest || api.getTopProductIds(24)
+      .then(r => (topProductIdsCache = Array.isArray(r?.ids) ? r.ids : []))
+      .catch(() => { topProductIdsRequest = null; return []; });
+    topProductIdsRequest.then(v => { if (alive) setIds(v); });
+    return () => { alive = false; };
+  }, []);
+  return useMemo(() => {
+    const byId = new Map(prods.map(p => [Number(p.id), p]));
+    const flagged = prods.filter(p => p.hot && !isOutOfStock(p));
+    const seen = new Set(flagged.map(p => p.id));
+    const fromSales = (ids || [])
+      .map(id => byId.get(Number(id)))
+      .filter(p => p && !seen.has(p.id) && !isOutOfStock(p) && Number(p.price) > 0);
+    return [...flagged, ...fromSales].slice(0, limit);
+  }, [prods, ids, limit]);
+}
 
 function productsInCategory(prods, catId, subCatId = null, cats = []) {
   if (catId === "hot") return prods.filter(p => p.hot);
@@ -1086,7 +1111,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
           <UserStatusBadge user={user} size="sm" />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {['🚀 Приоритет', '🌿 Доставка 0', '⭐ Кешбэк 5%', '💳 Кредит'].map((p, i) => (
+          {['⭐ Бонусы по карте', '💳 Долг на кассе', '📞 Поддержка'].map((p, i) => (
             <div key={i} style={{
               flex: 1, textAlign: 'center', fontSize: 8, fontWeight: 700, padding: '6px 2px', borderRadius: 8,
               color: light ? '#B45309' : 'rgba(255,220,100,.9)', background: insetChipBg(light, 0.28), border: '1px solid rgba(255,184,0,.22)',
@@ -1487,25 +1512,23 @@ function fillCartFromOrder(
   return added;
 }
 
-const FAQ = () => {
-  const cfg = loadLoyaltyStatusConfig();
-  const bronze = cfg.tiers.find(t => t.id === 'bronze');
-  const silver = cfg.tiers.find(t => t.id === 'silver');
-  const gold = cfg.tiers.find(t => t.id === 'gold');
-  const platinum = cfg.tiers.find(t => t.id === 'platinum');
-  const vip = getVipRules();
-  const welcome = getRegistrationWelcomeBonus(cfg);
+const FAQ = (pricing) => {
+  const base = Number(pricing?.base) || 0;
+  const baseDist = Number(pricing?.baseDist) || 0;
+  const perKm = Number(pricing?.perKm) || 0;
+  const freeFrom = Number(pricing?.freeFrom) || 0;
+  const deliveryCost = base > 0
+    ? `${base} ЅМ${baseDist > 0 ? ` до ${baseDist} км` : ''}${perKm > 0 ? `, дальше +${perKm} ЅМ за каждый км` : ''}. Точную сумму видно при оформлении после выбора адреса.${freeFrom > 0 ? ` Бесплатно при заказе от ${freeFrom} ЅМ.` : ''}`
+    : 'Сумма доставки считается при оформлении после выбора адреса.';
   return [
-  {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
-  {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
-  {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
-  {q:"Как работает бонусная программа?",     a:`Кэшбэк за покупки налом или картой (не за долг): Бронза ${bronze?.bonusPercent ?? 1}%, Серебро ${silver?.bonusPercent ?? 2}%, Золото ${gold?.bonusPercent ?? 3}%, Platinum ${platinum?.bonusPercent ?? 5}%. Статус действует 30 дней. Бонусы тратятся в магазине и в приложении. 1 бонус = 1 ЅМ.`},
-  {q:"Как стать VIP клиентом?",              a:`${vip.minOrders}+ заказов, ${vip.minReviews} отзывов, траты от ${vip.minSpent.toLocaleString()} ЅМ. VIP даёт кредитный лимит и ${cfg.vip.bonusPercent}% кешбэк.`},
-  {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
-  {q:"Гарантия свежести?",                   a:"Если товар плохого качества — полный возврат в течение 24 часов без вопросов."},
-  {q:"Как зарегистрироваться?",              a:`Телефон → SMS код → имя. 1 минута. +${welcome} бонусов за регистрацию!`},
-  {q:"Можно ли отследить курьера?",          a:"Да! После начала доставки в приложении появится карта с местоположением курьера."},
-  {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
+  {q:"Как быстро доставляют заказ?",         a:"Сначала заказ соберут в магазине, затем курьер привезёт его по адресу. Время зависит от загрузки — мы позвоним, если нужно уточнить."},
+  {q:"Стоимость доставки?",                  a:deliveryCost},
+  {q:"Какие способы оплаты?",                a:"Наличными курьеру при получении."},
+  {q:"Нужна ли регистрация?",                a:"Нет. При оформлении укажите имя, телефон и адрес — этого достаточно."},
+  {q:"Бонусы и карта КАКАПО",                a:"Бонусы по карте КАКАПО начисляются и тратятся на кассе в магазине. В интернет-магазине списание бонусов и покупка в долг пока недоступны."},
+  {q:"Как отменить или изменить заказ?",     a:"Позвоните или напишите в поддержку (контакты ниже) — лучше до того, как заказ соберут."},
+  {q:"Товар не подошёл или плохого качества?", a:"Сразу сообщите курьеру или позвоните в поддержку — разберёмся и заменим или вернём деньги."},
+  {q:"Что если меня нет дома?",              a:"Оставьте комментарий к заказу. Курьер позвонит на указанный номер перед приездом."},
 ]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const light = false;
@@ -1599,6 +1622,8 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   const b = banners[bi % banners.length];
   const bannerTitle = light ? 'var(--t1)' : '#fff';
   const bannerSub = light ? 'var(--t2)' : 'rgba(255,255,255,.6)';
+  const hasRestaurants = restaurants.length > 0;
+  const topProducts = useTopProducts(prods, 4);
   const restTileBg = softAccentSurface('#EA580C', light, 'linear-gradient(145deg,#1A0808,#3A1010)');
   const promoBannerBg = softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#070A18,#0E1430)');
   return (
@@ -1647,11 +1672,12 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </div>
             ))
           )}
-          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:restTileBg, border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
+          {hasRestaurants && <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:restTileBg, border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
             <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
             <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.25 }}>Рестораны</div>
-          </div>
+          </div>}
         </div>
+        {hasRestaurants && <>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🍽 Рестораны г. Яван</div>
           <button onClick={() => go("restaurants")} className="btn" style={{ fontSize:12, color:"var(--org)", background:"transparent" }}>Все →</button>
@@ -1672,21 +1698,24 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </div>
           ))}
         </div>
+        </>}
+        {topProducts.length > 0 && <>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
           <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
           <button onClick={() => go("hot")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
         </div>
         <div className="store-prod-grid" style={{ marginBottom:20, alignItems:"stretch" }}>
-          {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
+          {topProducts.map((p,i) => (
             <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, height:"100%" }}>
               <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
             </div>
           ))}
         </div>
+        </>}
         <div onClick={() => go("promos")} style={{ borderRadius:18, background:promoBannerBg, border:"1px solid rgba(59,142,240,.2)", padding:"18px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
           <div>
             <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:4 }}>Акции и скидки</div>
-            <div style={{ fontSize:12, color:"var(--t2)" }}>Флэш-распродажа до 20:00 ⚡</div>
+            <div style={{ fontSize:12, color:"var(--t2)" }}>Товары по сниженной цене</div>
           </div>
           <div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>🏷</div>
         </div>
@@ -1706,19 +1735,19 @@ const CatalogPage = ({ go, cart, user }) => {
     <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
-        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"hot"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
+        {[{e:"💸",t:"Акции",s:"Сниженные цены",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Чаще всего берут",c:"var(--org)",to:"hot"}].map((p,i) => (
           <button key={i} type="button" onClick={() => go(p.to)} className="btn" style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, textAlign:"left" }}>
             <div style={{ fontSize:28, marginBottom:8 }}>{p.e}</div>
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:p.c, marginBottom:2 }}>{p.t}</div>
             <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
           </button>
         ))}
-        <div onClick={() => go("restaurants")} style={{ background:restBannerBg, border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
+        {restaurants.length > 0 && <div onClick={() => go("restaurants")} style={{ background:restBannerBg, border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ fontSize:38 }}>🍽</div>
             <div style={{ flex:1 }}>
               <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--org)", marginBottom:2 }}>Рестораны г. Яван</div>
-              <div style={{ fontSize:11, color: light ? "var(--t2)" : "rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
+              <div style={{ fontSize:11, color: light ? "var(--t2)" : "rgba(255,255,255,.5)", marginBottom:6 }}>{restaurants.map(r => r.name).filter(Boolean).slice(0, 4).join(', ')}</div>
               <div style={{ display:"flex", gap:8 }}>
                 {restaurants.map(r => (
                   <span key={r.id} style={{ fontSize:18 }}>{r.emoji}</span>
@@ -1731,7 +1760,7 @@ const CatalogPage = ({ go, cart, user }) => {
               <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
             </div>
           </div>
-        </div>
+        </div>}
       </div>
       <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
       {!catsReady ? (
@@ -1781,12 +1810,12 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  let items = isHotHits ? prods.filter(p => p.hot) : productsInCategory(prods, params?.cat, subCat, cats);
+  const topProducts = useTopProducts(prods, 24);
+  let items = isHotHits ? topProducts : productsInCategory(prods, params?.cat, subCat, cats);
   if (search) items = items.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   if (sort === "cheap") items = [...items].sort((a,b) => a.price - b.price);
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
-  else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
   if (USE_API && (!catalogReady || !catsReady)) {
     return (
       <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
@@ -2313,7 +2342,7 @@ const CHECKOUT_PAYS_BASE = [
   { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру при получении' },
 ];
 const CHECKOUT_TIMES = [
-  { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
+  { id: 'asap', l: 'Как можно скорее', s: 'Время доставки сообщим после сборки' },
 ];
 
 function CheckoutField({ label, value, onChange, err }) {
@@ -2358,9 +2387,6 @@ function CheckoutRadio({ items, val, set }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: val === m.id ? 'var(--gr)' : 'var(--t1)' }}>{m.l || m.label}</div>
             <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>{m.s || m.sub}</div>
           </div>
-          {m.id === 'asap' && (
-            <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 8, background: 'rgba(31,215,96,.12)', color: 'var(--gr)' }}>~45 мин</span>
-          )}
         </div>
       ))}
     </div>
@@ -2685,7 +2711,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:deliveryMin > 0 ? `в пути ~${Math.round(deliveryMin)} мин после сборки` : "Сообщим после сборки",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -3517,14 +3543,13 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showRev, setShowRev] = useState(null);
-  const [step, setStep] = useState(1);
+  const step = 2;
   useEffect(() => {
     const oid = params?.orderId || params?.id
     if (!oid) return
     const o = ordersList.find(x => x.id === oid)
     if (o) setSelected(o)
   }, [params?.orderId, params?.id, ordersList])
-  useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
   useEffect(() => {
     if (!user?.phone) {
       setReviewed({});
@@ -3696,7 +3721,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ padding:"16px", borderRadius:16, background:"rgba(59,142,240,.06)", border:"1px solid rgba(59,142,240,.2)", marginBottom:16 }}>
             <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}>
               <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative" }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
-              <span style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер едет · {selected.eta}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер едет{selected.eta ? ` · ${selected.eta}` : ''}</span>
             </div>
             <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
               {["Принят","Собирается","В пути","Доставлен"].map((l,i) => (
@@ -3710,12 +3735,6 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                   {i<3 && <div style={{ flex:1, height:3, borderRadius:2, background:i<step?"var(--gr)":"var(--b1)", margin:"0 3px", marginBottom:18 }}/>}
                 </div>
               ))}
-            </div>
-            <div style={{ height:80, borderRadius:12, background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
-              <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px)" }}/>
-              <div style={{ position:"absolute", right:"15%", top:"30%", fontSize:18 }}>🏠</div>
-              <div style={{ position:"absolute", left:"25%", top:"35%", fontSize:16 }}>🛵</div>
-              <div style={{ position:"absolute", bottom:7, left:10, fontSize:9, color:"rgba(255,255,255,.4)" }}>г. Яван · Live tracking</div>
             </div>
           </div>
         )}
@@ -3862,9 +3881,8 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 <div style={{ padding:"9px 14px", background:"rgba(59,142,240,.08)", borderBottom:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--blue)", position:"relative" }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
-                    <span style={{ fontSize:12, fontWeight:700, color:"var(--blue)" }}>Курьер едет · {o.eta}</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:"var(--blue)" }}>Курьер едет{o.eta ? ` · ${o.eta}` : ''}</span>
                   </div>
-                  <span style={{ fontSize:10, color:"var(--t3)" }}>Live</span>
                 </div>
               )}
               <div style={{ padding:"13px 14px" }}>
@@ -4422,6 +4440,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
   const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user, light);
   const [query, setQuery] = useState("");
+  const topProducts = useTopProducts(prods, 8);
   const iRef = useRef();
   useEffect(() => {
     const t = setTimeout(() => iRef.current?.focus(), 100);
@@ -4446,22 +4465,14 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
-        {!query && (
+        {!query && topProducts.length > 0 && (
           <div>
-            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Популярные</div>
+            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Часто покупают</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:24 }}>
-              {["Молоко","Хлеб","Мясо","Брокколи","Кофе","Яйца","Сыр","Лосось"].map(s => (
-                <button key={s} onClick={() => setQuery(s)} className="btn chip">🔍 {s}</button>
+              {topProducts.map(p => (
+                <button key={p.id} onClick={() => go("product", { id:p.id })} className="btn chip">{p.e} {p.name}</button>
               ))}
             </div>
-            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Недавние поиски</div>
-            {["Говядина вырезка","Молоко 3.2%","Круассан масляный"].map((r,i) => (
-              <div key={i} onClick={() => setQuery(r)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:"1px solid var(--b1)", cursor:"pointer" }}>
-                <div style={{ width:32, height:32, borderRadius:9, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="clock" s={14} c="var(--t3)"/></div>
-                <span style={{ flex:1, fontSize:13, fontWeight:600 }}>{r}</span>
-                <div style={{ transform:"rotate(225deg)" }}><Ic n="arr" s={13} c="var(--t3)"/></div>
-              </div>
-            ))}
           </div>
         )}
         {query && results.length===0 && (
@@ -4520,7 +4531,8 @@ const FAQPage = ({ go }) => {
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
   const support = useSupportContacts();
-  const items = useMemo(() => FAQ(), []);
+  const { pricing } = usePricing();
+  const items = useMemo(() => FAQ(pricing), [pricing]);
   const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
@@ -5371,17 +5383,14 @@ const VIPPage = ({ go, user, setUser }) => {
   const memberSinceLabel = formatMemberSinceLabel(user?.memberSince);
 
   const PERKS = [
-    { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
-    { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит доступен только VIP-клиентам.", color:"var(--gd)" },
-    { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
-    { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
-    { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
+    { e:"💳", title:"Покупки в долг на кассе", desc:creditLimit > 0 ? `Лимит ${creditLimit.toLocaleString()} ЅМ — покупки в магазине с оплатой позже.` : "Лимит открывает магазин VIP-клиентам.", color:"var(--gd)" },
+    { e:"⭐", title:"Бонусы по карте",          desc:"Процент бонусов зависит от уровня карты КАКАПО. Тратятся на кассе.", color:"var(--gd)" },
+    { e:"📞", title:"Линия поддержки",          desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
   ];
   const promoPerks = [
-    { e:"🚀", title:"Приоритетная доставка", desc:"VIP-заказы собираются первыми и приезжают быстрее обычных." },
-    { e:"💳", title:"Покупки в долг", desc:"VIP-клиентам открывается лимит на покупки с оплатой позже." },
-    { e:"📞", title:"Линия поддержки", desc:"Отдельный номер и Telegram для вопросов по заказам, бонусам и долгу." },
-    { e:"⭐", title:"Максимальный кешбэк", desc:"Больше бонусов с каждого заказа и больше выгоды от покупок." },
+    { e:"💳", title:"Покупки в долг", desc:"VIP-клиентам магазин открывает лимит на покупки с оплатой позже." },
+    { e:"⭐", title:"Больше бонусов", desc:"Чем выше уровень карты, тем больше бонусов с каждой покупки." },
+    { e:"📞", title:"Линия поддержки", desc:"Номер и Telegram для вопросов по заказам, бонусам и долгу." },
   ];
   const vipRules = getVipRules();
 
@@ -5587,9 +5596,11 @@ const VIPPage = ({ go, user, setUser }) => {
     </div>
   );
 };
+/** Only real store contacts are shown; history/team/stores tabs held placeholder text. */
+const ABOUT_TABS = [{ id: "contacts", l: "Контакты" }];
 const AboutPage = ({ go, user }) => {
   const light = false;
-  const [tab, setTab] = useState("about");
+  const [tab, setTab] = useState("contacts");
   const support = useSupportContacts();
   const [sent, setSent] = useState(false);
   const [name, setName] = useState("");
@@ -5639,15 +5650,14 @@ const AboutPage = ({ go, user }) => {
           <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:17, fontWeight:900 }}>О КАКАПО</div>
-            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>г. Яван, Таджикистан · с 2019 года</div>
+            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{support.address || "г. Яван, Таджикистан"}</div>
           </div>
-          <button className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="share" s={17} c="var(--t2)"/></button>
         </div>
-        <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
-          {[{id:"about",l:"О нас"},{id:"contacts",l:"Контакты"},{id:"stores",l:"Магазины"},{id:"team",l:"Команда"}].map(t => (
+        {ABOUT_TABS.length > 1 && <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
+          {ABOUT_TABS.map(t => (
             <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
           ))}
-        </div>
+        </div>}
       </header>
 
       <div style={{ padding:"0 0 100px" }}>
@@ -5719,7 +5729,7 @@ const AboutPage = ({ go, user }) => {
                 { icon:"phone", label:"Второй номер",     sub:support.phone2, color:"var(--gr)",   bg:"rgba(31,215,96,.08)", href: support.phone2Tel },
                 { icon:"tg",    label:"Telegram",         sub:support.telegramLabel, color:"#29B6F6", bg:"rgba(41,182,246,.1)", href: support.telegram },
                 { icon:"msg",   label:"Email",            sub:support.email, color:"var(--gd)",  bg:"rgba(255,184,0,.1)", href: `mailto:${support.email}` },
-              ].map((c,i) => (
+              ].filter(c => String(c.sub || '').trim() && c.href).map((c,i) => (
                 <a key={i} href={c.href} {...(c.icon === 'tg' ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s", textDecoration:"none", color:"inherit" }}>
                   <div style={{ width:42, height:42, borderRadius:13, background:c.bg, border:`1px solid ${c.color}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                     <Ic n={c.icon} s={20} c={c.color}/>
@@ -5742,8 +5752,7 @@ const AboutPage = ({ go, user }) => {
               <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{support.hours}</span>
             </div>
 
-            <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Написать нам</div>
-            {!sent ? (
+            {false && (!sent ? (
               <div className="card" style={{ padding:"18px", display:"flex", flexDirection:"column", gap:10 }}>
                 <input className="inp" value={name} onChange={e => setName(e.target.value)} placeholder="Ваше имя *" style={{ width:"100%" }}/>
                 <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Ваше сообщение *"
@@ -5759,7 +5768,7 @@ const AboutPage = ({ go, user }) => {
                 <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.6 }}>Ответим в течение нескольких часов в рабочее время</div>
                 <button className="btn" onClick={() => { setSent(false); setName(""); setMsg(""); }} style={{ marginTop:14, padding:"10px 22px", borderRadius:13, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:12, fontWeight:700 }}>Написать ещё</button>
               </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -5986,7 +5995,7 @@ const AddressesPage = ({ go, user }) => {
   const clientPhone = user?.phone || getActiveClientPhone(user);
   const [addrs, setAddrs] = useState(() => {
     const saved = loadClientAddresses(clientPhone);
-    return saved.length ? saved : (clientPhone ? [] : DEFAULT_ADDRESSES);
+    return saved.length ? saved : (USE_API || clientPhone ? [] : DEFAULT_ADDRESSES);
   });
   const persistReadyRef = useRef(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -6282,7 +6291,7 @@ const AddressesPage = ({ go, user }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
-                <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
+                <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="Улица и номер дома" style={{ width: '100%' }} />
                 <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 5 }}>
                   Карта подсказывает ближайшую улицу, номер дома лучше проверить и вписать вручную.
                 </div>
@@ -7386,8 +7395,9 @@ function KakapoAppInner() {
       case "restaurant":       return <RestaurantPage    go={go} params={params} cart={cart} onAdd={addItem} onRm={rmItem}/>;
       case "notifs":           return <NotifPage             {...shared}/>;
       case "addresses":        return <AddressesPage         {...shared}/>;
-      case "referral":         return <ReferralPage          {...shared}/>;
-      case "chat":             return <ChatPage              {...shared}/>;
+      // Referral rewards and the auto-reply chat are not real services yet.
+      case "referral":
+      case "chat":             return <FAQPage               {...shared}/>;
       default:                 return <Page404               go={go}/>;
     }
   };
