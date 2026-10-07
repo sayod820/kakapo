@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+unset NODE_OPTIONS NODE_PATH NPM_CONFIG_PREFIX npm_config_prefix
+
+exec /usr/bin/node /usr/local/lib/kakapo-server-read-current/cli.mjs "$@"
