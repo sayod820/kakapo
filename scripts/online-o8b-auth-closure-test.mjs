@@ -160,6 +160,9 @@ expect(matchRoutePolicy('GET', '/employees')?.access === 'ADMIN', 'GET /employee
 expect(matchRoutePolicy('GET', '/employees/directory')?.public === true, 'GET /employees/directory PUBLIC')
 expect(matchRoutePolicy('POST', '/employees/login')?.public === true, 'POST /employees/login PUBLIC')
 expect(matchRoutePolicy('POST', '/employees')?.adminOnly === true, 'POST /employees ADMIN')
+expect(matchRoutePolicy('POST', '/orders/track')?.access === 'PUBLIC_STORE', 'POST /orders/track PUBLIC')
+expect(matchRoutePolicy('GET', '/orders')?.access === 'STAFF', 'GET /orders STAFF')
+expect(matchRoutePolicy('GET', '/orders/O8B-test')?.access === 'STAFF', 'GET /orders/:id STAFF')
 console.log('  INFO coverage', cov)
 
 const PORT = 18900 + Math.floor(Math.random() * 80)

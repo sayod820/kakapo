@@ -156,6 +156,16 @@ import {
 } from './productPhotoPipeline.js'
 import { isStaffPrincipal, toPublicProduct, requestSeesFullProducts, topSellingProductIds } from './publicProductView.js'
 import { priceStoreOrderBody } from './storeOrderGuard.js'
+import {
+  trackGuestOrders,
+  checkGuestReview,
+  trustedGuestReviewBody,
+  publicReviewView,
+  toPublicPickup,
+  GUEST_TRACK_RATE_LIMIT,
+  GUEST_REVIEW_RATE_LIMIT,
+  guestRateLimitKey,
+} from './storeGuestOrders.js'
 import { isAuthEnforced } from './apiAuth.js'
 import {
   processAndSaveRestaurantPhoto,
@@ -1200,8 +1210,9 @@ function runRevisionCoordinator() {
 
 function broadcastReview(review) {
   const msg = JSON.stringify({ event: 'review_update', review })
+  const publicMsg = JSON.stringify({ event: 'review_update', review: publicReviewView(review) })
   for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(msg)
+    if (ws.readyState === 1) ws.send(isStaffPrincipal(ws.wsPrincipal) || !isAuthEnforced() ? msg : publicMsg)
   }
 }
 
@@ -2596,6 +2607,11 @@ app.get('/orders', (req, res) => {
   if (req.query.type) orders = orders.filter(o => o.type === req.query.type)
   res.json(orders)
 })
+app.post('/orders/track', (req, res) => {
+  const rl = rateLimitCheck(guestRateLimitKey('track', clientIp(req)), GUEST_TRACK_RATE_LIMIT)
+  if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
+  res.json(trackGuestOrders(db, req.body || {}))
+})
 app.get('/orders/assembler', (_req, res) => res.json(db.orders.filter(isAssemblerOrder)))
 app.get('/orders/courier', (_req, res) => res.json(db.orders.filter(isCourierMapSync)))
 app.get('/orders/:id', (req, res) => {
@@ -3041,7 +3057,10 @@ app.patch('/restaurants/menu/:itemId/stock', (req, res) => {
   res.status(404).json({ detail: 'Блюдо не найдено' })
 })
 
-app.get('/pickups', (_req, res) => res.json(db.pickups))
+app.get('/pickups', (req, res) => {
+  const list = Array.isArray(db.pickups) ? db.pickups : []
+  res.json(requestSeesFullProducts(req) ? list : list.map(toPublicPickup))
+})
 app.patch('/pickups/:id', (req, res) => {
   const p = db.pickups.find(x => x.id === req.params.id)
   if (!p) return res.status(404).json({ detail: 'Не найдено' })
@@ -5639,6 +5658,7 @@ app.post('/cards/:num/debt-repay', (req, res) => {
 })
 
 app.get('/reviews', (req, res) => {
+  const full = requestSeesFullProducts(req)
   let list = db.reviews || []
   if (req.query.restId) {
     const rid = String(req.query.restId)
@@ -5651,23 +5671,34 @@ app.get('/reviews', (req, res) => {
       || String(r.productKey ?? '') === `p${pid}`,
     )
   }
-  res.json(list)
+  res.json(full ? list : list.map(publicReviewView))
 })
 app.post('/reviews', (req, res) => {
   ensureReviews()
   if (!Array.isArray(db.restaurants)) db.reaurants = []
-  const restId = String(req.body.restId || 'STORE')
-  const orderId = req.body.orderId ? String(req.body.orderId) : ''
+  const full = requestSeesFullProducts(req)
+  let body = req.body || {}
+  let restId = String(body.restId || 'STORE').trim() || 'STORE'
+  let orderId = body.orderId ? String(body.orderId) : ''
   if (!orderId) return res.status(400).json({ detail: 'Укажите номер заказа' })
+  if (!full) {
+    const rl = rateLimitCheck(guestRateLimitKey('review', clientIp(req)), GUEST_REVIEW_RATE_LIMIT)
+    if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
+    const gate = checkGuestReview(db, { orderId, phone: body.phone, restId })
+    if (!gate.ok) return res.status(403).json({ detail: gate.detail, code: 'REVIEW_NOT_YOUR_ORDER' })
+    body = trustedGuestReviewBody(gate, body)
+    restId = body.restId
+    orderId = body.orderId
+  }
   const dup = (db.reviews || []).find(
     r => r.orderId === orderId && String(r.restId || '') === restId,
   )
   if (dup) return res.status(400).json({ detail: 'Отзыв по этому заказу уже оставлен' })
   try {
-    const review = createReviewRecord(db, req.body)
+    const review = createReviewRecord(db, body)
     persist()
     broadcastReview(review)
-    res.json(review)
+    res.json(full ? review : publicReviewView(review))
   } catch (e) {
     console.error('[reviews] create failed', e)
     res.status(500).json({ detail: 'Не удалось сохранить отзыв. Подождите 5–15 сек и попробуйте снова.' })

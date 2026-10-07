@@ -130,6 +130,9 @@ expect(inventoryUnknownAuthCount() === 0, `UNKNOWN_AUTH_ROUTES=0 (n=${ROUTE_ACCE
 expect(cov.PRODUCTION_ROUTES_TOTAL >= 100, `PRODUCTION_ROUTES_TOTAL=${cov.PRODUCTION_ROUTES_TOTAL}`)
 expect(matchRoutePolicy('POST', '/pos/sales')?.access === 'STAFF', 'POST /pos/sales STAFF')
 expect(matchRoutePolicy('GET', '/products')?.access === 'PUBLIC_STORE', 'GET /products PUBLIC')
+expect(matchRoutePolicy('POST', '/orders/track')?.access === 'PUBLIC_STORE', 'POST /orders/track PUBLIC')
+expect(matchRoutePolicy('GET', '/orders')?.access === 'STAFF', 'GET /orders STAFF')
+expect(matchRoutePolicy('GET', '/orders/O8-test')?.access === 'STAFF', 'GET /orders/:id STAFF')
 expect(matchRoutePolicy('POST', '/pos/points/x/pair-code')?.access === 'ADMIN', 'pair-code ADMIN')
 console.log('  INFO coverage', cov)
 

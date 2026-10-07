@@ -47,6 +47,7 @@ const OVERRIDES = {
   'POST /reviews': { access: 'PUBLIC_STORE', public: true, domain: 'reviews' },
   'GET /clients/session-check': { access: 'PUBLIC_STORE', public: true, domain: 'crm' },
   'POST /orders': { access: 'PUBLIC_STORE', public: true, domain: 'orders', businessRisk: 'store checkout' },
+  'POST /orders/track': { access: 'PUBLIC_STORE', public: true, domain: 'orders', businessRisk: 'guest tracking; id and phone required in body' },
   'POST /pos/devices/bind': { access: 'PUBLIC_STORE', public: true, domain: 'pos', businessRisk: 'needs live pair code' },
   'GET /pos/devices/check': { access: 'PUBLIC_STORE', public: true, domain: 'pos' },
   'POST /pos/devices/key': { access: 'STAFF', authRequired: true, domain: 'pos', requireCaps: [], deviceRequired: true },
