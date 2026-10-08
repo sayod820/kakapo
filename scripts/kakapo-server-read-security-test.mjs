@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   MAX_LOG_BYTES,
   MAX_LOG_LINES,
@@ -533,10 +533,54 @@ await test('sudoers grants only the read wrapper', async () => {
   assert(!/\b(?:docker|psql|node|python|\/bin\/sh|\/bin\/bash)\b/.test(sudoers.join('\n')))
 })
 
-await test('wrapper cannot invoke shell passthrough and points only to root library', async () => {
+await test('wrapper resolves only a root-owned canonical full-SHA CLI and keeps the CLI direct guard', async () => {
   const wrapper = await read('deploy/hetzner/kakapo-server-read-wrapper')
+  const cli = await read('deploy/hetzner/kakapo-server-read/cli.mjs')
   assert(!/\beval\b|\b(?:sudo|docker|psql|python|bash\s+-c|sh\s+-c)\b/.test(wrapper))
-  assert.match(wrapper, /exec \/usr\/bin\/node \/usr\/local\/lib\/kakapo-server-read-current\/cli\.mjs "\$@"/)
+  assert.match(wrapper, /CURRENT_LIB='\/usr\/local\/lib\/kakapo-server-read-current'/)
+  assert.match(wrapper, /\[ -L "\$\{CURRENT_LIB\}" \]/)
+  assert.match(wrapper, /REAL_CLI=\$\(\/usr\/bin\/readlink -f -- "\$\{CURRENT_LIB\}\/cli\.mjs"\)/)
+  assert.match(wrapper, /\|\| fail 'CLI symlink target is missing'/)
+  assert.match(wrapper, /\[ "\$\{#VERSION_SHA\}" -eq 40 \]/)
+  assert.match(wrapper, /\*\[!0-9a-f\]\*\) fail/)
+  assert.match(wrapper, /"\$\{REAL_CLI\}" = "\/usr\/local\/lib\/kakapo-server-read-\$\{VERSION_SHA\}\/cli\.mjs"/)
+  assert.match(wrapper, /\[ -f "\$\{REAL_CLI\}" \] && \[ ! -L "\$\{REAL_CLI\}" \]/)
+  assert.match(wrapper, /"0:0:644"|'0:0:644'/)
+  assert.match(wrapper, /700\|701\|704\|705[\s\S]*754\|755/)
+  assert.match(wrapper, /exec \/usr\/bin\/node "\$\{REAL_CLI\}" "\$@"/)
+  assert.match(cli, /if \(import\.meta\.url === invokedPath\) process\.exitCode = await main\(\)/)
+})
+
+await test('canonicalized symlink entrypoint reaches main, emits status JSON, and missing targets fail closed', async () => {
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kakapo-wrapper-entry-'))
+  try {
+    const sourceDir = path.join(root, 'deploy', 'hetzner', 'kakapo-server-read')
+    const current = path.join(fixture, 'kakapo-server-read-current')
+    await fs.symlink(sourceDir, current, process.platform === 'win32' ? 'junction' : 'dir')
+    const linkedCli = path.join(current, 'cli.mjs')
+    const realCli = await fs.realpath(linkedCli)
+    const expectedCli = await fs.realpath(path.join(sourceDir, 'cli.mjs'))
+    assert.equal(realCli, expectedCli)
+    assert.equal(pathToFileURL(realCli).href, pathToFileURL(expectedCli).href)
+
+    const module = await import(`${pathToFileURL(realCli).href}?r2c=${Date.now()}`)
+    let rendered = ''
+    const exitCode = await module.main(['status'], {
+      execFile: async file => ({ stdout: `${path.basename(file)} fixture`, stderr: '' }),
+      stdout: value => { rendered = value },
+    })
+    assert.equal(exitCode, 0)
+    const output = JSON.parse(rendered)
+    assert.equal(output.ok, true)
+    assert.equal(output.inspectorVersion, 'r1.6')
+    assert.equal(output.readOnly, true)
+    assert.equal(output.command, 'status')
+
+    await assert.rejects(fs.realpath(path.join(fixture, 'missing-current', 'cli.mjs')))
+    assert(!/^\/usr\/local\/lib\/kakapo-server-read-[0-9a-f]{40}\/cli\.mjs$/.test('/tmp/escape/cli.mjs'))
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true })
+  }
 })
 
 await test('installer never writes existing deploy wrapper or deploy sudo rule', async () => {
