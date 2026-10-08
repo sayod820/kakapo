@@ -18,6 +18,29 @@ import {
 
 const execFile = promisify(execFileCallback)
 
+const FIXED_EXEC_OPTIONS = Object.freeze({
+  encoding: 'utf8',
+  windowsHide: true,
+  timeout: 10_000,
+  maxBuffer: MAX_COMMAND_BYTES,
+  shell: false,
+  env: Object.freeze({ PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }),
+})
+
+const CONTAINER_INSPECT_FORMAT = [
+  '{"id":{{json .Id}}',
+  ',"name":{{json .Name}}',
+  ',"image":{{json .Config.Image}}',
+  ',"created":{{json .Created}}',
+  ',"state":{{json .State}}}',
+].join('')
+
+const POSTGRES_IP_INSPECT_FORMAT = [
+  '{{with index .NetworkSettings.Networks "kakapo-net"}}',
+  '{"name":{{json $.Name}},"network":"kakapo-net","ip":{{json .IPAddress}}}',
+  '{{end}}',
+].join('')
+
 function safeError(error) {
   if (error instanceof PolicyError) return { code: error.code, message: error.message }
   return { code: 'INSPECTION_FAILED', message: redactText(error?.message || String(error)) }
@@ -25,49 +48,73 @@ function safeError(error) {
 
 export async function runFixed(file, args, deps = {}) {
   const execute = deps.execFile || execFile
-  const result = await execute(file, args, {
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 10_000,
-    maxBuffer: MAX_COMMAND_BYTES,
-    shell: false,
-    env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
-  })
+  const result = await execute(file, args, FIXED_EXEC_OPTIONS)
   return {
     stdout: redactText(result?.stdout || ''),
     stderr: redactText(result?.stderr || ''),
   }
 }
 
+async function runFixedRaw(file, args, deps = {}) {
+  const execute = deps.execFile || execFile
+  let result
+  try {
+    result = await execute(file, args, FIXED_EXEC_OPTIONS)
+  } catch {
+    throw new PolicyError('STRUCTURED_COMMAND_FAILED')
+  }
+
+  const stdout = String(result?.stdout ?? '')
+  if (Buffer.byteLength(stdout, 'utf8') > MAX_COMMAND_BYTES) {
+    throw new PolicyError('STRUCTURED_OUTPUT_TOO_LARGE')
+  }
+  return stdout
+}
+
+async function runFixedStructured(file, args, deps = {}) {
+  const stdout = await runFixedRaw(file, args, deps)
+  try {
+    return JSON.parse(stdout)
+  } catch {
+    throw new PolicyError('INVALID_DOCKER_RESPONSE')
+  }
+}
+
 export function sanitizeContainerInspect(raw, expectedName) {
-  const value = Array.isArray(raw) ? raw[0] : raw
-  if (!value || typeof value !== 'object') throw new PolicyError('INVALID_DOCKER_RESPONSE')
-  const actualName = String(value.Name || '').replace(/^\//, '')
+  const value = raw
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PolicyError('INVALID_DOCKER_RESPONSE')
+  }
+  const actualName = String(value.name || '').replace(/^\//, '')
   if (actualName !== expectedName) throw new PolicyError('CONTAINER_IDENTITY_MISMATCH')
-  const state = value.State || {}
+  const id = typeof value.id === 'string' && /^[0-9a-f]{12,64}$/.test(value.id) ? value.id : null
+  if (!id || !value.state || typeof value.state !== 'object' || Array.isArray(value.state)) {
+    throw new PolicyError('INVALID_DOCKER_RESPONSE')
+  }
+  const state = value.state
   const health = state.Health || {}
   return {
-    id: String(value.Id || '').slice(0, 12),
+    id: id.slice(0, 12),
     name: actualName,
-    image: value.Config?.Image || null,
-    created: value.Created || null,
+    image: typeof value.image === 'string' ? redactText(value.image).slice(0, 512) : null,
+    created: typeof value.created === 'string' ? redactText(value.created).slice(0, 128) : null,
     state: {
-      status: state.Status || null,
+      status: typeof state.Status === 'string' ? redactText(state.Status).slice(0, 64) : null,
       running: state.Running === true,
       restarting: state.Restarting === true,
       oomKilled: state.OOMKilled === true,
       dead: state.Dead === true,
       exitCode: Number.isFinite(Number(state.ExitCode)) ? Number(state.ExitCode) : null,
-      startedAt: state.StartedAt || null,
-      finishedAt: state.FinishedAt || null,
+      startedAt: typeof state.StartedAt === 'string' ? redactText(state.StartedAt).slice(0, 128) : null,
+      finishedAt: typeof state.FinishedAt === 'string' ? redactText(state.FinishedAt).slice(0, 128) : null,
       errorPresent: Boolean(state.Error),
     },
-    health: health.Status ? {
-      status: health.Status,
+    health: typeof health.Status === 'string' ? {
+      status: redactText(health.Status).slice(0, 64),
       failingStreak: Number(health.FailingStreak) || 0,
       lastChecks: (Array.isArray(health.Log) ? health.Log : []).slice(-3).map(item => ({
-        start: item?.Start || null,
-        end: item?.End || null,
+        start: typeof item?.Start === 'string' ? redactText(item.Start).slice(0, 128) : null,
+        end: typeof item?.End === 'string' ? redactText(item.End).slice(0, 128) : null,
         exitCode: Number(item?.ExitCode) || 0,
         output: redactLogOutput(String(item?.Output || ''), 5, 1024),
       })),
@@ -86,45 +133,50 @@ export function parseDockerPsRow(text, expectedName) {
   }
   return {
     name,
-    image: image || null,
-    state: state || null,
-    status: status || null,
-    runningFor: runningFor || null,
+    image: image ? redactText(image).slice(0, 512) : null,
+    state: state ? redactText(state).slice(0, 64) : null,
+    status: status ? redactText(status).slice(0, 1024) : null,
+    runningFor: runningFor ? redactText(runningFor).slice(0, 256) : null,
   }
 }
 
 export function extractPostgresContainerIp(raw) {
-  const value = Array.isArray(raw) ? raw[0] : raw
-  const actualName = String(value?.Name || '').replace(/^\//, '')
+  const value = raw
+  const actualName = String(value?.name || '').replace(/^\//, '')
   if (actualName !== CONTAINERS.postgres) throw new PolicyError('CONTAINER_IDENTITY_MISMATCH')
-  const ip = value?.NetworkSettings?.Networks?.['kakapo-net']?.IPAddress
-  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(ip || ''))) {
+  if (value?.network !== 'kakapo-net') throw new PolicyError('INVALID_DOCKER_RESPONSE')
+  const ip = String(value?.ip || '')
+  const octets = ip.split('.')
+  if (octets.length !== 4 || octets.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) {
     throw new PolicyError('POSTGRES_CONTAINER_IP_UNAVAILABLE')
   }
-  return String(ip)
+  return ip
 }
 
 async function postgresContainerIp(deps = {}) {
-  const result = await runFixed(EXECUTABLES.docker, ['inspect', CONTAINERS.postgres], deps)
-  return extractPostgresContainerIp(JSON.parse(result.stdout))
+  const parsed = await runFixedStructured(EXECUTABLES.docker, [
+    'inspect', '--type', 'container', '--format', POSTGRES_IP_INSPECT_FORMAT, CONTAINERS.postgres,
+  ], deps)
+  return extractPostgresContainerIp(parsed)
 }
 
 async function inspectContainer(alias, deps = {}) {
   const name = CONTAINERS[alias]
   if (!name) throw new PolicyError('INVALID_CONTAINER')
-  const result = await runFixed(EXECUTABLES.docker, ['inspect', name], deps)
-  const parsed = JSON.parse(result.stdout)
+  const parsed = await runFixedStructured(EXECUTABLES.docker, [
+    'inspect', '--type', 'container', '--format', CONTAINER_INSPECT_FORMAT, name,
+  ], deps)
   return sanitizeContainerInspect(parsed, name)
 }
 
 async function dockerPs(deps = {}) {
   const rows = []
   for (const name of Object.values(CONTAINERS)) {
-    const result = await runFixed(EXECUTABLES.docker, [
+    const stdout = await runFixedRaw(EXECUTABLES.docker, [
       'ps', '-a', '--filter', `name=^/${name}$`,
       '--format', '{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}\t{{.RunningFor}}',
     ], deps)
-    const row = parseDockerPsRow(result.stdout, name)
+    const row = parseDockerPsRow(stdout, name)
     if (row) {
       rows.push({ found: true, ...row })
     } else {
@@ -177,11 +229,13 @@ async function serverStatus(deps = {}) {
 
 async function checkUrl(url, deps = {}) {
   try {
-    const out = await runFixed(EXECUTABLES.curl, [
+    const stdout = await runFixedRaw(EXECUTABLES.curl, [
       '--silent', '--show-error', '--max-time', '5',
       '--output', '/dev/null', '--write-out', '%{http_code}', url,
     ], deps)
-    return { url, reachable: true, httpStatus: Number(out.stdout.trim()) || null }
+    const status = stdout.trim()
+    if (!/^[0-9]{3}$/.test(status)) throw new PolicyError('INVALID_HTTP_RESPONSE')
+    return { url, reachable: true, httpStatus: Number(status) }
   } catch (error) {
     return { url, reachable: false, error: safeError(error).message }
   }

@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
+  MAX_COMMAND_BYTES,
   MAX_LOG_BYTES,
   MAX_LOG_LINES,
   MAX_OUTPUT_BYTES,
@@ -31,6 +32,7 @@ import {
 import {
   executeCommand,
   extractPostgresContainerIp,
+  main,
   parseDockerPsRow,
   runFixed,
   sanitizeContainerInspect,
@@ -198,6 +200,25 @@ await test('fixed container listing detects every allowlisted container and repo
   )
 })
 
+await test('container listing parses raw fixed output before redacting selected fields', async () => {
+  const secret = 'docker-ps-secret-r2e'
+  const result = await executeCommand(parseCommand(['containers']), {
+    execFile: async (file, args, options) => {
+      assert.equal(file, '/usr/bin/docker')
+      assert.equal(options.shell, false)
+      const filter = args[args.indexOf('--filter') + 1]
+      const name = filter.slice('name=^/'.length, -1)
+      return {
+        stdout: `${name}\tpassword=${secret} detail\trunning\tUp 1 minute\t1 minute ago\n`,
+        stderr: '',
+      }
+    },
+  })
+  const output = JSON.stringify(result)
+  assert(!output.includes(secret))
+  assert.match(output, /\[REDACTED\]/)
+})
+
 await test('Docker write/exec verbs have no command path', () => {
   for (const verb of ['exec', 'run', 'compose', 'restart', 'stop', 'rm', 'down', 'volume', 'prune', 'image']) {
     rejects([verb, 'api'])
@@ -232,22 +253,132 @@ await test('runFixed has no shell and does not inherit caller environment', asyn
   assert.deepEqual(Object.keys(captured.options.env).sort(), ['LANG', 'LC_ALL', 'PATH'])
 })
 
-await test('Docker inspect output cannot expose environment/mounts/commands', () => {
-  const projected = sanitizeContainerInspect([{
-    Id: '1234567890abcdef', Name: '/kakapo-api', Created: 'now',
-    Config: { Image: 'api:sha', Env: ['DATABASE_URL=fixture'], Cmd: ['/bin/sh'], Labels: { secret: 'x' } },
-    Mounts: [{ Source: '/root/private' }],
-    State: { Status: 'running', Running: true, Health: { Status: 'healthy', Log: [] } },
-  }], 'kakapo-api')
+await test('structured Docker inspect parses before health-log redaction and exposes only projected fields', async () => {
+  const healthSecret = 'health-secret-r2e'
+  const bearerSecret = 'eyJabcdefghijk.abcdefghijklmnop.signature'
+  const raw = JSON.stringify({
+    id: '1234567890abcdef',
+    name: '/kakapo-api',
+    image: 'api:sha',
+    created: 'now',
+    state: {
+      Status: 'running', Running: true, Error: `password=${healthSecret}`,
+      Health: {
+        Status: 'healthy', FailingStreak: 0,
+        Log: [{
+          Start: 'start', End: 'end', ExitCode: 0,
+          Output: [
+            `password=${healthSecret} detail with space`,
+            `Authorization: Bearer ${bearerSecret}`,
+            ...Array.from({ length: 8 }, (_, index) => `line-${index} ${'x'.repeat(300)}`),
+          ].join('\n'),
+        }],
+      },
+    },
+  })
+
+  assert.throws(() => JSON.parse(redactText(raw)))
+  let captured
+  const result = await executeCommand(parseCommand(['container-health', 'api']), {
+    execFile: async (file, args, options) => {
+      captured = { file, args, options }
+      return { stdout: raw, stderr: '' }
+    },
+  })
+  const json = JSON.stringify(result)
+  assert.equal(result.container.name, 'kakapo-api')
+  assert.equal(result.container.health.status, 'healthy')
+  assert.match(result.container.health.lastChecks[0].output, /\[REDACTED\]/)
+  assert.match(result.container.health.lastChecks[0].output, /\[TRUNCATED\]/)
+  assert(result.container.health.lastChecks[0].output.split('\n').length <= 6)
+  assert(Buffer.byteLength(result.container.health.lastChecks[0].output, 'utf8') <= 1024)
+  assert(!json.includes(healthSecret))
+  assert(!json.includes(bearerSecret))
+  assert(!json.includes('state.Error'))
+  assert.equal(result.container.state.errorPresent, true)
+  assert.equal(captured.file, '/usr/bin/docker')
+  assert.equal(captured.options.shell, false)
+  assert.equal(captured.options.maxBuffer, MAX_COMMAND_BYTES)
+  assert.deepEqual(Object.keys(captured.options.env).sort(), ['LANG', 'LC_ALL', 'PATH'])
+  assert.deepEqual(captured.args.slice(0, 4), ['inspect', '--type', 'container', '--format'])
+  assert.equal(captured.args.at(-1), 'kakapo-api')
+  assert.match(captured.args[4], /\.State/)
+  assert(!/Config\.Env|Mounts|{{json \.}}/.test(captured.args[4]))
+})
+
+await test('minimal structured inspect succeeds for every fixed container only', async () => {
+  const expected = new Map([
+    ['api', 'kakapo-api'],
+    ['web', 'kakapo-web'],
+    ['nginx', 'kakapo-nginx'],
+    ['postgres', 'kakapo-postgres'],
+  ])
+  for (const [alias, name] of expected) {
+    let captured
+    const result = await executeCommand(parseCommand(['container-health', alias]), {
+      execFile: async (file, args) => {
+        captured = { file, args }
+        return {
+          stdout: JSON.stringify({
+            id: 'abcdef1234567890', name: `/${name}`, image: `${alias}:fixture`, created: 'now',
+            state: { Status: 'running', Running: true, Health: { Status: 'healthy', Log: [] } },
+          }),
+          stderr: '',
+        }
+      },
+    })
+    assert.equal(result.container.name, name)
+    assert.equal(captured.file, '/usr/bin/docker')
+    assert.equal(captured.args.at(-1), name)
+    assert(!captured.args.some(arg => /^(?:exec|run|restart|rm|compose|down|volume|prune)$/.test(arg)))
+  }
+  rejects(['container-health', 'arbitrary'])
+})
+
+await test('malformed structured Docker output fails closed without leaking raw stdout', async () => {
+  const rawSecret = 'raw-malformed-secret-r2e'
+  let rendered = ''
+  const exitCode = await main(['container-health', 'api'], {
+    execFile: async () => ({ stdout: `{"name":"/kakapo-api","password":"${rawSecret}"`, stderr: rawSecret }),
+    stderr: value => { rendered = value },
+  })
+  assert.equal(exitCode, 2)
+  const response = JSON.parse(rendered)
+  assert.equal(response.error.code, 'INVALID_DOCKER_RESPONSE')
+  assert(!rendered.includes(rawSecret))
+
+  rendered = ''
+  const executionExitCode = await main(['container-health', 'api'], {
+    execFile: async () => { throw new Error(`child failure ${rawSecret}`) },
+    stderr: value => { rendered = value },
+  })
+  assert.equal(executionExitCode, 2)
+  assert.equal(JSON.parse(rendered).error.code, 'STRUCTURED_COMMAND_FAILED')
+  assert(!rendered.includes(rawSecret))
+})
+
+await test('oversized structured Docker output fails closed', async () => {
+  await assert.rejects(
+    executeCommand(parseCommand(['container-health', 'api']), {
+      execFile: async () => ({ stdout: 'x'.repeat(MAX_COMMAND_BYTES + 1), stderr: '' }),
+    }),
+    error => error instanceof PolicyError && error.code === 'STRUCTURED_OUTPUT_TOO_LARGE',
+  )
+})
+
+await test('Docker inspect projection cannot expose environment/mounts/commands', () => {
+  const projected = sanitizeContainerInspect({
+    id: '1234567890abcdef', name: '/kakapo-api', image: 'api:sha', created: 'now',
+    state: { Status: 'running', Running: true, Health: { Status: 'healthy', Log: [] } },
+  }, 'kakapo-api')
   const json = JSON.stringify(projected)
   assert(!/DATABASE_URL|\/root\/private|Labels|\/bin\/sh/.test(json))
 })
 
 await test('DB host is fixed private kakapo-net metadata', () => {
-  const ip = extractPostgresContainerIp([{
-    Name: '/kakapo-postgres',
-    NetworkSettings: { Networks: { 'kakapo-net': { IPAddress: '172.19.0.2' } } },
-  }])
+  const ip = extractPostgresContainerIp({
+    name: '/kakapo-postgres', network: 'kakapo-net', ip: '172.19.0.2',
+  })
   assert.equal(new URL(resolveInspectorDatabaseUrl(dbConfig.databaseUrl, ip)).hostname, ip)
   assert.throws(() => resolveInspectorDatabaseUrl(dbConfig.databaseUrl, '46.225.92.161'), PolicyError)
   assert.throws(() => resolveInspectorDatabaseUrl(
@@ -262,16 +393,51 @@ await test('DB command uses Docker inspect only', async () => {
     execFile: async (file, args) => {
       dockerCalls.push({ file, args })
       return {
-        stdout: JSON.stringify([{
-          Name: '/kakapo-postgres',
-          NetworkSettings: { Networks: { 'kakapo-net': { IPAddress: '172.19.0.2' } } },
-        }]),
+        stdout: JSON.stringify({
+          name: '/kakapo-postgres', network: 'kakapo-net', ip: '172.19.0.2',
+        }),
         stderr: '',
       }
     },
     db: { config: dbConfig, poolFactory: async () => mocked.pool },
   })
-  assert.deepEqual(dockerCalls, [{ file: '/usr/bin/docker', args: ['inspect', 'kakapo-postgres'] }])
+  assert.equal(dockerCalls.length, 1)
+  assert.equal(dockerCalls[0].file, '/usr/bin/docker')
+  assert.deepEqual(dockerCalls[0].args.slice(0, 4), ['inspect', '--type', 'container', '--format'])
+  assert.equal(dockerCalls[0].args.at(-1), 'kakapo-postgres')
+  assert.match(dockerCalls[0].args[4], /kakapo-net/)
+  assert(!/Config|Env|Mounts|{{json \.}}/.test(dockerCalls[0].args[4]))
+})
+
+await test('all CLI JSON parsing uses the internal structured path, never redacted stdout', async () => {
+  const cli = await read('deploy/hetzner/kakapo-server-read/cli.mjs')
+  assert(!/JSON\.parse\(result\.stdout\)/.test(cli))
+  assert.match(cli, /async function runFixedRaw/)
+  assert.match(cli, /async function runFixedStructured/)
+  assert.match(cli, /return JSON\.parse\(stdout\)/)
+  assert(!/return\s+\{?\s*stdout\s*[,}]/.test(cli.slice(cli.indexOf('async function runFixedStructured'), cli.indexOf('export function sanitizeContainerInspect'))))
+  assert.match(cli, /async function dockerPs[\s\S]*runFixedRaw/)
+  assert.match(cli, /async function checkUrl[\s\S]*runFixedRaw/)
+})
+
+await test('HTTP status uses fixed raw execution and validates before projection', async () => {
+  let captured
+  const result = await executeCommand(parseCommand(['health']), {
+    execFile: async (file, args, options) => {
+      captured = { file, args, options }
+      return { stdout: '200', stderr: '' }
+    },
+  })
+  assert.equal(result.httpStatus, 200)
+  assert.equal(captured.file, '/usr/bin/curl')
+  assert.equal(captured.options.shell, false)
+  assert(captured.args.includes('%{http_code}'))
+
+  const invalid = await executeCommand(parseCommand(['health']), {
+    execFile: async () => ({ stdout: '200 password=raw-secret', stderr: 'raw-secret' }),
+  })
+  assert.equal(invalid.reachable, false)
+  assert.equal(invalid.error, 'INVALID_HTTP_RESPONSE')
 })
 
 await test('structured and text credentials are redacted', () => {
