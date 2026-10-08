@@ -31,6 +31,7 @@ import {
 import {
   executeCommand,
   extractPostgresContainerIp,
+  parseDockerPsRow,
   runFixed,
   sanitizeContainerInspect,
 } from '../deploy/hetzner/kakapo-server-read/cli.mjs'
@@ -153,6 +154,48 @@ await test('Docker container allowlist is exact', () => {
   }
   rejects(['container-health', 'certbot'])
   rejects(['logs', 'other'])
+  rejects(['containers', 'kakapo-nginx'])
+})
+
+await test('fixed container listing detects every allowlisted container and reports an absent one', async () => {
+  const names = ['kakapo-api', 'kakapo-web', 'kakapo-nginx', 'kakapo-postgres']
+  const calls = []
+  const depsFor = absent => ({
+    execFile: async (file, args) => {
+      calls.push({ file, args })
+      const filter = args[args.indexOf('--filter') + 1]
+      const name = filter.slice('name=^/'.length, -1)
+      return {
+        stdout: name === absent
+          ? ''
+          : `${name}\tfixture/image:1\trunning\tUp 13 days\t13 days ago\n`,
+        stderr: '',
+      }
+    },
+  })
+
+  const present = await executeCommand(parseCommand(['containers']), depsFor(null))
+  assert.deepEqual(present.containers.map(row => row.name), names)
+  assert(present.containers.every(row => row.found === true))
+  assert.equal(present.containers.find(row => row.name === 'kakapo-nginx')?.found, true)
+
+  calls.length = 0
+  const absent = await executeCommand(parseCommand(['containers']), depsFor('kakapo-nginx'))
+  assert.equal(absent.containers.find(row => row.name === 'kakapo-nginx')?.found, false)
+  assert(absent.containers.filter(row => row.name !== 'kakapo-nginx').every(row => row.found === true))
+  assert.equal(calls.length, names.length)
+  for (const { file, args } of calls) {
+    assert.equal(file, '/usr/bin/docker')
+    assert.equal(args[0], 'ps')
+    assert(!args.some(arg => /^(?:exec|run|restart|rm|compose|down|volume|prune)$/.test(arg)))
+    assert(names.some(name => args.includes(`name=^/${name}$`)))
+  }
+
+  assert.equal(parseDockerPsRow('', 'kakapo-nginx'), null)
+  assert.throws(
+    () => parseDockerPsRow('kakapo-certbot\timage\trunning\tUp\t1 day', 'kakapo-nginx'),
+    error => error instanceof PolicyError && error.code === 'CONTAINER_IDENTITY_MISMATCH',
+  )
 })
 
 await test('Docker write/exec verbs have no command path', () => {

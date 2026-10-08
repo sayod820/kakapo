@@ -39,10 +39,6 @@ export async function runFixed(file, args, deps = {}) {
   }
 }
 
-function parseJsonLine(text) {
-  try { return JSON.parse(String(text).trim()) } catch { return null }
-}
-
 export function sanitizeContainerInspect(raw, expectedName) {
   const value = Array.isArray(raw) ? raw[0] : raw
   if (!value || typeof value !== 'object') throw new PolicyError('INVALID_DOCKER_RESPONSE')
@@ -79,6 +75,24 @@ export function sanitizeContainerInspect(raw, expectedName) {
   }
 }
 
+export function parseDockerPsRow(text, expectedName) {
+  const output = String(text || '').trim()
+  if (!output) return null
+  const lines = output.split(/\r?\n/)
+  if (lines.length !== 1) throw new PolicyError('INVALID_DOCKER_RESPONSE')
+  const [name, image, state, status, runningFor, ...extra] = lines[0].split('\t')
+  if (extra.length || name !== expectedName) {
+    throw new PolicyError('CONTAINER_IDENTITY_MISMATCH')
+  }
+  return {
+    name,
+    image: image || null,
+    state: state || null,
+    status: status || null,
+    runningFor: runningFor || null,
+  }
+}
+
 export function extractPostgresContainerIp(raw) {
   const value = Array.isArray(raw) ? raw[0] : raw
   const actualName = String(value?.Name || '').replace(/^\//, '')
@@ -108,17 +122,11 @@ async function dockerPs(deps = {}) {
   for (const name of Object.values(CONTAINERS)) {
     const result = await runFixed(EXECUTABLES.docker, [
       'ps', '-a', '--filter', `name=^/${name}$`,
-      '--format', '{{json .}}',
+      '--format', '{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}\t{{.RunningFor}}',
     ], deps)
-    const row = parseJsonLine(result.stdout)
-    if (row && row.Names === name) {
-      rows.push({
-        name: row.Names,
-        image: row.Image || null,
-        state: row.State || null,
-        status: row.Status || null,
-        runningFor: row.RunningFor || null,
-      })
+    const row = parseDockerPsRow(result.stdout, name)
+    if (row) {
+      rows.push({ found: true, ...row })
     } else {
       rows.push({ name, found: false })
     }
