@@ -1,10 +1,12 @@
 /**
  * KAKAPO full server read access R1.6 security tests.
- * Local/mock only. No SSH, Docker, sudo, PostgreSQL, production, or repo reports.
+ * Local/mock/temp only. No SSH, Docker, sudo, PostgreSQL, production, or repo reports.
  * Run: node scripts/kakapo-server-read-security-test.mjs
  */
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -433,12 +435,83 @@ await test('installer sources artifacts from exact Git object, never mutable wor
   assert.match(installer, /GIT_CONFIG_GLOBAL=\/dev\/null/)
   assert.match(installer, /GIT_CONFIG_COUNT=0/)
   assert.match(installer, /unset NODE_OPTIONS NODE_PATH/)
-  assert.match(installer, /NPM_CONFIG_IGNORE_SCRIPTS=true/)
   assert.match(installer, /archive --format=tar "\$\{APPROVED_SHA\}" -- "\$\{ARTIFACTS\[@\]\}"/)
   assert.match(installer, /show "\$\{APPROVED_SHA\}:\$\{artifact\}"/)
   assert.match(installer, /installer is not the exact approved Git object/)
   assert(!/SOURCE_DIR=.*dirname|LIB_SOURCE=.*SOURCE_DIR/.test(installer))
   assert(!/\/opt\/kakapo(?:\s|['"]|\/\.git)/.test(installer))
+})
+
+await test('npm 10 rejects a shared user/global config while installer uses distinct root-stage files', async () => {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'kakapo-npm-config-'))
+  try {
+    const sameConfig = path.join(fixture, 'same.conf')
+    const userConfig = path.join(fixture, 'user.conf')
+    const globalConfig = path.join(fixture, 'global.conf')
+    const cache = path.join(fixture, 'cache')
+    await Promise.all([
+      fs.writeFile(sameConfig, ''),
+      fs.writeFile(userConfig, ''),
+      fs.writeFile(globalConfig, ''),
+      fs.mkdir(cache),
+    ])
+
+    const env = {
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      WINDIR: process.env.WINDIR,
+      ComSpec: process.env.ComSpec,
+      PATHEXT: process.env.PATHEXT,
+      TEMP: fixture,
+      TMP: fixture,
+    }
+    const spawnOptions = { encoding: 'utf8', env, shell: process.platform === 'win32' }
+    const version = spawnSync(npm, ['--version'], spawnOptions)
+    assert.equal(version.status, 0, version.stderr)
+    assert.match(version.stdout.trim(), /^10\./)
+
+    const shared = spawnSync(npm, [
+      'config', 'list',
+      `--userconfig=${sameConfig}`,
+      `--globalconfig=${sameConfig}`,
+      `--cache=${cache}`,
+      '--ignore-scripts',
+    ], spawnOptions)
+    assert.notEqual(shared.status, 0)
+    assert.match(`${shared.stdout}\n${shared.stderr}`, /double-loading config/i)
+
+    const distinct = spawnSync(npm, [
+      'config', 'list',
+      `--userconfig=${userConfig}`,
+      `--globalconfig=${globalConfig}`,
+      `--cache=${cache}`,
+      '--ignore-scripts',
+    ], spawnOptions)
+    assert.equal(distinct.status, 0, distinct.stderr)
+
+    const installer = await read('deploy/hetzner/install-kakapo-server-read.sh')
+    assert.match(installer, /NPM_USER_CONFIG="\$\{ROOT_STAGE\}\/npm-user\.conf"/)
+    assert.match(installer, /NPM_GLOBAL_CONFIG="\$\{ROOT_STAGE\}\/npm-global\.conf"/)
+    assert.match(installer, /\[\[ ! \$\{NPM_USER_CONFIG\} -ef \$\{NPM_GLOBAL_CONFIG\} \]\]/)
+    assert.match(installer, /stat -c '%u:%g:%a'[\s\S]*'0:0:600'/)
+    assert.match(installer, /\/usr\/bin\/env -i/)
+    assert.match(installer, /--userconfig="\$\{NPM_USER_CONFIG\}"/)
+    assert.match(installer, /--globalconfig="\$\{NPM_GLOBAL_CONFIG\}"/)
+    assert.match(installer, /--ignore-scripts/)
+    assert.match(installer, /--omit=dev/)
+    assert.match(installer, /--no-audit/)
+    assert.match(installer, /--no-fund/)
+    assert.match(installer, /--registry=https:\/\/registry\.npmjs\.org\//)
+    assert(!/NPM_CONFIG_(?:USERCONFIG|GLOBALCONFIG)=\/dev\/null/.test(installer))
+    assert(!/--userconfig=\/dev\/null|--globalconfig=\/dev\/null/.test(installer))
+    const npmRun = installer.indexOf('/usr/bin/env -i')
+    assert(npmRun > installer.indexOf('NPM_USER_CONFIG='))
+    assert(npmRun > installer.indexOf('NPM_GLOBAL_CONFIG='))
+    assert(npmRun < installer.indexOf('readonly LIB_TARGET='))
+  } finally {
+    await fs.rm(fixture, { recursive: true, force: true })
+  }
 })
 
 await test('installer uses root staging and verifies hashes before/after copy', async () => {

@@ -11,10 +11,6 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_COUNT=0
 export GIT_TERMINAL_PROMPT=0
 export GIT_ASKPASS=/bin/false
-export NPM_CONFIG_USERCONFIG=/dev/null
-export NPM_CONFIG_GLOBALCONFIG=/dev/null
-export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
-export NPM_CONFIG_IGNORE_SCRIPTS=true
 
 readonly SOURCE_URL='https://github.com/sayod820/kakapo.git'
 readonly REMOTE_REF='refs/remotes/origin/release/online-v1'
@@ -131,8 +127,36 @@ for artifact in "${ARTIFACTS[@]}"; do
 done
 
 LIB_SOURCE="${ROOT_STAGE}/deploy/hetzner/kakapo-server-read"
-/usr/bin/npm ci --prefix "${LIB_SOURCE}" --omit=dev --ignore-scripts --no-audit --no-fund \
-  --registry=https://registry.npmjs.org/ --userconfig=/dev/null
+NPM_USER_CONFIG="${ROOT_STAGE}/npm-user.conf"
+NPM_GLOBAL_CONFIG="${ROOT_STAGE}/npm-global.conf"
+NPM_CACHE_DIR="${ROOT_STAGE}/npm-cache"
+[[ ${NPM_USER_CONFIG} != "${NPM_GLOBAL_CONFIG}" ]] \
+  || die 'npm user and global config paths must be distinct'
+/usr/bin/install -o root -g root -m 0600 /dev/null "${NPM_USER_CONFIG}"
+/usr/bin/install -o root -g root -m 0600 /dev/null "${NPM_GLOBAL_CONFIG}"
+/usr/bin/install -d -o root -g root -m 0700 "${NPM_CACHE_DIR}"
+for npm_config in "${NPM_USER_CONFIG}" "${NPM_GLOBAL_CONFIG}"; do
+  [[ -f ${npm_config} && ! -L ${npm_config} ]] \
+    || die 'npm config must be a regular non-symlink file'
+  [[ $(/usr/bin/stat -c '%u:%g:%a' "${npm_config}") == '0:0:600' ]] \
+    || die 'npm config must be root:root mode 0600'
+done
+[[ ! ${NPM_USER_CONFIG} -ef ${NPM_GLOBAL_CONFIG} ]] \
+  || die 'npm user and global config files must not share an inode'
+
+/usr/bin/env -i \
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /usr/bin/npm ci --prefix "${LIB_SOURCE}" \
+  --omit=dev \
+  --ignore-scripts \
+  --no-audit \
+  --no-fund \
+  --registry=https://registry.npmjs.org/ \
+  --userconfig="${NPM_USER_CONFIG}" \
+  --globalconfig="${NPM_GLOBAL_CONFIG}" \
+  --cache="${NPM_CACHE_DIR}"
 
 readonly LIB_TARGET="/usr/local/lib/kakapo-server-read-${APPROVED_SHA}"
 readonly SHARE_TARGET="/usr/local/share/kakapo-server-read-${APPROVED_SHA}"
