@@ -90,7 +90,7 @@ export default function ClientDebtPanel({
   function renderSale(s: ClientDebtCreditSale) {
     const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'Должен'
     const statusColor = s.status === 'paid' ? 'var(--green)' : s.status === 'partial' ? 'var(--gold)' : 'var(--red)'
-    const whenShort = s.when.replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
+    const whenShort = String(s.when || '').replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
     const noteText = String(s.note || '').trim()
     return (
       <button
@@ -310,7 +310,7 @@ export default function ClientDebtPanel({
                     {openRows.map(c => {
                     const statusLabel = c.status === 'partial' ? 'Частично' : 'Должен'
                     const statusColor = c.status === 'partial' ? 'var(--gold)' : 'var(--red)'
-                    const whenShort = c.when.replace(/,\s*/, ' · ')
+                    const whenShort = String(c.when || '').replace(/,\s*/, ' · ')
                     return (
                       <button
                         key={c.id}

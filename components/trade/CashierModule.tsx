@@ -54,6 +54,7 @@ import {
   loadBalanceTopups,
   loadDebtHistory,
   loadDebtHistoryForClient,
+  normalizeHistoryItemsSummary,
   debtAccountKey,
   recordBalanceTopup,
   recordStoreDebtCharge,
@@ -433,7 +434,7 @@ function linesLabel(lines: ClientHistLine[]): string {
 }
 
 function parseItemsSummary(raw?: string): ClientHistLine[] {
-  if (!raw?.trim()) return []
+  if (typeof raw !== 'string' || !raw.trim()) return []
   return raw.split(',').map(part => part.trim()).filter(Boolean).map(part => {
     const m = part.match(/^(.*?)(?:\s*[×xX]\s*([\d.,]+))?$/)
     const name = (m?.[1] || part).trim()
@@ -1680,7 +1681,7 @@ export default function CashierModule({
     ts: number
     amount: number
     isReturn: boolean
-    parts: { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind?: 'check' | 'cash' | 'other' }[]
+    parts: { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind?: 'check' | 'cash' | 'other'; payScope?: 'sale' | 'debt' }[]
     checkCount: number
     cashCount?: number
     methodHint: string
@@ -3539,7 +3540,7 @@ export default function CashierModule({
         : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${s.id.slice(-6)}`)
       const when = ts
         ? `${new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-        : s.dateIso
+        : String(s.dateIso || '')
       const paid = Math.max(0, Math.round((Number(st.paid) || Math.max(0, s.debtAdded - st.remain)) * 100) / 100)
       return {
         id: s.id,
@@ -3599,7 +3600,8 @@ export default function CashierModule({
         amount: Math.abs(Number(r.amount) || 0),
         desc: r.desc || (isReturn ? 'Возврат товара' : 'Погашение долга'),
         checkLabel,
-        items: sale?.items || saleAny?.items || r.itemsSummary || undefined,
+        // Старые записи могли сохранить состав массивом — в окне «Что закрыто» он рисуется как текст.
+        items: sale?.items || saleAny?.items || normalizeHistoryItemsSummary(r.itemsSummary) || undefined,
         saleId: sale?.id || (sid && !sid.startsWith('cash-') ? sid : undefined),
         isReturn,
         partKind: (payScope === 'sale' || sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
@@ -7747,7 +7749,7 @@ export default function CashierModule({
                       ts: fifo.ts || Date.now(),
                       method,
                       label: saleCheckLabel,
-                      itemsSummary: mapSaleLines(created.items, products),
+                      itemsSummary: linesLabel(mapSaleLines(created.items, products)),
                     })
                   }
                   setHistTick(t => t + 1)
@@ -12020,7 +12022,7 @@ export default function CashierModule({
                     const renderSale = (s: typeof cashierDebtPanel.creditSales[number]) => {
                       const statusLabel = s.status === 'paid' ? 'Погашен' : s.status === 'partial' ? 'Частично' : 'Должен'
                       const statusColor = s.status === 'paid' ? 'var(--accent)' : s.status === 'partial' ? 'var(--org)' : 'var(--red)'
-                      const whenShort = s.when.replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
+                      const whenShort = String(s.when || '').replace(/,\s*/, ' · ').replace(/\.(\d{2}),/, '.$1')
                       const noteText = String(s.note || '').trim()
                       return (
                         <button
@@ -12155,7 +12157,7 @@ export default function CashierModule({
                         {openRows.map(c => {
                           const statusLabel = c.status === 'partial' ? 'Частично' : 'Должен'
                           const statusColor = c.status === 'partial' ? 'var(--org)' : 'var(--red)'
-                          const whenShort = c.when.replace(/,\s*/, ' · ')
+                          const whenShort = String(c.when || '').replace(/,\s*/, ' · ')
                           return (
                             <button
                               key={c.id}

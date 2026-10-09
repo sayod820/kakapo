@@ -586,6 +586,23 @@ export function debtAccountKey(client: { phone?: string; id?: string } | null | 
   return id ? `cid:${id}` : ''
 }
 
+/** Состав из истории должен быть строкой. Старые записи могли сохранить массив — приводим к тексту. */
+export function normalizeHistoryItemsSummary(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const parts: string[] = []
+    for (const it of value) {
+      const rec = it as { name?: unknown; productName?: unknown; qty?: unknown }
+      const name = String(rec?.name ?? rec?.productName ?? '').trim()
+      if (!name) continue
+      const qty = Number(rec?.qty)
+      parts.push(Number.isFinite(qty) && qty !== 0 ? `${name} ×${qty}` : name)
+    }
+    return parts.length ? parts.join(', ') : undefined
+  }
+  return undefined
+}
+
 export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
   if (typeof window === 'undefined') return []
   const lsKey = debtHistLsKey(phone)
@@ -599,6 +616,8 @@ export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
       ...row,
       time: row.time || '',
       ts: row.ts || Date.now() - i,
+      /** Старые записи могли сохранить состав массивом — приводим к тексту, иначе UI падал при показе. */
+      itemsSummary: normalizeHistoryItemsSummary(row.itemsSummary),
     }))
   } catch {
     return []

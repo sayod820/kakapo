@@ -8,6 +8,7 @@ import {
   isManualDebtHistoryEntry,
   loadDebtHistoryForClient,
   mergeOpenCashAdvancesFromClientLedger,
+  normalizeHistoryItemsSummary,
   CASH_ADVANCE_HISTORY_LABEL,
   saleOpenCreditAmount,
   saleWasOnCredit,
@@ -305,7 +306,7 @@ export function buildClientDebtPanel({
       : (s.orderId ? `Заказ ${s.orderId}` : `Чек ${s.id.slice(-6)}`)
     const when = ts
       ? `${new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}, ${new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-      : s.dateIso
+      : String(s.dateIso || '')
     const paid = Math.max(0, Math.round((Number(st.paid) || Math.max(0, s.debtAdded - st.remain)) * 100) / 100)
     return {
       id: s.id,
@@ -350,6 +351,8 @@ export function buildClientDebtPanel({
       : undefined
     const isCashPart = !sale && (!!cash || sid.startsWith('cash-'))
     const isReturn = /возврат/i.test(String(r.desc || ''))
+    // Старые записи могли сохранить состав массивом — в окне «Что закрыто» он рисуется как текст.
+    const itemsSummary = normalizeHistoryItemsSummary(r.itemsSummary)
     const checkLabel = payScope === 'sale'
       ? `${saleAny?.label || sale?.label || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
       : sale
@@ -365,7 +368,7 @@ export function buildClientDebtPanel({
       amount: Math.abs(Number(r.amount) || 0),
       desc: r.desc || (isReturn ? 'Возврат товара' : 'Погашение долга'),
       checkLabel,
-      items: sale?.items || saleAny?.items || r.itemsSummary || undefined,
+      items: sale?.items || saleAny?.items || itemsSummary || undefined,
       saleId: sale?.id || (sid && !sid.startsWith('cash-') ? sid : undefined),
       isReturn,
       partKind: (payScope === 'sale' || sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
