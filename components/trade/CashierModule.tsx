@@ -7696,22 +7696,13 @@ export default function CashierModule({
                   }))
                   .filter(s => s.debtAdded > 0.001)
                 const ledgerPre = (soldClient as { debtLedger?: { saleId?: string; remaining?: number }[] }).debtLedger
-                const { saleStatus: preStatus } = buildSaleDebtStatuses(creditSalesPre, historyPre, prevDebt, ledgerPre)
-                const openTargets = creditSalesPre
-                  .filter(s => (preStatus[s.id]?.remain || 0) > 0.001)
-                  .sort((a, b) => (Date.parse(a.dateIso) || 0) - (Date.parse(b.dateIso) || 0))
-                  .map(s => ({
-                    orderId: s.orderId || s.id,
-                    remain: preStatus[s.id]?.remain || 0,
-                  }))
-                // Strict target when UI selected a receipt, or pay fits one receipt (no FIFO mismatch).
+                // Keep a strict receipt target only when the cashier selected it explicitly.
+                // Automatic change-to-debt repayment must use canonical server FIFO: a local
+                // sale/order id may be stale or absent from the authoritative debtLedger and
+                // would otherwise leave the repayment held as DEBT_RECEIPT_NOT_FOUND.
                 let repayOrderId: string | undefined
                 if (repayTarget?.orderId) {
                   repayOrderId = String(repayTarget.orderId).trim() || undefined
-                } else if (openTargets.length === 1 && payAmt <= openTargets[0].remain + 0.001) {
-                  repayOrderId = openTargets[0].orderId
-                } else if (openTargets[0] && payAmt <= openTargets[0].remain + 0.001) {
-                  repayOrderId = openTargets[0].orderId
                 }
                 const repaid = await debtRepaySafe(cardClient.card, {
                   amount: payAmt,

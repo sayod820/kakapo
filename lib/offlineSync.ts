@@ -13,6 +13,7 @@ import {
   isOnline,
   enqueueSale,
   enqueueOp,
+  putPending,
   retryPending,
   pendingRetryDelayMs,
   type PendingOp,
@@ -344,6 +345,30 @@ async function autoRetryFailed(opts?: { forceAll?: boolean }): Promise<number> {
       const err = String(row.lastError || '')
       const attempts = Number(row.attempts) || 0
       const nextAt = Number(row.nextRetryAt) || 0
+
+      if (row.kind === 'debt_repay' && /DEBT_RECEIPT_NOT_FOUND|Чек долга не найден/i.test(err)) {
+        const payload = { ...((row.payload || {}) as Record<string, unknown>) }
+        const targetOrderId = String(payload.orderId || '').trim()
+        const isLegacyAutomaticChangeRepay = (
+          !!targetOrderId
+          && !/^cash-/i.test(targetOrderId)
+          && !String(payload.note || '').trim()
+          && !String(payload.parentCashAdvanceClientRef || '').trim()
+        )
+        if (isLegacyAutomaticChangeRepay) {
+          delete payload.orderId
+          payload._receiptFallback = 'canonical_fifo'
+          row.payload = payload as PendingOp['payload']
+          row.failed = false
+          row.lastError = ''
+          row.errorClass = undefined
+          row.nextRetryAt = now
+          await putPending(row)
+          n++
+          continue
+        }
+      }
+
       if (!forceAll && nextAt > now) continue
 
       if (forceAll) {

@@ -2952,6 +2952,34 @@ export async function flushQueue(
           } = await import('./debtOpErrorClassifier')
           const cls = classifyDebtOpError(live.kind, e)
           live.lastError = cls.message || live.lastError
+          if (live.kind === 'debt_repay' && cls.code === 'DEBT_RECEIPT_NOT_FOUND') {
+            const payload = { ...((live.payload || {}) as Record<string, unknown>) }
+            const targetOrderId = String(payload.orderId || '').trim()
+            const isLegacyAutomaticChangeRepay = (
+              !!targetOrderId
+              && !/^cash-/i.test(targetOrderId)
+              && !String(payload.note || '').trim()
+              && !String(payload.parentCashAdvanceClientRef || '').trim()
+            )
+            if (isLegacyAutomaticChangeRepay) {
+              // Older pay-with-sale rows could carry a stale local sale/order id.
+              // Preserve amount + clientRef + appliedLocal effect, but let the
+              // authoritative server debtLedger choose its canonical FIFO target.
+              delete payload.orderId
+              payload._receiptFallback = 'canonical_fifo'
+              live.payload = payload as PendingOp['payload']
+              live.failed = false
+              live.lastError = ''
+              live.errorClass = undefined
+              live.nextRetryAt = Date.now() + pendingRetryDelayMs(Math.min(live.attempts, 4))
+              await putPending(live)
+              liveByRef.set(live.clientRef, live)
+              failed++
+              done++
+              reportProgress()
+              continue
+            }
+          }
           if (cls.class === DEBT_OP_ERROR_CLASS.RETRYABLE_VERSION) {
             // Refresh OCC version; keep same clientRef; no local re-apply; cooldown then retry
             try {

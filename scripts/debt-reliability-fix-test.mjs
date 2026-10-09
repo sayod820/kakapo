@@ -167,6 +167,20 @@ test('12) CashierModule pay-with-sale passes orderId', () => {
 })
 
 // ── SHIFT ─────────────────────────────────────────────────────
+test('13) automatic change repayment uses canonical server FIFO', () => {
+  const src = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')
+  expect(src.includes('Automatic change-to-debt repayment must use canonical server FIFO'), 'documents canonical FIFO')
+  expect(!src.includes('payAmt <= openTargets[0].remain'), 'does not send a stale automatic receipt target')
+  const offline = fs.readFileSync(path.join(root, 'lib/offline.ts'), 'utf8')
+  expect(offline.includes("cls.code === 'DEBT_RECEIPT_NOT_FOUND'"), 'detects old missing receipt target')
+  expect(offline.includes("payload._receiptFallback = 'canonical_fifo'"), 'marks canonical FIFO recovery')
+  expect(offline.includes('delete payload.orderId'), 'removes only the stale receipt target')
+  expect(offline.includes("!String(payload.note || '').trim()"), 'does not rewrite an explicitly described repayment')
+  const sync = fs.readFileSync(path.join(root, 'lib/offlineSync.ts'), 'utf8')
+  expect(sync.includes("row.kind === 'debt_repay' && /DEBT_RECEIPT_NOT_FOUND"), 'revives an already-held automatic repayment')
+  expect(sync.includes('await putPending(row)'), 'persists the repaired queue row before retry')
+})
+
 test('14) debt_repay_cash increases expected till once', () => {
   const shift = {
     id: 'SH-1',
