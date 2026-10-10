@@ -2646,6 +2646,12 @@ export function applyDebtRepayToShift(db, data = {}) {
       clientRef: clientRef || undefined,
       orderId: data.orderId || undefined,
       clientId: data.clientId || undefined,
+      // Комбинированная оплата «текущий чек + погашение долга»: часть, оплаченная текущим
+      // чеком. Это не долг, поэтому в журнал долга она не пишется — храним её здесь, чтобы
+      // разбивка оплаты (какие чеки закрыты и чем) была одинаковой на всех устройствах.
+      saleOrderId: String(data.saleOrderId || '').trim() || undefined,
+      saleAmount: round2(Number(data.saleAmount) || 0) > 0.001 ? round2(Number(data.saleAmount)) : undefined,
+      saleLabel: String(data.saleLabel || '').trim() || undefined,
       clientAtIso: clientRef && data.createdAtIso && !Number.isNaN(Date.parse(data.createdAtIso))
         ? new Date(data.createdAtIso).toISOString()
         : undefined,

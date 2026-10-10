@@ -127,6 +127,10 @@ export type DebtLedgerEntry = {
     atIso: string | null
     amount: number
     method: string | null
+    /** Комбинированная оплата «текущий чек + погашение долга»: часть, оплаченная текущим чеком */
+    saleAmount?: number | null
+    saleOrderId?: string | null
+    saleLabel?: string | null
   }[]
 }
 
@@ -704,6 +708,10 @@ export function normalizeHistoryItemsSummary(value: unknown): string | undefined
   return undefined
 }
 
+// Общий чистый помощник (лежит в .mjs-ядре, покрыт тестом history-sync). Реэкспорт,
+// чтобы «Долги» и касса брали подпись чека из одного места.
+export { saleLabelFromDesc } from './debtHistoryLedgerCore.mjs'
+
 export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
   return readDebtHistoryByLsKey(debtHistLsKey(phone))
 }
@@ -862,8 +870,12 @@ function localPaysCovered(local: DebtHistoryEntry[], e: DebtLedgerEntry): number
       covered += Math.abs(Number(r.amount) || 0)
       continue
     }
-    // durable-разбивка: строки, построенные из e.payments[] этого же чека
-    if (entryId && String(r.ledgerEntryId || '') === entryId && String(r.id || '').startsWith(LEDGER_PAY_ROW_PREFIX)) {
+    // durable-разбивка: строки, построенные из e.payments[] этого же чека.
+    // «Часть текущего чека» (payScope=sale) — не погашение долга, в покрытие не входит.
+    if (entryId
+      && String(r.ledgerEntryId || '') === entryId
+      && String(r.id || '').startsWith(LEDGER_PAY_ROW_PREFIX)
+      && r.payScope !== 'sale') {
       covered += Math.abs(Number(r.amount) || 0)
       continue
     }
@@ -1085,6 +1097,48 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
           } else {
             next.push(row)
             changed = true
+          }
+
+          // Комбинированная оплата «текущий чек + погашение долга»: серверная разбивка
+          // помнит и часть, оплаченную текущим чеком (это не долг, в журнале долга её нет).
+          const saleAmt = Math.round((Number(p?.saleAmount) || 0) * 100) / 100
+          if (saleAmt > 0.05) {
+            const saleRowId = `${LEDGER_PAY_ROW_PREFIX}sale-${pid}-${e.id}`
+            const saleLabel = String(p?.saleLabel || '').trim()
+            const saleRow: DebtHistoryEntry = {
+              id: saleRowId,
+              date: payWhen.date,
+              time: payWhen.time,
+              ts: payWhen.ts + 1,
+              desc: `Оплата · ${saleLabel || 'текущий чек'}${
+                method === 'card' ? ' · карта' : method === 'cash' ? ' · наличные' : ''
+              }`,
+              amount: saleAmt,
+              type: 'pay',
+              orderId: String(p?.saleOrderId || '').trim() || undefined,
+              source: 'cashier',
+              batchId: pid,
+              payScope: 'sale',
+              ledgerEntryId: String(e.id || ''),
+            }
+            const sIdx = next.findIndex(r => r.id === saleRowId)
+            if (sIdx >= 0) {
+              const cur = next[sIdx]
+              if (
+                cur.ts !== saleRow.ts
+                || cur.amount !== saleRow.amount
+                || cur.date !== saleRow.date
+                || cur.time !== saleRow.time
+                || cur.desc !== saleRow.desc
+                || cur.orderId !== saleRow.orderId
+              ) {
+                next[sIdx] = { ...cur, ...saleRow }
+                changed = true
+              }
+            } else {
+              next.push(saleRow)
+              changed = true
+            }
           }
         }
       }

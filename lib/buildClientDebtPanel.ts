@@ -8,6 +8,7 @@ import {
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
   normalizeHistoryItemsSummary,
+  saleLabelFromDesc,
   CASH_ADVANCE_HISTORY_LABEL,
   saleOpenCreditAmount,
   saleWasOnCredit,
@@ -352,7 +353,7 @@ export function buildClientDebtPanel({
     // Старые записи могли сохранить состав массивом — в окне «Что закрыто» он рисуется как текст.
     const itemsSummary = normalizeHistoryItemsSummary(r.itemsSummary)
     const checkLabel = payScope === 'sale'
-      ? `${saleAny?.label || sale?.label || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
+      ? `${saleAny?.label || sale?.label || saleLabelFromDesc(r.desc) || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
       : sale
         ? sale.label
         : cash

@@ -1764,12 +1764,22 @@ export async function debtRepaySafe(
     orderId?: string
     /** D6: child waits for this CA clientRef until DL-* is known */
     parentCashAdvanceClientRef?: string
+    /**
+     * Комбинированная оплата «текущий чек + долг»: часть, оплаченная текущим (пробитым) чеком.
+     * Сохраняется в разбивке серверной оплаты, поэтому на любом устройстве «Оплата 10.00»
+     * читается одной строкой (текущий чек + закрытые чеки долга), а не только на кассе.
+     */
+    saleOrderId?: string
+    saleAmount?: number
+    saleLabel?: string
   },
 ): Promise<OfflineResult<DebtRepayResult>> {
   const method: 'cash' | 'card' = input.method === 'card' ? 'card' : 'cash'
   const amount = round2(input.amount)
   let orderId = String(input.orderId || '').trim() || undefined
   let parentCaRef = String(input.parentCashAdvanceClientRef || '').trim() || undefined
+  const saleOrderId = String(input.saleOrderId || '').trim() || undefined
+  const saleAmount = round2(Number(input.saleAmount) || 0)
   const unsafeTarget = orderId && /^cash-/i.test(orderId)
   if (unsafeTarget) {
     parentCaRef = parentCaRef || undefined
@@ -1816,6 +1826,13 @@ export async function debtRepaySafe(
     orderId: unsafeTarget ? undefined : orderId,
     histKey: histKey || undefined,
     createdAtIso: new Date().toISOString(),
+    ...(saleOrderId || (Number(input.saleAmount) || 0) > 0.001
+      ? {
+          saleOrderId,
+          saleAmount: round2(Number(input.saleAmount) || 0),
+          saleLabel: String(input.saleLabel || '').trim() || undefined,
+        }
+      : {}),
     ...(parentCaRef || unsafeTarget
       ? {
           parentCashAdvanceClientRef: parentCaRef,
@@ -1858,6 +1875,8 @@ export async function debtRepaySafe(
         orderId,
         expectedDebtPayVersion: ver,
         createdAtIso: payload.createdAtIso,
+        saleOrderId,
+        ...(saleAmount > 0.001 ? { saleAmount, saleLabel: String(input.saleLabel || '').trim() || undefined } : {}),
       } as any)
       let res: unknown
       try {

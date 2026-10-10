@@ -166,6 +166,26 @@ test('12) CashierModule pay-with-sale passes orderId', () => {
   expect(src.includes('repayTarget?.orderId'), 'uses repayTarget')
 })
 
+test('12b) combined «чек + долг»: часть чека доживает до сервера и считается по факту оплаты', () => {
+  const offline = fs.readFileSync(path.join(root, 'lib/offline.ts'), 'utf8')
+  // Отправка погашения из очереди (Desktop/Android) должна нести часть текущего чека,
+  // иначе на других устройствах видно погашение без чека, которым его закрыли.
+  expect(offline.includes('saleOrderId: p.saleOrderId'), 'очередь несёт saleOrderId')
+  expect(offline.includes('Number(p.saleAmount)'), 'очередь несёт saleAmount')
+  expect(offline.includes('saleLabel: p.saleLabel'), 'очередь несёт saleLabel')
+
+  const cash = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')
+  // Часть чека = фактически принятые деньги (нал+карта+кошелёк), а не total чека:
+  // иначе при смешанной оплате с новым долгом сумма оплаты завышается.
+  expect(
+    /const salePartAmt = Math\.round\(\(cashPaid \+ cardPaid \+ walletPaid\) \* 100\) \/ 100/.test(cash),
+    'salePartAmt считается по факту оплаты',
+  )
+  expect(cash.includes('saleAmount: salePartAmt'), 'на сервер уходит salePartAmt')
+  expect(!/saleAmount: total\s*,/.test(cash), 'не отправляем total чека как оплаченную часть')
+  expect(cash.includes('recordStoreSalePaymentInBatch(histKey, salePartAmt,'), 'локальная часть — та же сумма')
+})
+
 // ── SHIFT ─────────────────────────────────────────────────────
 test('13) automatic change repayment uses canonical server FIFO', () => {
   const src = fs.readFileSync(path.join(root, 'components/trade/CashierModule.tsx'), 'utf8')

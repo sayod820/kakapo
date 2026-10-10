@@ -56,6 +56,7 @@ import {
   loadDebtHistory,
   loadDebtHistoryForClient,
   normalizeHistoryItemsSummary,
+  saleLabelFromDesc,
   debtAccountKey,
   recordBalanceTopup,
   recordStoreDebtCharge,
@@ -3595,7 +3596,7 @@ export default function CashierModule({
       const isCashPart = !sale && (!!cash || sid.startsWith('cash-'))
       const isReturn = /возврат/i.test(String(r.desc || ''))
       const checkLabel = payScope === 'sale'
-        ? `${saleAny?.label || sale?.label || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
+        ? `${saleAny?.label || sale?.label || saleLabelFromDesc(r.desc) || (sid ? `Чек ${sid.slice(-6)}` : 'Текущий чек')} · оплата`
         : sale
           ? sale.label
           : cash
@@ -7715,6 +7716,13 @@ export default function CashierModule({
                 if (repayTarget?.orderId) {
                   repayOrderId = String(repayTarget.orderId).trim() || undefined
                 }
+                // Номер текущего чека — он же «часть оплаты текущим чеком» в разбивке погашения
+                const saleCheckLabel = created.number != null && Number(created.number) > 0
+                  ? `Чек №${created.number}`
+                  : `Чек ${String(created.id).slice(-6)}`
+                // Часть текущего чека = фактически принятые по нему деньги (нал + карта + кошелёк),
+                // а НЕ `total`: если в этом же чеке часть ушла в долг, `total` завысил бы оплату.
+                const salePartAmt = Math.round((cashPaid + cardPaid + walletPaid) * 100) / 100
                 const repaid = await debtRepaySafe(cardClient.card, {
                   amount: payAmt,
                   method,
@@ -7724,6 +7732,11 @@ export default function CashierModule({
                   clientId: cardClient.id,
                   prevDebt,
                   orderId: repayOrderId,
+                  // Часть, оплаченная текущим чеком: сервер сохранит её в разбивке оплаты,
+                  // чтобы «Оплата 10.00» читалась одинаково на всех устройствах, а не только здесь.
+                  saleOrderId: created.id,
+                  saleAmount: salePartAmt,
+                  saleLabel: saleCheckLabel,
                 })
                 if (!repaid.data.duplicate) {
                   const histKey = histKeyPre
@@ -7748,10 +7761,7 @@ export default function CashierModule({
                       desc: 'Погашение долга с чеком',
                       clientRef: repaid.data.clientRef,
                     })
-                    const saleCheckLabel = created.number != null && Number(created.number) > 0
-                      ? `Чек №${created.number}`
-                      : `Чек ${String(created.id).slice(-6)}`
-                    recordStoreSalePaymentInBatch(histKey, total, {
+                    recordStoreSalePaymentInBatch(histKey, salePartAmt, {
                       orderId: created.id,
                       batchId: fifo.batchId || batchRef,
                       clientRef: repaid.data.clientRef,
@@ -12314,12 +12324,17 @@ export default function CashierModule({
                         : p.partKind === 'check'
                           ? 'Чек'
                           : ''
+                    // Для «текущего чека» подпись уже начинается с «Чек №…», поэтому
+                    // служебный хвост «· оплата» в списке «Что закрыто» не повторяем.
+                    const shownLabel = p.payScope === 'sale'
+                      ? p.checkLabel.replace(/\s·\sоплата$/i, '')
+                      : p.checkLabel
                     return (
                       <div key={p.id || `${p.checkLabel}-${i}`} className="hist-line">
                         <div className="hist-line-main">
                           <b>
                             {kind ? `${kind} · ` : ''}
-                            {p.checkLabel}
+                            {shownLabel}
                           </b>
                           {p.items ? <span className="hist-line-qty" style={{ display: 'block', marginTop: 2 }}>{p.items}</span> : null}
                         </div>

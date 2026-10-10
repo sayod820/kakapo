@@ -1751,13 +1751,18 @@ export default function DebtsModule({
                       : p.partKind === 'check'
                         ? 'Чек'
                         : ''
+                  // Для «текущего чека» подпись уже начинается с «Чек №…» — служебный
+                  // хвост «· оплата» в списке «Что закрыто» не повторяем.
+                  const shownLabel = p.payScope === 'sale'
+                    ? p.checkLabel.replace(/\s·\sоплата$/i, '')
+                    : p.checkLabel
                   return (
                     <div key={p.id || `${p.checkLabel}-${i}`} style={{
                       display: 'flex', justifyContent: 'space-between', gap: 10,
                       padding: '8px 10px', borderRadius: 10, background: 'var(--card2)', border: '1px solid var(--border)',
                     }}>
                       <div style={{ minWidth: 0 }}>
-                        <b style={{ fontSize: 13 }}>{kind ? `${kind} · ` : ''}{p.checkLabel}</b>
+                        <b style={{ fontSize: 13 }}>{kind ? `${kind} · ` : ''}{shownLabel}</b>
                         {p.items ? <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{p.items}</div> : null}
                       </div>
                       <b style={{ color: 'var(--green)', flexShrink: 0 }}>−{fmtMoney(p.amount)}</b>

@@ -145,5 +145,80 @@ check('reconstructed payment id = cash-register clientRef (not the money row id)
 check('reconstructed payment keeps the operation ref', rr.payments?.[0]?.clientRef === 'pos-ref-9')
 check('reconstructed payment still uses the real moment', rr.payments?.[0]?.atIso === new Date('2026-10-09T09:58:00.000Z').toISOString())
 
+/* ---------- 5. combined "current receipt + debt" payment keeps the sale part ---------- */
+
+const { client: comb, card: combCard } = makeClient('U-18', 'KAKAPO-0018')
+const { entry: c1 } = addDebtCharge(comb, combCard, {
+  amount: 0.27, orderId: 'K-13601', desc: 'Чек K-13601', createdAtIso: '2026-10-02T16:15:00.000Z',
+})
+const { entry: c2 } = addDebtCharge(comb, combCard, {
+  amount: 5.73, orderId: 'K-13632', desc: 'Чек K-13632', createdAtIso: '2026-10-03T04:59:00.000Z',
+})
+comb.debt = sumDebtLedgerRemaining(comb.debtLedger)
+applyDebtRepayment(comb, combCard, 6, {
+  method: 'cash',
+  clientRef: 'bd5030c06b25',
+  atIso: '2026-10-10T07:43:09.916Z',
+  saleOrderId: 'SALE-mv237lvi-a6f97',
+  saleAmount: 4,
+  saleLabel: 'Чек №15076',
+})
+check('combined: both debt receipts closed', c1.payments?.length === 1 && c2.payments?.length === 1)
+check(
+  'combined: sale part stored once (first closed receipt)',
+  c1.payments[0].saleAmount === 4
+    && c1.payments[0].saleOrderId === 'SALE-mv237lvi-a6f97'
+    && c1.payments[0].saleLabel === 'Чек №15076',
+)
+check('combined: sale part not duplicated on the next receipt', c2.payments[0].saleAmount === undefined)
+
+const combResp = buildDebtLedgerResponse(comb, { moneyLedger: [] })
+const cr1 = combResp.entries.find(e => e.id === c1.id)
+check(
+  'combined: response exposes the sale part',
+  cr1.payments[0].saleAmount === 4 && cr1.payments[0].saleLabel === 'Чек №15076',
+)
+
+/* ---------- 6. legacy entries also get the sale part reconstructed from the journal ---------- */
+
+const { client: legacyComb } = makeClient('U-19', 'KAKAPO-0019')
+const legacyCombCard = { num: 'KAKAPO-0019', clientId: 'U-19', debt: 0, debtLedger: [] }
+const { entry: lc1 } = addDebtCharge(legacyComb, legacyCombCard, {
+  amount: 6, orderId: 'K-13601', desc: 'Чек K-13601', createdAtIso: '2026-10-02T16:15:00.000Z',
+})
+/* чек закрыт комбинированной оплатой: 6 долг + 4 текущий чек (нет entry.payments) */
+lc1.remaining = 0
+const dbComb = {
+  moneyLedger: [{
+    id: 'LED-comb-1',
+    createdAtIso: '2026-10-10T07:43:10.000Z',
+    type: 'debt_repay_cash',
+    refType: 'debt_repay',
+    refId: 'KAKAPO-0019',
+    amount: 6,
+    meta: {
+      cardNum: 'KAKAPO-0019',
+      method: 'cash',
+      clientRef: 'bd5030c06b25',
+      clientAtIso: '2026-10-10T07:43:09.916Z',
+      saleOrderId: 'SALE-mv237lvi-a6f97',
+      saleAmount: 4,
+      saleLabel: 'Чек №15076',
+    },
+  }],
+}
+const legacyCombResp = buildDebtLedgerResponse(legacyComb, dbComb)
+const lcr = legacyCombResp.entries.find(e => e.id === lc1.id)
+check(
+  'legacy combined: sale part reconstructed from the journal',
+  lcr.payments?.[0]?.saleAmount === 4
+    && lcr.payments?.[0]?.saleOrderId === 'SALE-mv237lvi-a6f97'
+    && lcr.payments?.[0]?.saleLabel === 'Чек №15076',
+)
+check(
+  'legacy combined: reconstructed payment keeps the operation ref',
+  lcr.payments?.[0]?.id === 'bd5030c06b25',
+)
+
 console.log(`SUMMARY pass=${pass} fail=${fail}`)
 process.exit(fail ? 1 : 0)

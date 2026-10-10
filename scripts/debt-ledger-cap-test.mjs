@@ -294,6 +294,26 @@ test('7) debt sale charge + repayment still work under cap helpers', () => {
   expect(r2(charged.remaining) === 0, 'targeted repay')
 })
 
+test('8) closed row carrying the current-receipt part survives the cap', () => {
+  const ledger = []
+  for (let i = 0; i < 130; i++) {
+    ledger.push(mkEntry({
+      id: `C-${i}`,
+      remaining: 0,
+      amount: 1,
+      at: `2026-03-${String((i % 28) + 1).padStart(2, '0')}T07:00:00.000Z`,
+    }))
+  }
+  const partRow = mkEntry({ id: 'PART-1', remaining: 0, amount: 6, at: '2026-01-01T00:00:00.000Z' })
+  partRow.payments = [{ id: 'bd5030c06b25', amount: 6, saleAmount: 4, saleLabel: 'Чек №15076' }]
+  ledger.push(partRow)
+  const capped = capDebtLedgerLossless(ledger)
+  const keptPart = capped.find(e => e.id === 'PART-1')
+  expect(!!keptPart, 'part row kept')
+  expect(keptPart.payments[0].saleAmount === 4, 'part preserved')
+  expect(capped.filter(e => e.remaining <= 0.001).length <= 121, `closed bounded=${capped.length}`)
+})
+
 test('soft cap constant', () => {
   expect(DEBT_LEDGER_SOFT_CAP === 120, 'cap 120')
 })

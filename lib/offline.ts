@@ -2112,6 +2112,12 @@ async function sendOp(row: PendingOp): Promise<string> {
         orderId: p.orderId,
         expectedDebtPayVersion: ver != null ? Number(ver) : undefined,
         createdAtIso: p.createdAtIso,
+        // Комбинированная оплата «текущий чек + долг»: часть, оплаченную текущим чеком,
+        // надо донести до сервера и из очереди (Desktop/Android), иначе на других
+        // устройствах будет видно только погашение без чека, которым его закрыли.
+        saleOrderId: p.saleOrderId,
+        saleAmount: (Number(p.saleAmount) || 0) > 0.001 ? Number(p.saleAmount) : undefined,
+        saleLabel: p.saleLabel,
       } as any)
       try {
         const res = await send(p.expectedDebtPayVersion)

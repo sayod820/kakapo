@@ -1099,6 +1099,10 @@ export const api = {
     expectedDebtPayVersion?: number
     /** Время на часах кассы */
     createdAtIso?: string
+    /** Комбинированная оплата «текущий чек + долг»: часть, оплаченная текущим чеком */
+    saleOrderId?: string
+    saleAmount?: number
+    saleLabel?: string
   }) => request<{
     card: AdminCard
     amount: number

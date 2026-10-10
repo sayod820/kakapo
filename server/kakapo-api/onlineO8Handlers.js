@@ -1655,6 +1655,10 @@ export async function handleO8DebtRepay(req, res, ctx) {
   const amount = round2(req.body?.amount)
   const method = String(req.body?.method || 'cash').toLowerCase() === 'card' ? 'card' : 'cash'
   const orderId = String(req.body?.orderId || '').trim() || undefined
+  // Комбинированная оплата «текущий чек + погашение долга»
+  const saleOrderId = String(req.body?.saleOrderId || '').trim() || undefined
+  const saleAmount = round2(Number(req.body?.saleAmount) || 0)
+  const saleLabel = String(req.body?.saleLabel || '').trim() || undefined
   const fingerprint = buildDebtOpFingerprint('debt_repay', {
     amount,
     method,
@@ -1755,6 +1759,9 @@ export async function handleO8DebtRepay(req, res, ctx) {
               atIso: req.body?.createdAtIso,
               method,
               clientRef,
+              saleOrderId,
+              saleAmount: saleAmount > 0.001 ? saleAmount : undefined,
+              saleLabel,
             })
           } else if (repaidTowardDebt > 0.001) {
             applyDebtRepayment(linkedClient, card, repaidTowardDebt, {
@@ -1763,6 +1770,9 @@ export async function handleO8DebtRepay(req, res, ctx) {
               atIso: req.body?.createdAtIso,
               method,
               clientRef,
+              saleOrderId,
+              saleAmount: saleAmount > 0.001 ? saleAmount : undefined,
+              saleLabel,
             })
           }
           linkedClient.debt = nextDebt
@@ -1796,6 +1806,9 @@ export async function handleO8DebtRepay(req, res, ctx) {
           orderId: repayOrderId,
           clientId: linkedClient?.id || req.body?.clientId,
           createdAtIso: req.body?.createdAtIso,
+          saleOrderId,
+          saleAmount: saleAmount > 0.001 ? saleAmount : undefined,
+          saleLabel,
         })
         const shift = till?.shiftId ? (db.posShifts || []).find(s => s.id === till.shiftId) : null
         const result = {

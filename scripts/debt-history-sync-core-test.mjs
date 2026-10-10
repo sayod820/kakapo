@@ -8,6 +8,7 @@ import {
   entriesFromClientLedger,
   mergeLocalOnlyRows,
   normalizeLedgerEntry,
+  saleLabelFromDesc,
   selectAuthoritativeLedgerEntries,
 } from '../lib/debtHistoryLedgerCore.mjs'
 
@@ -263,6 +264,52 @@ test('14) офлайн-погашение без серверной разбив
     { id: 'D-offline', ts: Date.parse('2026-10-10T06:46:51.000Z'), date: '10 окт 2026', time: '11:46', desc: 'Погашение долга', amount: 5, type: 'pay', source: 'cashier', batchId: 'offline-ref-1', clientRef: 'offline-ref-1' },
   ], keepLocal)
   expect(rows.some(r => r.id === 'D-offline'), 'офлайн-погашение видно, пока сервер не разложил операцию')
+})
+
+test('15) комбинированная оплата «чек + долг»: часть текущего чека — строка той же операции', () => {
+  // Сервер сохранил разбивку: одна оплата 10.00 = чек 4.00 + закрытые чеки долга 0.27 и 5.73.
+  const svr = [
+    {
+      id: 'DL-13601', amount: 0.27, remaining: 0, paidAmount: 0.27,
+      createdAtIso: '2026-10-02T16:15:00.000Z', orderId: 'K-13601', source: 'pos', desc: 'Чек K-13601',
+      payments: [{
+        id: 'bd5030c06b25', clientRef: 'bd5030c06b25', atIso: '2026-10-10T07:43:09.916Z',
+        amount: 0.27, method: 'cash', saleAmount: 4, saleOrderId: 'SALE-1', saleLabel: 'Чек №15076',
+      }],
+    },
+    {
+      id: 'DL-13632', amount: 5.73, remaining: 0, paidAmount: 5.73,
+      createdAtIso: '2026-10-03T04:59:00.000Z', orderId: 'K-13632', source: 'pos', desc: 'Чек K-13632',
+      payments: [{
+        id: 'bd5030c06b25', clientRef: 'bd5030c06b25', atIso: '2026-10-10T07:43:09.916Z',
+        amount: 5.73, method: 'cash',
+      }],
+    },
+  ]
+  const authoritative = buildLedgerHistoryRows(entriesFromClientLedger(svr))
+  const sale = authoritative.find(r => r.payScope === 'sale')
+  expect(sale, 'часть текущего чека есть')
+  expect(round2(sale.amount) === 4, `sale=${sale.amount}`)
+  expect(sale.orderId === 'SALE-1', 'orderId = текущий чек')
+  expect(/Чек №15076/.test(sale.desc), `desc=${sale.desc}`)
+  // Одна операция: 4.00 (чек) + 0.27 + 5.73 (долг) = 10.00, один batchId
+  const op = authoritative.filter(r => r.type === 'pay' && r.batchId === 'bd5030c06b25')
+  expect(op.length === 3, `частей=${op.length}`)
+  expect(round2(op.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0)) === 10, 'итог = 10.00')
+  // Локальная оптимистичная «оплата чека» той же операции не дублируется
+  const keepLocal = r => !/^(ldg-|ldg-pay-|srvpay-)/.test(String(r.id || ''))
+  const rows = mergeLocalOnlyRows(authoritative, [
+    { id: 'D-sale', ts: Date.parse('2026-10-10T07:43:09.916Z'), date: '10 окт 2026', time: '12:43', desc: 'Оплата · Чек №15076 · наличные', amount: 4, type: 'pay', source: 'cashier', orderId: 'SALE-1', batchId: 'bd5030c06b25', clientRef: 'bd5030c06b25', payScope: 'sale' },
+  ], keepLocal)
+  expect(rows.filter(r => r.payScope === 'sale').length === 1, 'часть чека показана один раз')
+})
+
+test('16) подпись текущего чека из описания оплаты (когда чек не в списке продаж клиента)', () => {
+  expect(saleLabelFromDesc('Оплата · Чек №15076 · наличные') === 'Чек №15076', 'нал')
+  expect(saleLabelFromDesc('Оплата · Чек №15076 · карта') === 'Чек №15076', 'карта')
+  expect(saleLabelFromDesc('Оплата · Чек №15076') === 'Чек №15076', 'без способа')
+  expect(saleLabelFromDesc('Погашение · Чек K-13601') === '', 'не оплата чека → пусто')
+  expect(saleLabelFromDesc('') === '', 'пусто')
 })
 
 const failed = results.filter(r => r.status === 'FAIL')

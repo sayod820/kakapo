@@ -19,6 +19,12 @@ function isOpenLedgerEntry(entry, eps = 0.001) {
   return round2(entry?.remaining) > eps
 }
 
+/** Строка несёт «часть текущего чека» из комбинированной оплаты (чек + долг). */
+function ledgerEntryHasSalePart(entry) {
+  const pays = Array.isArray(entry?.payments) ? entry.payments : []
+  return pays.some(p => round2(Number(p?.saleAmount) || 0) > 0.001)
+}
+
 function ledgerEntryTime(entry) {
   return parseIso(entry?.createdAtIso) || 0
 }
@@ -30,7 +36,8 @@ function sortLedgerNewestFirst(entries) {
 
 /**
  * Cap ledger without dropping any open (remaining > 0) rows.
- * Paid/closed rows may be pruned (oldest first / keep newest) to fit soft cap.
+ * Paid/closed rows may be pruned (oldest first / keep newest) to fit soft cap,
+ * except rows carrying the «current-receipt part» of a combined payment.
  * If open rows alone exceed soft cap, length may temporarily exceed soft cap.
  */
 export function capDebtLedgerLossless(entries, softCap = DEBT_LEDGER_SOFT_CAP) {
@@ -41,9 +48,13 @@ export function capDebtLedgerLossless(entries, softCap = DEBT_LEDGER_SOFT_CAP) {
     if (isOpenLedgerEntry(e)) open.push(e)
     else closed.push(e)
   }
-  const availableClosed = Math.max(0, softCap - open.length)
-  const keptClosed = sortLedgerNewestFirst(closed).slice(0, availableClosed)
-  return sortLedgerNewestFirst([...open, ...keptClosed])
+  // Строку с «частью текущего чека» (комбинированная оплата чек + долг) при усечении
+  // не выкидываем: это видимый факт кассы, который нельзя восстановить.
+  const closedWithPart = closed.filter(ledgerEntryHasSalePart)
+  const closedPlain = closed.filter(e => !ledgerEntryHasSalePart(e))
+  const availableClosed = Math.max(0, softCap - open.length - closedWithPart.length)
+  const keptPlain = sortLedgerNewestFirst(closedPlain).slice(0, availableClosed)
+  return sortLedgerNewestFirst([...open, ...closedWithPart, ...keptPlain])
 }
 
 export function sumDebtLedgerRemaining(entries) {
@@ -349,6 +360,14 @@ function attachLedgerPayments(allocations, meta = {}) {
   const paymentId = String(meta.paymentId || '').trim()
   if (!paymentId) return
   const atIso = String(meta.atIso || '').trim()
+  const saleAmount = round2(Number(meta.saleAmount) || 0)
+  const salePart = saleAmount > 0.001
+    ? {
+        saleAmount,
+        saleOrderId: String(meta.saleOrderId || '').trim() || undefined,
+        saleLabel: String(meta.saleLabel || '').trim() || undefined,
+      }
+    : null
   for (const { entry, paid } of allocations) {
     if (!entry || !(round2(paid) > 0.001)) continue
     if (!Array.isArray(entry.payments)) entry.payments = []
@@ -357,6 +376,13 @@ function attachLedgerPayments(allocations, meta = {}) {
     if (atIso && !Number.isNaN(Date.parse(atIso))) row.atIso = new Date(atIso).toISOString()
     if (meta.method === 'cash' || meta.method === 'card') row.method = meta.method
     if (meta.clientRef) row.clientRef = String(meta.clientRef)
+    // «Часть текущего чека» пишем один раз на операцию, а не в каждый закрытый чек
+    if (salePart && !salePart.assigned) {
+      row.saleAmount = salePart.saleAmount
+      if (salePart.saleOrderId) row.saleOrderId = salePart.saleOrderId
+      if (salePart.saleLabel) row.saleLabel = salePart.saleLabel
+      salePart.assigned = true
+    }
     entry.payments.push(row)
   }
 }
@@ -406,6 +432,8 @@ function deriveRepaymentBreakdown(client, db) {
   // иначе деньги из журнала «уйдут» им, а у старых чеков разбивка останется пустой.
   const byEntryId = new Map()
   const assigned = new Map()
+  // «Часть текущего чека» пишем один раз на операцию, даже если оплата разложена на несколько чеков.
+  const salePartTaken = new Set()
   const put = (entry, amount, row) => {
     const cap = round2(round2(entry.amount) - round2(entry.remaining))
     const already = assigned.get(String(entry.id)) || 0
@@ -420,13 +448,24 @@ function deriveRepaymentBreakdown(client, db) {
     // иначе по id строки журнала денег. Иначе касса со своей оптимистичной строкой
     // (batchId = clientRef) не склеится с восстановленной серверной оплатой и покажет дубль.
     const paymentRef = String(meta.clientRef || row?.clientRef || '').trim()
-    list.push({
+    const payRow = {
       id: paymentRef || String(row?.id || ''),
       clientRef: paymentRef || undefined,
       atIso: repaymentPayIso(row) || null,
       amount: pay,
       method: String(meta.method || '') === 'card' || /card/.test(String(row?.type || '')) ? 'card' : 'cash',
-    })
+    }
+    // Комбинированная оплата «текущий чек + долг»: часть, оплаченную текущим чеком,
+    // возвращаем из журнала денег — иначе у старых записей она не восстановится.
+    const rowKey = String(row?.id || paymentRef || '')
+    const saleAmount = round2(Number(meta.saleAmount) || 0)
+    if (saleAmount > 0.001 && rowKey && !salePartTaken.has(rowKey)) {
+      salePartTaken.add(rowKey)
+      payRow.saleAmount = saleAmount
+      payRow.saleOrderId = String(meta.saleOrderId || '').trim() || undefined
+      payRow.saleLabel = String(meta.saleLabel || '').trim() || undefined
+    }
+    list.push(payRow)
     byEntryId.set(String(entry.id), list)
     return pay
   }
@@ -526,6 +565,9 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
     atIso,
     method: meta.method,
     clientRef: meta.clientRef,
+    saleOrderId: meta.saleOrderId,
+    saleAmount: meta.saleAmount,
+    saleLabel: meta.saleLabel,
   })
 
   syncDebtLedgerToCard(client, card)
@@ -749,6 +791,9 @@ export function buildDebtLedgerResponse(client, db) {
     atIso: p?.atIso ?? null,
     amount: round2(p?.amount),
     method: p?.method ?? null,
+    saleAmount: round2(Number(p?.saleAmount) || 0) || null,
+    saleOrderId: p?.saleOrderId ?? null,
+    saleLabel: p?.saleLabel ?? null,
   }))
   const entries = (client.debtLedger || []).map(entry => {
     const remaining = round2(entry.remaining)
@@ -832,6 +877,9 @@ export function handleClientDebtDelta(db, client, card, prevDebt, nextDebt, meta
     method: meta.method,
     clientRef: meta.clientRef,
     paymentId: meta.paymentId,
+    saleOrderId: meta.saleOrderId,
+    saleAmount: meta.saleAmount,
+    saleLabel: meta.saleLabel,
   })
   return { notifications: [] }
 }
