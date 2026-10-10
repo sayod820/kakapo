@@ -819,6 +819,9 @@ export const api = {
     return requestWithEtag<Order[]>(`/orders?${q}`)
   },
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
+  /** Гостевой трекинг: публичный ответ только для заказов этого телефона (POST /orders/track). */
+  trackOrders: (ids: string[], phone: string) =>
+    request<Order[]>('/orders/track', { method: 'POST', body: JSON.stringify({ ids, phone }) }),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
   getCourierOrders: () => request<Order[]>('/orders/courier'),
   updateOrderStatus: (id: string | number, status: string, extra?: Record<string, unknown> & { clientRef?: string }) =>

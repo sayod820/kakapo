@@ -121,5 +121,11 @@ export function getActiveClientPhone(user?: { phone?: string } | null): string {
   if (typeof window === 'undefined') return user?.phone?.trim() || ''
   if (user?.phone?.trim()) return user.phone.trim()
   const stored = loadStoreUser()
-  return stored?.phone?.trim() || ''
+  if (stored?.phone?.trim()) return stored.phone.trim()
+  // Гость без аккаунта: телефон последнего оформленного заказа из этого браузера.
+  try {
+    return (localStorage.getItem(PHONE_KEY) || '').trim()
+  } catch {
+    return ''
+  }
 }

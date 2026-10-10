@@ -2,6 +2,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type MouseEvent } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
+import { QRCodeSVG } from "qrcode.react";
 import { hydrateCourierStores, usePickups, usePricing } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto, resolvePhotoUrl } from "@/lib/productPhotos";
@@ -33,6 +34,7 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
+import { useClientOrderTracking } from "@/lib/useClientOrderTracking";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { useCategories } from "@/lib/useCategories";
 import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
@@ -2991,7 +2993,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
 
 const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
+  const trackClientOrders = useOrders(s => s.trackClientOrders);
   const pendingBonusSyncCount = useMemo(
     () => (user?.phone ? deliveredOrdersNeedingBonusSync(user.phone, apiOrders).length : 0),
     [user?.phone, apiOrders],
@@ -3037,7 +3039,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     const orders = useOrders.getState().orders
 
     void (async () => {
-      if (USE_API) await fetchOrders().catch(() => {})
+      if (USE_API) await trackClientOrders(phone).catch(() => {})
       const freshOrders = USE_API ? useOrders.getState().orders : orders
       const skipLoyaltyRecalc = isManualLoyaltyActive(user, user?.level)
       if (!skipLoyaltyRecalc) {
@@ -3048,7 +3050,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     })()
 
     return () => { cancelled = true }
-  }, [user?.phone, user?.card, pendingBonusSyncCount, setUser, fetchOrders])
+  }, [user?.phone, user?.card, pendingBonusSyncCount, setUser, trackClientOrders])
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);
@@ -3294,11 +3296,13 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 background:"#fff", display:"flex", alignItems:"center", justifyContent:"center",
                 boxShadow:"0 8px 28px rgba(0,0,0,.35)",
               }}>
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=196x196&margin=0&ecc=M&data=${encodeURIComponent(user.card)}`}
-                  alt={`QR ${user.card}`}
-                  width={196}
-                  height={196}
+                <QRCodeSVG
+                  value={String(user.card || "")}
+                  size={196}
+                  level="M"
+                  marginSize={0}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
                   style={{ display:"block", borderRadius:8 }}
                 />
               </div>
@@ -3523,9 +3527,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const pickups = usePickups();
   const assemblers = useAssemblerTeam();
   const ordersList = useMemo(() => {
-    const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
+    const activePhone = user?.phone || getActiveClientPhone(user) || '';
+    const mine = phoneDigits(activePhone);
     if (!mine) return [];
-    const fromApi = mapOrdersForClient(filterOrdersForStoreUser(apiOrders, user), user);
+    // Гость без аккаунта: заказы принадлежат телефону, а не StoreUser — даём трекингу «профиль» по телефону.
+    const owner = user?.phone ? user : { phone: activePhone, name: 'Клиент', level: 'basic' as const, bonus: 0 };
+    const fromApi = mapOrdersForClient(filterOrdersForStoreUser(apiOrders, owner), owner);
     if (USE_API) return fromApi;
     const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine);
     const byId = new Map<string, typeof fromApi[0]>();
@@ -5291,14 +5298,14 @@ function VipDebtSection({
 
 const DebtsPage = ({ go, user }) => {
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
+  const trackClientOrders = useOrders(s => s.trackClientOrders);
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
   useEffect(() => {
-    if (USE_API) void fetchOrders().catch(() => {})
-  }, [fetchOrders])
+    if (USE_API) void trackClientOrders(getActiveClientPhone(user)).catch(() => {})
+  }, [user?.phone, trackClientOrders])
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil, loyaltyCfgTick],
@@ -7215,14 +7222,7 @@ function KakapoAppInner() {
   }, [wished, wishedUpdatedAt, user?.phone, user?.clientId, cartSyncReady]);
 
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
-
-  useEffect(() => {
-    if (!USE_API) return
-    void fetchOrders().catch(() => {})
-    const id = setInterval(() => { void fetchOrders().catch(() => {}) }, 30000)
-    return () => clearInterval(id)
-  }, [fetchOrders])
+  useClientOrderTracking(getActiveClientPhone(user));
 
   const logout = useCallback(() => {
     clearClientSession();
