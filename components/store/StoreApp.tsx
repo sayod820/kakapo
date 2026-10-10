@@ -6930,17 +6930,15 @@ function hydrateStoreSessionFromStorage(): {
     return { user: null, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
   }
   const user = loadStoreUser();
-  if (!user?.phone) {
-    return { user, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
-  }
-  migrateLegacyClientData(user.phone);
+  const accountPhone = getActiveClientPhone(user) || undefined;
+  migrateLegacyClientData(accountPhone);
   return {
     user,
-    cart: loadAccountJson(ACCOUNT_NS.cart, {}, user.phone),
-    cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone),
-    cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone),
-    wished: loadAccountJson(ACCOUNT_NS.wished, {}, user.phone),
-    wishedUpdatedAt: loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone),
+    cart: loadAccountJson(ACCOUNT_NS.cart, {}, accountPhone),
+    cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone),
+    cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', accountPhone),
+    wished: loadAccountJson(ACCOUNT_NS.wished, {}, accountPhone),
+    wishedUpdatedAt: loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', accountPhone),
   };
 }
 
@@ -6992,33 +6990,22 @@ function KakapoAppInner() {
   }, [user, sessionReady]);
 
   useEffect(() => {
-    if (!user?.phone) {
-      setCartSyncReady(false);
-      cartUpdatedAtRef.current = '';
-      wishedUpdatedAtRef.current = '';
-      if (!user) {
-        setCart({});
-        setCartMeta({});
-        setCartUpdatedAt('');
-        setWished({});
-        setWishedUpdatedAt('');
-      }
-      return;
-    }
-
+    // Корзина и избранное должны жить и у покупателя без входа: ключ — телефон,
+    // а если телефона ещё нет — гостевой слот устройства (getAccountId → 'guest').
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     setCartSyncReady(false);
-    migrateLegacyClientData(user.phone);
-    const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, user.phone);
-    const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
-    const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone);
+    migrateLegacyClientData(accountPhone);
+    const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, accountPhone);
+    const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone);
+    const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', accountPhone);
     const localBundle = { cart: localCart, cartMeta: localMeta, cartUpdatedAt: localUpdatedAt };
     cartUpdatedAtRef.current = localUpdatedAt;
-    const localWished = loadAccountJson(ACCOUNT_NS.wished, {}, user.phone);
-    const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone);
+    const localWished = loadAccountJson(ACCOUNT_NS.wished, {}, accountPhone);
+    const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', accountPhone);
     const localWishBundle = { wished: localWished, wishedUpdatedAt: localWishedUpdatedAt };
     wishedUpdatedAtRef.current = localWishedUpdatedAt;
-    const localAddresses = loadClientAddresses(user.phone);
-    const localAddressesUpdatedAt = loadClientAddressesUpdatedAt(user.phone);
+    const localAddresses = loadClientAddresses(accountPhone);
+    const localAddressesUpdatedAt = loadClientAddressesUpdatedAt(accountPhone);
     const localAddressBundle = { addresses: localAddresses, addressesUpdatedAt: localAddressesUpdatedAt };
     addressesUpdatedAtRef.current = localAddressesUpdatedAt;
     setCart(localCart);
@@ -7029,7 +7016,7 @@ function KakapoAppInner() {
 
     let cancelled = false;
     const syncRemote = async () => {
-      if (!USE_API || !user.clientId) {
+      if (!USE_API || !user?.clientId) {
         if (!cancelled) setCartSyncReady(true);
         return;
       }
@@ -7047,9 +7034,9 @@ function KakapoAppInner() {
         setCart(merged.cart);
         setCartMeta(merged.cartMeta);
         setCartUpdatedAt(merged.cartUpdatedAt || '');
-        saveAccountJson(ACCOUNT_NS.cart, merged.cart, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', user.phone);
+        saveAccountJson(ACCOUNT_NS.cart, merged.cart, accountPhone);
+        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, accountPhone);
+        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', accountPhone);
         const localTs = cartSyncTimestamp(localUpdatedAt);
         const remoteTs = cartSyncTimestamp(remote.cartUpdatedAt);
         if (localTs > remoteTs || (localTs === remoteTs && Object.keys(localCart).length > 0 && !Object.keys(remote.cart).length)) {
@@ -7059,8 +7046,8 @@ function KakapoAppInner() {
         wishedUpdatedAtRef.current = mergedWish.wishedUpdatedAt || '';
         setWished(mergedWish.wished);
         setWishedUpdatedAt(mergedWish.wishedUpdatedAt || '');
-        saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, user.phone);
-        saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', user.phone);
+        saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, accountPhone);
+        saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', accountPhone);
         const localWishTs = cartSyncTimestamp(localWishedUpdatedAt);
         const remoteWishTs = cartSyncTimestamp(remoteWish.wishedUpdatedAt);
         if (
@@ -7069,7 +7056,7 @@ function KakapoAppInner() {
         ) {
           void saveRemoteWish(user.clientId, mergedWish.wished, mergedWish.wishedUpdatedAt);
         }
-        saveClientAddressesLocal(mergedAddresses.addresses, user.phone, mergedAddresses.addressesUpdatedAt);
+        saveClientAddressesLocal(mergedAddresses.addresses, accountPhone, mergedAddresses.addressesUpdatedAt);
         const localAddrTs = cartSyncTimestamp(localAddressesUpdatedAt);
         const remoteAddrTs = cartSyncTimestamp(remoteAddresses.addressesUpdatedAt);
         if (
@@ -7097,7 +7084,7 @@ function KakapoAppInner() {
   }, [cartMeta]);
 
   useEffect(() => {
-    if (!user?.phone) return;
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     let ts = cartUpdatedAtRef.current;
     if (cartMutatedByUserRef.current) {
       ts = new Date().toISOString();
@@ -7105,9 +7092,9 @@ function KakapoAppInner() {
       setCartUpdatedAt(ts);
       cartMutatedByUserRef.current = false;
     }
-    saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
-    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
-    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
+    saveAccountJson(ACCOUNT_NS.cart, cart, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, accountPhone);
   }, [cart, cartMeta, user?.phone]);
 
   useEffect(() => {
@@ -7199,7 +7186,7 @@ function KakapoAppInner() {
   }, [wished]);
 
   useEffect(() => {
-    if (!user?.phone) return;
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     let ts = wishedUpdatedAtRef.current;
     if (wishMutatedByUserRef.current) {
       ts = new Date().toISOString();
@@ -7207,8 +7194,8 @@ function KakapoAppInner() {
       setWishedUpdatedAt(ts);
       wishMutatedByUserRef.current = false;
     }
-    saveAccountJson(ACCOUNT_NS.wished, wished, user.phone);
-    saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, ts, user.phone);
+    saveAccountJson(ACCOUNT_NS.wished, wished, accountPhone);
+    saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, ts, accountPhone);
   }, [wished, user?.phone]);
 
   useEffect(() => {
@@ -7345,11 +7332,11 @@ function KakapoAppInner() {
     setCart({});
     setCartMeta({});
     setCartUpdatedAt(ts);
-    if (user?.phone) {
-      saveAccountJson(ACCOUNT_NS.cart, {}, user.phone);
-      saveAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
-      saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
-    }
+    // Чистим и гостевой слот: иначе после оформления заказа корзина «вернётся» при перезагрузке.
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
+    saveAccountJson(ACCOUNT_NS.cart, {}, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, accountPhone);
     if (USE_API && user?.clientId) {
       void saveRemoteCart(user.clientId, {}, {}, ts);
     }
