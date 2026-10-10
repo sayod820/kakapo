@@ -39,6 +39,25 @@ function readCachedVersion(userDataPath) {
   }
 }
 
+/**
+ * Совпадает ли штамп версии приложения внутри ui-cache с текущей версией кассы.
+ * localServer берёт кэш только при совпадении — иначе пакет считается чужим.
+ */
+function cacheStampMatchesApp(userDataPath) {
+  let appVer = ''
+  try {
+    const { app } = require('electron')
+    appVer = app && typeof app.getVersion === 'function' ? String(app.getVersion() || '').trim() : ''
+  } catch { /* не Electron — проверять нечего */ }
+  if (!appVer) return true
+  try {
+    const stamp = fs.readFileSync(path.join(cacheRoot(userDataPath), 'app-version.txt'), 'utf8').trim()
+    return stamp === appVer
+  } catch {
+    return false
+  }
+}
+
 function uiCacheReady(userDataPath) {
   try {
     return fs.existsSync(path.join(cacheRoot(userDataPath), 'server.js'))
@@ -339,10 +358,15 @@ async function syncOfflineUi(userDataPath, { log = () => {} } = {}) {
       const current = readCachedVersion(userDataPath)
       const cacheAt = readUiBuiltAtMs(cacheRoot(userDataPath))
       if (current === version && uiCacheReady(userDataPath)) {
-        if (!remoteBuiltAt || !cacheAt || cacheAt >= remoteBuiltAt) {
+        // Штамп версии приложения: если касса обновилась после скачивания пакета,
+        // localServer его больше не берёт. Раньше в этом случае ответ «уже актуально»
+        // навсегда блокировал обновление — перекачиваем и перештамповываем.
+        const stampOk = cacheStampMatchesApp(userDataPath)
+        if (stampOk && (!remoteBuiltAt || !cacheAt || cacheAt >= remoteBuiltAt)) {
           log('ui-sync already current', version)
           return { updated: false, version, reason: 'current' }
         }
+        if (!stampOk) log('ui-sync restamp (app version changed)', { version })
       }
 
       log('ui-sync download', { version, fileUrl, remoteBuiltAt: remoteBuiltAt || null })

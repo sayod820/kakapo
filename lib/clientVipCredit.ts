@@ -7,6 +7,7 @@ import { normalizeCard, type AdminCard } from './cardCrm'
 import { emitCrmSync, fetchCrmStoreUser, findMergedClientByPhone } from './clientProfileSync'
 import { USE_API } from './config'
 import { api } from './api'
+import { getKakapoDesktop, isKakapoDesktop } from './desktopBridge'
 import { ACCOUNT_NS, accountStorageKey, loadAccountJson, saveAccountJson } from './clientAccountStorage'
 import { phoneDigits, type StoreUser } from './clientSession'
 import { resolveEffectiveDebtLimit } from './loyaltyStatusConfig'
@@ -54,6 +55,8 @@ const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
 const LEDGER_DEBT_PREFIX = 'ldg-'
 const LEDGER_PAY_PREFIX = 'ldg-pay-'
+/** Строка истории, построенная из серверной разбивки погашения (payments[]) — id = srvpay-<paymentId>-<entryId> */
+const LEDGER_PAY_ROW_PREFIX = 'srvpay-'
 const DEBT_HISTORY_CAP = 120
 const ledgerSyncInflight = new Map<string, Promise<DebtLedgerResponse | null>>()
 
@@ -89,6 +92,8 @@ export type DebtHistoryEntry = {
   clientRef?: string
   /** Срок погашения (ISO) — с серверного ledger */
   dueAtIso?: string
+  /** id серверной записи журнала, к которой относится эта оплата (durable-разбивка) */
+  ledgerEntryId?: string
   /** Человекочитаемый срок */
   dueDate?: string
   /** Дней до срока (отрицательное = просрочка) */
@@ -111,6 +116,13 @@ export type DebtLedgerEntry = {
   saleId?: string
   desc: string
   status: 'open' | 'overdue' | 'paid'
+  /** Разбивка погашений: какая оплата, когда и сколько закрыла по этой записи (durable, с сервера) */
+  payments?: {
+    id: string | null
+    atIso: string | null
+    amount: number
+    method: string | null
+  }[]
 }
 
 export type DebtLedgerResponse = {
@@ -566,6 +578,90 @@ function debtHistLsKey(key: string): string {
   return accountStorageKey(DEBT_HIST, k)
 }
 
+/**
+ * Durable-зеркало долговой истории для Desktop.
+ * Локальный список оплат живёт в origin, а Desktop открывает кассу на каждый запуск
+ * со случайного порта (`listen(0)`) — значит localStorage обнуляется. Копия в локальной
+ * базе Desktop (userData, не origin) это переживает, поэтому история оплат не пропадает.
+ */
+const DEBT_HISTORY_DURABLE_KEY = 'debt_history_durable_v1'
+type DebtHistoryDurableMap = Record<string, DebtHistoryEntry[]>
+let durableHistCache: DebtHistoryDurableMap | null = null
+let durableHistChain: Promise<void> = Promise.resolve()
+
+async function durableHistRead(): Promise<DebtHistoryDurableMap | null> {
+  const desk = getKakapoDesktop()
+  if (!isKakapoDesktop() || !desk?.localDbKvGet) return null
+  try {
+    const raw = await desk.localDbKvGet(DEBT_HISTORY_DURABLE_KEY)
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    return raw as DebtHistoryDurableMap
+  } catch {
+    return null
+  }
+}
+
+/** Запись сериализована: параллельные сохранения не затирают друг друга. */
+function durableHistWrite(lsKey: string, list: DebtHistoryEntry[]): Promise<void> {
+  const desk = getKakapoDesktop()
+  if (!isKakapoDesktop() || !desk?.localDbKvSet || !lsKey) return Promise.resolve()
+  durableHistChain = durableHistChain.then(async () => {
+    if (!durableHistCache) durableHistCache = (await durableHistRead()) || {}
+    durableHistCache[lsKey] = list.slice(0, DEBT_HISTORY_CAP)
+    try { await desk.localDbKvSet(DEBT_HISTORY_DURABLE_KEY, durableHistCache) } catch { /* ignore */ }
+  }).catch(() => { /* ignore */ })
+  return durableHistChain
+}
+
+/**
+ * Вернуть долговую историю из durable-хранилища Desktop в localStorage.
+ * Без телефона — все известные ключи (старт приложения); с телефоном — только его.
+ */
+export async function hydrateDebtHistoryDurable(phone?: string): Promise<boolean> {
+  const all = await durableHistRead()
+  if (!all) return false
+  if (!durableHistCache) durableHistCache = { ...all }
+  const lsKeys = phone ? [debtHistLsKey(phone)].filter(Boolean) : Object.keys(all)
+  let changed = false
+  for (const lsKey of lsKeys) {
+    const durable = all[lsKey]
+    if (!Array.isArray(durable) || !durable.length) continue
+    const current = readDebtHistoryByLsKey(lsKey)
+    const merged = mergeDebtHistoryRows(current, durable)
+    if (merged.length === current.length) continue
+    writeDebtHistoryByLsKey(lsKey, merged)
+    changed = true
+  }
+  if (changed) emitDebtHistoryChange()
+  return changed
+}
+
+function readDebtHistoryByLsKey(lsKey: string): DebtHistoryEntry[] {
+  if (typeof window === 'undefined' || !lsKey) return []
+  try {
+    const raw = localStorage.getItem(lsKey)
+    if (!raw) return []
+    const list = JSON.parse(raw) as DebtHistoryEntry[]
+    if (!Array.isArray(list)) return []
+    return list.map((row, i) => ({
+      ...row,
+      time: row.time || '',
+      ts: row.ts || Date.now() - i,
+      /** Старые записи могли сохранить состав массивом — приводим к тексту, иначе UI падал при показе. */
+      itemsSummary: normalizeHistoryItemsSummary(row.itemsSummary),
+    }))
+  } catch {
+    return []
+  }
+}
+
+function writeDebtHistoryByLsKey(lsKey: string, list: DebtHistoryEntry[]) {
+  if (typeof window === 'undefined' || !lsKey) return
+  try {
+    localStorage.setItem(lsKey, JSON.stringify(list.slice(0, DEBT_HISTORY_CAP)))
+  } catch { /* quota */ }
+}
+
 function mergeDebtHistoryRows(a: DebtHistoryEntry[], b: DebtHistoryEntry[]): DebtHistoryEntry[] {
   const seen = new Set<string>()
   const out: DebtHistoryEntry[] = []
@@ -604,24 +700,7 @@ export function normalizeHistoryItemsSummary(value: unknown): string | undefined
 }
 
 export function loadDebtHistory(phone: string): DebtHistoryEntry[] {
-  if (typeof window === 'undefined') return []
-  const lsKey = debtHistLsKey(phone)
-  if (!lsKey) return []
-  try {
-    const raw = localStorage.getItem(lsKey)
-    if (!raw) return []
-    const list = JSON.parse(raw) as DebtHistoryEntry[]
-    if (!Array.isArray(list)) return []
-    return list.map((row, i) => ({
-      ...row,
-      time: row.time || '',
-      ts: row.ts || Date.now() - i,
-      /** Старые записи могли сохранить состав массивом — приводим к тексту, иначе UI падал при показе. */
-      itemsSummary: normalizeHistoryItemsSummary(row.itemsSummary),
-    }))
-  } catch {
-    return []
-  }
+  return readDebtHistoryByLsKey(debtHistLsKey(phone))
 }
 
 export function loadDebtHistoryForClient(
@@ -639,7 +718,9 @@ export function loadDebtHistoryForClient(
 
 export function isImportedLedgerHistoryId(id?: string): boolean {
   const v = String(id || '')
-  return v.startsWith(LEDGER_DEBT_PREFIX) || v.startsWith(LEDGER_PAY_PREFIX)
+  return v.startsWith(LEDGER_DEBT_PREFIX)
+    || v.startsWith(LEDGER_PAY_PREFIX)
+    || v.startsWith(LEDGER_PAY_ROW_PREFIX)
 }
 
 /** Ручная запись (начисление/погашение в разделе Долги) — можно править/удалить. Чеки и заказы — нет. */
@@ -668,12 +749,11 @@ export function isManualDebtHistoryEntry(row: DebtHistoryEntry): boolean {
 }
 
 function saveDebtHistoryList(phone: string, list: DebtHistoryEntry[]) {
-  if (typeof window === 'undefined') return
   const lsKey = debtHistLsKey(phone)
   if (!lsKey) return
-  try {
-    localStorage.setItem(lsKey, JSON.stringify(list.slice(0, DEBT_HISTORY_CAP)))
-  } catch { /* quota */ }
+  writeDebtHistoryByLsKey(lsKey, list)
+  // Desktop: дублируем в локальную базу, иначе смена порта/обновление теряет историю
+  void durableHistWrite(lsKey, list)
   emitDebtHistoryChange()
 }
 
@@ -717,10 +797,16 @@ function findMatchingLocalDebt(local: DebtHistoryEntry[], e: DebtLedgerEntry): D
 function localPaysCovered(local: DebtHistoryEntry[], e: DebtLedgerEntry): number {
   const ledgerPayId = `${LEDGER_PAY_PREFIX}${e.id}`
   const oid = String(e.orderId || e.saleId || '').trim()
+  const entryId = String(e.id || '')
   let covered = 0
   for (const r of local) {
     if (r.type !== 'pay') continue
     if (r.id === ledgerPayId) {
+      covered += Math.abs(Number(r.amount) || 0)
+      continue
+    }
+    // durable-разбивка: строки, построенные из e.payments[] этого же чека
+    if (entryId && String(r.ledgerEntryId || '') === entryId && String(r.id || '').startsWith(LEDGER_PAY_ROW_PREFIX)) {
       covered += Math.abs(Number(r.amount) || 0)
       continue
     }
@@ -892,6 +978,59 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
 
     const paid = Math.max(0, Math.round((Number(e.paidAmount) || 0) * 100) / 100)
     if (paid > 0.05) {
+      // Durable-разбивка: реальные оплаты (их дата/время, способ, сумма) — дата берётся из оплаты,
+      // а не из даты чека, иначе погашение «переезжает» на день создания долга.
+      const recorded = Array.isArray(e.payments) ? e.payments : []
+      if (recorded.length) {
+        // Убираем старую синтетическую строку «ldg-pay-…» по этому чеку — её место занимают реальные оплаты
+        const staleIdx = next.findIndex(r => r.id === `${LEDGER_PAY_PREFIX}${e.id}`)
+        if (staleIdx >= 0) {
+          next.splice(staleIdx, 1)
+          changed = true
+        }
+        for (const p of recorded) {
+          const payAmt = Math.round((Number(p?.amount) || 0) * 100) / 100
+          if (!(payAmt > 0.05)) continue
+          const pid = String(p?.id || e.id)
+          const rowId = `${LEDGER_PAY_ROW_PREFIX}${pid}-${e.id}`
+          const method = String(p?.method || '')
+          const payWhen = ledgerWhen(p?.atIso || e.createdAtIso)
+          const row: DebtHistoryEntry = {
+            id: rowId,
+            date: payWhen.date,
+            time: payWhen.time,
+            ts: payWhen.ts,
+            desc: method === 'card'
+              ? 'Погашение · карта'
+              : method === 'cash'
+                ? 'Погашение · наличные'
+                : 'Погашение долга',
+            amount: payAmt,
+            type: 'pay',
+            orderId: oid,
+            source: 'cashier',
+            batchId: pid,
+            ledgerEntryId: String(e.id || ''),
+          }
+          const rIdx = next.findIndex(r => r.id === rowId)
+          if (rIdx >= 0) {
+            const cur = next[rIdx]
+            if (
+              cur.ts !== row.ts
+              || cur.amount !== row.amount
+              || cur.date !== row.date
+              || cur.time !== row.time
+              || cur.desc !== row.desc
+            ) {
+              next[rIdx] = { ...cur, ...row }
+              changed = true
+            }
+          } else {
+            next.push(row)
+            changed = true
+          }
+        }
+      }
       const covered = localPaysCovered(next, e)
       let need = Math.round((paid - covered) * 100) / 100
       if (need > 0.05 && unlinkedPayPool > 0.05) {
@@ -935,6 +1074,8 @@ export async function syncDebtHistoryFromLedger(phone: string): Promise<DebtLedg
   if (existing) return existing
   const run = (async () => {
     try {
+      // Сначала возвращаем локальные строки из durable-копии Desktop (после смены порта их нет в origin)
+      await hydrateDebtHistoryDurable(key)
       const ledger = await api.getDebtLedger(p)
       mergeLedgerIntoLocalHistory(p, ledger)
       applyLedgerFlagsToCrm(p, ledger)

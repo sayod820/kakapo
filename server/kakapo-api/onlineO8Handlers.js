@@ -1752,11 +1752,17 @@ export async function handleO8DebtRepay(req, res, ctx) {
               source: 'pos',
               orderId: repayOrderId,
               desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
+              atIso: req.body?.createdAtIso,
+              method,
+              clientRef,
             })
           } else if (repaidTowardDebt > 0.001) {
             applyDebtRepayment(linkedClient, card, repaidTowardDebt, {
               orderId: repayOrderId,
               desc: method === 'cash' ? 'Погашение долга наличными' : 'Погашение долга картой',
+              atIso: req.body?.createdAtIso,
+              method,
+              clientRef,
             })
           }
           linkedClient.debt = nextDebt

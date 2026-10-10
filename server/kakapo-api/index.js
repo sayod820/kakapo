@@ -5275,7 +5275,7 @@ app.get('/debt/ledger', (req, res) => {
   if (!phone) return res.status(400).json({ detail: 'Укажите phone' })
   const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
-  res.json(buildDebtLedgerResponse(client))
+  res.json(buildDebtLedgerResponse(client, db))
 })
 
 app.post('/cards/generate', (req, res) => {

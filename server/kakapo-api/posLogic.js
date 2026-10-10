@@ -4366,6 +4366,8 @@ export function returnPosSale(db, saleId, meta = {}) {
           desc: `Возврат · ${sale.orderId || sale.number}`,
           saleId: sale.id,
           orderId: sale.orderId,
+          atIso: meta?.atIso || sale.createdAtIso,
+          clientRef: meta?.clientRef,
         })
       }
     }

@@ -339,6 +339,110 @@ function debtRepayError(code, message, status = 400) {
 }
 
 /**
+ * Durable per-entry repayment log.
+ * Remembers, for one client payment, which debt receipts it closed and when.
+ * Display-only history: canonical balances stay in `remaining`/`paidAmount`.
+ * Idempotent by payment id per entry (safe on retries / replays).
+ */
+function attachLedgerPayments(allocations, meta = {}) {
+  if (!allocations.length) return
+  const paymentId = String(meta.paymentId || '').trim()
+  if (!paymentId) return
+  const atIso = String(meta.atIso || '').trim()
+  for (const { entry, paid } of allocations) {
+    if (!entry || !(round2(paid) > 0.001)) continue
+    if (!Array.isArray(entry.payments)) entry.payments = []
+    if (entry.payments.some(p => String(p?.id || '') === paymentId)) continue
+    const row = { id: paymentId, amount: round2(paid) }
+    if (atIso && !Number.isNaN(Date.parse(atIso))) row.atIso = new Date(atIso).toISOString()
+    if (meta.method === 'cash' || meta.method === 'card') row.method = meta.method
+    if (meta.clientRef) row.clientRef = String(meta.clientRef)
+    entry.payments.push(row)
+  }
+}
+
+/** Момент оплаты для показа: клиентское время операции (если есть), иначе серверное. */
+function repaymentPayIso(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {}
+  const clientAt = String(meta.clientAtIso || '').trim()
+  if (clientAt && !Number.isNaN(Date.parse(clientAt))) return new Date(clientAt).toISOString()
+  const at = String(row?.createdAtIso || '').trim()
+  if (at && !Number.isNaN(Date.parse(at))) return new Date(at).toISOString()
+  return ''
+}
+
+/**
+ * For historical entries (created before the durable repayment log) rebuild the
+ * per-entry `payments[]` breakdown from the money journal — read-only projection,
+ * it never mutates the ledger. Canonical balances stay in `remaining`/`paidAmount`.
+ * @returns {Map<string, {id:string, atIso:string, amount:number, method:string|null}[]>|null}
+ */
+function deriveRepaymentBreakdown(client, db) {
+  // Сначала дешёвая проверка: нужна ли вообще реконструкция для этого клиента.
+  const entries = (client?.debtLedger || [])
+    .filter(entry => !(Array.isArray(entry.payments) && entry.payments.length))
+    .map(entry => ({ entry, paid: round2(round2(entry.amount) - round2(entry.remaining)) }))
+    .filter(x => x.paid > 0.001)
+    .sort((a, b) => (parseIso(a.entry.createdAtIso) || 0) - (parseIso(b.entry.createdAtIso) || 0))
+  if (!entries.length) return null
+
+  const rows = Array.isArray(db?.moneyLedger) ? db.moneyLedger : []
+  if (!rows.length) return null
+  const cardNum = String(client?.card || '').trim().toUpperCase()
+  const clientId = client?.id != null ? String(client.id) : ''
+  const repayments = rows.filter(r => {
+    if (String(r.refType || '') !== 'debt_repay') return false
+    const meta = r.meta && typeof r.meta === 'object' ? r.meta : {}
+    const rowCard = String(meta.cardNum || r.refId || '').trim().toUpperCase()
+    const rowClientId = String(meta.clientId || '').trim()
+    if (cardNum && rowCard && rowCard === cardNum) return true
+    if (clientId && rowClientId && rowClientId === clientId) return true
+    return false
+  })
+  if (!repayments.length) return null
+  repayments.sort((a, b) => (Date.parse(repaymentPayIso(a)) || 0) - (Date.parse(repaymentPayIso(b)) || 0))
+
+  // Записи, у которых уже есть собственная разбивка, не участвуют в восстановлении:
+  // иначе деньги из журнала «уйдут» им, а у старых чеков разбивка останется пустой.
+  const byEntryId = new Map()
+  const assigned = new Map()
+  const put = (entry, amount, row) => {
+    const cap = round2(round2(entry.amount) - round2(entry.remaining))
+    const already = assigned.get(String(entry.id)) || 0
+    const free = round2(cap - already)
+    if (!(free > 0.001)) return 0
+    const pay = round2(Math.min(free, amount))
+    if (!(pay > 0.001)) return 0
+    assigned.set(String(entry.id), round2(already + pay))
+    const list = byEntryId.get(String(entry.id)) || []
+    const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {}
+    list.push({
+      id: String(row?.id || ''),
+      atIso: repaymentPayIso(row) || null,
+      amount: pay,
+      method: String(meta.method || '') === 'card' || /card/.test(String(row?.type || '')) ? 'card' : 'cash',
+    })
+    byEntryId.set(String(entry.id), list)
+    return pay
+  }
+
+  for (const row of repayments) {
+    let left = round2(row.amount)
+    if (!(left > 0.001)) continue
+    const target = String(row?.meta?.orderId || '').trim()
+    if (target) {
+      const hit = entries.find(x => debtReceiptMatchesTarget(x.entry, target))
+      if (hit) left = round2(left - put(hit.entry, left, row))
+    }
+    for (const x of entries) {
+      if (left <= 0.001) break
+      left = round2(left - put(x.entry, left, row))
+    }
+  }
+  return byEntryId.size ? byEntryId : null
+}
+
+/**
  * Apply repayment to debtLedger.
  * With orderId/saleId: STRICT one-receipt (no FIFO spill).
  * Without target: whole-customer FIFO (oldest open first).
@@ -348,6 +452,13 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
   let left = round2(amount)
   if (!(left > 0)) return { applied: 0, repayments: [], notifications: [] }
 
+  const atIso = meta.atIso && !Number.isNaN(Date.parse(String(meta.atIso)))
+    ? new Date(meta.atIso).toISOString()
+    : new Date().toISOString()
+  const paymentId = String(meta.paymentId || meta.clientRef || '').trim()
+    || `DP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  /** @type {{ entry: any, paid: number }[]} */
+  const allocations = []
   const prefer = String(meta.saleId || meta.orderId || '').trim()
   const repayments = []
 
@@ -386,6 +497,7 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
     const pay = Math.min(need, left)
     target.remaining = round2(need - pay)
     left = round2(left - pay)
+    allocations.push({ entry: target, paid: pay })
     repayments.push({ id: target.id, paid: pay, remaining: target.remaining, orderId: target.orderId, saleId: target.saleId })
   } else {
     const open = client.debtLedger
@@ -399,9 +511,17 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
       const pay = Math.min(need, left)
       entry.remaining = round2(need - pay)
       left = round2(left - pay)
+      allocations.push({ entry, paid: pay })
       repayments.push({ id: entry.id, paid: pay, remaining: entry.remaining })
     }
   }
+
+  attachLedgerPayments(allocations, {
+    paymentId,
+    atIso,
+    method: meta.method,
+    clientRef: meta.clientRef,
+  })
 
   syncDebtLedgerToCard(client, card)
   recomputeDebtBlockState(client, card)
@@ -412,6 +532,8 @@ export function applyDebtRepayment(client, card, amount, meta = {}) {
     desc: meta.desc || 'Погашение долга',
     notifications: [],
     strict: !!prefer,
+    paymentId,
+    atIso,
   }
 }
 
@@ -611,13 +733,25 @@ function findCanonicalCardForDb(db, client) {
   return null
 }
 
-export function buildDebtLedgerResponse(client) {
+export function buildDebtLedgerResponse(client, db) {
   ensureDebtLedger(client)
   const nowIso = new Date().toISOString()
+  /** Разбивка погашений для старых записей (у новых она уже лежит в самой записи). */
+  const derivedPays = deriveRepaymentBreakdown(client, db)
+  const normalizePays = (list) => list.map(p => ({
+    id: p?.id ?? null,
+    atIso: p?.atIso ?? null,
+    amount: round2(p?.amount),
+    method: p?.method ?? null,
+  }))
   const entries = (client.debtLedger || []).map(entry => {
     const remaining = round2(entry.remaining)
     const leftDays = daysUntilDue(entry.dueAtIso, nowIso)
     const overdue = remaining > 0 && leftDays < 0
+    const ownPays = Array.isArray(entry.payments) && entry.payments.length
+      ? normalizePays(entry.payments)
+      : null
+    const fallbackPays = ownPays ? null : derivedPays?.get(String(entry.id))
     return {
       id: entry.id,
       amount: round2(entry.amount),
@@ -633,6 +767,7 @@ export function buildDebtLedgerResponse(client) {
       saleId: entry.saleId,
       desc: entry.desc || 'Долг',
       status: remaining <= 0.001 ? 'paid' : (overdue ? 'overdue' : 'open'),
+      payments: ownPays || (fallbackPays && fallbackPays.length ? fallbackPays : undefined),
     }
   })
 
@@ -687,6 +822,10 @@ export function handleClientDebtDelta(db, client, card, prevDebt, nextDebt, meta
     desc: meta.desc || 'Погашение долга',
     orderId: meta.orderId,
     saleId: meta.saleId,
+    atIso: meta.atIso,
+    method: meta.method,
+    clientRef: meta.clientRef,
+    paymentId: meta.paymentId,
   })
   return { notifications: [] }
 }
