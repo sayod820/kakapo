@@ -1,2 +1,0 @@
-Defaults!/usr/local/sbin/kakapo-server-read env_reset,secure_path=/usr/sbin:/usr/bin:/sbin:/bin
-kakapo-deploy ALL=(root) NOPASSWD: /usr/local/sbin/kakapo-server-read *
