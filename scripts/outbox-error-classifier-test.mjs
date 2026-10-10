@@ -71,6 +71,8 @@ t('shift_close conflict → NEEDS_REPAIR (must keep)', () =>
   eq(classifyOutboxError('shift_close', 'Смена уже закрыта').class, C.NEEDS_REPAIR))
 t('stock_receipt_update conflict → NEEDS_REPAIR', () =>
   eq(classifyOutboxError('stock_receipt_update', 'Приходы уже меняли').class, C.NEEDS_REPAIR))
+t('stock_receipt_create conflict → NEEDS_REPAIR (must keep, never revert)', () =>
+  eq(classifyOutboxError('stock_receipt_create', 'Товар #-5 не найден').class, C.NEEDS_REPAIR))
 t('product validation → INVALID', () =>
   eq(classifyOutboxError('product_upsert', httpErr('Название обязательно', 400)).class, C.INVALID))
 t('403 → INVALID', () => eq(classifyOutboxError('client_upsert', httpErr('nope', 403)).class, C.INVALID))

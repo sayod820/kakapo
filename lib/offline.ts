@@ -1566,6 +1566,59 @@ async function ensureSupplierOnServer(
   return serverId
 }
 
+/** Если в очереди ещё лежит создание товара — отправить его до прихода/списания. */
+async function flushPendingProduct(localProductId: string): Promise<string> {
+  const list = await getPending()
+  const row = list.find(r => {
+    if (r.kind !== 'product_upsert' || r.failed) return false
+    const p = (r.payload || {}) as Record<string, unknown>
+    const product = (p.product || p) as Record<string, unknown>
+    return String(p.localId || '') === localProductId
+      || String(product.id || '') === localProductId
+      || String(r.localId || '') === localProductId
+  })
+  if (!row) return ''
+  return completeQueuedRow(row)
+}
+
+/** Гарантировать наличие товара на сервере и вернуть его серверный id. */
+async function ensureProductOnServer(productId: unknown): Promise<number> {
+  const raw = String(productId ?? '').trim()
+  const num = Number(raw)
+  // Серверный (положительный) id — считаем, что товар уже есть.
+  if (Number.isFinite(num) && num > 0) return num
+  if (!raw) throw new BrokenRefError('Связанная операция не отправлена — разберите её первой')
+  const mapped = await resolveLocalId(raw)
+  if (mapped && !isLocalId(mapped)) return Number(mapped)
+  const fromQueue = await flushPendingProduct(raw)
+  if (fromQueue && !isLocalId(fromQueue)) return Number(fromQueue)
+  const again = await resolveLocalId(raw)
+  if (again && !isLocalId(again)) return Number(again)
+  throw new BrokenRefError('Связанная операция не отправлена — разберите её первой')
+}
+
+/**
+ * Перед отправкой складской операции: у каждой строки должен быть серверный товар.
+ * Локальный (ещё не отправленный) товар сначала досылаем — иначе сервер отклонит
+ * приход «Товар #… не найден» и операция потеряется вместе с остатком.
+ */
+async function ensureProductsOnServer(items: any[]): Promise<any[]> {
+  if (!Array.isArray(items) || !items.length) return items || []
+  const remapped = await remapProductIdsInItems(items)
+  const map = await getIdMap()
+  const out: any[] = []
+  for (const it of remapped) {
+    const pid = Number(it?.productId)
+    if (!Number.isFinite(pid)) { out.push(it); continue }
+    const mapped = map[String(pid)]
+    if (mapped && !isLocalId(mapped)) { out.push({ ...it, productId: Number(mapped) }); continue }
+    if (pid > 0) { out.push(it); continue }
+    const serverId = await ensureProductOnServer(pid)
+    out.push({ ...it, productId: serverId })
+  }
+  return out
+}
+
 // ── Онлайн-детект ──
 export function isOnline(): boolean {
   if (typeof navigator === 'undefined') return true
@@ -1654,7 +1707,7 @@ async function orphanReceiptDeleteLocalId(row: PendingOp): Promise<string> {
 async function sendOrphanReceiptUpdateAsCreate(row: PendingOp, localId: string): Promise<string> {
   const p = (row.payload || {}) as Record<string, any>
   const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
-  const items = await remapProductIdsInItems(p.items || [])
+  const items = await ensureProductsOnServer(p.items || [])
   let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
   if (supplierId) {
     try {
@@ -2223,7 +2276,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     case 'stock_receipt_create': {
       const p = row.payload || {}
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
       if (supplierId) {
         try {
@@ -2254,7 +2307,7 @@ async function sendOp(row: PendingOp): Promise<string> {
       }
       const p = await resolveRefs(row.payload, ['id'])
       const supplierId = await ensureSupplierOnServer(p.supplierId, p.supplierName)
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       let expectedSupplyVersion = p.expectedSupplyVersion != null ? Number(p.expectedSupplyVersion) : undefined
       if (supplierId) {
         try {
@@ -2283,7 +2336,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_writeoff_create': {
       const p = row.payload || {}
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       const w = await api.createStockWriteoff({
         clientRef: p.clientRef,
         reason: p.reason,
@@ -2296,7 +2349,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_writeoff_update': {
       const p = await resolveRefs(row.payload, ['id'])
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       const w = await api.updateStockWriteoff(String(p.id), {
         clientRef: p.clientRef,
         reason: p.reason,
@@ -2331,7 +2384,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_revision_create': {
       const p = row.payload || {}
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       const { revisionApiFieldsFromPayload } = await import('./revisionMeta')
       const rev = await api.createStockRevision({
         ...revisionApiFieldsFromPayload(p as Record<string, unknown>),
@@ -2345,7 +2398,7 @@ async function sendOp(row: PendingOp): Promise<string> {
     }
     case 'stock_revision_update': {
       const p = await resolveRefs(row.payload, ['id'])
-      const items = await remapProductIdsInItems(p.items || [])
+      const items = await ensureProductsOnServer(p.items || [])
       const { revisionApiFieldsFromPayload } = await import('./revisionMeta')
       const rev = await api.updateStockRevision(String(p.id), {
         ...revisionApiFieldsFromPayload(p as Record<string, unknown>),
@@ -3292,6 +3345,21 @@ export async function flushQueue(
                   reportProgress()
                   continue
                 }
+              }
+              // Приход ссылается на товар/поставщика, которых ещё нет на сервере:
+              // приход НЕ теряем — держим в очереди и повторяем, иначе остаток молча «сломается» в 0.
+              if (live.kind === 'stock_receipt_create'
+                && /товар #|поставщик не найден|связанная операция|сначала дождитесь|дождитесь/i.test(err)) {
+                live.failed = true
+                live.errorClass = OUTBOX_ERROR_CLASS.NEEDS_REPAIR
+                live.lastError = err
+                live.nextRetryAt = Date.now() + outboxBackoffMs(OUTBOX_ERROR_CLASS.NEEDS_REPAIR, live.attempts)
+                await putPending(live)
+                liveByRef.set(live.clientRef, live)
+                failed++
+                done++
+                reportProgress()
+                continue
               }
               if (live.kind === 'stock_receipt_create') {
                 const { revertLocalStockReceiptCreateOnReject } = await import('./offlineWarehouseOps')
