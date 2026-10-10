@@ -8,6 +8,7 @@ import {
   entriesFromClientLedger,
   mergeLocalOnlyRows,
   normalizeLedgerEntry,
+  selectAuthoritativeLedgerEntries,
 } from '../lib/debtHistoryLedgerCore.mjs'
 
 const results = []
@@ -161,6 +162,66 @@ test('9) офлайн-операция (ещё нет на сервере) по�
   ], keepLocal)
   expect(rows.some(r => r.id === 'pos-offline-1'), 'офлайн-запись видна')
   expect(!rows.some(r => r.id === 'pos-K-14289'), 'дубль серверного чека скрыт')
+})
+
+test('10) свежий ответ сервера важнее устаревшего локального снимка', () => {
+  // Сырой client.debtLedger на этом устройстве устарел: у DL-1 нет payments[],
+  // и вообще нет новой записи DL-2, которую сервер уже отдал в ответе API.
+  const rawLedger = [
+    { id: 'DL-1', amount: 110.4, remaining: 20.4, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos' },
+  ]
+  const cachedResponse = [
+    {
+      id: 'DL-1', amount: 110.4, remaining: 20.4, paidAmount: 90,
+      createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos',
+      payments: [
+        { id: 'MX-1', atIso: '2026-10-09T09:58:00.000Z', amount: 40, method: 'cash' },
+        { id: 'MX-2', atIso: '2026-10-10T09:31:00.000Z', amount: 50, method: 'cash' },
+      ],
+    },
+    { id: 'DL-2', amount: 26, remaining: 26, paidAmount: 0, createdAtIso: '2026-10-06T08:08:00.000Z', orderId: 'K-14289', source: 'pos' },
+  ]
+  const entries = selectAuthoritativeLedgerEntries(rawLedger, cachedResponse)
+  const rows = buildLedgerHistoryRows(entries)
+  expect(entries.some(e => e.id === 'DL-2'), 'новая запись из ответа не потеряна')
+  expect(rows.some(r => r.id === 'srvpay-MX-1-DL-1'), 'получена разбивка оплат (не синтетика)')
+  expect(rows.some(r => r.id === 'srvpay-MX-2-DL-1'), 'вторая оплата из разбивки')
+  expect(!rows.some(r => r.id === 'ldg-pay-DL-1'), 'нет синтетического «Погашение (с сервера)»')
+})
+
+test('11) совсем свежая запись из сырого журнала сохраняется до ответа API', () => {
+  const rawLedger = [
+    { id: 'DL-1', amount: 110.4, remaining: 20.4, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos' },
+    { id: 'DL-NEW', amount: 15, remaining: 15, createdAtIso: '2026-10-10T09:31:00.000Z', orderId: 'K-15000', source: 'pos' },
+  ]
+  const cachedResponse = [
+    { id: 'DL-1', amount: 110.4, remaining: 20.4, paidAmount: 90, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos' },
+  ]
+  const entries = selectAuthoritativeLedgerEntries(rawLedger, cachedResponse)
+  expect(entries.some(e => e.id === 'DL-NEW'), 'свежая сырая запись подмешана')
+  const rows = buildLedgerHistoryRows(entries)
+  expect(rows.some(r => r.id === 'ldg-DL-NEW'), 'строка свежей записи в истории')
+})
+
+test('12) устройство с устаревшим снимком и онлайн дают одинаковую историю', () => {
+  const staleRaw = [
+    { id: 'DL-1', amount: 110.4, remaining: 20.4, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos' },
+  ]
+  const freshRaw = [
+    { id: 'DL-1', amount: 110.4, remaining: 20.4, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos' },
+    { id: 'DL-2', amount: 26, remaining: 26, createdAtIso: '2026-10-06T08:08:00.000Z', orderId: 'K-14289', source: 'pos' },
+  ]
+  const api = [
+    {
+      id: 'DL-1', amount: 110.4, remaining: 20.4, paidAmount: 90, createdAtIso: '2026-10-01T13:18:00.000Z', orderId: 'K-13337', source: 'pos',
+      payments: [{ id: 'MX-1', atIso: '2026-10-09T09:58:00.000Z', amount: 90, method: 'cash' }],
+    },
+    { id: 'DL-2', amount: 26, remaining: 26, paidAmount: 0, createdAtIso: '2026-10-06T08:08:00.000Z', orderId: 'K-14289', source: 'pos' },
+  ]
+  const a = buildLedgerHistoryRows(selectAuthoritativeLedgerEntries(staleRaw, api))
+  const b = buildLedgerHistoryRows(selectAuthoritativeLedgerEntries(freshRaw, api))
+  const key = list => list.map(r => `${r.type}|${r.id}|${round2(r.amount)}`).sort().join('\n')
+  expect(key(a) === key(b), 'истории совпали независимо от свежести локального снимка')
 })
 
 const failed = results.filter(r => r.status === 'FAIL')

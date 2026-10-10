@@ -27,9 +27,8 @@ import {
 } from './cashAdvanceHistoryCore.mjs'
 import {
   buildLedgerHistoryRows,
-  entriesFromClientLedger,
   mergeLocalOnlyRows,
-  normalizeLedgerEntry,
+  selectAuthoritativeLedgerEntries,
 } from './debtHistoryLedgerCore.mjs'
 
 export {
@@ -755,23 +754,10 @@ export function authoritativeDebtHistoryForClient(
   if (!client) return []
   const phone = phoneDigits(String(client.phone || ''))
   const cached = phone ? latestLedgerByPhone.get(phone) : null
-  // Свежие записи берём из синхронизированного client.debtLedger, а разбивку старых
-  // оплат — из последнего ответа API (в client.debtLedger её нет у старых записей).
-  const raw = entriesFromClientLedger(client.debtLedger)
-  let entries = raw
-  if (!entries.length && cached?.entries?.length) {
-    entries = cached.entries.map(normalizeLedgerEntry)
-  } else if (entries.length && cached?.entries?.length) {
-    const byId = new Map<string, DebtLedgerEntry>()
-    for (const e of cached.entries) byId.set(String(e.id), e)
-    entries = entries.map(e => {
-      const c = byId.get(String(e.id))
-      if (c && Array.isArray(c.payments) && c.payments.length) {
-        return { ...e, paidAmount: Math.round((Number(c.paidAmount) || e.paidAmount) * 100) / 100, payments: c.payments }
-      }
-      return e
-    })
-  }
+  // Источник правды — последний ответ сервера (полный журнал + разбивка старых оплат).
+  // Сырой client.debtLedger подмешивается только свежими записями, которых в ответе ещё
+  // нет, чтобы устаревший локальный снимок на одном устройстве не расходился с онлайн.
+  const entries = selectAuthoritativeLedgerEntries(client.debtLedger, cached?.entries)
   const authoritative = buildLedgerHistoryRows(entries)
   if (!authoritative.length) {
     // Журнала нет (например, старый клиент без debtLedger) — показываем локальное как есть.
@@ -1151,6 +1137,10 @@ export async function syncDebtHistoryFromLedger(phone: string): Promise<DebtLedg
       cacheLatestDebtLedger(p, ledger)
       mergeLedgerIntoLocalHistory(p, ledger)
       applyLedgerFlagsToCrm(p, ledger)
+      // Витрина строит историю из серверного ответа (разбивка оплат). merge выше emits
+      // только когда изменилась локальная копия — поэтому просим перерисовку всегда:
+      // иначе устройство с уже «догнанной» локальной историей оставалось на сыром снимке.
+      emitDebtHistoryChange()
       return ledger
     } catch {
       return null
