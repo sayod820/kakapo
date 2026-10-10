@@ -278,13 +278,13 @@ export function useApiSync(mode: SyncMode = 'all') {
     let lastLoadAt = 0
     let lastSalesAt = 0
 
-    const load = async (fromTimer = false) => {
-      if (mode === 'pos' && fromTimer && isWsLive('pos') && Date.now() - lastLoadAt < POS_WS_LIVE_POLL_MS) return
+    const load = async (fromTimer = false, force = false) => {
+      if (!force && mode === 'pos' && fromTimer && isWsLive('pos') && Date.now() - lastLoadAt < POS_WS_LIVE_POLL_MS) return
       lastLoadAt = Date.now()
       try {
         // Только оплата/пробитие — полный стоп. Фокус поиска НЕ блокирует входящие чеки.
         if (mode === 'pos' && isCashierPaymentCritical()) return
-        if (mode === 'pos' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        if (!force && mode === 'pos' && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
 
         if (mode === 'all') {
           await Promise.allSettled([syncClientsFromApi(), syncCardsFromApi()])
@@ -367,9 +367,19 @@ export function useApiSync(mode: SyncMode = 'all') {
         void softSyncPosAfterSale()
       }, POS_SALES_INBOUND_MS)
     }
+    // Возврат в окно/вкладку: не ждём очередного таймера — сразу догоняем изменения,
+    // сделанные на других устройствах, пока окно было в фоне (скрытые окна не опрашивают сервер).
+    const onVisible = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return
+      void load(true, true)
+      if (mode === 'pos') void softSyncPosAfterSale({ force: true })
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
+
     return () => {
       clearInterval(id)
       if (salesId) clearInterval(salesId)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
       pull.flushAll()
     }
   }, [mode, pull])
