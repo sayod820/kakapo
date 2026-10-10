@@ -224,6 +224,47 @@ test('12) устройство с устаревшим снимком и онл�
   expect(key(a) === key(b), 'истории совпали независимо от свежести локального снимка')
 })
 
+test('13) оптимистичная оплата кассы не дублирует серверную разбивку одной операции', () => {
+  // Старая (перенесённая) запись: сервер восстановил оплаты из журнала денег,
+  // id платежа = clientRef кассы (одна операция закрыла чек + остаток переноса).
+  const svr = [
+    {
+      id: 'DL-REPAIR', amount: 1741.31, remaining: 1725.29, paidAmount: 16.02,
+      createdAtIso: '2026-09-13T13:46:00.000Z', source: 'backfill', desc: 'Долг (перенос)',
+      payments: [{ id: 'pos-ref-9', clientRef: 'pos-ref-9', atIso: '2026-10-10T06:46:51.000Z', amount: 0.3, method: 'cash' }],
+    },
+    {
+      id: 'DL-CHK', amount: 0.71, remaining: 0, paidAmount: 0.71,
+      createdAtIso: '2026-10-08T08:00:00.000Z', orderId: 'K-2001', source: 'pos', desc: 'Чек K-2001',
+      payments: [{ id: 'pos-ref-9', clientRef: 'pos-ref-9', atIso: '2026-10-10T06:46:51.000Z', amount: 0.71, method: 'cash' }],
+    },
+  ]
+  const authoritative = buildLedgerHistoryRows(entriesFromClientLedger(svr))
+  const keepLocal = r => !/^(ldg-|ldg-pay-|srvpay-)/.test(String(r.id || ''))
+  const local = [
+    // «оплата текущего чека» комбинированной оплаты — не погашение долга, остаётся
+    { id: 'D-sale', ts: Date.parse('2026-10-10T06:46:51.000Z'), date: '10 окт 2026', time: '11:46', desc: 'Оплата · Чек №15048 · наличные', amount: 0.99, type: 'pay', source: 'cashier', orderId: 'SALE-1', batchId: 'pos-ref-9', clientRef: 'pos-ref-9', payScope: 'sale' },
+    // оптимистичное погашение той же операции (разбивка кассы не совпадает с серверной) — скрываем
+    { id: 'D-repay', ts: Date.parse('2026-10-10T06:46:51.000Z'), date: '10 окт 2026', time: '11:46', desc: 'Погашение долга', amount: 1.01, type: 'pay', source: 'cashier', batchId: 'pos-ref-9', clientRef: 'pos-ref-9' },
+  ]
+  const rows = mergeLocalOnlyRows(authoritative, local, keepLocal)
+  expect(!rows.some(r => r.id === 'D-repay'), 'локальный дубль погашения скрыт')
+  expect(rows.some(r => r.id === 'D-sale'), '«оплата чека» осталась частью комбинированной оплаты')
+  const opRows = rows.filter(r => r.type === 'pay' && r.batchId === 'pos-ref-9')
+  expect(opRows.length === 3, `частей операции=${opRows.length}`)
+  expect(round2(opRows.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0)) === 2, 'итог строки = 2')
+})
+
+test('14) офлайн-погашение без серверной разбивки остаётся видимым', () => {
+  const svr = [{ id: 'DL-2', amount: 26, remaining: 26, paidAmount: 0, createdAtIso: '2026-10-06T08:08:00.000Z', orderId: 'K-14289', source: 'pos' }]
+  const authoritative = buildLedgerHistoryRows(entriesFromClientLedger(svr))
+  const keepLocal = r => !/^(ldg-|ldg-pay-|srvpay-)/.test(String(r.id || ''))
+  const rows = mergeLocalOnlyRows(authoritative, [
+    { id: 'D-offline', ts: Date.parse('2026-10-10T06:46:51.000Z'), date: '10 окт 2026', time: '11:46', desc: 'Погашение долга', amount: 5, type: 'pay', source: 'cashier', batchId: 'offline-ref-1', clientRef: 'offline-ref-1' },
+  ], keepLocal)
+  expect(rows.some(r => r.id === 'D-offline'), 'офлайн-погашение видно, пока сервер не разложил операцию')
+})
+
 const failed = results.filter(r => r.status === 'FAIL')
 console.log('\n---')
 console.log(`PASS ${results.length - failed.length} / FAIL ${failed.length}`)

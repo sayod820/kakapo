@@ -416,8 +416,13 @@ function deriveRepaymentBreakdown(client, db) {
     assigned.set(String(entry.id), round2(already + pay))
     const list = byEntryId.get(String(entry.id)) || []
     const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {}
+    // Операция платежа опознаётся по clientRef кассы (он же paymentId у новых записей),
+    // иначе по id строки журнала денег. Иначе касса со своей оптимистичной строкой
+    // (batchId = clientRef) не склеится с восстановленной серверной оплатой и покажет дубль.
+    const paymentRef = String(meta.clientRef || row?.clientRef || '').trim()
     list.push({
-      id: String(row?.id || ''),
+      id: paymentRef || String(row?.id || ''),
+      clientRef: paymentRef || undefined,
       atIso: repaymentPayIso(row) || null,
       amount: pay,
       method: String(meta.method || '') === 'card' || /card/.test(String(row?.type || '')) ? 'card' : 'cash',
@@ -740,6 +745,7 @@ export function buildDebtLedgerResponse(client, db) {
   const derivedPays = deriveRepaymentBreakdown(client, db)
   const normalizePays = (list) => list.map(p => ({
     id: p?.id ?? null,
+    clientRef: p?.clientRef ?? null,
     atIso: p?.atIso ?? null,
     amount: round2(p?.amount),
     method: p?.method ?? null,

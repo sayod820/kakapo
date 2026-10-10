@@ -120,5 +120,30 @@ const ownResp = buildDebtLedgerResponse(client, db)
 const o1 = ownResp.entries.find(e => e.id === e1.id)
 check('own recorded breakdown wins over reconstruction', o1.payments.length === 1 && o1.payments[0].amount === 19.8)
 
+/* ---------- 4. reconstructed payment keeps the cash-register operation id ---------- */
+
+const { client: legacyRef } = makeClient('U-17', 'KAKAPO-0007')
+const legacyRefCard = { num: 'KAKAPO-0007', clientId: 'U-17', debt: 0, debtLedger: [] }
+const { entry: refEntry } = addDebtCharge(legacyRef, legacyRefCard, {
+  amount: 100, orderId: 'K-2001', desc: 'Чек K-2001', createdAtIso: '2026-10-08T08:00:00.000Z',
+})
+refEntry.remaining = 0
+const dbRef = {
+  moneyLedger: [{
+    id: 'LED-xyz',
+    createdAtIso: '2026-10-09T10:05:00.000Z',
+    type: 'debt_repay_cash',
+    refType: 'debt_repay',
+    refId: 'KAKAPO-0007',
+    amount: 100,
+    meta: { cardNum: 'KAKAPO-0007', method: 'cash', clientRef: 'pos-ref-9', clientAtIso: '2026-10-09T09:58:00.000Z' },
+  }],
+}
+const respRef = buildDebtLedgerResponse(legacyRef, dbRef)
+const rr = respRef.entries.find(e => e.id === refEntry.id)
+check('reconstructed payment id = cash-register clientRef (not the money row id)', rr.payments?.[0]?.id === 'pos-ref-9')
+check('reconstructed payment keeps the operation ref', rr.payments?.[0]?.clientRef === 'pos-ref-9')
+check('reconstructed payment still uses the real moment', rr.payments?.[0]?.atIso === new Date('2026-10-09T09:58:00.000Z').toISOString())
+
 console.log(`SUMMARY pass=${pass} fail=${fail}`)
 process.exit(fail ? 1 : 0)
