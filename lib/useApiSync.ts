@@ -10,6 +10,7 @@ import { syncPushFromApi } from './pushStore'
 import { softSyncFinance, softSyncPosAfterSale, softSyncWarehouse } from './posStore'
 import { clearAppDataLocalCacheOnce } from './localCache'
 import { isWsLive, useWebSocket } from './ws'
+import { requestDebtLedgerRefresh } from './useDebtLedgerRefresh'
 import { isCashierCritical, isCashierPaymentCritical } from './cashierUiGate'
 import { getTradeDeviceIdSync } from './tradeDevice'
 import { createWsPullCoalescer } from './wsPullCoalesce'
@@ -82,6 +83,7 @@ export function useApiSync(mode: SyncMode = 'all') {
     }
     if (msg.event === 'loyalty_update') {
       pull.crm()
+      requestDebtLedgerRefresh()
       return
     }
     if (msg.event === 'courier_wallet_update') {
@@ -208,11 +210,19 @@ export function useApiSync(mode: SyncMode = 'all') {
       // Phase 7: sale/shift → one crmSoft (pos-lite includes CRM). No duplicate crm+posSoft.
       if (kind === 'sale' || kind === 'sale-return' || kind === 'shift') {
         pull.posSoft()
+        requestDebtLedgerRefresh()
         return
       }
       // CRM / лояльность без продажи
       if (kind === 'crm' || kind === 'debt-repay') {
         pull.crm()
+        requestDebtLedgerRefresh()
+        return
+      }
+      // Выдача наличных с кассы — меняет журнал долга
+      if (kind === 'cashier') {
+        pull.crm()
+        requestDebtLedgerRefresh()
         return
       }
       // Склад / поставщики
@@ -235,7 +245,10 @@ export function useApiSync(mode: SyncMode = 'all') {
         || kind === 'client-cash-topup'
       ) {
         pull.posFinance()
-        if (kind === 'client-cash-topup') pull.posSoft()
+        if (kind === 'client-cash-topup') {
+          pull.posSoft()
+          requestDebtLedgerRefresh()
+        }
         return
       }
       // Неизвестный kind — мягко, не полный снимок
