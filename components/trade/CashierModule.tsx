@@ -51,6 +51,7 @@ import {
   ensureDebtHistoryOrderId,
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
+  authoritativeDebtHistoryForClient,
   loadBalanceTopups,
   loadDebtHistory,
   loadDebtHistoryForClient,
@@ -3428,7 +3429,7 @@ export default function CashierModule({
     }
     if (!client) return empty
 
-    const history = loadDebtHistoryForClient(client)
+    const history = authoritativeDebtHistoryForClient(client)
     const clientSales = sales.filter(s => {
       const matchId = client.id && s.clientId === client.id
       const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
@@ -3817,7 +3818,7 @@ export default function CashierModule({
 
   const histActiveDebts = useMemo(() => {
     if (!client) return [] as ClientHistRow[]
-    const history = loadDebtHistoryForClient(client)
+    const history = authoritativeDebtHistoryForClient(client)
     const { unpaid } = buildDebtOrderBalances(history)
     const findDebtEntryId = (saleId: string, orderId?: string) => {
       const keys = [saleId, orderId, saleId ? `sale-${saleId}` : ''].filter(Boolean) as string[]
@@ -3961,7 +3962,7 @@ export default function CashierModule({
     let repaid = 0
     let charged = 0
     if (client) {
-      for (const h of loadDebtHistoryForClient(client)) {
+      for (const h of authoritativeDebtHistoryForClient(client)) {
         if (h.type === 'pay') repaid += Number(h.amount) || 0
         else charged += Math.abs(Number(h.amount) || 0)
       }

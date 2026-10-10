@@ -12,6 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const suites = [
   'scripts/debt-ledger-cap-test.mjs',
   'scripts/debt-ui-projection-test.mjs',
+  'scripts/debt-history-sync-core-test.mjs',
   'scripts/debt-predeploy-regression-test.mjs',
   'scripts/debt-reliability-fix-test.mjs',
   'scripts/debt-repay-cash-ledger-test.mjs',

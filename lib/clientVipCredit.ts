@@ -25,6 +25,12 @@ import {
   mergeOpenCashAdvancesFromClientLedger,
   upsertLocalCashAdvanceHistory,
 } from './cashAdvanceHistoryCore.mjs'
+import {
+  buildLedgerHistoryRows,
+  entriesFromClientLedger,
+  mergeLocalOnlyRows,
+  normalizeLedgerEntry,
+} from './debtHistoryLedgerCore.mjs'
 
 export {
   sumOpenDebtLedgerRemaining,
@@ -716,6 +722,71 @@ export function loadDebtHistoryForClient(
   return mergeDebtHistoryRows(fromPhone, fromCid)
 }
 
+/**
+ * Последний ответ серверного журнала долга, полученный этим устройством.
+ * Нужен, чтобы строить «историю» строго из сервера (с готовой разбивкой старых оплат),
+ * а не из локального накопителя. Ключ — цифры телефона.
+ */
+const latestLedgerByPhone = new Map<string, DebtLedgerResponse>()
+
+export function getLatestDebtLedger(phone?: string | null): DebtLedgerResponse | null {
+  const key = phoneDigits(String(phone || ''))
+  if (!key) return null
+  return latestLedgerByPhone.get(key) || null
+}
+
+export function cacheLatestDebtLedger(phone: string, ledger: DebtLedgerResponse | null | undefined): void {
+  if (!ledger || !Array.isArray(ledger.entries)) return
+  const key = phoneDigits(phone) || String(phone || '').trim()
+  if (!key) return
+  latestLedgerByPhone.set(key, ledger)
+}
+
+/**
+ * Авторитетная история долга для витрины: строится строго из серверного журнала
+ * (client.debtLedger — один и тот же на всех устройствах) плюс разбивка оплат из
+ * последнего ответа API, если он уже получен. Локально добавляются только ручные
+ * записи раздела «Долги», которых ещё нет в серверном журнале. Так лента, чеки и
+ * оплаты совпадают на всех устройствах и в онлайне.
+ */
+export function authoritativeDebtHistoryForClient(
+  client: { phone?: string; id?: string; debtLedger?: unknown[] } | null | undefined,
+): DebtHistoryEntry[] {
+  if (!client) return []
+  const phone = phoneDigits(String(client.phone || ''))
+  const cached = phone ? latestLedgerByPhone.get(phone) : null
+  // Свежие записи берём из синхронизированного client.debtLedger, а разбивку старых
+  // оплат — из последнего ответа API (в client.debtLedger её нет у старых записей).
+  const raw = entriesFromClientLedger(client.debtLedger)
+  let entries = raw
+  if (!entries.length && cached?.entries?.length) {
+    entries = cached.entries.map(normalizeLedgerEntry)
+  } else if (entries.length && cached?.entries?.length) {
+    const byId = new Map<string, DebtLedgerEntry>()
+    for (const e of cached.entries) byId.set(String(e.id), e)
+    entries = entries.map(e => {
+      const c = byId.get(String(e.id))
+      if (c && Array.isArray(c.payments) && c.payments.length) {
+        return { ...e, paidAmount: Math.round((Number(c.paidAmount) || e.paidAmount) * 100) / 100, payments: c.payments }
+      }
+      return e
+    })
+  }
+  const authoritative = buildLedgerHistoryRows(entries)
+  if (!authoritative.length) {
+    // Журнала нет (например, старый клиент без debtLedger) — показываем локальное как есть.
+    return loadDebtHistoryForClient(client)
+  }
+  const local = loadDebtHistoryForClient(client)
+  // Сохраняем локальные записи, которых ещё нет на сервере (офлайн-операции, ручные правки),
+  // но отбрасываем дубли уже учтённых серверных операций. Ручные записи показываем всегда.
+  return mergeLocalOnlyRows(
+    authoritative,
+    local,
+    row => isManualDebtHistoryEntry(row) || !isImportedLedgerHistoryId(row.id),
+  ) as DebtHistoryEntry[]
+}
+
 export function isImportedLedgerHistoryId(id?: string): boolean {
   const v = String(id || '')
   return v.startsWith(LEDGER_DEBT_PREFIX)
@@ -1077,6 +1148,7 @@ export async function syncDebtHistoryFromLedger(phone: string): Promise<DebtLedg
       // Сначала возвращаем локальные строки из durable-копии Desktop (после смены порта их нет в origin)
       await hydrateDebtHistoryDurable(key)
       const ledger = await api.getDebtLedger(p)
+      cacheLatestDebtLedger(p, ledger)
       mergeLedgerIntoLocalHistory(p, ledger)
       applyLedgerFlagsToCrm(p, ledger)
       return ledger

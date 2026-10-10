@@ -34,8 +34,8 @@ import {
   ensureDebtHistoryOrderId,
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
+  authoritativeDebtHistoryForClient,
   loadDebtHistory,
-  loadDebtHistoryForClient,
   debtAccountKey,
   recordStoreDebtCharge,
   recordStoreDebtRepayment,
@@ -293,7 +293,7 @@ function enrichDebtClient(client: EnrichedClient, cards: AdminCard[], sales: Pos
     cardDebtLedger: (card as AdminCard & { debtLedger?: AdminClient['debtLedger'] })?.debtLedger,
   })
   const debtLimit = resolveEffectiveDebtLimit(client)
-  const history = loadDebtHistoryForClient(client)
+  const history = authoritativeDebtHistoryForClient(client)
   const manual = history.filter(isManualDebtHistoryEntry)
   const totals = debtHistoryTotals(manual)
   const posSales = posDebtSalesFor(client, sales)
@@ -607,7 +607,7 @@ export default function DebtsModule({
   const detailData = useMemo(() => {
     if (!detailClient) return null
     void histTick
-    const history = loadDebtHistoryForClient(detailClient).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    const history = authoritativeDebtHistoryForClient(detailClient).sort((a, b) => (b.ts || 0) - (a.ts || 0))
     const posSalesForCash = posDebtSalesFor(detailClient, sales)
     const saleMatch = salesFor(detailClient, sales).map(s => ({ id: s.id, orderId: s.orderId }))
     const manual = history.filter(isManualDebtHistoryEntry)

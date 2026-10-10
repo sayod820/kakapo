@@ -1,13 +1,12 @@
 import { phonesMatch } from '@/lib/clientCrm'
 import {
+  authoritativeDebtHistoryForClient,
   buildDebtOrderBalances,
   buildSaleDebtStatuses,
   cashDebtOrderId,
   debtOrderIdsMatch,
   isLedgerCashHistoryDebt,
   isManualDebtHistoryEntry,
-  loadDebtHistoryForClient,
-  mergeOpenCashAdvancesFromClientLedger,
   normalizeHistoryItemsSummary,
   CASH_ADVANCE_HISTORY_LABEL,
   saleOpenCreditAmount,
@@ -193,8 +192,7 @@ export function buildClientDebtPanel({
   if (!client) return emptyClientDebtPanel()
 
   const catalog = products || []
-  const historyBase = loadDebtHistoryForClient(client)
-  const history = mergeOpenCashAdvancesFromClientLedger(historyBase, client.debtLedger).next as DebtHistoryEntry[]
+  const history = authoritativeDebtHistoryForClient(client)
   const clientSales = sales.filter(s => {
     const matchId = client.id && s.clientId === client.id
     const matchPhone = client.phone && s.clientPhone && phonesMatch(client.phone, s.clientPhone)
