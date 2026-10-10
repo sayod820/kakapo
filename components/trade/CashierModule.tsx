@@ -91,6 +91,7 @@ import { isWeighted, unitPriceSuffix } from '@/lib/productWeight'
 import { effectiveUnitPriceFrom, activeBulkTierForQty, type BulkPriceTier } from '@/lib/productBulkPricing'
 import { findProductsForScaleBarcode, parseScaleBarcode } from '@/lib/scaleBarcode'
 import { softSyncExpiry, softSyncPosAfterSale, syncPosFromApi, usePosStore } from '@/lib/posStore'
+import { useDebtLedgerRefresh } from '@/lib/useDebtLedgerRefresh'
 import { pickActiveOpenShift } from '@/lib/shiftReconcile'
 import { overlayShiftSaleTotalsWithDebtRepay, expectedTillCashFromShift, expectedCardFromShift } from '@/lib/shiftSaleTotals'
 import { resolveAuthoritativeCustomerDebt } from '@/lib/debtUiProjectionCore.mjs'
@@ -2052,6 +2053,13 @@ export default function CashierModule({
     if (!phone) return
     void syncDebtHistoryFromLedger(phone)
   }, [client?.phone])
+  // Погашение на другой кассе подхватываем без перезагрузки окна
+  useDebtLedgerRefresh(client?.phone, (ledger) => {
+    if (!ledger) return
+    const shown = Number(client?.debt) || 0
+    // Сумму долга в витрине обновляем только если сервер разошёлся с экраном
+    if (Math.abs(shown - (Number(ledger.debt) || 0)) > 0.005) void softSyncPosAfterSale()
+  })
   const prevClientIdRef = useRef<string | null>(null)
   useEffect(() => {
     const id = client?.id || null

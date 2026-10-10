@@ -54,6 +54,7 @@ import { resolveEffectiveDebtLimit } from '@/lib/loyaltyStatusConfig'
 import { buildClientDebtPanel, type ClientDebtCashView, type ClientDebtPayGroup } from '@/lib/buildClientDebtPanel'
 import { hydrateOfflineCaches } from '@/lib/offlineHydrate'
 import { softSyncPosAfterSale, usePosStore } from '@/lib/posStore'
+import { useDebtLedgerRefresh } from '@/lib/useDebtLedgerRefresh'
 import { useOrders, useProducts } from '@/lib/store'
 import type { PosSale } from '@/lib/types'
 import ClientDebtPanel, { type ClientDebtTab } from './ClientDebtPanel'
@@ -594,6 +595,14 @@ export default function DebtsModule({
     if (!phone) return
     void syncDebtHistoryFromLedger(phone)
   }, [detailClient?.phone])
+
+  // Погашение на другой кассе подхватываем без перезагрузки окна
+  useDebtLedgerRefresh(detailClient?.phone, (ledger) => {
+    if (!ledger) return
+    const shown = Number(detailClient?.debt) || 0
+    // Сумму долга в витрине обновляем только если сервер разошёлся с экраном
+    if (Math.abs(shown - (Number(ledger.debt) || 0)) > 0.005) void softSyncPosAfterSale()
+  })
 
   const detailData = useMemo(() => {
     if (!detailClient) return null
