@@ -1,0 +1,4 @@
+# KAKAPO — разрешение на узкую публикацию офлайн-пакета кассы.
+# Разрешает ровно одну команду без аргументов. Без shell, docker, psql, путей.
+Defaults!/usr/local/sbin/kakapo-publish-kassa-ui env_reset, secure_path=/usr/sbin:/usr/bin:/sbin:/bin
+kakapo-deploy ALL=(root) NOPASSWD: /usr/local/sbin/kakapo-publish-kassa-ui

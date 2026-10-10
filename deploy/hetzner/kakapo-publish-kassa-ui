@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# KAKAPO — узкая публикация офлайн-пакета интерфейса кассы.
+#
+# Разрешает только одно: положить latest.json и ровно один ui-*.zip из
+# фиксированной папки подготовки в хранилище контейнера kakapo-api.
+# Не принимает аргументов, не читает произвольные пути, не выполняет shell,
+# не делает произвольных docker-команд и не касается бизнес-данных/БД.
+#
+# Установка (под root, один раз):
+#   install -m 0755 kakapo-publish-kassa-ui /usr/local/sbin/kakapo-publish-kassa-ui
+#   install -m 0440 kakapo-publish-kassa-ui.sudoers /etc/sudoers.d/kakapo-publish-kassa-ui
+#   visudo -cf /etc/sudoers.d/kakapo-publish-kassa-ui
+#
+# Использование (пользователь kakapo-deploy):
+#   sudo -n /usr/local/sbin/kakapo-publish-kassa-ui
+
+set -euo pipefail
+
+STAGING="/home/kakapo-deploy/kassa-ui-update"
+CONTAINER="kakapo-api"
+DEST="/data/updates/kassa-ui"
+DOCKER="/usr/bin/docker"
+
+log()  { printf '%s\n' "$*"; }
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+[[ $# -eq 0 ]] || fail "аргументы не принимаются"
+[[ -d "$STAGING" ]] || fail "нет папки подготовки: $STAGING"
+[[ -x "$DOCKER" ]] || fail "docker не найден: $DOCKER"
+
+cd "$STAGING"
+
+[[ -f latest.json && ! -L latest.json ]] || fail "нужен обычный файл latest.json (не симлинк)"
+
+shopt -s nullglob
+zips=(ui-*.zip)
+shopt -u nullglob
+[[ ${#zips[@]} -eq 1 ]] || fail "нужен ровно один ui-*.zip в $STAGING (найдено: ${#zips[@]})"
+ZIP="${zips[0]}"
+
+[[ -f "$ZIP" && ! -L "$ZIP" ]] || fail "zip не является обычным файлом"
+[[ "$ZIP" =~ ^ui-[A-Za-z0-9._-]+\.zip$ ]] || fail "недопустимое имя zip: $ZIP"
+
+# --- защита от подмены между проверкой и копированием: копируем в root-TMP ---
+TMP="$(mktemp -d /run/kakapo-publish.XXXXXX)"
+trap 'rm -rf "$TMP"' EXIT
+cp -p -- "$ZIP" "$TMP/$ZIP"
+cp -p -- latest.json "$TMP/latest.json"
+
+# --- строгая валидация уже на приватной копии ---
+TRIMMED="$(tr -d '[:space:]' < "$TMP/latest.json")"
+[[ "${TRIMMED:0:1}" == "{" && "${TRIMMED: -1}" == "}" ]] || fail "latest.json не похож на JSON"
+
+URL_NAME="$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TMP/latest.json" | head -n1)"
+URL_NAME="${URL_NAME##*/}"
+[[ "$URL_NAME" == "$ZIP" ]] || fail "latest.json ссылается на '$URL_NAME', а найден '$ZIP'"
+
+DECL_SIZE="$(sed -n 's/.*"size"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$TMP/latest.json" | head -n1)"
+REAL_SIZE="$(stat -c '%s' "$TMP/$ZIP")"
+[[ -n "$DECL_SIZE" && "$DECL_SIZE" == "$REAL_SIZE" ]] || fail "размер не совпал: latest.json=$DECL_SIZE, файл=$REAL_SIZE"
+
+# Необязательная контрольная сумма рядом с архивом: ui-*.zip.sha256
+if [[ -f "$TMP/$ZIP.sha256" && ! -L "$TMP/$ZIP.sha256" ]]; then
+  WANT="$(tr -d ' \t\r\n[:upper:]' < "$TMP/$ZIP.sha256" | cut -c1-64)"
+  GOT="$(sha256sum "$TMP/$ZIP" | cut -d' ' -f1)"
+  [[ "$WANT" == "$GOT" ]] || fail "sha256 не совпала: want=$WANT got=$GOT"
+  log "sha256 подтверждена: $GOT"
+fi
+
+log "Публикация $ZIP ($REAL_SIZE байт) -> $CONTAINER:$DEST"
+
+# Сначала архив, затем метаданные — чтобы кассы не поймали пустой момент.
+"$DOCKER" cp -- "$TMP/$ZIP" "$CONTAINER:$DEST/$ZIP"
+"$DOCKER" cp -- "$TMP/latest.json" "$CONTAINER:$DEST/latest.json"
+
+# Проверка, что контейнер действительно видит корректный файл.
+IN_SIZE="$("$DOCKER" exec "$CONTAINER" stat -c '%s' "$DEST/$ZIP")" || fail "контейнер не видит файл"
+[[ "$IN_SIZE" == "$REAL_SIZE" ]] || fail "размер в контейнере не совпал: $IN_SIZE"
+
+log "OK: опубликовано"
+log "SHA256=$("$DOCKER" exec "$CONTAINER" sha256sum "$DEST/$ZIP" | cut -d' ' -f1)"
+log "VERIFY=https://kakappo.shop/updates/kassa-ui/latest.json"
