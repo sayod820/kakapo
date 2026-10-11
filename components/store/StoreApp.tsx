@@ -125,6 +125,18 @@ const CSS = `
   position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:200;
 }
 .store-fixed-bar{left:50%!important;transform:translateX(-50%)!important;width:100%!important;max-width:var(--store-w)!important;}
+.store-topnav{display:none;}
+@media (min-width:900px){
+  .store-nav{display:none!important;}
+  .store-topnav{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 22px;background:var(--header-bg);backdrop-filter:blur(24px);border-bottom:1px solid var(--b1);}
+  .store-topnav-brand{font-family:'Unbounded',sans-serif;font-weight:900;font-size:16px;letter-spacing:.5px;background:linear-gradient(135deg,var(--gr),var(--gd));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+  .store-topnav-tabs{display:flex;gap:6px;}
+  .store-topnav-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:12px;background:transparent;border:1px solid transparent;color:var(--t2);font-family:'Nunito',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s;}
+  .store-topnav-tab:hover{background:var(--l2);color:var(--t1);}
+  .store-topnav-tab.on{background:rgba(31,215,96,.1);border-color:rgba(31,215,96,.28);color:var(--gr);}
+}
+.store-vip .store-topnav{background:rgba(10,8,2,.96)!important;border-bottom-color:rgba(255,184,0,.3)!important;}
+.store-vip .store-topnav-tab.on{background:rgba(255,184,0,.12)!important;border-color:rgba(255,184,0,.4)!important;color:var(--gd)!important;}
 .store-prod-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 @media (min-width:600px){.store-prod-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
 @media (min-width:900px){.store-prod-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}}
@@ -4568,6 +4580,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
           </div>
         )}
       </div>
+      <Nav page="catalog" go={go} user={user}/>
     </div>
   );
 };
@@ -4620,6 +4633,7 @@ const FAQPage = ({ go }) => {
           ))}
         </div>
       </div>
+      <Nav page="profile" go={go}/>
     </div>
   );
 };
@@ -7433,6 +7447,17 @@ function KakapoAppInner() {
       <style>{CSS}</style>
       <Toast msg={toast} isVip={isVipUser}/>
       <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
+        <nav className="store-topnav">
+          <div className="store-topnav-brand">КАКАПО</div>
+          <div className="store-topnav-tabs">
+            {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(it => (
+              <button key={it.id} type="button" onClick={() => go(it.id)} className={`store-topnav-tab${page === it.id ? " on" : ""}`}>
+                <Ic n={it.icon} s={16}/>
+                <span>{it.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
         {render()}
       </div>
     </>
