@@ -110,11 +110,11 @@ const CSS = `
   --gr:#1FD760;--gr2:#17B34E;--gr3:#0F8A3A;--gd:#FFB800;
   --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;--l4:#102213;
   --b1:#162B1A;--b2:#1D3822;
-  --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
+  --t1:#EBF5ED;--t2:#8FB897;--t3:#6F9878;
   --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
   --header-bg:rgba(3,11,5,.96);
-  --overlay:var(--overlay);
-  --fab-bg:var(--fab-bg);
+  --overlay:rgba(0,0,0,.55);
+  --fab-bg:rgba(6,16,10,.72);
   --store-w:480px;
 }
 @media (min-width:600px){:root{--store-w:640px;}}
@@ -233,6 +233,15 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 }
 .store-vip .store-toast-icon{background:rgba(255,184,0,.2)!important;}
 .store-vip [data-header-cart]{animation:vipGlow 3s ease-in-out infinite;}
+.store-tile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+@media (min-width:600px){.store-tile-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
+@media (min-width:900px){.store-tile-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}}
+@media (min-width:1200px){.store-tile-grid{grid-template-columns:repeat(5,minmax(0,1fr));}}
+@media (hover:hover) and (min-width:900px){
+  .card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.38);}
+  .store-lift{transition:transform .18s ease,box-shadow .18s ease;}
+  .store-lift:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.38);}
+}
 `;
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   const icons = {
@@ -326,7 +335,7 @@ const Nav = ({ page, go, user: userProp }) => {
           <div style={{ position:"absolute", top:2, right:6, fontSize:9, animation:"crownFloat 2.5s ease-in-out infinite" }}>👑</div>
         )}
         <Ic n={item.icon} s={20} c={on?activeColor:"var(--t3)"}/>
-        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{item.id === "profile" && isVip ? "VIP" : item.label}</span>
+        <span style={{ fontSize:11, fontWeight:on?800:600 }}>{item.id === "profile" && isVip ? "VIP" : item.label}</span>
       </button>
     )})}
   </nav>
@@ -385,7 +394,7 @@ const Header = ({ title, back, go, cart, user: userProp }) => {
     }}>
       <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
         {back ? (
-          <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <button onClick={() => storeBack(back, go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
         ) : (
@@ -909,6 +918,19 @@ function ruCount(n: number, one: string, few: string, many: string) {
   if (mod10 === 1) return `${n} ${one}`
   if (mod10 >= 2 && mod10 <= 4) return `${n} ${few}`
   return `${n} ${many}`
+}
+
+/**
+ * Кнопка «Назад»: если пользователь пришёл из другого раздела — ведём браузерную
+ * историю назад (вернёмся ровно туда, откуда пришли). Если истории нет (заход по
+ * прямой ссылке) — открываем запасную страницу.
+ */
+function storeBack(fallback: string, go: (page: string, params?: Record<string, unknown>) => void) {
+  if (typeof window !== 'undefined' && Number((window.history.state && window.history.state.kakapoDepth) || 0) > 0) {
+    window.history.back()
+    return
+  }
+  go(fallback)
 }
 
 function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
@@ -1568,7 +1590,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
           {rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}
         </div>
         <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:18 }}>
-          <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+          <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
         </div>
         <div style={{
@@ -1766,13 +1788,13 @@ const CatalogPage = ({ go, cart, user }) => {
       </div>
       <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
       {!catsReady ? (
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+      <div className="store-tile-grid">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} style={{ height:120, borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", opacity:0.55 }} />
           ))}
         </div>
       ) : (
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+      <div className="store-tile-grid">
         {rootCats.map((c,i) => (
           <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, border: light ? `1px solid ${c.color}28` : undefined }}>
             <div style={{ padding:"16px 14px" }}>
@@ -1829,7 +1851,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go(isHotHits ? "home" : "catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack(isHotHits ? "home" : "catalog", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{cat.label}</div>
@@ -1900,7 +1922,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                     <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
-                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
                     </div>
                   </div>
@@ -2036,7 +2058,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
+        <button onClick={() => storeBack("catalog", go)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
         <div style={{ display:"flex", gap:8 }}>
           <button onClick={() => onWish(p.id)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
             <Ic n="heart" s={18} c={wished[p.id] ? "#FF4545" : "var(--t1)"} fill={wished[p.id] ? "#FF4545" : "none"}/>
@@ -2063,7 +2085,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
         <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{cats.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
         <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-          <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
+          <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} {reviewCountLabel(storeRevCount ?? 0)})</span>
           {outOfStock
             ? <span style={{ fontSize:11, color:"var(--red)", fontWeight:700 }}>Нет в наличии</span>
             : <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>}
@@ -2156,7 +2178,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
                   <div style={{ padding:"9px 10px 8px" }}>
                     <div style={{ fontSize:11, fontWeight:700, lineHeight:1.3, marginBottom:3 }}>{rp.name}</div>
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:5 }}>{rp.unit}</div>
-                    <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{rp.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                    <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{rp.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                   </div>
                   <div style={{ padding:"0 10px 10px" }}>
                     {isOutOfStock(rp) ? (
@@ -2222,15 +2244,15 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Корзина</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{tqty} товаров</div></div>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Корзина</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{formatProductCount(tqty)}</div></div>
           {items.length>0 && <button onClick={() => items.forEach(p=>onDel(p.id))} className="btn" style={{ fontSize:11, color:"var(--red)", background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.25)", borderRadius:10, padding:"6px 12px" }}>Очистить</button>}
         </div>
       </header>
       {items.length === 0 ? (
         <div style={{ textAlign:"center", padding:"60px 24px" }}>
           <div style={{ fontSize:80, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>🛒</div>
-          <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Корзина пустая</div>
+          <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Корзина пуста</div>
           <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24 }}>Добавьте товары из каталога</div>
           <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14 }}>Перейти в каталог</button>
         </div>
@@ -2278,7 +2300,7 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <div>
                         {itemSaved > 0 && <div style={{ fontSize:10, color:'var(--t3)', textDecoration:'line-through', marginBottom:2 }}>{itemRetail.toFixed(2)} ЅМ</div>}
-                        <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                        <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:12, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
                         <button onClick={() => (isWeighted(p) ? p.qty <= productMinWeight(p) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= productMinWeight(p)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
@@ -2730,11 +2752,28 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("cart", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Оформление заказа</div>
         </div>
       </header>
       <div style={{ padding:`14px 18px ${checkoutFooterPad}px` }}>
+        <div className="card" style={{ padding:"18px", marginBottom:13 }}>
+          <CheckoutSec icon="bag" color="var(--gr)" title={`Ваш заказ · ${ruCount(items.length, "позиция", "позиции", "позиций")}`}/>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {items.map((it, i) => (
+              <div key={it.id || i} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0, overflow:"hidden" }}>
+                  {it.photo ? <img src={it.photo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : (it.e || "🛒")}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</div>
+                  <div style={{ fontSize:11, color:"var(--t2)" }}>{isWeighted(it) ? formatCartQty(it, it.qty) : `× ${it.qty}`}</div>
+                </div>
+                <div className="ub" style={{ fontSize:13, fontWeight:800, flexShrink:0 }}>{calcLineTotal(it, it.qty).toFixed(2)} ЅМ</div>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="user" color="var(--gr)" title="Получатель"/>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -2889,7 +2928,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         )}
     </div>
       <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
-        {addrReady && (
+        {items.length > 0 && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
               <span style={{ color: 'var(--t2)' }}>Товары</span>
@@ -2977,7 +3016,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Корзина</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>Загрузка…</div>
@@ -3243,7 +3282,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <span style={{ fontSize:18 }}>⭐</span>
               <div>
                 <div style={{ fontSize:13, fontWeight:800, color:"var(--t1)" }}>Бонусы</div>
-                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 сом · магазин и приложение</div>
+                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 ЅМ · магазин и приложение</div>
               </div>
             </div>
             <div className="bank-num" style={{ fontSize:22, fontWeight:900, color:profileTheme.accent }} title={bonusBank}>
@@ -3762,7 +3801,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 {photo ? <img src={photo} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/> : item.e}
               </div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{item.name}</div><div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>× {item.qty}</div></div>
-              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
             </div>
             )
           })}
@@ -3775,18 +3814,18 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10, display:"flex", flexDirection:"column", gap:8 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
               <span style={{ fontSize:12, color:"var(--t2)" }}>Товары</span>
-              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
             </div>
             {selectedAmounts!.delivery > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Доставка</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
               </div>
             )}
             {selectedAmounts!.bonusSpent > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Бонусы</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:8, borderTop:"1px solid var(--b1)" }}>
@@ -3830,7 +3869,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
             <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2, flexWrap:"wrap" }}>
               <div style={{ fontSize:10, color:"var(--t2)" }}>{ordersList.length} заказов</div>
@@ -3902,11 +3941,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                     <div style={{ fontSize:11, color:"var(--t3)" }}>{o.date} · {o.time}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></div>
                     {amounts.delivery > 0 && (
                       <div style={{ fontSize:9, color:"var(--t3)", marginTop:1 }}>вкл. доставка {amounts.delivery.toFixed(2)}</div>
                     )}
-                    <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{o.items.reduce((s,it)=>s+it.qty,0)} товаров</div>
+                    <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{formatProductCount(o.items.reduce((s,it)=>s+it.qty,0))}</div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:5, marginBottom: contacts.length ? 8 : 10 }}>
@@ -4003,13 +4042,13 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Мои отзывы</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>
-              {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} отзывов`}
+              {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} ${reviewCountLabel(reviews.length)}`}
           </div>
           </div>
         </div>
@@ -4132,7 +4171,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
                       </div>
         <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, height: 30, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.name}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 6 }}>
-          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 8, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
+          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 12, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
           {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
                     </div>
         <div style={{ minHeight: 22, marginBottom: 8 }}>
@@ -4305,7 +4344,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
             <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>
-              {saleProds.length ? `${saleProds.length} товаров со скидкой` : "Сейчас нет акционных товаров"}
+              {saleProds.length ? `${formatProductCount(saleProds.length)} со скидкой` : "Сейчас нет акционных товаров"}
             </div>
           </div>
           <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -4363,7 +4402,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
             {saleByCategory.length > 0 && (
               <section>
                 <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: "#5B9CF5", marginBottom: 14 }}>По категориям</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="store-tile-grid">
                   {saleByCategory.map(({ cat, maxDisc }, i) => (
                     <PromoCategoryCard
                       key={cat.id}
@@ -4399,7 +4438,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.12)", border:"1px solid rgba(255,69,69,.25)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
@@ -4460,7 +4499,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1, position:"relative" }}>
             <div style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}><Ic n="search" s={15} c="var(--t3)"/></div>
             <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в КАКАПО..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
@@ -4492,7 +4531,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
         )}
         {query && results.length>0 && (
           <div>
-            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:14 }}>Найдено: <span style={{ color:"var(--gr)", fontWeight:700 }}>{results.length}</span> товаров</div>
+            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:14 }}>Найдено: <span style={{ color:"var(--gr)", fontWeight:700 }}>{formatProductCount(results.length)}</span></div>
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               {results.map((p,i) => {
                 const qty=cart[p.id]||0, disc=p.old?Math.round((1-p.price/p.old)*100):0;
@@ -4510,7 +4549,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
                       <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
                       <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                       <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
-                        <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                        <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
                         {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
                       </div>
                     </div>
@@ -4545,7 +4584,7 @@ const FAQPage = ({ go }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>FAQ</div>
         </div>
         <div style={{ padding:"0 18px 12px", position:"relative" }}>
@@ -4850,7 +4889,7 @@ function VipDebtSection({
             </span>
           </div>
           {b.orderId && b.desc && (
-            <div style={{ fontSize: 10, color: 'var(--gd)', marginBottom: 3 }}>
+            <div style={{ fontSize: 12, color: 'var(--gd)', marginBottom: 3 }}>
               Чек {b.orderId}
             </div>
           )}
@@ -5227,7 +5266,7 @@ function VipDebtSection({
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>× {item.qty}</div>
                   </div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 12, color: 'var(--gd)' }}>ЅМ</span></span>
                 </div>
                 )
               }) : (
@@ -5238,7 +5277,7 @@ function VipDebtSection({
               {order && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 15px', borderTop: '1px solid var(--b1)' }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Итого заказа</span>
-                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 12, color: 'var(--gd)' }}>ЅМ</span></span>
                 </div>
               )}
             </div>
@@ -5332,7 +5371,7 @@ const DebtsPage = ({ go, user }) => {
     <div data-store-page style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <header data-store-header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'var(--bg)', borderBottom: '1px solid var(--b1)' }}>
         <div style={{ padding: '14px 18px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => go('profile')} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Ic n="arrL" s={17} c="var(--t2)" />
           </button>
           <div style={{ flex: 1 }}>
@@ -5415,7 +5454,7 @@ const VIPPage = ({ go, user, setUser }) => {
         boxShadow: isVip ? "0 4px 20px rgba(255,184,0,.12)" : "none",
       }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:17, fontWeight:900, color: isVip ? "#FFD700" : "var(--t1)" }}>{isVip ? "VIP Профиль" : "VIP программа"}</div>
             <div style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
@@ -5654,7 +5693,7 @@ const AboutPage = ({ go, user }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:17, fontWeight:900 }}>О КАКАПО</div>
             <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{support.address || "г. Яван, Таджикистан"}</div>
@@ -5932,7 +5971,7 @@ const NotifPage = ({go, user}) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
             <div className="ub" style={{fontSize:17,fontWeight:900}}>Уведомления</div>
             {unread>0&&<div style={{fontSize:10,color:'var(--red)',marginTop:1}}>{unread} непрочитанных</div>}
@@ -6162,7 +6201,7 @@ const AddressesPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Мои адреса</div>
           <button onClick={openAdd} className="btn" style={{padding:'8px 14px',borderRadius:12,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
         </div>
@@ -6356,7 +6395,7 @@ const ReferralPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Пригласи друга</div>
         </div>
       </header>
@@ -6469,7 +6508,7 @@ const ChatPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto',display:'flex',flexDirection:'column'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
           <div style={{flex:1}}>
             <div className="ub" style={{fontSize:14,fontWeight:800}}>Поддержка КАКАПО</div>
@@ -6564,7 +6603,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
             <div style={{display:'flex',gap:8}}>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{restaurants.length} ресторана</span>
+              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{ruCount(restaurants.length, "ресторан", "ресторана", "ресторанов")}</span>
               <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.1)',color:'var(--red)',border:'1px solid rgba(255,69,69,.25)'}}>{restaurants.filter(x=>x.open).length} открыто</span>
             </div>
           </div>
@@ -6756,7 +6795,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       {/* Sticky header — back + name + cart + categories */}
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <button onClick={() => storeBack('restaurants', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{flex:1,minWidth:0}}>
@@ -6853,7 +6892,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                 <div style={{fontSize:11,color:'var(--t3)',marginBottom:6,lineHeight:1.5}}>{item.desc}</div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                   <div style={{display:'flex',alignItems:'baseline',gap:5}}>
-                    <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:10,color:'var(--gd)',marginLeft:2}}>ЅМ</span></span>
+                    <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:12,color:'var(--gd)',marginLeft:2}}>ЅМ</span></span>
                     {item.old&&<span style={{fontSize:11,color:'var(--t3)',textDecoration:'line-through'}}>{item.old}</span>}
                   </div>
                   {item.inStock && r.open ? (
