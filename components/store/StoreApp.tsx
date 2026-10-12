@@ -2,7 +2,8 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode, type MouseEvent } from "react";
 import GeoAddressPicker from "@/components/shared/GeoAddressPicker";
 import dynamic from "next/dynamic";
-import { hydrateCourierStores, usePickups } from "@/lib/courierStore";
+import { QRCodeSVG } from "qrcode.react";
+import { hydrateCourierStores, usePickups, usePricing } from "@/lib/courierStore";
 import { resolveCheckoutPickupIds } from "@/lib/pickups";
 import { useProductPhotos, resolveProductPhoto, resolveOrderItemPhoto, resolvePhotoUrl } from "@/lib/productPhotos";
 import { LiveCatalogProvider, useLiveCatalog } from "@/components/store/LiveCatalogContext";
@@ -10,6 +11,7 @@ import { productCatSlug } from "@/lib/enrichCatalog";
 import { productRatingUi, restaurantCuisineLabel, restaurantRatingLabel, restaurantReviewsLabel } from "@/lib/catalogUi";
 import { useOrders, USE_API, usePromos } from "@/lib/store";
 import { api } from "@/lib/api";
+import { newClientRef } from "@/lib/offline";
 import { mapOrdersForClient } from "@/lib/orderUiMap";
 import {
   resolveClientOrderContacts,
@@ -32,6 +34,7 @@ import { useApiSync } from "@/lib/useApiSync";
 import { useClientReviewNotifSync } from "@/lib/useClientReviewNotifSync";
 import { useClientNotificationSync } from "@/lib/useClientNotificationSync";
 import { useStoreProfileSync } from "@/lib/useStoreProfileSync";
+import { useClientOrderTracking } from "@/lib/useClientOrderTracking";
 import { useAutoLoyaltySync } from "@/lib/useAutoLoyaltySync";
 import { useCategories } from "@/lib/useCategories";
 import { loadStoreUser, saveStoreUser, clearClientSession, getActiveClientPhone, formatTjPhone, isClientSessionActive, phoneDigits, getSessionEpoch, type StoreUser } from "@/lib/clientSession";
@@ -87,37 +90,98 @@ import {
 import { useAppNavigation } from "@/lib/useAppNavigation";
 import AppNavigationBoundary from "@/components/shared/AppNavigationBoundary";
 import { buildCartLineItems, cartHasQty } from '@/lib/cartDisplay'
-import { isWeighted, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
+import { isWeighted, isOutOfStock, stockCartCap, minWeight as productMinWeight, formatCartQty, formatCartQtyStepper, calcLineTotal, lineRetailTotal, lineBulkSavings, lineSaleSavings, lineTotalSavings, cartUnitPrice, formatPriceLabel, nextCartQty, orderItemFromProduct, estimateCartWeightKg, sumCartUnits, formatCartBadgeCount } from "@/lib/productWeight";
 import { bulkPricingHintForQty, formatBulkPricingHint, hasBulkPricing } from "@/lib/productBulkPricing";
 import { activeProductPromos } from "@/lib/productPromos";
 import { inferScheduleMode } from "@/lib/promoSchedule";
 import { formatPromoStockLeft, promoCartRoom } from "@/lib/promoStock";
 import type { Review } from "@/lib/types";
 import { preloadLeaflet } from "@/lib/leafletLoader";
-import { useForcedDarkTheme } from "@/lib/appTheme";
+
+/** Магазин всегда светлый: помечаем документ, чтобы токены не задевали другие приложения. */
+function useStoreLightTheme() {
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const el = document.documentElement;
+    el.setAttribute('data-store-light', '');
+    return () => { el.removeAttribute('data-store-light'); };
+  }, []);
+}
 
 const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPicker"), { ssr: false });
+/** Bonuses and VIP credit need a verified customer (SMS login is postponed); the server ignores them for store orders. */
+const STORE_BONUS_CREDIT_ENABLED = false;
+/** Self-delete acts on a typed phone number, so it stays off until SMS login exists. */
+const STORE_ACCOUNT_DELETE_ENABLED = false;
 const CSS = `
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-:root{
-  --gr:#1FD760;--gr2:#17B34E;--gr3:#0F8A3A;--gd:#FFB800;
-  --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;--l4:#102213;
-  --b1:#162B1A;--b2:#1D3822;
-  --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
-  --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
-  --header-bg:rgba(3,11,5,.96);
-  --overlay:var(--overlay);
-  --fab-bg:var(--fab-bg);
+/* Светлая тема клиентского магазина. Токены живут на .store-shell, чтобы
+   не задевать Trade / POS / админку / курьера / сборщика. */
+.store-shell{
+  /* поверхности */
+  --bg:#F6F7F5;--l1:#FFFFFF;--l2:#FFFFFF;--l3:#F1F4F0;--l4:#E9EFE9;
+  /* границы */
+  --b1:#E3E9E3;--b2:#D7DFD7;
+  /* текст */
+  --t1:#17251B;--t2:#5F6D64;--t3:#87918B;
+  /* бренд */
+  --gr:#07883D;--gr2:#066F33;--gr3:#055B2A;--gr-soft:#EAF6EC;--gd:#E9AE00;--gd2:#B45309;
+  /* статусы */
+  --red:#C33434;--red-soft:#FFF1F1;--blue:#2563EB;--sky:#0E7490;--pur:#7C3AED;--org:#C2410C;
+  /* служебные */
+  --header-bg:rgba(255,255,255,.94);
+  --overlay:rgba(23,37,27,.45);
+  --fab-bg:rgba(255,255,255,.94);
+  --shade:rgba(23,37,27,.08);
+  /* шкала отступов 4/8/12/16/20/24/32 */
+  --sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp5:20px;--sp6:24px;--sp8:32px;
+  /* радиусы */
+  --r-field:13px;--r-card:16px;--r-banner:18px;--r-badge:7px;
+  /* тени */
+  --sh1:0 1px 2px rgba(23,37,27,.05);
+  --sh2:0 6px 20px rgba(23,37,27,.09);
   --store-w:480px;
+  /* высота нижнего меню: используется закреплёнными панелями */
+  --nav-h:66px;
 }
-@media (min-width:600px){:root{--store-w:640px;}}
-@media (min-width:900px){:root{--store-w:920px;}}
-@media (min-width:1200px){:root{--store-w:1100px;}}
-.store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;overflow-x:clip;}
+html,body{background:#F6F7F5;color:#17251B;}
+html[data-store-light],html[data-store-light] body{background:#F6F7F5;color:#17251B;}
+@media (min-width:600px){.store-shell{--store-w:640px;}}
+@media (min-width:900px){.store-shell{--store-w:920px;}}
+@media (min-width:1200px){.store-shell{--store-w:1240px;}}
+/* Доступный клавиатурный фокус во всём магазине */
+.store-shell :focus-visible,html[data-store-light] :focus-visible{outline:2px solid var(--gr);outline-offset:2px;border-radius:8px;}
+.store-shell :focus:not(:focus-visible){outline:none;}
+@media (prefers-reduced-motion:reduce){
+  .store-shell *,.store-shell *::before,.store-shell *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}
+}
+.store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;overflow-x:clip;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
+/* Нижнее меню: белая панель 64–72px + safe-area. Контент получает отступ
+   через .store-page-pad, чтобы панель не перекрывала цены и кнопки. */
+.store-page-pad{padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px));}
 .store-nav{
   position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:200;
+  min-height:var(--nav-h);
 }
 .store-fixed-bar{left:50%!important;transform:translateX(-50%)!important;width:100%!important;max-width:var(--store-w)!important;}
+.store-nav-above{bottom:calc(70px + env(safe-area-inset-bottom, 0px))!important;}
+.store-topnav{display:none;}
+/* Логотип-плитка магазина (брендового файла в проекте нет — сохраняем прежнее представление) */
+.store-brand-mark{width:34px;height:34px;border-radius:11px;background:var(--gr);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:'Unbounded',sans-serif;font-size:15px;font-weight:900;flex-shrink:0;}
+.store-topnav-cart{position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:var(--l1);border:1px solid var(--b1);color:var(--t2);cursor:pointer;}
+.store-topnav-cart:hover{background:var(--gr-soft);color:var(--gr3);border-color:rgba(7,136,61,.3);}
+.store-topnav-cart-count{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--gr);color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'Nunito',sans-serif;}
+@media (min-width:900px){
+  .store-nav{display:none!important;}
+  .store-topnav{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 22px;background:var(--header-bg);backdrop-filter:blur(24px);border-bottom:1px solid var(--b1);box-shadow:var(--sh1);}
+  .store-topnav-brand{display:flex;align-items:center;gap:10px;font-family:'Unbounded',sans-serif;font-weight:900;font-size:16px;letter-spacing:.3px;color:var(--t1);}
+  .store-topnav-tabs{display:flex;gap:6px;}
+  .store-topnav-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:12px;background:transparent;border:1px solid transparent;color:var(--t2);font-family:'Nunito',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s;}
+  .store-topnav-tab:hover{background:var(--gr-soft);color:var(--gr3);}
+  .store-topnav-tab.on{background:var(--gr-soft);border-color:rgba(7,136,61,.3);color:var(--gr3);}
+}
+.store-vip .store-topnav{background:var(--header-bg)!important;border-bottom-color:var(--gd-line)!important;}
+.store-vip .store-topnav-tab.on{background:var(--gd-soft)!important;border-color:var(--gd-line2)!important;color:var(--gd-ink)!important;}
 .store-prod-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 @media (min-width:600px){.store-prod-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
 @media (min-width:900px){.store-prod-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}}
@@ -129,7 +193,7 @@ const CSS = `
 @media (max-width:480px){
   .inp{font-size:16px;min-height:44px;}
 }
-html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
+html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
 .ub{font-family:'Unbounded',sans-serif;}
 .bank-num{
   font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -147,7 +211,7 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 @keyframes float{0%,100%{transform:translateY(0);}50%{transform:translateY(-6px);}}
-@keyframes glow{0%,100%{box-shadow:0 0 18px rgba(31,215,96,.2);}50%{box-shadow:0 0 40px rgba(31,215,96,.55);}}
+@keyframes glow{0%,100%{box-shadow:0 4px 16px rgba(7,136,61,.3);}50%{box-shadow:0 4px 20px rgba(7,136,61,.45);}}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 @keyframes spin{from{transform:rotate(0);}to{transform:rotate(360deg);}}
 @keyframes notif{from{opacity:0;transform:translate(-50%,-24px);}to{opacity:1;transform:translate(-50%,0);}}
@@ -158,74 +222,201 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 @keyframes slideUp{from{opacity:0;transform:translateY(32px);}to{opacity:1;transform:translateY(0);}}
 @keyframes cartPop{0%{transform:scale(1);}50%{transform:scale(1.06);}100%{transform:scale(1);}}
 @keyframes vipShimmer{0%{background-position:200% center;}100%{background-position:-200% center;}}
-@keyframes vipGlow{0%,100%{box-shadow:0 0 20px rgba(255,184,0,.25),0 0 40px rgba(255,184,0,.08);}50%{box-shadow:0 0 32px rgba(255,184,0,.55),0 0 64px rgba(255,184,0,.18);}}
+@keyframes vipGlow{0%,100%{box-shadow:0 0 0 0 rgba(233,174,0,.18);}50%{box-shadow:0 0 0 6px rgba(233,174,0,.06);}}
 @keyframes tierPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 var(--tier-glow);}50%{transform:scale(1.08);box-shadow:0 0 0 6px transparent;}}
 @keyframes levelUpPop{0%{opacity:0;transform:translateY(8px) scale(.92);}15%{opacity:1;transform:translateY(0) scale(1.02);}85%{opacity:1;transform:translateY(0) scale(1);}100%{opacity:0;transform:translateY(-6px) scale(.98);}}
 @keyframes sparkle{0%,100%{opacity:.25;transform:scale(1);}50%{opacity:.7;transform:scale(1.15);}}
 @keyframes progressShine{0%{transform:translateX(-100%);}100%{transform:translateX(200%);}}
 @keyframes crownFloat{0%,100%{transform:translateY(0) rotate(-3deg);}50%{transform:translateY(-3px) rotate(3deg);}}
 .loyalty-tier-card{position:relative;overflow:hidden;border-radius:20px;}
-.loyalty-tier-card::before{content:'';position:absolute;inset:0;opacity:.06;pointer-events:none;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(255,255,255,.15) 10px,rgba(255,255,255,.15) 11px);}
+.loyalty-tier-card::before{content:'';position:absolute;inset:0;opacity:.05;pointer-events:none;background:repeating-linear-gradient(45deg,transparent,transparent 10px,rgba(23,37,27,.35) 10px,rgba(23,37,27,.35) 11px);}
 .loyalty-vip-card{animation:vipGlow 3s ease-in-out infinite;}
 .loyalty-level-up{animation:levelUpPop 2.4s ease forwards;}
 .loyalty-tier-node-active{animation:tierPulse 2.2s ease-in-out infinite;}
-.loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(255,220,100,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
-.btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:all .22s cubic-bezier(.16,1,.3,1);}
-.btn:active{transform:scale(.96);}
-.card{background:var(--l2);border:1px solid var(--b1);border-radius:20px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);}
-.kakapo-card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;overflow:hidden;}
+.loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(233,174,0,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
+.btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:background-color .18s,border-color .18s,color .18s,transform .18s;}
+.btn:active{transform:scale(.97);}
+.btn:disabled{cursor:not-allowed;opacity:.55;transform:none;}
+.card{background:var(--l1);border:1px solid var(--b1);border-radius:16px;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;}
+.kakapo-card{background:var(--l1);border:1px solid var(--b1);border-radius:16px;overflow:hidden;}
+/* Кнопка добавления и контрол количества */
+.p-add{width:100%;min-height:44px;padding:10px;border-radius:var(--r-field);background:var(--gr);color:#fff;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:14px;font-weight:800;}
+.p-add:hover{background:var(--gr2);}
+.p-add:active{background:var(--gr3);}
+.p-add-icon{width:44px;height:44px;min-height:44px;padding:0;border-radius:var(--r-field);background:var(--gr);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;line-height:1;}
+.p-add-icon:hover{background:var(--gr2);}
+.p-add-icon:active{background:var(--gr3);}
+.p-add-off{width:100%;min-height:44px;padding:10px;border-radius:var(--r-field);background:var(--l3);border:1px solid var(--b1);color:var(--t3);font-size:13px;font-weight:700;text-align:center;}
+.p-qty{display:flex;align-items:center;justify-content:space-between;gap:2px;background:var(--gr-soft);border:1.5px solid rgba(7,136,61,.3);border-radius:var(--r-field);padding:3px;min-height:44px;}
+.p-qty button{width:38px;height:38px;border-radius:10px;background:transparent;border:none;display:inline-flex;align-items:center;justify-content:center;color:var(--gr3);font-size:20px;font-weight:800;cursor:pointer;line-height:1;}
+.p-qty button:hover{background:var(--gr-soft);}
+.p-qty button:disabled{opacity:.4;cursor:not-allowed;}
+.p-qty span{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:800;color:var(--gr3);min-width:28px;text-align:center;}
+/* Карточка товара: избранное, название-кнопка, строка цены */
+.p-wish{position:absolute;top:4px;right:4px;z-index:3;width:44px;height:44px;border-radius:12px;background:transparent;display:inline-flex;align-items:center;justify-content:center;}
+.p-wish:hover{background:var(--l3);}
+.p-name{display:block;width:100%;text-align:left;padding:0;font-family:'Nunito',sans-serif;font-size:14px;font-weight:600;line-height:1.3;color:var(--t1);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.p-name:hover{color:var(--gr3);}
+.p-price-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:auto;padding-top:6px;min-width:0;}
+/* Узкий телефон: цена и кнопка в отдельных строках */
+@media (max-width:359px){
+  .p-price-row{flex-direction:column;align-items:stretch;gap:6px;}
+  .p-price-row .p-add-icon{width:100%;}
+  .store-prod-grid,.store-tile-grid{gap:8px;}
+}
+/* Компактные карточки, чтобы на телефоне было видно больше товаров */
+.p-name{min-height:36px;}
+.hdr-icon{width:44px;height:44px;border-radius:12px;background:var(--l3);border:1px solid var(--b1);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.hdr-icon:hover{background:var(--l4);}
+.hdr-addr{display:inline-flex;align-items:center;gap:4px;padding:2px 0;margin-top:1px;max-width:100%;font-size:12px;font-weight:600;color:var(--t2);background:transparent;}
+.hdr-addr span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw;}
+.hdr-addr:hover span{color:var(--gr3);}
+.store-nav-item{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:7px 10px;border-radius:12px;min-width:56px;min-height:52px;}
+.store-nav-item:hover{background:var(--l3);}
+/* Заголовок раздела + ссылка «Все» */
+.store-sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.store-sec-title{font-size:20px;font-weight:800;color:var(--t1);line-height:1.2;}
+.store-sec-all{display:inline-flex;align-items:center;gap:4px;font-family:'Nunito',sans-serif;font-size:14px;font-weight:700;color:var(--gr3);background:transparent;padding:4px 2px;}
+.store-sec-all:hover{color:var(--gr2);}
+/* Баннер: светло-зелёная поверхность + реальное фото продукта справа */
+.store-banner{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border-radius:var(--r-banner);border:1px solid var(--b1);padding:14px 16px;margin-bottom:20px;cursor:pointer;min-height:112px;overflow:hidden;transition:box-shadow .18s ease,border-color .18s ease;}
+.store-banner:hover{box-shadow:var(--sh2);border-color:var(--b2);}
+.store-banner-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;}
+.store-banner-title{font-size:18px;font-weight:900;color:var(--t1);line-height:1.22;margin-bottom:4px;}
+.store-banner-sub{font-size:13px;color:var(--t2);}
+.store-banner-photo{width:112px;height:88px;object-fit:contain;flex-shrink:0;border-radius:12px;background:#fff;}
+@media (min-width:600px){.store-banner-photo{width:168px;height:104px;} .store-banner-title{font-size:20px;}}
+.store-ticker{background:var(--red-soft);border:1px solid rgba(195,52,52,.18);border-radius:12px;padding:8px 0;overflow:hidden;margin:-8px 0 20px;}
+/* Категории: горизонтальная лента с видимым краем следующей плитки */
+.cat-rail{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 24px;padding:0 16px 4px;}
+.cat-rail::-webkit-scrollbar{display:none;}
+.cat-tile{flex:0 0 110px;display:flex;flex-direction:column;border-radius:var(--r-card);border:1px solid var(--b1);overflow:hidden;cursor:pointer;padding:0;text-align:center;}
+.cat-tile:hover{box-shadow:var(--sh2);border-color:var(--b2);}
+.cat-tile-media{display:flex;align-items:center;justify-content:center;width:100%;height:76px;background:#fff;overflow:hidden;}
+.cat-tile-media img{width:100%;height:100%;object-fit:contain;padding:6px;box-sizing:border-box;display:block;}
+.cat-tile-emoji{font-size:30px;line-height:1;}
+.cat-tile-label{padding:8px 8px 10px;font-size:12px;font-weight:700;line-height:1.25;min-height:40px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.cat-tile-count{display:block;padding:0 8px 10px;font-size:11px;color:var(--t3);margin-top:-6px;}
+/* Строка поиска магазина */
+.store-search{display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border-radius:var(--r-field);background:var(--l1);border:1.5px solid var(--b1);color:var(--t2);}
+.store-search:focus-within{border-color:rgba(7,136,61,.45);box-shadow:0 0 0 4px var(--gr-soft);}
+.store-search input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:'Nunito',sans-serif;font-size:16px;color:var(--t1);}
+.store-search input::placeholder{color:var(--t3);}
+.store-search button{width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--t3);cursor:pointer;flex-shrink:0;}
+.store-search button:hover{background:var(--l3);color:var(--t1);}
 .hscroll{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;}.hscroll::-webkit-scrollbar{display:none;}
-.chip{padding:8px 15px;border-radius:50px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--b1);background:var(--l2);color:var(--t2);transition:all .2s;font-family:'Nunito',sans-serif;}
-.chip.on{background:rgba(31,215,96,.12);color:var(--gr);border-color:rgba(31,215,96,.38);}
-.inp{background:var(--l3);border:1.5px solid var(--b1);border-radius:14px;color:var(--t1);font-family:'Nunito',sans-serif;font-size:14px;outline:none;transition:border-color .2s;padding:13px 16px;}
-.inp:focus{border-color:rgba(31,215,96,.5);box-shadow:0 0 0 4px rgba(31,215,96,.07);}
+.chip{padding:8px 15px;border-radius:50px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid var(--b1);background:var(--l1);color:var(--t2);transition:background-color .18s,color .18s,border-color .18s;font-family:'Nunito',sans-serif;}
+.chip:hover{border-color:var(--b2);color:var(--t1);}
+.chip.on{background:var(--gr-soft);color:var(--gr3);border-color:rgba(7,136,61,.38);}
+.inp{background:var(--l1);border:1.5px solid var(--b1);border-radius:var(--r-field);color:var(--t1);font-family:'Nunito',sans-serif;font-size:16px;outline:none;transition:border-color .18s,box-shadow .18s;padding:13px 16px;min-height:48px;}
+.inp:focus{border-color:rgba(7,136,61,.45);box-shadow:0 0 0 4px var(--gr-soft);}
 .inp::placeholder{color:var(--t3);}
-.inp-err{border-color:rgba(255,69,69,.5)!important;}
-.inp-ok{border-color:rgba(31,215,96,.45)!important;}
+.inp:disabled{background:var(--l3);color:var(--t3);cursor:not-allowed;}
+.inp-err{border-color:rgba(195,52,52,.55)!important;}
+.inp-ok{border-color:rgba(7,136,61,.45)!important;}
 .toggle{width:44px;height:24px;border-radius:12px;background:var(--b2);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;}
 .toggle.on{background:var(--gr);}
 .toggle-dot{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:white;transition:transform .2s cubic-bezier(.16,1,.3,1);}
 .toggle.on .toggle-dot{transform:translateX(20px);}
-.bdg{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:50px;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;}
-.b-gr{background:rgba(31,215,96,.12);color:var(--gr);border:1px solid rgba(31,215,96,.28);}
-.b-gd{background:rgba(255,184,0,.12);color:var(--gd);border:1px solid rgba(255,184,0,.28);}
-.b-rd{background:rgba(255,69,69,.12);color:var(--red);border:1px solid rgba(255,69,69,.28);}
-.b-bl{background:rgba(59,142,240,.1);color:var(--blue);border:1px solid rgba(59,142,240,.25);}
+.bdg{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:var(--r-badge);font-size:11px;font-weight:800;letter-spacing:.2px;}
+.b-gr{background:var(--gr-soft);color:var(--gr3);border:1px solid rgba(7,136,61,.25);}
+.b-gd{background:rgba(233,174,0,.14);color:#8A6400;border:1px solid rgba(233,174,0,.3);}
+.b-rd{background:var(--red-soft);color:var(--red);border:1px solid rgba(195,52,52,.25);}
+.b-bl{background:rgba(37,99,235,.1);color:#1D4ED8;border:1px solid rgba(37,99,235,.25);}
+/* Скелетоны загрузки: размеры как у настоящих карточек */
+.skel{background:var(--l1);border:1px solid var(--b1);border-radius:16px;overflow:hidden;}
+.skel-line{background:var(--l3);border-radius:6px;animation:skelPulse 1.4s ease-in-out infinite;}
+@keyframes skelPulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+.b-gr{background:var(--gr-soft);color:var(--gr);border:1px solid rgba(7,136,61,.3);}
+.b-gd{background:rgba(233,174,0,.12);color:var(--gd);border:1px solid rgba(233,174,0,.28);}
+.b-rd{background:rgba(195,52,52,.12);color:var(--red);border:1px solid rgba(195,52,52,.28);}
+.b-bl{background:rgba(37,99,235,.1);color:var(--blue);border:1px solid rgba(37,99,235,.25);}
+/* VIP / лояльность: светлая поверхность + золотые акценты (не тёмная тема) */
 .store-vip{
-  --l1:#0a0802;--l2:#0d0a04;--l3:#120e06;--l4:#181208;
-  --b1:rgba(255,184,0,.2);--b2:rgba(255,184,0,.32);
-  background:radial-gradient(ellipse 100% 42% at 50% -5%, rgba(255,184,0,.11) 0%, transparent 48%), var(--bg);
+  --gd-line:rgba(233,174,0,.45);--gd-line2:rgba(233,174,0,.6);--gd-ink:#8A6400;--gd-soft:rgba(233,174,0,.12);
+  background:radial-gradient(ellipse 100% 42% at 50% -5%, rgba(233,174,0,.10) 0%, transparent 48%), var(--bg);
 }
-.store-vip .card{
-  border-color:rgba(255,184,0,.26);
-  box-shadow:0 4px 22px rgba(255,184,0,.09);
-}
-.store-vip .kakapo-card{border-color:rgba(255,184,0,.22);}
-.store-vip .chip.on{background:rgba(255,184,0,.12);color:var(--gd);border-color:rgba(255,184,0,.4);}
-.store-vip .inp:focus{border-color:rgba(255,184,0,.48);box-shadow:0 0 0 4px rgba(255,184,0,.08);}
-.store-vip header{
-  background:rgba(10,8,2,.96)!important;
-  border-bottom-color:rgba(255,184,0,.28)!important;
-  box-shadow:0 4px 18px rgba(255,184,0,.07)!important;
+.store-vip .card{border-color:var(--gd-line);box-shadow:0 4px 18px rgba(233,174,0,.12);}
+.store-vip .kakapo-card{border-color:var(--gd-line);}
+.store-vip .chip.on{background:var(--gd-soft);color:var(--gd-ink);border-color:var(--gd-line2);}
+.store-vip .inp:focus{border-color:var(--gd-line2);box-shadow:0 0 0 4px rgba(233,174,0,.14);}
+.store-vip header,.store-vip [data-store-header]{
+  background:var(--header-bg)!important;
+  border-bottom-color:var(--gd-line)!important;
+  box-shadow:0 4px 18px rgba(233,174,0,.12)!important;
 }
 .store-vip .btn-vip-cta{
-  background:linear-gradient(135deg,#E89E00,#FFB800,#FFD700)!important;
-  color:#1a1000!important;
-  box-shadow:0 4px 18px rgba(255,184,0,.35)!important;
+  background:linear-gradient(135deg,#E0A400,#E9AE00)!important;
+  color:#3A2A00!important;
+  box-shadow:0 4px 16px rgba(233,174,0,.32)!important;
 }
 .store-vip [data-store-page]:not([data-profile-tier]){background:transparent!important;}
-.store-vip header[data-store-header],.store-vip [data-store-header]{
-  background:rgba(10,8,2,.96)!important;
-  border-bottom-color:rgba(255,184,0,.3)!important;
-  box-shadow:0 4px 20px rgba(255,184,0,.08)!important;
-}
 .store-vip .store-toast{
-  background:linear-gradient(135deg,#1a1200,#2a1a00)!important;
-  border-color:rgba(255,184,0,.45)!important;
-  box-shadow:0 8px 36px rgba(255,184,0,.15)!important;
+  background:var(--l1)!important;
+  border-color:var(--gd-line)!important;
+  box-shadow:0 8px 30px rgba(233,174,0,.18)!important;
 }
-.store-vip .store-toast-icon{background:rgba(255,184,0,.2)!important;}
-.store-vip [data-header-cart]{animation:vipGlow 3s ease-in-out infinite;}
+.store-vip .store-toast-icon{background:var(--gd-soft)!important;}
+.store-vip [data-header-cart]{box-shadow:0 0 0 4px rgba(233,174,0,.14);}
+.store-tile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+@media (min-width:600px){.store-tile-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}}
+@media (min-width:900px){.store-tile-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}}
+@media (min-width:1200px){.store-tile-grid{grid-template-columns:repeat(5,minmax(0,1fr));}}
+/* Кнопки магазина: единая система */
+.store-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 18px;border-radius:var(--r-field);font-family:'Nunito',sans-serif;font-size:15px;font-weight:800;border:1.5px solid transparent;cursor:pointer;transition:background-color .18s,border-color .18s,color .18s,transform .18s;}
+.store-btn:active{transform:scale(.985);}
+.store-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.store-btn-primary{background:var(--gr);color:#fff;}
+.store-btn-primary:hover{background:var(--gr2);}
+.store-btn-primary:active{background:var(--gr3);}
+.store-btn-sec{background:var(--l1);border-color:var(--b1);color:var(--t1);}
+.store-btn-sec:hover{background:var(--l3);border-color:var(--b2);}
+.store-btn-ghost{background:transparent;color:var(--gr3);min-height:44px;padding:0 12px;}
+.store-btn-ghost:hover{background:var(--gr-soft);}
+.store-btn-sm{min-height:40px;font-size:13px;padding:0 14px;border-radius:12px;}
+.store-btn-block{width:100%;}
+/* Подпись поля: постоянная, placeholder её не заменяет */
+.store-label{display:block;font-size:12px;font-weight:700;color:var(--t2);margin-bottom:6px;}
+.store-field{margin-bottom:16px;}
+.store-hint{font-size:12px;color:var(--t2);line-height:1.5;}
+.store-err{font-size:12px;color:var(--red);margin-top:6px;font-weight:700;}
+/* Скелетоны товарной сетки */
+.store-skel-card{background:var(--l1);border:1px solid var(--b1);border-radius:var(--r-card);overflow:hidden;}
+.store-skel-media{width:100%;aspect-ratio:1 / 1;border-radius:0;}
+/* Пустые состояния */
+.store-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 20px;}
+.store-empty-icon{width:72px;height:72px;border-radius:22px;background:var(--l3);display:flex;align-items:center;justify-content:center;font-size:34px;margin-bottom:12px;}
+.store-empty-title{font-size:17px;font-weight:800;color:var(--t1);}
+.store-empty-text{font-size:13px;color:var(--t2);line-height:1.5;max-width:280px;margin-top:6px;}
+/* Модальные окна и нижние панели-шторки */
+.store-sheet-backdrop{position:fixed;inset:0;z-index:600;background:var(--overlay);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .18s ease;}
+.store-sheet{width:100%;max-width:var(--store-w);background:var(--l1);border:1px solid var(--b1);border-bottom:none;border-radius:22px 22px 0 0;box-shadow:0 -12px 40px rgba(23,37,27,.16);max-height:88vh;overflow-y:auto;animation:slideUp .22s cubic-bezier(.16,1,.3,1);padding-bottom:env(safe-area-inset-bottom,0px);}
+.store-sheet-head{position:sticky;top:0;z-index:2;background:var(--l1);display:flex;align-items:center;gap:10px;padding:14px 16px 12px;border-bottom:1px solid var(--b1);}
+.store-sheet-title{flex:1;min-width:0;font-size:16px;font-weight:800;color:var(--t1);}
+.store-sheet-x{width:36px;height:36px;border-radius:11px;background:var(--l3);border:1px solid var(--b1);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.store-sheet-body{padding:16px;}
+/* Строка товара в списке (корзина, избранное, заказ) */
+.store-row{display:flex;align-items:center;gap:12px;padding:12px;background:var(--l1);border:1px solid var(--b1);border-radius:var(--r-card);}
+.store-row-media{width:64px;height:64px;border-radius:14px;background:#fff;border:1px solid var(--b1);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+/* Закреплённая панель действия: не накладывается на нижнее меню */
+.store-sticky-bar{position:fixed;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:190;bottom:0;background:var(--header-bg);backdrop-filter:blur(24px);border-top:1px solid var(--b1);box-shadow:0 -2px 14px rgba(23,37,27,.05);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));}
+@media (max-width:899px){.store-sticky-bar{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px));}}
+/* Страницы без нижнего меню (например, оформление заказа) */
+.store-sticky-nonav{bottom:0!important;}
+.store-page-pad-lg{padding-bottom:calc(180px + env(safe-area-inset-bottom,0px));}
+/* Страница товара: отступы по бокам + место под фото и нижнее меню */
+.store-hero-pad{padding:0 16px calc(180px + env(safe-area-inset-bottom,0px));}
+/* Список страницы с закреплённой панелью действия и нижним меню */
+.store-list-pad{padding:14px 16px calc(220px + env(safe-area-inset-bottom,0px));}
+/* Верхняя навигация для компьютера */
+.store-desktop-tabs{padding:10px 20px;background:var(--l1);border-bottom:1px solid var(--b1);}
+/* Более плотная сетка на очень узких экранах */
+@media (max-width:359px){.store-shell{--sp4:12px;} .store-page-pad-lg{padding-bottom:calc(196px + env(safe-area-inset-bottom,0px));}}
+@media (hover:hover) and (min-width:900px){
+  .card:hover{transform:translateY(-2px);box-shadow:var(--sh2);border-color:var(--b2);}
+  .store-lift{transition:transform .18s ease,box-shadow .18s ease;}
+  .store-lift:hover{transform:translateY(-2px);box-shadow:var(--sh2);}
+}
 `;
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
   const icons = {
@@ -281,45 +472,58 @@ const Stars = ({ r, s=10 }) => (
     {[1,2,3,4,5].map(i => (
       <svg key={i} width={s} height={s} viewBox="0 0 24 24">
         <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
-          fill={i <= Math.round(r) ? "#FFB800" : "rgba(255,184,0,.15)"} stroke="none"/>
+          fill={i <= Math.round(r) ? "#E0A400" : "rgba(233,174,0,.15)"} stroke="none"/>
       </svg>
     ))}
   </div>
 );
 
 const Toast = ({ msg, isVip = false }) => !msg ? null : (
-  <div className={isVip ? 'store-toast' : undefined} style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background:"linear-gradient(135deg,#091C0D,#123020)", border:"1.5px solid rgba(31,215,96,.45)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 36px rgba(0,0,0,.65)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw" }}>
-    <div className={isVip ? 'store-toast-icon' : undefined} style={{ width:24, height:24, borderRadius:"50%", background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-      <Ic n="check" s={12} c={isVip ? "var(--gd)" : "var(--gr)"} w={2.5}/>
+  <div
+    role="status"
+    aria-live="polite"
+    style={{
+      position:"fixed", top:16, left:"50%", zIndex:999,
+      animation:"notif .24s cubic-bezier(.16,1,.3,1)",
+      background:"var(--l1)",
+      border:`1.5px solid ${isVip ? "rgba(233,174,0,.45)" : "var(--b1)"}`,
+      borderRadius:14, padding:"10px 16px",
+      display:"flex", alignItems:"center", gap:10,
+      boxShadow:"0 12px 30px rgba(23,37,27,.16)",
+      transform:"translateX(-50%)", maxWidth:"min(92vw, 460px)",
+    }}
+  >
+    <div style={{ width:22, height:22, borderRadius:"50%", background: isVip ? "rgba(233,174,0,.16)" : "var(--gr-soft)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+      <Ic n="check" s={12} c={isVip ? "#8A6400" : "var(--gr3)"} w={2.5}/>
     </div>
-    <span style={{ fontSize:13, fontWeight:700 }}>{msg}</span>
+    <span style={{ fontSize:13, fontWeight:700, color:"var(--t1)" }}>{msg}</span>
   </div>
 );
 
-const Nav = ({ page, go, user: userProp }) => {
+const Nav = ({ page, go, user: userProp }: any) => {
   const syncedUser = userProp ?? loadStoreUser()
   const { isVip } = resolveUserVip(syncedUser)
   return (
   <nav className="store-nav" style={{
-    background: isVip ? "rgba(10,8,2,.97)" : "var(--header-bg)",
-    backdropFilter:"blur(26px)",
-    borderTop: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
-    boxShadow: isVip ? "0 -4px 24px rgba(255,184,0,.12)" : "none",
-    padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around",
+    background:"var(--l1)",
+    borderTop:"1px solid var(--b1)",
+    boxShadow:"0 -2px 14px rgba(23,37,27,.05)",
+    padding:"6px 8px calc(6px + env(safe-area-inset-bottom, 0px))",
+    display:"flex", justifyContent:"space-around", alignItems:"stretch",
   }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
       const on = page === item.id
-      const activeColor = isVip && on ? "#FFD700" : on ? "var(--gr)" : "var(--t3)"
-      const activeBg = isVip && on ? "rgba(255,184,0,.12)" : on ? "rgba(31,215,96,.09)" : "transparent"
-      const activeBorder = isVip && on ? "rgba(255,184,0,.35)" : on ? "rgba(31,215,96,.22)" : "transparent"
+      const activeColor = on ? (isVip ? "#8A6400" : "var(--gr3)") : "var(--t3)"
+      const isProfile = item.id === "profile"
       return (
-      <button key={item.id} type="button" onClick={() => go(item.id)} className="btn"
-        style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:on?activeBg:"transparent", border:`1.5px solid ${on?activeBorder:"transparent"}`, color:on?activeColor:"var(--t3)", position:"relative" }}>
-        {isVip && item.id === "profile" && (
-          <div style={{ position:"absolute", top:2, right:6, fontSize:9, animation:"crownFloat 2.5s ease-in-out infinite" }}>👑</div>
+      <button key={item.id} type="button" onClick={() => go(item.id)} className="btn store-nav-item"
+        aria-current={on ? "page" : undefined}
+        style={{ background:on ? (isVip ? "rgba(233,174,0,.12)" : "var(--gr-soft)") : "transparent", color:activeColor, position:"relative" }}>
+        {isVip && isProfile && (
+          <div style={{ position:"absolute", top:0, right:10, fontSize:10, lineHeight:1 }} aria-hidden="true">👑</div>
         )}
-        <Ic n={item.icon} s={20} c={on?activeColor:"var(--t3)"}/>
-        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{item.id === "profile" && isVip ? "VIP" : item.label}</span>
+        <Ic n={item.icon} s={22} c={activeColor}/>
+        <span style={{ fontSize:11, fontWeight:on?800:600 }}>{isProfile && isVip ? "VIP" : item.label}</span>
       </button>
     )})}
   </nav>
@@ -327,7 +531,7 @@ const Nav = ({ page, go, user: userProp }) => {
 }
 
 /** Компактная плавающая кнопка корзины */
-const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: isVipProp }) => {
+const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: isVipProp }: any) => {
   const { isVip: isVipUser } = resolveUserVip(loadStoreUser())
   const isVip = isVipProp ?? isVipUser
   return (
@@ -343,15 +547,15 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: i
         gap:6,
         padding:"6px 12px 6px 7px",
         borderRadius:999,
-        background: isVip ? "linear-gradient(135deg,#B8860B 0%,#FFD700 100%)" : "linear-gradient(135deg,#0F7A38 0%,#1FD760 100%)",
-        border: isVip ? "1px solid rgba(255,220,100,.35)" : "1px solid rgba(255,255,255,.14)",
-        boxShadow: isVip ? "0 3px 14px rgba(255,184,0,.38), inset 0 1px 0 rgba(255,255,255,.2)" : "0 3px 12px rgba(31,215,96,.26), inset 0 1px 0 rgba(255,255,255,.16)",
+        background: isVip ? "linear-gradient(135deg,#A97800 0%,#E9AE00 100%)" : "linear-gradient(135deg,#066F33 0%,#07883D 100%)",
+        border: isVip ? "1px solid rgba(138,100,0,.35)" : "1px solid rgba(255,255,255,.14)",
+        boxShadow: isVip ? "0 3px 14px rgba(233,174,0,.38), inset 0 1px 0 rgba(255,255,255,.2)" : "0 3px 12px rgba(7,136,61,.26), inset 0 1px 0 rgba(255,255,255,.16)",
         maxWidth:"calc(100% - 44px)",
       }}
     >
       <div style={{
         minWidth:19, height:19, padding:"0 5px", borderRadius:999,
-        background:"rgba(0,0,0,.28)", border:"1px solid rgba(255,255,255,.1)",
+        background:"rgba(23,37,27,.35)", border:"1px solid var(--b1)",
         display:"flex", alignItems:"center", justifyContent:"center",
         fontFamily:"Unbounded", fontSize:9, fontWeight:900, color:"white", flexShrink:0,
       }}>{count}</div>
@@ -362,67 +566,69 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: i
   );
 };
 
-const Header = ({ title, back, go, cart, user: userProp }) => {
+/** Короткая строка адреса для шапки: реальные данные клиента, иначе приглашение. */
+function useClientAddressLine(user?: StoreUser | null) {
+  const phone = (user?.phone || getActiveClientPhone(user) || undefined) as string | undefined
+  const [line, setLine] = useState("")
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const read = () => {
+      try {
+        const list = loadClientAddresses(phone) || []
+        const def = list.find((a: any) => a.def) || list[0]
+        const full = def ? formatClientAddressLine(def) : ""
+        setLine(full ? full.split(",").slice(0, 2).join(",").trim() : "")
+      } catch { setLine("") }
+    }
+    read()
+    const onFocus = () => read()
+    window.addEventListener("focus", onFocus)
+    const t = setInterval(read, 20000)
+    return () => { window.removeEventListener("focus", onFocus); clearInterval(t) }
+  }, [phone])
+  return line ? `Яван · ${line}` : "Яван · Укажите адрес"
+}
+
+const Header = ({ title, back, go, cart, user: userProp, hideSearch = false }: any) => {
   const { prods } = useLiveCatalog();
   const user = userProp ?? loadStoreUser()
-  const { isVip, theme } = resolveUserVip(user)
+  const { isVip } = resolveUserVip(user)
   const qty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
   const qtyNum = sumCartUnits(cart || {}, prods);
+  const address = useClientAddressLine(user)
   return (
-    <header style={{
+    <header data-store-header style={{
       position:"sticky", top:0, zIndex:100,
-      background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
-      backdropFilter:"blur(24px)",
-      borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
-      boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
+      background:"var(--header-bg)", backdropFilter:"blur(20px)",
+      borderBottom:"1px solid var(--b1)",
     }}>
-      <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
+      <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
         {back ? (
-          <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Ic n="arrL" s={17} c="var(--t2)"/>
+          <button onClick={() => storeBack(back, go)} className="btn hdr-icon" aria-label="Назад">
+            <Ic n="arrL" s={18} c="var(--t1)"/>
           </button>
         ) : (
-          <div style={{
-            width:40, height:40, borderRadius:12, position:"relative", flexShrink:0,
-            background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"Unbounded", fontSize:17, fontWeight:900,
-            color: isVip ? "#1a1000" : "var(--bg)",
-            animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite",
-            boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)",
-          }}>
-            K
-            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
-          </div>
+          <span className="store-brand-mark" aria-hidden="true">K</span>
         )}
         <div style={{ flex:1, minWidth:0 }}>
           {title ? (
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
-              {isVip && <UserStatusBadge user={user} size="sm" />}
-            </div>
+            <div className="ub" style={{ fontSize:18, fontWeight:800, color:"var(--t1)" }}>{title}</div>
           ) : (
             <>
-              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <div className="ub" style={{
-                  fontSize:16, fontWeight:900,
-                  background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800)" : "linear-gradient(135deg,var(--gr),var(--gd))",
-                  WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
-                }}>КАКАПО{isVip ? " VIP" : ""}</div>
-                {isVip && user && <UserStatusBadge user={user} size="sm" />}
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
-                <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
-                <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
-                  {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
-                </span>
-              </div>
+              <div className="ub" style={{ fontSize:17, fontWeight:900, color:"var(--t1)", letterSpacing:"-.01em" }}>КАКАПО{isVip ? " VIP" : ""}</div>
+              <button type="button" className="btn hdr-addr" onClick={() => go("addresses")} aria-label="Изменить адрес доставки">
+                <Ic n="map" s={12} c={isVip ? "#8A6400" : "var(--gr3)"} w={2}/>
+                <span>{address}</span>
+                <Ic n="arr" s={11} c="var(--t3)"/>
+              </button>
             </>
           )}
         </div>
-        <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
-        </button>
+        {hideSearch ? null : (
+          <button onClick={() => go("search")} className="btn hdr-icon" aria-label="Поиск">
+            <Ic n="search" s={18} c="var(--t1)"/>
+          </button>
+        )}
         <CartHeaderButton count={qty} qtyNum={qtyNum} onClick={() => go("cart")} isVip={isVip} />
       </div>
     </header>
@@ -477,23 +683,25 @@ const CAT_THEME: Record<string, { color: string; bg: string; e: string }> = {
 function catThemeForMode(key: string, light: boolean) {
   const base = CAT_THEME[key] || CAT_THEME.other
   if (!light) return base
-  const c = base.color.startsWith('var(') ? '#129B45' : base.color
+  const c = base.color.startsWith('var(') ? '#07883D' : base.color
+  // Светлые акценты на белом нечитаемы — затемняем оттенок для текста.
+  const ink = `color-mix(in srgb, ${c} 58%, #17251B)`
   return {
     ...base,
-    bg: `linear-gradient(145deg, color-mix(in srgb, ${c} 18%, #FFFFFF), color-mix(in srgb, ${c} 8%, #F3F7F4))`,
-    color: c,
+    bg: `linear-gradient(145deg, color-mix(in srgb, ${c} 20%, #FFFFFF), color-mix(in srgb, ${c} 9%, #F6F7F5))`,
+    color: ink,
   }
 }
 
 /** Мягкий баннер / плитка вместо тёмного градиента */
 function softAccentSurface(accent: string, light: boolean, darkFallback: string) {
   if (!light) return darkFallback
-  const c = accent.startsWith('var(') ? '#129B45' : accent
-  return `linear-gradient(135deg, color-mix(in srgb, ${c} 16%, #FFFFFF), color-mix(in srgb, ${c} 7%, #F3F7F4))`
+  const c = accent.startsWith('var(') ? '#07883D' : accent
+  return `linear-gradient(135deg, color-mix(in srgb, ${c} 18%, #FFFFFF), color-mix(in srgb, ${c} 8%, #F6F7F5))`
 }
 
 /** Светлый градиент из тёмного (берёт первый #hex как акцент) */
-function softFromDarkGrad(darkGrad: string, light: boolean, fallbackAccent = '#129B45') {
+function softFromDarkGrad(darkGrad: string, light: boolean, fallbackAccent = '#07883D') {
   if (!light) return darkGrad
   const m = String(darkGrad || '').match(/#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b/)
   const accent = m ? `#${m[1]}` : fallbackAccent
@@ -501,15 +709,56 @@ function softFromDarkGrad(darkGrad: string, light: boolean, fallbackAccent = '#1
 }
 
 function insetChipBg(light: boolean, alphaDark = 0.25) {
-  return light ? 'rgba(12,26,16,.05)' : `rgba(0,0,0,${alphaDark})`
+  return light ? 'rgba(12,26,16,.05)' : `rgba(23,37,27,${alphaDark})`
 }
 
-function storeBannerSlides(light: boolean) {
+const SHOWCASE_CACHE_KEY = 'kakapo_store_showcase_v1'
+
+type StoreShowcase = { banners: any[]; tickers: any[] }
+
+function readShowcaseCache(): StoreShowcase | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const v = JSON.parse(localStorage.getItem(SHOWCASE_CACHE_KEY) || 'null')
+    return v && Array.isArray(v.banners) && Array.isArray(v.tickers) ? v : null
+  } catch { return null }
+}
+
+function useStoreShowcase(): StoreShowcase {
+  const [sc, setSc] = useState<StoreShowcase>(() => readShowcaseCache() || { banners: [], tickers: [] })
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      api.getShowcase().then(s => {
+        if (!alive) return
+        const next = { banners: Array.isArray(s?.banners) ? s.banners : [], tickers: Array.isArray(s?.tickers) ? s.tickers : [] }
+        setSc(next)
+        try { localStorage.setItem(SHOWCASE_CACHE_KEY, JSON.stringify(next)) } catch { /* quota */ }
+      }).catch(() => {})
+    }
+    load()
+    const t = setInterval(load, 5 * 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+  return sc
+}
+
+function storeBannerSlides(light: boolean, showcase: StoreShowcase) {
+  const fromAdmin = showcase.banners
+    .filter(b => b && b.on !== false && String(b.title || '').trim())
+    .map(b => ({
+      e: b.e || '🎁',
+      title: String(b.title),
+      sub: String(b.sub || ''),
+      badge: String(b.badge || ''),
+      disc: Number(b.disc) > 0 ? Number(b.disc) : null as number | null,
+      ac: b.ac || 'var(--gr)',
+      bg: b.bg || softAccentSurface('#07883D', light, 'linear-gradient(135deg,#061A0C,#0F3020)'),
+    }))
+  if (fromAdmin.length) return fromAdmin
   return [
-    { e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочную продукцию', badge: 'Сегодня', disc: 30, ac: 'var(--gr)', bg: softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
-    { e: '🥩', title: 'Мясные выходные', sub: 'Скидки до 25% на мясо и птицу', badge: 'Сб–Вс', disc: 25, ac: 'var(--red)', bg: softAccentSurface('#DC2626', light, 'linear-gradient(135deg,#1A0608,#3A1014)') },
-    { e: '🥦', title: 'Органик-день', sub: '20% на органические продукты', badge: 'Пятница', disc: 20, ac: '#56C956', bg: softAccentSurface('#56C956', light, 'linear-gradient(135deg,#061A08,#102A14)') },
-    { e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', badge: 'Всегда', disc: null as number | null, bg: softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#060820,#0E1840)'), ac: 'var(--blue)' },
+    { e: '🥬', title: 'Свежие продукты к вашему столу', sub: 'Доставка по Явану', badge: '', disc: null as number | null, ac: 'var(--gr)', bg: softAccentSurface('#07883D', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
   ]
 }
 
@@ -538,7 +787,7 @@ function catThemeKey(id: string) {
 }
 
 function useStoreCategories() {
-  const light = false
+  const light = true
   const { categories, loaded } = useCategories()
   return useMemo(() => {
     if (!categories.length) {
@@ -595,6 +844,58 @@ const HOT_HITS_CAT = {
   bg: "linear-gradient(145deg,#2A1000,#4A2000)",
   color: "var(--org)",
 };
+
+let topProductIdsCache = null;
+let topProductIdsRequest = null;
+/** «Хиты»: products flagged hot by the admin first, then the most frequent in kassa receipts (30 days). */
+function useTopProducts(prods, limit = 12) {
+  const [ids, setIds] = useState(topProductIdsCache);
+  useEffect(() => {
+    if (!USE_API || topProductIdsCache) return;
+    let alive = true;
+    topProductIdsRequest = topProductIdsRequest || api.getTopProductIds(24)
+      .then(r => (topProductIdsCache = Array.isArray(r?.ids) ? r.ids : []))
+      .catch(() => { topProductIdsRequest = null; return []; });
+    topProductIdsRequest.then(v => { if (alive) setIds(v); });
+    return () => { alive = false; };
+  }, []);
+  return useMemo(() => {
+    const byId = new Map(prods.map(p => [Number(p.id), p]));
+    const flagged = prods.filter(p => p.hot && !isOutOfStock(p));
+    const seen = new Set(flagged.map(p => p.id));
+    const fromSales = (ids || [])
+      .map(id => byId.get(Number(id)))
+      .filter(p => p && !seen.has(p.id) && !isOutOfStock(p) && Number(p.price) > 0);
+    return [...flagged, ...fromSales].slice(0, limit);
+  }, [prods, ids, limit]);
+}
+
+/** Товар со скидкой: старая цена выше текущей, остаток по акции не исчерпан. */
+function isSaleProduct(p: any) {
+  const old = Number(p?.old), price = Number(p?.price)
+  return Number.isFinite(old) && Number.isFinite(price) && old > price && (p?.promoStockLeft == null || Number(p.promoStockLeft) > 0)
+}
+
+/** Размер скидки в процентах по реальным данным. */
+function saleDisc(p: any) {
+  const old = Number(p?.old), price = Number(p?.price)
+  if (!Number.isFinite(old) || !Number.isFinite(price) || old <= price) return 0
+  return Math.round((1 - price / old) * 100)
+}
+
+/** Поисковый запрос магазина: не теряем между страницами. */
+const STORE_SEARCH_Q_KEY = 'kakapo_store_search_q'
+function readSearchQuery(): string {
+  if (typeof window === "undefined") return ""
+  try { return sessionStorage.getItem(STORE_SEARCH_Q_KEY) || "" } catch { return "" }
+}
+function writeSearchQuery(q: string) {
+  if (typeof window === "undefined") return
+  try {
+    if (q) sessionStorage.setItem(STORE_SEARCH_Q_KEY, q)
+    else sessionStorage.removeItem(STORE_SEARCH_Q_KEY)
+  } catch { /* quota */ }
+}
 
 function productsInCategory(prods, catId, subCatId = null, cats = []) {
   if (catId === "hot") return prods.filter(p => p.hot);
@@ -675,7 +976,7 @@ const RESTAURANTS = [
     id:'R-04', name:'Фаст-фуд 24/7',     emoji:'🍟', rating:4.3, reviews:0,
     cuisine:'Быстрое питание',             tags:['Бургеры','Хот-дог','Картошка'],
     minOrder:10, deliveryMin:20, deliveryFee:3, open:true,
-    hours:'00:00–24:00', img:'linear-gradient(135deg,#1A1000,#3A2200)',
+    hours:'00:00–24:00', img:'linear-gradient(135deg,#3A2A00,#3A2200)',
     address:'Центральный рынок',           commission:12, email:'fastfood@kakapo.tj', revenueMonth:11200, ordersMonth:521,
     categories:['Бургеры','Хот-доги','Картошка','Напитки'],
     menu:[
@@ -709,20 +1010,20 @@ const OSTATUS = {
 };
 
 const ORDER_STATUS_FILTERS = [
-  { id: 'all', l: 'Все', ic: null, c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
-  { id: 'pos_sale', l: 'Магазин', ic: 'store', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
-  { id: 'assembling', l: 'Сборка', ic: 'bag', c: 'var(--pur)', activeBg: 'rgba(155,109,255,.11)', activeBd: 'rgba(155,109,255,.28)' },
-  { id: 'cooking', l: 'Кухня', ic: 'zap', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
-  { id: 'waiting_courier', l: 'Ждём', ic: 'clock', c: 'var(--gd)', activeBg: 'rgba(255,184,0,.1)', activeBd: 'rgba(255,184,0,.28)' },
-  { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(59,142,240,.1)', activeBd: 'rgba(59,142,240,.28)' },
-  { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(31,215,96,.11)', activeBd: 'rgba(31,215,96,.35)' },
+  { id: 'all', l: 'Все', ic: null, c: 'var(--gr)', activeBg: 'rgba(7,136,61,.11)', activeBd: 'rgba(7,136,61,.38)' },
+  { id: 'pos_sale', l: 'Магазин', ic: 'store', c: 'var(--gr)', activeBg: 'rgba(7,136,61,.11)', activeBd: 'rgba(7,136,61,.38)' },
+  { id: 'assembling', l: 'Сборка', ic: 'bag', c: 'var(--pur)', activeBg: 'rgba(124,58,237,.11)', activeBd: 'rgba(124,58,237,.28)' },
+  { id: 'cooking', l: 'Кухня', ic: 'zap', c: 'var(--gd)', activeBg: 'rgba(233,174,0,.1)', activeBd: 'rgba(233,174,0,.28)' },
+  { id: 'waiting_courier', l: 'Ждём', ic: 'clock', c: 'var(--gd)', activeBg: 'rgba(233,174,0,.1)', activeBd: 'rgba(233,174,0,.28)' },
+  { id: 'delivering', l: 'Путь', ic: 'truck', c: 'var(--blue)', activeBg: 'rgba(37,99,235,.1)', activeBd: 'rgba(37,99,235,.28)' },
+  { id: 'delivered', l: 'Готов', ic: 'check', c: 'var(--gr)', activeBg: 'rgba(7,136,61,.11)', activeBd: 'rgba(7,136,61,.38)' },
 ];
 
 const CONTACT_ROLE_STYLE: Record<ClientOrderContact['role'], { c: string; bg: string; bd: string }> = {
-  assembler: { c: 'var(--pur)', bg: 'rgba(155,109,255,.1)', bd: 'rgba(155,109,255,.28)' },
-  store: { c: 'var(--gr)', bg: 'rgba(31,215,96,.1)', bd: 'rgba(31,215,96,.28)' },
-  restaurant: { c: 'var(--gd)', bg: 'rgba(255,184,0,.1)', bd: 'rgba(255,184,0,.28)' },
-  courier: { c: 'var(--blue)', bg: 'rgba(59,142,240,.1)', bd: 'rgba(59,142,240,.28)' },
+  assembler: { c: 'var(--pur)', bg: 'rgba(124,58,237,.1)', bd: 'rgba(124,58,237,.28)' },
+  store: { c: 'var(--gr)', bg: 'var(--gr-soft)', bd: 'rgba(7,136,61,.3)' },
+  restaurant: { c: 'var(--gd)', bg: 'rgba(233,174,0,.1)', bd: 'rgba(233,174,0,.28)' },
+  courier: { c: 'var(--blue)', bg: 'rgba(37,99,235,.1)', bd: 'rgba(37,99,235,.28)' },
 };
 
 function ClientOrderContactsBlock({
@@ -807,7 +1108,7 @@ function ClientOrderContactsBlock({
                 color: 'inherit',
               }}
             >
-              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(0,0,0,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(23,37,27,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
                 {c.emoji}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -818,7 +1119,7 @@ function ClientOrderContactsBlock({
                 )}
                 <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 3 }}>{c.phone}</div>
               </div>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(0,0,0,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(23,37,27,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Ic n="phone" s={16} c={st.c} />
               </div>
             </a>
@@ -836,6 +1137,19 @@ function ruCount(n: number, one: string, few: string, many: string) {
   if (mod10 === 1) return `${n} ${one}`
   if (mod10 >= 2 && mod10 <= 4) return `${n} ${few}`
   return `${n} ${many}`
+}
+
+/**
+ * Кнопка «Назад»: если пользователь пришёл из другого раздела — ведём браузерную
+ * историю назад (вернёмся ровно туда, откуда пришли). Если истории нет (заход по
+ * прямой ссылке) — открываем запасную страницу.
+ */
+function storeBack(fallback: string, go: (page: string, params?: Record<string, unknown>) => void) {
+  if (typeof window !== 'undefined' && Number((window.history.state && window.history.state.kakapoDepth) || 0) > 0) {
+    window.history.back()
+    return
+  }
+  go(fallback)
 }
 
 function clientLoyaltyTotals(apiOrders: import('@/lib/types').Order[], user?: StoreUser | null) {
@@ -857,7 +1171,7 @@ function vipPageShell(isVip: boolean) {
     maxWidth:'var(--store-w)',
     margin: '0 auto' as const,
     background: isVip
-      ? 'radial-gradient(ellipse 100% 35% at 50% 0%, rgba(255,184,0,.09) 0%, transparent 50%), var(--bg)'
+      ? 'radial-gradient(ellipse 100% 35% at 50% 0%, rgba(233,174,0,.09) 0%, transparent 50%), var(--bg)'
       : 'var(--bg)',
   }
 }
@@ -869,7 +1183,7 @@ function getTierThemes(light = false): Record<string, TierTheme> {
   if (!light) return map
   const out: Record<string, TierTheme> = {}
   for (const [id, t] of Object.entries(map)) {
-    const accent = t.accent || '#129B45'
+    const accent = t.accent || '#07883D'
     out[id] = {
       ...t,
       bg: `linear-gradient(145deg, #FFFFFF 0%, color-mix(in srgb, ${accent} 10%, #F3F7F4) 100%)`,
@@ -931,38 +1245,38 @@ function resolveUserVip(user: VipUserLike, light = false) {
 function headerCartButtonStyle(isVip: boolean, hasItems: boolean) {
   if (isVip && hasItems) {
     return {
-      width: 38, height: 38, borderRadius: 12,
-      background: 'linear-gradient(135deg,#C9A227 0%,#FFD700 48%,#FFB800 100%)',
-      border: '1px solid rgba(255,220,100,.5)',
+      width: 44, height: 44, borderRadius: 12,
+      background: 'linear-gradient(135deg,#A97800 0%,#E9AE00 48%,#E0A400 100%)',
+      border: '1px solid rgba(138,100,0,.5)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       position: 'relative' as const,
-      boxShadow: '0 4px 18px rgba(255,184,0,.52), inset 0 1px 0 rgba(255,255,255,.32)',
+      boxShadow: '0 4px 18px rgba(233,174,0,.52), inset 0 1px 0 rgba(255,255,255,.32)',
       animation: 'vipGlow 3s ease-in-out infinite',
     }
   }
   if (isVip) {
     return {
-      width: 38, height: 38, borderRadius: 12,
-      background: 'rgba(255,184,0,.1)',
-      border: '1px solid rgba(255,184,0,.28)',
+      width: 44, height: 44, borderRadius: 12,
+      background: 'rgba(233,174,0,.1)',
+      border: '1px solid rgba(233,174,0,.28)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       position: 'relative' as const,
       boxShadow: 'none',
     }
   }
   return {
-    width: 38, height: 38, borderRadius: 12,
-    background: hasItems ? 'linear-gradient(135deg,var(--gr2),var(--gr))' : 'var(--l3)',
+    width: 44, height: 44, borderRadius: 12,
+    background: hasItems ? 'var(--gr)' : 'var(--l3)',
     border: `1px solid ${hasItems ? 'transparent' : 'var(--b1)'}`,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     position: 'relative' as const,
-    boxShadow: hasItems ? '0 4px 14px rgba(31,215,96,.4)' : 'none',
+    boxShadow: hasItems ? '0 4px 14px var(--gr)' : 'none',
   }
 }
 
 function headerCartIconColor(isVip: boolean, hasItems: boolean) {
-  if (isVip && hasItems) return '#1a1000'
-  if (isVip) return 'rgba(255,220,100,.78)'
+  if (isVip && hasItems) return '#3A2A00'
+  if (isVip) return 'rgba(138,100,0,.78)'
   return hasItems ? 'white' : 'var(--t2)'
 }
 
@@ -970,11 +1284,11 @@ function cartCountBadgeStyle(isVip: boolean) {
   return {
     position: 'absolute' as const, top: -6, right: -6,
     minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999,
-    background: isVip ? 'linear-gradient(135deg,#FF5A5A,#D63031)' : 'var(--red)',
-    border: isVip ? '2px solid #FFD700' : '2px solid var(--bg)',
+    background: isVip ? 'linear-gradient(135deg,#C33434,#C33434)' : 'var(--red)',
+    border: isVip ? '2px solid #E9AE00' : '2px solid var(--bg)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: 'Unbounded', fontSize: 9, fontWeight: 900, color: 'white',
-    boxShadow: isVip ? '0 2px 8px rgba(255,184,0,.45)' : 'none',
+    boxShadow: isVip ? '0 2px 8px rgba(233,174,0,.45)' : 'none',
   }
 }
 
@@ -993,10 +1307,10 @@ function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm'
   return (
     <span style={{
       ...sz, fontWeight: 800, borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
-      background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.28),rgba(255,140,0,.12))' : isBasic ? 'rgba(143,184,151,.1)' : `${tier.color}18`,
-      color: isVip ? '#FFD700' : isBasic ? '#8FB897' : tier.color,
-      border: isVip ? '1px solid rgba(255,184,0,.55)' : isBasic ? '1px solid rgba(143,184,151,.28)' : `1px solid ${tier.color}35`,
-      boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : 'none',
+      background: isVip ? 'linear-gradient(135deg,rgba(233,174,0,.28),rgba(194,65,12,.12))' : isBasic ? 'var(--l3)' : `${tier.color}18`,
+      color: isVip ? '#E9AE00' : isBasic ? 'var(--t2)' : tier.color,
+      border: isVip ? '1px solid rgba(233,174,0,.55)' : isBasic ? '1px solid var(--b1)' : `1px solid ${tier.color}35`,
+      boxShadow: isVip ? '0 0 14px rgba(233,174,0,.3)' : 'none',
     }}>
       {isVip ? '👑 VIP' : isBasic ? '👤 Базовый' : `${tier.emoji} ${label}`}
     </span>
@@ -1004,7 +1318,7 @@ function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm'
 }
 
 function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => void }) {
-  const light = false;
+  const light = true;
   const { isVip, theme } = resolveUserVip(user, light)
   if (!user || !isVip) return null
   const firstName = (user.name || 'Клиент').split(' ')[0]
@@ -1019,31 +1333,31 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
       }}
     >
       <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle,rgba(255,184,0,.2),transparent 70%)', filter: 'blur(16px)' }} />
+      <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle,rgba(233,174,0,.2),transparent 70%)', filter: 'blur(16px)' }} />
       <div style={{ position: 'relative', zIndex: 1, padding: '16px 18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 40, height: 40, borderRadius: 12,
-              background: 'linear-gradient(135deg,#FFD700,#FFB800)',
+              background: 'linear-gradient(135deg,#E9AE00,#E0A400)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 16px rgba(255,184,0,.45)', fontSize: 20,
+              boxShadow: '0 4px 16px rgba(233,174,0,.45)', fontSize: 20,
               animation: 'crownFloat 2.5s ease-in-out infinite',
             }}>👑</div>
             <div>
-              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: light ? '#B45309' : '#FFD700', marginBottom: 2 }}>
+              <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: light ? '#B45309' : '#E9AE00', marginBottom: 2 }}>
                 Добро пожаловать, {firstName}!
               </div>
-              <div style={{ fontSize: 10, color: light ? 'var(--t2)' : 'rgba(255,220,100,.75)' }}>VIP MEMBER · все привилегии активны</div>
+              <div style={{ fontSize: 10, color: light ? 'var(--t2)' : 'rgba(138,100,0,.75)' }}>VIP MEMBER · все привилегии активны</div>
             </div>
           </div>
           <UserStatusBadge user={user} size="sm" />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {['🚀 Приоритет', '🌿 Доставка 0', '⭐ Кешбэк 5%', '💳 Кредит'].map((p, i) => (
+          {['⭐ Бонусы по карте', '💳 Долг на кассе', '📞 Поддержка'].map((p, i) => (
             <div key={i} style={{
               flex: 1, textAlign: 'center', fontSize: 8, fontWeight: 700, padding: '6px 2px', borderRadius: 8,
-              color: light ? '#B45309' : 'rgba(255,220,100,.9)', background: insetChipBg(light, 0.28), border: '1px solid rgba(255,184,0,.22)',
+              color: light ? '#B45309' : 'rgba(138,100,0,.9)', background: insetChipBg(light, 0.28), border: '1px solid rgba(233,174,0,.22)',
             }}>{p}</div>
           ))}
         </div>
@@ -1053,7 +1367,7 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
 }
 
 function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const light = false;
+  const light = true;
   const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodSubtitle } = loyalty
   const themes = getTierThemes(light)
   const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
@@ -1082,7 +1396,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
         marginBottom: 12,
         background: theme.bg,
         border: `1.5px solid ${theme.border}`,
-        boxShadow: isVip ? `0 8px 32px ${theme.glow}, inset 0 1px 0 rgba(255,255,255,.06)` : `0 4px 24px ${theme.glow}`,
+        boxShadow: isVip ? `0 8px 32px ${theme.glow}, inset 0 1px 0 var(--l3)` : `0 4px 24px ${theme.glow}`,
         transition: 'border-color .5s ease, box-shadow .5s ease, background .5s ease',
       }}
     >
@@ -1131,7 +1445,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                 {isVip && (
                   <span style={{
                     fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 6,
-                    background: 'linear-gradient(135deg,#FFD700,#FFB800)', color: '#1a1000',
+                    background: 'linear-gradient(135deg,#E9AE00,#E0A400)', color: '#3A2A00',
                     letterSpacing: 0.5, textTransform: 'uppercase',
                   }}>Elite</span>
                 )}
@@ -1263,10 +1577,10 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             position: 'relative',
             overflow: 'hidden',
             background: isVip
-              ? 'linear-gradient(135deg,rgba(255,184,0,.22),rgba(255,140,0,.08),rgba(255,184,0,.15))'
+              ? 'linear-gradient(135deg,rgba(233,174,0,.22),rgba(194,65,12,.08),rgba(233,174,0,.15))'
               : chip,
-            border: isVip ? '1.5px solid rgba(255,184,0,.55)' : `1px solid ${theme.border}`,
-            boxShadow: isVip ? '0 4px 24px rgba(255,184,0,.2), inset 0 1px 0 rgba(255,220,100,.15)' : 'none',
+            border: isVip ? '1.5px solid rgba(233,174,0,.55)' : `1px solid ${theme.border}`,
+            boxShadow: isVip ? '0 4px 24px rgba(233,174,0,.2), inset 0 1px 0 rgba(138,100,0,.15)' : 'none',
             transition: 'all .3s ease',
           }}
         >
@@ -1276,27 +1590,27 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 8,
-                  background: isVip ? 'linear-gradient(135deg,#FFD700,#FFB800)' : 'rgba(255,184,0,.12)',
+                  background: isVip ? 'linear-gradient(135deg,#E9AE00,#E0A400)' : 'rgba(233,174,0,.12)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: isVip ? '0 0 12px rgba(255,184,0,.5)' : 'none',
+                  boxShadow: isVip ? '0 0 12px rgba(233,174,0,.5)' : 'none',
                 }}>
-                  <Ic n="crown" s={14} c={isVip ? '#1a1000' : 'var(--gd)'} />
+                  <Ic n="crown" s={14} c={isVip ? '#3A2A00' : 'var(--gd2)'} />
                 </div>
                 <div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? (light ? '#B45309' : '#FFD700') : 'var(--t1)', display: 'block' }}>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? (light ? '#B45309' : '#E9AE00') : 'var(--t1)', display: 'block' }}>
                     {isVip ? 'VIP MEMBER' : 'Путь к VIP'}
                   </span>
                   {isVip && adminVip && (
-                    <span style={{ fontSize: 9, color: 'rgba(255,184,0,.75)', fontWeight: 600 }}>Назначен администратором</span>
+                    <span style={{ fontSize: 9, color: 'rgba(233,174,0,.75)', fontWeight: 600 }}>Назначен администратором</span>
                   )}
                 </div>
               </div>
               <div style={{
                 padding: '4px 10px', borderRadius: 20,
-                background: isVip ? 'rgba(255,184,0,.25)' : 'rgba(255,255,255,.06)',
-                border: `1px solid ${isVip ? 'rgba(255,184,0,.4)' : 'var(--b1)'}`,
+                background: isVip ? 'rgba(233,174,0,.25)' : 'var(--l3)',
+                border: `1px solid ${isVip ? 'rgba(233,174,0,.4)' : 'var(--b1)'}`,
               }}>
-                <span style={{ fontSize: 11, fontWeight: 900, color: isVip ? '#FFD700' : 'var(--t3)' }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: isVip ? '#E9AE00' : 'var(--t3)' }}>
                   {isVip ? '★ VIP ★' : `${vipDoneCount}/3`}
                 </span>
               </div>
@@ -1314,8 +1628,8 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   return (
                     <div key={step.id} style={{
                       flex: 1, padding: '8px 4px', borderRadius: 10, textAlign: 'center',
-                      background: step.done ? 'rgba(31,215,96,.12)' : chip,
-                      border: `1px solid ${step.done ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`,
+                      background: step.done ? 'var(--gr-soft)' : chip,
+                      border: `1px solid ${step.done ? 'rgba(7,136,61,.38)' : 'var(--b1)'}`,
                       position: 'relative', overflow: 'hidden',
                     }}>
                       {!step.done && (
@@ -1333,8 +1647,8 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                 {['🚀 Приоритет', '💳 Кредит', '🎁 Акции', '🌿 Доставка'].map((p, i) => (
                   <div key={i} style={{
                     flex: 1, fontSize: 8, fontWeight: 700, textAlign: 'center', padding: '6px 2px',
-                    borderRadius: 8, color: 'rgba(255,220,100,.9)',
-                    background: light ? 'rgba(217,119,6,.1)' : 'rgba(0,0,0,.25)', border: '1px solid rgba(255,184,0,.2)',
+                    borderRadius: 8, color: 'rgba(138,100,0,.9)',
+                    background: light ? 'rgba(217,119,6,.1)' : 'rgba(23,37,27,.25)', border: '1px solid rgba(233,174,0,.2)',
                   }}>{p}</div>
                 ))}
               </div>
@@ -1351,15 +1665,15 @@ function ClientReviewBlock({ review, orderId, embedded, restaurants = [], showOr
   const hasReply = !!(review.adminReply || review.restReply);
   const title = resolveReviewPlaceName(String(review.restId || ''), review, restaurants);
   return (
-    <div style={embedded ? undefined : { padding: 14, borderRadius: 15, background: "rgba(255,184,0,.06)", border: "1px solid rgba(255,184,0,.22)", marginBottom: 14 }}>
+    <div style={embedded ? undefined : { padding: 14, borderRadius: 15, background: "rgba(233,174,0,.06)", border: "1px solid rgba(233,174,0,.22)", marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--gd)" }}>⭐ {title}{showOrderId && orderId ? ` · ${orderId}` : ''}</div>}
+        {!embedded && <div style={{ fontSize: 13, fontWeight: 800, color: "var(--t2)" }}>⭐ {title}{showOrderId && orderId ? ` · ${orderId}` : ''}</div>}
         {embedded && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--t2)" }}>{title}</div>}
         <span style={{ fontSize: 10, color: "var(--t3)" }}>{review.date}</span>
       </div>
       <div style={{ display: "flex", gap: 2, marginBottom: 8 }}>
         {[1, 2, 3, 4, 5].map(s => (
-          <span key={s} style={{ fontSize: 14, color: s <= review.rating ? "#FFB800" : "var(--b2)" }}>★</span>
+          <span key={s} style={{ fontSize: 14, color: s <= review.rating ? "#E0A400" : "var(--b2)" }}>★</span>
         ))}
       </div>
       {review.text && (
@@ -1368,13 +1682,13 @@ function ClientReviewBlock({ review, orderId, embedded, restaurants = [], showOr
         </div>
       )}
       {review.adminReply && (
-        <div style={{ fontSize: 12, color: "var(--blue)", marginBottom: review.restReply ? 8 : 0, padding: "10px 12px", background: "rgba(59,142,240,.08)", borderRadius: 10, border: "1px solid rgba(59,142,240,.2)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: "var(--blue)", marginBottom: review.restReply ? 8 : 0, padding: "10px 12px", background: "rgba(37,99,235,.08)", borderRadius: 10, border: "1px solid rgba(37,99,235,.2)", lineHeight: 1.5 }}>
           <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--blue)" }}>💬 Ответ КАКАПО</div>
           {review.adminReply}
         </div>
       )}
       {review.restReply && (
-        <div style={{ fontSize: 12, color: "var(--gr)", padding: "10px 12px", background: "rgba(31,215,96,.08)", borderRadius: 10, border: "1px solid rgba(31,215,96,.2)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: "var(--gr)", padding: "10px 12px", background: "var(--gr-soft)", borderRadius: 10, border: "1px solid rgba(7,136,61,.2)", lineHeight: 1.5 }}>
           <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 4, color: "var(--gr)" }}>🍽 Ответ ресторана</div>
           {review.restReply}
         </div>
@@ -1441,99 +1755,160 @@ function fillCartFromOrder(
   return added;
 }
 
-const FAQ = () => {
-  const cfg = loadLoyaltyStatusConfig();
-  const bronze = cfg.tiers.find(t => t.id === 'bronze');
-  const silver = cfg.tiers.find(t => t.id === 'silver');
-  const gold = cfg.tiers.find(t => t.id === 'gold');
-  const platinum = cfg.tiers.find(t => t.id === 'platinum');
-  const vip = getVipRules();
-  const welcome = getRegistrationWelcomeBonus(cfg);
+const FAQ = (pricing) => {
+  const base = Number(pricing?.base) || 0;
+  const baseDist = Number(pricing?.baseDist) || 0;
+  const perKm = Number(pricing?.perKm) || 0;
+  const freeFrom = Number(pricing?.freeFrom) || 0;
+  const deliveryCost = base > 0
+    ? `${base} ЅМ${baseDist > 0 ? ` до ${baseDist} км` : ''}${perKm > 0 ? `, дальше +${perKm} ЅМ за каждый км` : ''}. Точную сумму видно при оформлении после выбора адреса.${freeFrom > 0 ? ` Бесплатно при заказе от ${freeFrom} ЅМ.` : ''}`
+    : 'Сумма доставки считается при оформлении после выбора адреса.';
   return [
-  {q:"Как быстро доставляют заказ?",         a:"45 минут по всему г. Яван. В часы пик до 60 минут. Придёт SMS когда курьер выедет."},
-  {q:"Стоимость доставки?",                  a:"5 ЅМ. Бесплатно при заказе от 30 ЅМ. VIP клиентам — всегда бесплатно."},
-  {q:"Какие способы оплаты?",                a:"Наличными курьеру, карты Visa/Mastercard, бонусами."},
-  {q:"Как работает бонусная программа?",     a:`Кэшбэк за покупки налом или картой (не за долг): Бронза ${bronze?.bonusPercent ?? 1}%, Серебро ${silver?.bonusPercent ?? 2}%, Золото ${gold?.bonusPercent ?? 3}%, Platinum ${platinum?.bonusPercent ?? 5}%. Статус действует 30 дней. Бонусы тратятся в магазине и в приложении. 1 бонус = 1 ЅМ.`},
-  {q:"Как стать VIP клиентом?",              a:`${vip.minOrders}+ заказов, ${vip.minReviews} отзывов, траты от ${vip.minSpent.toLocaleString()} ЅМ. VIP даёт кредитный лимит и ${cfg.vip.bonusPercent}% кешбэк.`},
-  {q:"Как отменить заказ?",                  a:"В течение 5 минут в разделе 'Мои заказы'. После сборки — только по телефону."},
-  {q:"Гарантия свежести?",                   a:"Если товар плохого качества — полный возврат в течение 24 часов без вопросов."},
-  {q:"Как зарегистрироваться?",              a:`Телефон → SMS код → имя. 1 минута. +${welcome} бонусов за регистрацию!`},
-  {q:"Можно ли отследить курьера?",          a:"Да! После начала доставки в приложении появится карта с местоположением курьера."},
-  {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
+  {q:"Как быстро доставляют заказ?",         a:"Сначала заказ соберут в магазине, затем курьер привезёт его по адресу. Время зависит от загрузки — мы позвоним, если нужно уточнить."},
+  {q:"Стоимость доставки?",                  a:deliveryCost},
+  {q:"Какие способы оплаты?",                a:"Наличными курьеру при получении."},
+  {q:"Нужна ли регистрация?",                a:"Нет. При оформлении укажите имя, телефон и адрес — этого достаточно."},
+  {q:"Бонусы и карта КАКАПО",                a:"Бонусы по карте КАКАПО начисляются и тратятся на кассе в магазине. В интернет-магазине списание бонусов и покупка в долг пока недоступны."},
+  {q:"Как отменить или изменить заказ?",     a:"Позвоните или напишите в поддержку (контакты ниже) — лучше до того, как заказ соберут."},
+  {q:"Товар не подошёл или плохого качества?", a:"Сразу сообщите курьеру или позвоните в поддержку — разберёмся и заменим или вернём деньги."},
+  {q:"Что если меня нет дома?",              a:"Оставьте комментарий к заказу. Курьер позвонит на указанный номер перед приездом."},
 ]; };
-const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
-  const light = false;
+/** Единая валюта магазина (уже используется в приложении). */
+const CURRENCY = 'ЅМ'
+
+/** Фото товара: белая поверхность, object-fit: contain, нейтральная заглушка. */
+const ProductMedia = ({ p, emoji, padding = 8, style, className }: { p: any; emoji?: any; padding?: number; style?: any; className?: string }) => {
+  const [failed, setFailed] = useState(false)
+  const localPhoto = useProductPhotos(s => s.photos[p?.id])
+  const photo = failed ? undefined : resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto })
+  const e = emoji ?? p?.e ?? "📦"
+  return (
+    <div className={className} style={{ position:"relative", background:"#FFFFFF", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", ...style }}>
+      {photo ? (
+        <img
+          src={photo}
+          alt={p?.name || ""}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding, boxSizing:"border-box" }}
+        />
+      ) : (
+        <span aria-hidden="true" style={{ fontSize:26, opacity:.45, lineHeight:1 }}>{e}</span>
+      )}
+    </div>
+  )
+}
+
+/** Цена товара: текущая крупно, старая — зачёркнутая. */
+const PriceTag = ({ price, old, size = 20, suffixSize = 12 }: { price: any; old?: any; size?: number; suffixSize?: number }) => (
+  <div style={{ display:"flex", alignItems:"baseline", gap:6, minWidth:0, flexWrap:"nowrap" }}>
+    <span className="ub" style={{ fontSize:size, fontWeight:800, color:"var(--t1)", letterSpacing:"-.02em", whiteSpace:"nowrap" }}>
+      {Number(price || 0).toFixed(2)}
+      <span style={{ fontSize:suffixSize, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>{CURRENCY}</span>
+    </span>
+    {old ? <span style={{ fontSize:suffixSize, color:"var(--t3)", textDecoration:"line-through", whiteSpace:"nowrap" }}>{Number(old).toFixed(2)}</span> : null}
+  </div>
+)
+
+/** Управление количеством: − N + (не открывает страницу товара). */
+const QtyStepper = ({ p, qty, onAdd, onRm, label }: { p: any; qty: number; onAdd: (id: any) => void; onRm: (id: any) => void; label?: string }) => (
+  <div className="p-qty" onClick={e => e.stopPropagation()} role="group" aria-label={label || `Количество: ${p?.name || ""}`}>
+    <button type="button" className="btn" onClick={e => { e.stopPropagation(); onRm(p.id) }} aria-label="Уменьшить количество">−</button>
+    <span aria-live="polite">{formatCartQtyStepper(p, qty)}</span>
+    <button type="button" className="btn" onClick={e => { e.stopPropagation(); onAdd(p.id) }} aria-label="Увеличить количество">+</button>
+  </div>
+)
+
+const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }: any) => {
   const { catalogReady } = useLiveCatalog();
   const rating = productRatingUi(p, catalogReady);
   const qty  = cart[p.id] || 0;
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const bulkHint = formatBulkPricingHint(p);
   const [pop, setPop] = useState(false);
-  const localPhoto = useProductPhotos(s => s.photos[p.id]);
-  const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto });
-  const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
-  const mediaBg = softFromDarkGrad(p.grad || 'linear-gradient(135deg,#2A1400,#4A2400)', light);
+  const out = qty === 0 && isOutOfStock(p);
+  const open = () => go("product", { id:p.id });
+  const add = e => { e && e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 260); onAdd(p.id); };
   return (
-    <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
-      <button onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn" style={{ position:"absolute", top:8, right:8, zIndex:3, width:28, height:28, borderRadius:"50%", background: light ? "rgba(255,255,255,.85)" : "rgba(0,0,0,.5)", border: light ? "1px solid var(--b1)" : "none", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <Ic n="heart" s={13} c={wished ? "#FF4545" : light ? "var(--t3)" : "rgba(255,255,255,.5)"} fill={wished ? "#FF4545" : "none"} w={2}/>
+    <div className="card store-lift" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"pointer", position:"relative" }} onClick={open}>
+      <button
+        type="button"
+        className="btn p-wish"
+        onClick={e => { e.stopPropagation(); onWish(p.id); }}
+        aria-label={wished ? "Убрать из избранного" : "Добавить в избранное"}
+        aria-pressed={wished ? "true" : "false"}
+      >
+        <Ic n="heart" s={16} c={wished ? "var(--red)" : "var(--t3)"} fill={wished ? "var(--red)" : "none"} w={2}/>
       </button>
-      <div style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:3, zIndex:3 }}>
+      <div style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:4, zIndex:3, pointerEvents:"none" }}>
         {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
-        {p.isNew && <span className="bdg b-gr">NEW</span>}
-        {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
-        {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
+        {p.isNew && <span className="bdg b-gr">Новинка</span>}
+        {hasBulkPricing(p) && <span className="bdg b-gd">Опт</span>}
       </div>
-      <div style={{ height:110, flexShrink:0, background:mediaBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
-        {photo
-          ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:6, boxSizing:"border-box", animation:"float 3.2s ease-in-out infinite" }}/>
-          : p.e
-        }
-      </div>
-      <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
-        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
-        <div style={{ fontSize:10, color:"var(--t3)", minHeight:14 }}>{p.unit}</div>
-        <div style={{ display:"flex", alignItems:"center", gap:3, minHeight:14 }}>
-          {rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}
+      <ProductMedia p={p} emoji={p.e} style={{ width:"100%", aspectRatio:"1 / 1", flexShrink:0 }} />
+      <div style={{ padding:"10px 12px 12px", flex:1, display:"flex", flexDirection:"column", gap:5, minWidth:0, minHeight:0 }}>
+        <button type="button" className="btn p-name" onClick={e => { e.stopPropagation(); open(); }}>{p.name}</button>
+        {p.unit ? <div style={{ fontSize:12, color:"var(--t2)" }}>{p.unit}</div> : null}
+        {rating ? <div style={{ display:"flex", alignItems:"center", gap:4 }}><Stars r={rating.stars} s={11}/><span style={{ fontSize:11, color:"var(--t2)" }}>{rating.label}</span></div> : null}
+        {bulkHint ? <div style={{ fontSize:11, color:"var(--org)", fontWeight:700, lineHeight:1.3 }}>{bulkHint}</div> : null}
+        <div className="p-price-row">
+          <PriceTag price={p.price} old={p.old} />
+          {qty === 0 && !out ? (
+            <button type="button" className="btn p-add-icon" onClick={add} aria-label={`Добавить «${p.name}» в корзину`} style={{ animation: pop ? "cartPop .26s ease" : "none", flexShrink:0 }}>
+              <Ic n="plus" s={18} c="white" w={2.5}/>
+            </button>
+          ) : null}
         </div>
-        <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:18 }}>
-          <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
-          {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
-        </div>
-        <div style={{
-          fontSize:9,
-          color: bulkHint ? "#FF8C00" : "transparent",
-          fontWeight:700,
-          lineHeight:1.35,
-          minHeight:34,
-          display:"-webkit-box",
-          WebkitLineClamp:2,
-          WebkitBoxOrient:"vertical",
-          overflow:"hidden",
-        }}>{bulkHint || "\u00A0"}</div>
-        <div style={{ marginTop:"auto", paddingTop:4 }}>
-        {qty === 0 ? (
-          <button className="btn" onClick={add} style={{ width:"100%", padding:"9px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4, animation:pop ? "cartPop .3s ease" : "none" }}>
-            <Ic n="plus" s={12} c="white" w={2.5}/>В корзину
-          </button>
-        ) : (
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:12, padding:"4px 8px" }}>
-            <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>−</button>
-            <span className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
-            <button onClick={add} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>+</button>
-          </div>
-        )}
-        </div>
+        {out ? (
+          <div className="p-add-off">Нет в наличии</div>
+        ) : qty > 0 ? (
+          <QtyStepper p={p} qty={qty} onAdd={add} onRm={onRm} />
+        ) : null}
       </div>
     </div>
   );
 };
 
-const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
-  const light = false;
-  const banners = storeBannerSlides(light);
+/** Пустое состояние раздела магазина. */
+const EmptyState = ({ icon = "🔍", title, text, actionLabel, onAction, extra }: any) => (
+  <div className="store-empty">
+    <div className="store-empty-icon" aria-hidden="true">{icon}</div>
+    <div className="store-empty-title">{title}</div>
+    {text ? <div className="store-empty-text">{text}</div> : null}
+    {actionLabel ? (
+      <button type="button" className="btn store-btn store-btn-primary" onClick={onAction} style={{ marginTop:14 }}>{actionLabel}</button>
+    ) : null}
+    {extra}
+  </div>
+);
+
+/** Скелетон-карточка товара: те же размеры, что у настоящей карточки. */
+const ProductSkeleton = () => (
+  <div className="store-skel-card" aria-hidden="true">
+    <div className="skel-line store-skel-media"/>
+    <div style={{ padding:"10px 12px 12px", display:"flex", flexDirection:"column", gap:6 }}>
+      <div className="skel-line" style={{ height:12 }}/>
+      <div className="skel-line" style={{ height:12, width:"60%" }}/>
+      <div className="skel-line" style={{ height:20, width:"45%", marginTop:4 }}/>
+    </div>
+  </div>
+);
+
+/** Светлая сетка скелетонов под товарную сетку. */
+const ProductSkeletonGrid = ({ count = 6 }: any) => (
+  <div className="store-prod-grid">
+    {Array.from({ length: count }).map((_, i) => <ProductSkeleton key={i}/>)}
+  </div>
+);
+
+const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }: any) => {
+  const light = true;
+  const showcase = useStoreShowcase();
+  const banners = useMemo(() => storeBannerSlides(light, showcase), [light, showcase]);
+  const tickerItems = showcase.tickers.filter(t => t && t.on !== false && String(t.text || "").trim());
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
-  const { rootCats, ready: catsReady } = useStoreCategories();
+  const { rootCats, cats, ready: catsReady } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
@@ -1543,166 +1918,283 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
   const [bi, setBi] = useState(0);
-  useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % banners.length), 4000); return () => clearInterval(t); }, [banners.length]);
-  const b = banners[bi];
-  const bannerTitle = light ? 'var(--t1)' : '#fff';
-  const bannerSub = light ? 'var(--t2)' : 'rgba(255,255,255,.6)';
-  const restTileBg = softAccentSurface('#EA580C', light, 'linear-gradient(145deg,#1A0808,#3A1010)');
-  const promoBannerBg = softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#070A18,#0E1430)');
+  const bannerCount = Math.max(1, banners.length);
+  useEffect(() => {
+    if (bannerCount < 2) return;
+    const t = setInterval(() => setBi(x => (x + 1) % bannerCount), 6000);
+    return () => clearInterval(t);
+  }, [bannerCount]);
+  const b = banners[bi % bannerCount];
+  const [q, setQ] = useState(() => readSearchQuery());
+  const photos = useProductPhotos(s => s.photos);
+  const getLocalPhoto = useCallback((id: number) => photos[id], [photos]);
+  const photoOf = useCallback((p: any) => resolveProductPhoto(p, { preferThumb: true, getPhoto: getLocalPhoto }), [getLocalPhoto]);
+  const topProducts = useTopProducts(prods, 8);
+  const saleProducts = useMemo(
+    () => (prods || []).filter(isSaleProduct).sort((a: any, c: any) => saleDisc(c) - saleDisc(a)).slice(0, 8),
+    [prods],
+  );
+  const hasRestaurants = restaurants.length > 0;
+  const bannerPhoto = useMemo(() => {
+    for (const p of topProducts) { const ph = photoOf(p); if (ph) return ph }
+    for (const p of prods || []) { const ph = photoOf(p); if (ph) return ph }
+    return undefined
+  }, [topProducts, prods, photoOf]);
+  const catPhotoBySlug = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const p of prods || []) {
+      const slug = p.catId;
+      if (!slug || m.has(slug)) continue;
+      if (!photoOf(p)) continue;
+      m.set(slug, p);
+    }
+    return m;
+  }, [prods, photoOf]);
+  const findCatProduct = (catId: string) => {
+    const direct = catPhotoBySlug.get(catId);
+    if (direct) return direct;
+    for (const c of cats) {
+      if (c.parentId === catId) { const child = catPhotoBySlug.get(c.id); if (child) return child }
+    }
+    return null;
+  };
+  const submitSearch = (e?: any) => {
+    if (e) e.preventDefault();
+    writeSearchQuery(q.trim());
+    go("search");
+  };
+  const restTileBg = softAccentSurface("#C2410C", light, "linear-gradient(145deg,#1A0808,#3A1010)");
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <Header go={go} cart={cart} user={vipUser}/>
-      <div style={{ padding:"14px 18px 100px" }}>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <Header go={go} cart={cart} user={vipUser} hideSearch/>
+      <div className="store-page-pad" style={{ padding:"12px 16px 0" }}>
         <HomeVipWelcome user={vipUser} go={go}/>
-        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:20, cursor:"pointer" }} onClick={() => go("promos")}>
-          <div style={{ background:b.bg, padding:"22px 20px 18px", position:"relative", overflow:"hidden" }}>
-            <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span>
-                <div className="ub" style={{ fontSize:22, fontWeight:900, color:bannerTitle, lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
-                <div style={{ fontSize:12, color:bannerSub, marginBottom:12 }}>{b.sub}</div>
-                {b.disc && <div style={{ padding:"7px 16px", borderRadius:11, background:b.ac, color:"white", fontFamily:"Unbounded", fontSize:20, fontWeight:900, display:"inline-block" }}>−{b.disc}%</div>}
-              </div>
-              <div style={{ fontSize:52, animation:"float 2.5s ease-in-out infinite", flexShrink:0 }}>{b.e}</div>
-            </div>
-            <div style={{ display:"flex", gap:5, marginTop:12 }}>
-              {banners.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac: light ? "rgba(12,26,16,.15)" : "rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
-            </div>
-          </div>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Категории</div>
-          <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
-        </div>
-        <div className="hscroll" style={{ marginBottom:22 }}>
-          {!catsReady ? (
-            <CatSkeleton count={6} width={108} />
+
+        <form className="store-search" onSubmit={submitSearch} role="search" style={{ marginBottom:16 }}>
+          <Ic n="search" s={18} c="var(--t3)"/>
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Найти продукты"
+            aria-label="Поиск продуктов"
+            type="search"
+            enterKeyHint="search"
+          />
+          {q ? (
+            <button type="button" onClick={() => { setQ(""); writeSearchQuery("") }} aria-label="Очистить поиск"><Ic n="x" s={16} c="var(--t3)"/></button>
           ) : (
-            rootCats.slice(0,6).map(c => (
-            <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:108, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
-              <div style={{ fontSize:28, marginBottom:6 }}>{c.e}</div>
-              <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.25, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{c.label}</div>
-            </div>
-            ))
+            <button type="submit" aria-label="Найти"><Ic n="arr" s={16} c="var(--gr3)"/></button>
           )}
-          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:restTileBg, border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
-            <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
-            <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.25 }}>Рестораны</div>
+        </form>
+
+        <button type="button" className="btn store-banner" onClick={() => go("promos")} style={{ background:b.bg }}>
+          <span className="store-banner-text">
+            {b.badge ? <span className="bdg b-gr" style={{ marginBottom:6 }}>{b.badge}</span> : null}
+            <span className="ub store-banner-title">{b.title}</span>
+            {b.sub ? <span className="store-banner-sub">{b.sub}</span> : null}
+          </span>
+          {bannerPhoto ? <img className="store-banner-photo" src={bannerPhoto} alt="" loading="lazy" decoding="async"/> : null}
+        </button>
+
+        {tickerItems.length > 0 && (
+          <div className="store-ticker">
+            <div style={{ display:"inline-flex", whiteSpace:"nowrap", animation:`ticker ${Math.max(14, tickerItems.length * 9)}s linear infinite` }}>
+              {[...tickerItems, ...tickerItems].map((t, i) => (
+                <span key={i} style={{ fontSize:12, fontWeight:700, color:"var(--red)", padding:"0 24px", flexShrink:0 }}>{t.text}</span>
+              ))}
+            </div>
           </div>
+        )}
+
+        <div className="store-sec-head">
+          <div className="ub store-sec-title">Категории</div>
+          <button type="button" className="btn store-sec-all" onClick={() => go("catalog")}>Все <Ic n="arr" s={14}/></button>
         </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🍽 Рестораны г. Яван</div>
-          <button onClick={() => go("restaurants")} className="btn" style={{ fontSize:12, color:"var(--org)", background:"transparent" }}>Все →</button>
+        <div className="cat-rail">
+          {!catsReady ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="cat-tile">
+                <div className="skel-line" style={{ height:76, borderRadius:0 }}/>
+                <div style={{ padding:"10px 8px" }}><div className="skel-line" style={{ height:12 }}/></div>
+              </div>
+            ))
+          ) : rootCats.map(c => {
+            const cp = findCatProduct(c.id);
+            const ph = cp ? photoOf(cp) : undefined;
+            return (
+              <button key={c.id} type="button" className="btn cat-tile" onClick={() => go("plist", { cat:c.id })} style={{ background:c.bg }}>
+                <span className="cat-tile-media">
+                  {ph ? <img src={ph} alt="" loading="lazy" decoding="async"/> : <span className="cat-tile-emoji" aria-hidden="true">{c.e}</span>}
+                </span>
+                <span className="cat-tile-label" style={{ color:c.color }}>{c.label}</span>
+              </button>
+            )
+          })}
+          {hasRestaurants && (
+            <button type="button" className="btn cat-tile" onClick={() => go("restaurants")} style={{ background:restTileBg }}>
+              <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">🍽</span></span>
+              <span className="cat-tile-label" style={{ color:"var(--org)" }}>Рестораны</span>
+            </button>
+          )}
         </div>
-        <div className="hscroll" style={{ marginBottom:22 }}>
-          {restaurants.map((r,i) => (
-            <div key={r.id} onClick={() => go("restaurant",{rid:r.id})}
-              style={{ flexShrink:0, width:160, borderRadius:18, overflow:"hidden", background:softFromDarkGrad(r.img, light, '#EA580C'), cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, position:"relative", border: light ? "1px solid var(--b1)" : "none" }}>
-              {!r.open && <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:"white" }}>🔴 Закрыто</div>}
-              <div style={{ padding:"14px 12px 10px", position:"relative", zIndex:1 }}>
-                <div style={{ fontSize:36, marginBottom:6 }}>{r.emoji}</div>
-                <div className="ub" style={{ fontSize:12, fontWeight:900, color: light ? "var(--t1)" : "white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
-                <div style={{ fontSize:10, color: light ? "var(--t2)" : "rgba(255,255,255,.6)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
-                <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background: light ? "rgba(12,26,16,.06)" : "rgba(0,0,0,.4)", color: light ? "var(--t2)" : "rgba(255,255,255,.8)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
+
+        {topProducts.length > 0 && <>
+          <div className="store-sec-head">
+            <div className="ub store-sec-title">Хиты продаж</div>
+            <button type="button" className="btn store-sec-all" onClick={() => go("hot")}>Все <Ic n="arr" s={14}/></button>
+          </div>
+          <div className="store-prod-grid" style={{ marginBottom:24 }}>
+            {topProducts.map(p => <PCard key={p.id} p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>)}
+          </div>
+        </>}
+
+        {saleProducts.length > 0 && <>
+          <div className="store-sec-head">
+            <div className="ub store-sec-title">Акции</div>
+            <button type="button" className="btn store-sec-all" onClick={() => go("promos")}>Все <Ic n="arr" s={14}/></button>
+          </div>
+          <div className="store-prod-grid" style={{ marginBottom:24 }}>
+            {saleProducts.map(p => <PCard key={p.id} p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>)}
+          </div>
+        </>}
+
+        {hasRestaurants && <>
+          <div className="store-sec-head">
+            <div className="ub store-sec-title">Рестораны г. Яван</div>
+            <button type="button" className="btn store-sec-all" onClick={() => go("restaurants")}>Все <Ic n="arr" s={14}/></button>
+          </div>
+          <div className="hscroll" style={{ marginBottom:24 }}>
+            {restaurants.map((r) => (
+              <div key={r.id} className="card store-lift" onClick={() => go("restaurant",{rid:r.id})}
+                style={{ flexShrink:0, width:172, cursor:"pointer", position:"relative", background:softFromDarkGrad(r.img, light, "#C2410C") }}>
+                {!r.open && <div style={{ position:"absolute", inset:0, background:"var(--overlay)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, color:"#fff", borderRadius:16 }}>Закрыто</div>}
+                <div style={{ padding:"14px 12px 12px", position:"relative", zIndex:1 }}>
+                  <div style={{ fontSize:32, marginBottom:6 }} aria-hidden="true">{r.emoji}</div>
+                  <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t1)", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
+                  <div style={{ fontSize:11, color:"var(--t2)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
+                  <span style={{ padding:"2px 8px", borderRadius:8, fontSize:11, fontWeight:700, background:"var(--l3)", color:"var(--t2)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
-          <button onClick={() => go("hot")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
-        </div>
-        <div className="store-prod-grid" style={{ marginBottom:20, alignItems:"stretch" }}>
-          {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
-            <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, height:"100%" }}>
-              <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
-            </div>
-          ))}
-        </div>
-        <div onClick={() => go("promos")} style={{ borderRadius:18, background:promoBannerBg, border:"1px solid rgba(59,142,240,.2)", padding:"18px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-          <div>
-            <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:4 }}>Акции и скидки</div>
-            <div style={{ fontSize:12, color:"var(--t2)" }}>Флэш-распродажа до 20:00 ⚡</div>
+            ))}
           </div>
-          <div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>🏷</div>
-        </div>
+        </>}
+
+        <button type="button" className="btn store-banner" onClick={() => go("promos")} style={{ background:"var(--gr-soft)" }}>
+          <span className="store-banner-text">
+            <span className="ub store-banner-title">Акции и скидки</span>
+            <span className="store-banner-sub">Товары по сниженной цене</span>
+          </span>
+          <Ic n="percent" s={26} c="var(--gr3)"/>
+        </button>
       </div>
       <Nav page="home" go={go} user={vipUser}/>
     </div>
   );
 };
 
-const CatalogPage = ({ go, cart, user }) => {
-  const light = false;
-  const { prods, restaurants, restaurantsReady } = useLiveCatalog();
+const CatalogPage = ({ go, cart, user }: any) => {
+  const light = true;
+  const { prods, restaurants, restaurantsReady, catalogReady } = useLiveCatalog();
   const { rootCats, cats, ready: catsReady } = useStoreCategories();
-  const restBannerBg = softAccentSurface('#EA580C', light, 'linear-gradient(135deg,#1A0808,#3A1010)');
+  const { isVip } = resolveUserVip(user, light);
+  const [q, setQ] = useState(() => readSearchQuery());
+  const photos = useProductPhotos(s => s.photos);
+  const totalQty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
+  const totalQtyNum = sumCartUnits(cart || {}, prods);
+  /** Первый товар категории с реальным фото — для плитки категории. */
+  const catPhoto = useMemo(() => {
+    const m = new Map<string, any>();
+    const slugOf = (p: any) => productCatSlug(p);
+    for (const p of prods || []) {
+      const slug = slugOf(p);
+      if (!slug || m.has(slug)) continue;
+      const url = resolveProductPhoto(p, { preferThumb: true, getPhoto: id => photos[id] });
+      if (!url) continue;
+      m.set(slug, url);
+    }
+    return m;
+  }, [prods, photos]);
+  const catImage = (catId: string): string | undefined => {
+    const direct = catPhoto.get(catId);
+    if (direct) return direct;
+    for (const c of cats || []) if (c.parentId === catId) { const child = catPhoto.get(c.id); if (child) return child }
+    return undefined;
+  };
+  const submitSearch = (e?: any) => {
+    if (e) e.preventDefault();
+    writeSearchQuery(q.trim());
+    go("search");
+  };
+  const loading = !catsReady || (USE_API && !catalogReady);
   return (
-  <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-    <Header title="Каталог" go={go} cart={cart} user={user}/>
-    <div style={{ padding:"16px 18px 100px" }}>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
-        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"hot"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
-          <button key={i} type="button" onClick={() => go(p.to)} className="btn" style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, textAlign:"left" }}>
-            <div style={{ fontSize:28, marginBottom:8 }}>{p.e}</div>
-            <div className="ub" style={{ fontSize:13, fontWeight:800, color:p.c, marginBottom:2 }}>{p.t}</div>
-            <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <Header title="Каталог" go={go} cart={cart} user={user} hideSearch/>
+      <div className="store-page-pad" style={{ padding:"12px 16px 0" }}>
+        <form className="store-search" onSubmit={submitSearch} role="search" style={{ marginBottom:16 }}>
+          <Ic n="search" s={18} c="var(--t3)"/>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Найти продукты" aria-label="Поиск продуктов" type="search" enterKeyHint="search"/>
+          {q ? <button type="button" onClick={() => { setQ(""); writeSearchQuery("") }} aria-label="Очистить поиск"><Ic n="x" s={16} c="var(--t3)"/></button>
+            : <button type="submit" aria-label="Найти"><Ic n="arr" s={16} c="var(--gr3)"/></button>}
+        </form>
+
+        <div className="store-tile-grid" style={{ marginBottom:24 }}>
+          <button type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--gr-soft)" }} onClick={() => go("promos")}>
+            <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">%</span></span>
+            <span className="cat-tile-label" style={{ color:"var(--gr3)" }}>Акции и скидки</span>
           </button>
-        ))}
-        <div onClick={() => go("restaurants")} style={{ background:restBannerBg, border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ fontSize:38 }}>🍽</div>
-            <div style={{ flex:1 }}>
-              <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--org)", marginBottom:2 }}>Рестораны г. Яван</div>
-              <div style={{ fontSize:11, color: light ? "var(--t2)" : "rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
-              <div style={{ display:"flex", gap:8 }}>
-                {restaurants.map(r => (
-                  <span key={r.id} style={{ fontSize:18 }}>{r.emoji}</span>
-                ))}
-              </div>
-            </div>
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurantsReady ? restaurants.length : '…'}</div>
-              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.4)" }}>ресторана</div>
-              <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
-            </div>
-          </div>
+          <button type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--l3)" }} onClick={() => go("hot")}>
+            <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">🔥</span></span>
+            <span className="cat-tile-label" style={{ color:"var(--org)" }}>Хиты продаж</span>
+          </button>
         </div>
-      </div>
-      <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
-      {!catsReady ? (
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{ height:120, borderRadius:16, background:"var(--l2)", border:"1px solid var(--b1)", opacity:0.55 }} />
-          ))}
+
+        {restaurants.length > 0 && (
+          <button type="button" className="btn store-banner" onClick={() => go("restaurants")} style={{ background:"var(--l2)" }}>
+            <span className="store-banner-text">
+              <span className="ub store-banner-title">Рестораны г. Яван</span>
+              <span className="store-banner-sub">{restaurantsReady ? `${formatProductCount(restaurants.length)} · доставка по городу` : "Доставка по городу"}</span>
+            </span>
+            <span aria-hidden="true" style={{ fontSize:34 }}>🍽</span>
+          </button>
+        )}
+
+        <div className="store-sec-head">
+          <div className="ub store-sec-title">Все категории</div>
         </div>
-      ) : (
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-        {rootCats.map((c,i) => (
-          <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, border: light ? `1px solid ${c.color}28` : undefined }}>
-            <div style={{ padding:"16px 14px" }}>
-              <div style={{ fontSize:36, marginBottom:8 }}>{c.e}</div>
-              <div className="ub" style={{ fontSize:13, fontWeight:800, color: light ? "var(--t1)" : "#fff", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <span style={{ fontSize:11, fontWeight:700, color:c.color }}>Смотреть</span>
-                <Ic n="arr" s={13} c={c.color}/>
+        {loading ? (
+          <div className="store-tile-grid">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="cat-tile" style={{ flex:"unset" }}>
+                <div className="skel-line" style={{ height:76, borderRadius:0 }}/>
+                <div style={{ padding:"10px 8px" }}><div className="skel-line" style={{ height:12 }}/></div>
               </div>
-            </div>
+            ))}
           </div>
-        ))}
+        ) : (
+          <div className="store-tile-grid">
+            {rootCats.map(c => {
+              const ph = catImage(c.id);
+              const count = productsInCategory(prods, c.id, null, cats).length;
+              return (
+                <button key={c.id} type="button" className="btn cat-tile" style={{ flex:"unset", background:c.bg }} onClick={() => go("plist", { cat:c.id })}>
+                  <span className="cat-tile-media">
+                    {ph ? <img src={ph} alt="" loading="lazy" decoding="async"/> : <span className="cat-tile-emoji" aria-hidden="true">{c.e}</span>}
+                  </span>
+                  <span className="cat-tile-label" style={{ color:c.color }}>{c.label}</span>
+                  <span className="cat-tile-count">{formatProductCount(count)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-      )}
+      {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip}/>}
+      <Nav page="catalog" go={go} user={user}/>
     </div>
-    <Nav page="catalog" go={go}/>
-  </div>
-);
+  );
 };
-const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
-  const light = false;
+const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }: any) => {
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const { isVip } = resolveUserVip(user, light);
@@ -1720,12 +2212,12 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   const hasSubCats = subCats.length > 0;
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-  let items = isHotHits ? prods.filter(p => p.hot) : productsInCategory(prods, params?.cat, subCat, cats);
+  const topProducts = useTopProducts(prods, 24);
+  let items = isHotHits ? topProducts : productsInCategory(prods, params?.cat, subCat, cats);
   if (search) items = items.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   if (sort === "cheap") items = [...items].sort((a,b) => a.price - b.price);
   else if (sort === "exp") items = [...items].sort((a,b) => b.price - a.price);
   else if (sort === "sale") items = items.filter(p => p.old).sort((a,b) => (1-b.price/b.old) - (1-a.price/a.old));
-  else if (isHotHits) items = [...items].sort((a,b) => (b.r || 0) - (a.r || 0));
   if (USE_API && (!catalogReady || !catsReady)) {
     return (
       <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--t3)", fontSize:13 }}>
@@ -1735,9 +2227,9 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   }
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "var(--header-bg)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(233,174,0,.3)" : "1px solid var(--b1)", boxShadow: isVip ? "0 4px 24px rgba(233,174,0,.1)" : "none" }}>
         <div style={{ padding:"13px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go(isHotHits ? "home" : "catalog")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack(isHotHits ? "home" : "catalog", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ width:36, height:36, borderRadius:10, background:cat.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cat.e}</div>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:15, fontWeight:800 }}>{cat.label}</div>
@@ -1752,12 +2244,12 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
         {hasSubCats && (
           <div className="hscroll" style={{ padding:"0 18px 8px", gap:8 }}>
             <button onClick={()=>setSubCat(null)} className="btn"
-              style={{ padding:"7px 14px", borderRadius:50, fontSize:12, fontWeight:700, border:`1.5px solid ${!subCat?"rgba(31,215,96,.38)":"var(--b1)"}`, background:!subCat?"rgba(31,215,96,.12)":"var(--l2)", color:!subCat?"var(--gr)":"var(--t2)", whiteSpace:"nowrap", fontFamily:"Nunito", flexShrink:0 }}>
+              style={{ padding:"7px 14px", borderRadius:50, fontSize:12, fontWeight:700, border:`1.5px solid ${!subCat?"rgba(7,136,61,.38)":"var(--b1)"}`, background:!subCat?"var(--gr-soft)":"var(--l2)", color:!subCat?"var(--gr)":"var(--t2)", whiteSpace:"nowrap", fontFamily:"Nunito", flexShrink:0 }}>
               Все
             </button>
             {subCats.map(sc=>(
               <button key={sc.id} onClick={()=>setSubCat(sc.id)} className="btn"
-                style={{ padding:"7px 14px", borderRadius:50, fontSize:12, fontWeight:700, border:`1.5px solid ${subCat===sc.id?"rgba(31,215,96,.38)":"var(--b1)"}`, background:subCat===sc.id?"rgba(31,215,96,.12)":"var(--l2)", color:subCat===sc.id?"var(--gr)":"var(--t2)", whiteSpace:"nowrap", fontFamily:"Nunito", flexShrink:0, display:"flex", alignItems:"center", gap:5 }}>
+                style={{ padding:"7px 14px", borderRadius:50, fontSize:12, fontWeight:700, border:`1.5px solid ${subCat===sc.id?"rgba(7,136,61,.38)":"var(--b1)"}`, background:subCat===sc.id?"var(--gr-soft)":"var(--l2)", color:subCat===sc.id?"var(--gr)":"var(--t2)", whiteSpace:"nowrap", fontFamily:"Nunito", flexShrink:0, display:"flex", alignItems:"center", gap:5 }}>
                 <span style={{fontSize:16}}>{sc.e}</span> {sc.label}
               </button>
             ))}
@@ -1771,7 +2263,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
           </div>
           <div style={{ display:"flex", gap:4 }}>
             {[{v:"grid",n:"grid"},{v:"list",n:"list"}].map(v => (
-              <button key={v.v} onClick={() => setView(v.v)} className="btn" style={{ width:34, height:34, borderRadius:9, background:view===v.v?"rgba(31,215,96,.12)":"var(--l3)", border:`1.5px solid ${view===v.v?"rgba(31,215,96,.35)":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <button key={v.v} onClick={() => setView(v.v)} className="btn" style={{ width:34, height:34, borderRadius:9, background:view===v.v?"var(--gr-soft)":"var(--l3)", border:`1.5px solid ${view===v.v?"rgba(7,136,61,.38)":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <Ic n={v.n} s={14} c={view===v.v?"var(--gr)":"var(--t2)"}/>
               </button>
             ))}
@@ -1784,7 +2276,7 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
             <div style={{ fontSize:56, marginBottom:14 }}>{isHotHits ? "🔥" : "🔍"}</div>
             <div className="ub" style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>{isHotHits ? "Хитов пока нет" : "Ничего не найдено"}</div>
             {isHotHits && <div style={{ fontSize:13, color:"var(--t2)", marginBottom:16 }}>Отметьте товары как «Хит» в админке</div>}
-            <button className="btn" onClick={() => isHotHits ? go("home") : setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>{isHotHits ? "На главную" : "Сбросить"}</button>
+            <button className="btn" onClick={() => isHotHits ? go("home") : setSearch("")} style={{ padding:"12px 24px", borderRadius:14, background:"var(--gr)", color:"white", fontSize:13 }}>{isHotHits ? "На главную" : "Сбросить"}</button>
           </div>
         ) : view === "grid" ? (
           <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
@@ -1808,20 +2300,20 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                     <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
-                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--t2)", marginLeft:2 }}>ЅМ</span></span>
                       {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
                     </div>
                   </div>
                   <div style={{ flexShrink:0 }}>
                     {qty === 0 ? (
-                      <button onClick={e => { e.stopPropagation(); onAdd(p.id); }} className="btn" style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <button onClick={e => { e.stopPropagation(); onAdd(p.id); }} className="btn" style={{ width:36, height:36, borderRadius:10, background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                         <Ic n="plus" s={16} c="white" w={2.5}/>
                       </button>
                     ) : (
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:10, padding:"4px 6px" }}>
-                        <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>−</button>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"var(--gr-soft)", border:"1.5px solid rgba(7,136,61,.3)", borderRadius:10, padding:"4px 6px" }}>
+                        <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(7,136,61,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>−</button>
                         <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
-                        <button onClick={e => { e.stopPropagation(); onAdd(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>+</button>
+                        <button onClick={e => { e.stopPropagation(); onAdd(p.id); }} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(7,136,61,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>+</button>
                       </div>
                     )}
                   </div>
@@ -1839,14 +2331,14 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
   );
 };
 
-const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
+const QtyStepperBar = ({ qty, onAdd, onRm, size = "md", label, disabled = false }: any) => {
   const btn = size === "sm" ? 34 : 40;
   const display = label ?? qty;
   const wrap = {
     display: "flex",
     alignItems: "center",
     gap: size === "sm" ? 6 : 8,
-    background: "rgba(255,255,255,.04)",
+    background: "var(--l3)",
     border: "1px solid var(--b1)",
     borderRadius: size === "sm" ? 12 : 14,
     padding: size === "sm" ? "4px 5px" : "5px 8px",
@@ -1855,8 +2347,8 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
     width: btn,
     height: btn,
     borderRadius: btn / 2,
-    background: "rgba(31,215,96,.12)",
-    border: "1px solid rgba(31,215,96,.22)",
+    background: "var(--gr-soft)",
+    border: "1.5px solid rgba(7,136,61,.3)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1883,8 +2375,8 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
   );
 };
 
-const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
-  const light = false;
+const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }: any) => {
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
@@ -1920,18 +2412,31 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
       .catch(() => setStoreReviews([]))
       .finally(() => setRevLoading(false));
   }, [tab]);
+  /** Настоящие фото товара: сначала основное, затем миниатюра и локальный кэш. */
+  const gallery = useMemo(() => {
+    const list: string[] = [];
+    const push = (u?: string) => { if (u && !list.includes(u)) list.push(u); };
+    push(resolvePhotoUrl(p?.photo));
+    push(resolvePhotoUrl(p?.photoThumb));
+    push(resolveProductPhoto(p, { preferThumb: false, getPhoto: () => localPhoto }));
+    return list;
+  }, [p?.photo, p?.photoThumb, localPhoto]);
+  const [gi, setGi] = useState(0);
   if (!catalogReady || !p) {
     return (
-      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", padding:"40px 18px", color:"var(--t2)" }}>
-        Загрузка товара...
+      <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+        <Header title="Товар" back="catalog" go={go} cart={cart}/>
+        <div style={{ padding:"16px" }}>
+          <div className="skel-line" style={{ width:"100%", aspectRatio:"1 / 1", borderRadius:"var(--r-card)" }}/>
+        </div>
       </div>
     );
   }
   const qty = cart[p.id] || 0;
-  const photo = resolveProductPhoto(p, { preferThumb: false, getPhoto: () => localPhoto });
+  const photo = gallery[gi] || gallery[0];
   const disc = p.old ? Math.round((1 - p.price / p.old) * 100) : 0;
   const pCat = productCatSlug(p);
-  const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 4);
+  const related = prods.filter(x => productCatSlug(x) === pCat && x.id !== p.id).slice(0, 6);
   const cartBadge = formatCartBadgeCount(sumCartUnits(cart, prods));
   const cartBadgeNum = sumCartUnits(cart, prods);
   const weighted = isWeighted(p);
@@ -1939,167 +2444,161 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   const lineTotal = calcLineTotal(p, qty);
   const add = () => onAdd(p.id);
   const rm  = () => onRm(p.id);
+  const outOfStock = isOutOfStock(p);
+  const bulkHint = formatBulkPricingHint(p);
+  const bulkQtyHint = bulkPricingHintForQty(p, qty);
   const storeRevLabel = storeRevCount == null ? '…' : String(storeRevCount);
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:100, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <button onClick={() => go("catalog")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={18} c="var(--t1)"/></button>
-        <div style={{ display:"flex", gap:8 }}>
-          <button onClick={() => onWish(p.id)} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <Ic n="heart" s={18} c={wished[p.id] ? "#FF4545" : "var(--t1)"} fill={wished[p.id] ? "#FF4545" : "none"}/>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(20px)", borderBottom:"1px solid var(--b1)" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
+          <button type="button" onClick={() => storeBack("catalog", go)} className="btn hdr-icon" aria-label="Назад">
+            <Ic n="arrL" s={18} c="var(--t1)"/>
           </button>
-          <button onClick={() => go("cart")} className="btn" style={{ width:40, height:40, borderRadius:"50%", background:"var(--fab-bg)", backdropFilter:"blur(12px)", border:"1px solid rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
-            <Ic n="cart" s={18} c="var(--t1)"/>
-            {cartBadgeNum>0 && <div style={{ position:"absolute", top:-4, right:-4, minWidth:16, height:16, padding:"0 3px", borderRadius:999, background:"var(--gr)", border:"2px solid var(--bg)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:8, fontWeight:900, color:"var(--bg)" }}>{cartBadge}</div>}
+          <div className="ub" style={{ flex:1, minWidth:0, fontSize:16, fontWeight:800, color:"var(--t1)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
+          <button type="button" className="btn hdr-icon" onClick={() => onWish(p.id)} aria-label={wished?.[p.id] ? "Убрать из избранного" : "Добавить в избранное"} aria-pressed={wished?.[p.id] ? "true" : "false"}>
+            <Ic n="heart" s={18} c={wished?.[p.id] ? "var(--red)" : "var(--t1)"} fill={wished?.[p.id] ? "var(--red)" : "none"} w={2}/>
           </button>
+          <CartHeaderButton count={cartBadge} qtyNum={cartBadgeNum} onClick={() => go("cart")}/>
         </div>
-      </div>
-      <div style={{ height:300, background:softFromDarkGrad(p.grad, light), display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
-        {photo
-          ? <img src={photo} alt={p.name} decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:16, boxSizing:"border-box", animation:"float 3.5s ease-in-out infinite", filter:"drop-shadow(0 16px 28px rgba(0,0,0,.45))" }}/>
-          : <div style={{ fontSize:120, filter:"drop-shadow(0 20px 40px rgba(0,0,0,.5))", animation:"float 3s ease-in-out infinite", position:"relative", zIndex:1 }}>{p.e}</div>
-        }
-        <div style={{ position:"absolute", bottom:18, left:18, display:"flex", gap:6 }}>
-          {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.18)", color:"#34D399", border:"1px solid rgba(52,211,153,.35)" }}>🌿 Органик</span>}
-          {p.hot && <span className="bdg b-gd">🔥 Хит</span>}
-          {disc>0 && <span className="bdg b-rd">−{disc}%</span>}
-        </div>
-        <div style={{ position:"absolute", bottom:0, left:0, right:0, height:80, background:"linear-gradient(transparent,var(--bg))" }}/>
-      </div>
-      <div style={{ padding:"0 18px 140px" }}>
-        <div style={{ fontSize:11, color:"var(--t3)", marginBottom:10 }}>{cats.find(c => c.id === pCat)?.label || p.catLabel || p.cat}</div>
-        <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.2, marginBottom:10 }}>{p.name}</div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-          <Stars r={USE_API ? 0 : p.r} s={13}/><span className="ub" style={{ fontSize:13, fontWeight:800 }}>{USE_API ? storeRevLabel : p.r}</span><span style={{ fontSize:12, color:"var(--t2)" }}>({storeRevLabel} отзывов)</span>
-          <span style={{ fontSize:11, color:"var(--gr)", fontWeight:700, display:"flex", alignItems:"center", gap:4 }}><div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>В наличии</span>
-        </div>
-        <div className="card" style={{ padding:"18px", marginBottom:16 }}>
-          <div style={{ display:"flex", alignItems:"flex-end", gap:10, marginBottom:4 }}>
-            <span className="ub" style={{ fontSize:34, fontWeight:900 }}>{p.price.toFixed(2)}</span>
-            <span style={{ fontSize:18, color:"var(--gd)", fontWeight:800, marginBottom:2 }}>ЅМ</span>
-            {p.old && <><span style={{ fontSize:16, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{p.old.toFixed(2)} ЅМ</span><span className="bdg b-rd">−{disc}%</span></>}
+      </header>
+      <div className="store-hero-pad">
+        {/* Фото: светлая поверхность, contain, без цветных подложек */}
+        <div style={{ background:"var(--l1)", border:"1px solid var(--b1)", borderRadius:"var(--r-card)", overflow:"hidden", position:"relative" }}>
+          <ProductMedia p={p} emoji={p.e} padding={16} style={{ width:"100%", aspectRatio:"1 / 1" }} className="store-product-hero"/>
+          <div style={{ position:"absolute", top:12, left:12, display:"flex", flexWrap:"wrap", gap:6, pointerEvents:"none" }}>
+            {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
+            {p.isNew && <span className="bdg b-gr">Новинка</span>}
+            {p.hot && <span className="bdg b-gd">Хит продаж</span>}
+            {p.org && <span className="bdg b-gr">Органик</span>}
+            {hasBulkPricing(p) && <span className="bdg b-gd">Оптом дешевле</span>}
           </div>
-          <div style={{ fontSize:12, color:"var(--t2)", marginBottom:10 }}>{formatPriceLabel(p)}{weighted && <span style={{ color:"var(--org)", marginLeft:8 }}>⚖️ На развес</span>}</div>
-          {formatBulkPricingHint(p) && (
-            <div style={{ fontSize:11, color:"#FF8C00", fontWeight:700, marginBottom:10, padding:"8px 10px", borderRadius:10, background:"rgba(255,140,0,.08)", border:"1px solid rgba(255,140,0,.2)" }}>
-              📦 {formatBulkPricingHint(p)}
+        </div>
+        {gallery.length > 1 && (
+          <div className="hscroll" style={{ gap:8, marginTop:10, paddingBottom:2 }} role="list" aria-label="Фотографии товара">
+            {gallery.map((src, i) => (
+              <button key={src} type="button" role="listitem" onClick={() => setGi(i)} aria-label={`Фото ${i + 1}`} aria-current={i === gi ? "true" : undefined}
+                className="btn" style={{ width:64, height:64, flexShrink:0, borderRadius:12, overflow:"hidden", background:"#fff", border:`1.5px solid ${i === gi ? "var(--gr)" : "var(--b1)"}`, padding:4 }}>
+                <img src={src} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/>
+              </button>
+            ))}
           </div>
+        )}
+        <div style={{ marginTop:16 }}>
+          <button type="button" className="btn" onClick={() => go("plist", { cat:pCat })} style={{ fontSize:12, color:"var(--gr3)", fontWeight:700, padding:"2px 0" }}>
+            {cats.find(c => c.id === pCat)?.label || p.catLabel || p.cat}
+          </button>
+          <div className="ub" style={{ fontSize:22, fontWeight:900, lineHeight:1.25, color:"var(--t1)", margin:"6px 0 6px", overflowWrap:"anywhere" }}>{p.name}</div>
+          {p.unit ? <div style={{ fontSize:13, color:"var(--t2)" }}>{p.unit}{p.art ? ` · Арт. ${p.art}` : ""}</div> : (p.art ? <div style={{ fontSize:13, color:"var(--t2)" }}>Арт. {p.art}</div> : null)}
+        </div>
+        <div className="card" style={{ padding:16, marginTop:14 }}>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:10, flexWrap:"wrap" }}>
+            <span className="ub" style={{ fontSize:30, fontWeight:900, color:"var(--t1)", letterSpacing:"-.02em" }}>
+              {p.price.toFixed(2)}<span style={{ fontSize:15, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span>
+            </span>
+            {p.old > p.price && <span style={{ fontSize:15, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{Number(p.old).toFixed(2)} ЅМ</span>}
+            {disc > 0 && <span className="bdg b-rd" style={{ marginBottom:4 }}>−{disc}%</span>}
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:6 }}>
+            <span style={{ fontSize:12, color:"var(--t2)" }}>{formatPriceLabel(p)}{weighted && <span style={{ color:"var(--org)", marginLeft:8 }}>На развес</span>}</span>
+            {outOfStock
+              ? <span style={{ fontSize:12, color:"var(--red)", fontWeight:700 }}>Нет в наличии</span>
+              : <span style={{ fontSize:12, color:"var(--gr3)", fontWeight:700, display:"inline-flex", alignItems:"center", gap:5 }}><span style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)" }}/>В наличии</span>}
+            {USE_API && storeRevCount !== null && (
+              <span style={{ fontSize:12, color:"var(--t2)" }}>{storeRevLabel} {reviewCountLabel(storeRevCount)}</span>
+            )}
+            {!USE_API && p.r ? <span style={{ fontSize:12, color:"var(--t2)", display:"inline-flex", alignItems:"center", gap:5 }}><Stars r={p.r} s={11}/>{p.r} · {p.rv}</span> : null}
+          </div>
+          {bulkHint && (
+            <div style={{ marginTop:12, padding:"10px 12px", borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", fontSize:12, fontWeight:700, color:"var(--t1)" }}>{bulkHint}</div>
           )}
-          {bulkPricingHintForQty(p, qty) && (
-            <div style={{ fontSize:11, color:qty > 0 && bulkPricingHintForQty(p, qty)?.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:10 }}>
-              {bulkPricingHintForQty(p, qty)}
-            </div>
+          {bulkQtyHint && (
+            <div style={{ marginTop:8, fontSize:12, fontWeight:700, color: bulkQtyHint.startsWith('Опт') ? "var(--gr3)" : "var(--org)" }}>{bulkQtyHint}</div>
           )}
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
-            <button onClick={add} className="btn" style={{ flex:1, padding:"14px", fontSize:14, borderRadius:14, background:qty>0?"rgba(31,215,96,.14)":"linear-gradient(135deg,var(--gr2),var(--gr))", border:qty>0?"1.5px solid rgba(31,215,96,.35)":"none", color:qty>0?"var(--gr)":"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:qty>0?"none":"0 6px 20px rgba(31,215,96,.28)" }}>
-              <Ic n="bag" s={18} c={qty>0?"var(--gr)":"white"}/>{qty===0 ? "В корзину" : `В корзине · ${lineTotal.toFixed(2)} ЅМ`}
-            </button>
+          <div style={{ marginTop:14 }}>
+            {outOfStock && qty === 0 ? (
+              <div className="p-add-off" style={{ minHeight:52 }}>Нет в наличии — добавление недоступно</div>
+            ) : qty === 0 ? (
+              <button type="button" className="btn store-btn store-btn-primary store-btn-block" onClick={add} style={{ minHeight:52 }}>
+                <Ic n="bag" s={19} c="white"/>В корзину · {p.price.toFixed(2)} ЅМ
+              </button>
+            ) : (
+              <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+                <QtyStepperBar qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
+                <button type="button" className="btn store-btn store-btn-sec" onClick={() => go("cart")} style={{ flex:1, minWidth:150 }}>
+                  <Ic n="check" s={16} c="var(--gr3)" w={2.5}/>В корзине · {lineTotal.toFixed(2)} ЅМ
+                </button>
+              </div>
+            )}
           </div>
         </div>
-        <div style={{ borderBottom:"1px solid var(--b1)", display:"flex", marginBottom:18 }}>
+        <div style={{ borderBottom:"1px solid var(--b1)", display:"flex", margin:"18px 0 14px" }}>
           {[{id:"desc",l:"Описание"},{id:"spec",l:"Характеристики"},{id:"rev",l:`Отзывы (${storeRevLabel})`}].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className="btn" style={{ flex:1, padding:"11px 4px", fontSize:13, background:"transparent", color:tab===t.id?"var(--gr)":"var(--t2)", borderBottom:`2px solid ${tab===t.id?"var(--gr)":"transparent"}`, borderRadius:0, fontWeight:700, transition:"all .2s" }}>{t.l}</button>
+            <button key={t.id} type="button" onClick={() => setTab(t.id)} className="btn" aria-current={tab === t.id ? "true" : undefined}
+              style={{ flex:1, padding:"11px 4px", fontSize:13, background:"transparent", color:tab===t.id?"var(--gr3)":"var(--t2)", borderBottom:`2px solid ${tab===t.id?"var(--gr)":"transparent"}`, borderRadius:0, fontWeight:700 }}>{t.l}</button>
           ))}
         </div>
-        {tab==="desc" && <div style={{ fontSize:13, color:"var(--t2)", lineHeight:1.75, animation:"fadeIn .3s ease" }}>{p.desc}</div>}
+        {tab==="desc" && (
+          <div style={{ fontSize:14, color:"var(--t2)", lineHeight:1.7, overflowWrap:"anywhere" }}>
+            {p.desc || "Описание для этого товара пока не заполнено."}
+          </div>
+        )}
         {tab==="spec" && (
-          <div className="card" style={{ animation:"fadeIn .3s ease", overflow:"hidden" }}>
+          <div className="card" style={{ overflow:"hidden" }}>
+            {Object.entries(p.specs || {}).length === 0 && <div className="store-empty-text" style={{ padding:16 }}>Характеристики не заполнены.</div>}
             {Object.entries(p.specs || {}).map(([k,v],i,arr) => (
-              <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"13px 16px", borderBottom:i<arr.length-1?"1px solid var(--b1)":"none" }}>
-                <span style={{ fontSize:12, color:"var(--t2)" }}>{k}</span><span style={{ fontSize:12, fontWeight:700 }}>{v}</span>
+              <div key={k} style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"13px 16px", borderBottom:i<arr.length-1?"1px solid var(--b1)":"none" }}>
+                <span style={{ fontSize:13, color:"var(--t2)" }}>{k}</span><span style={{ fontSize:13, fontWeight:700, color:"var(--t1)", textAlign:"right" }}>{String(v)}</span>
               </div>
             ))}
           </div>
         )}
         {tab==="rev" && (
-          <div style={{ animation:"fadeIn .3s ease" }}>
-            <div style={{ padding:"12px 14px", borderRadius:14, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.22)", marginBottom:14, fontSize:12, color:"var(--t2)", lineHeight:1.55 }}>
-              Отзывы о магазине оставляются после доставки — в разделе <button type="button" onClick={() => go("orders")} className="btn" style={{ display:"inline", padding:0, background:"transparent", border:"none", color:"var(--gd)", fontWeight:800, fontSize:12 }}>Мои заказы</button>.
+          <div>
+            <div style={{ padding:"12px 14px", borderRadius:14, background:"var(--l3)", border:"1px solid var(--b1)", marginBottom:14, fontSize:12, color:"var(--t2)", lineHeight:1.55 }}>
+              Отзывы о магазине можно оставить после доставки — в разделе <button type="button" onClick={() => go("orders")} className="btn" style={{ display:"inline", padding:0, background:"transparent", border:"none", color:"var(--gr3)", fontWeight:800, fontSize:12 }}>Мои заказы</button>.
             </div>
-            {revLoading && <div style={{ textAlign:"center", padding:24, color:"var(--t3)", fontSize:13 }}>Загрузка отзывов…</div>}
+            {revLoading && <div style={{ display:"flex", flexDirection:"column", gap:10 }}>{[0,1].map(i => <div key={i} className="skel-line" style={{ height:76, borderRadius:16 }}/>)}</div>}
             {!revLoading && storeReviews.length === 0 && (
-              <div style={{ textAlign:"center", padding:"28px 16px", color:"var(--t3)", fontSize:13 }}>
-                Пока нет отзывов о магазине
-              </div>
+              <EmptyState icon="💬" title="Пока нет отзывов" text="Отзывы о магазине появятся здесь после доставленных заказов."/>
             )}
             {!revLoading && storeReviews.map((rv, i) => (
-              <div key={rv.id || i} style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px", marginBottom:10 }}>
+              <div key={rv.id || i} className="card" style={{ padding:14, marginBottom:10 }}>
                 <div style={{ display:"flex", gap:10, marginBottom:8 }}>
-                  <div style={{ width:36, height:36, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:14, fontWeight:900, color:"var(--bg)", flexShrink:0 }}>{(rv.client || "К").charAt(0)}</div>
+                  <div style={{ width:36, height:36, borderRadius:"50%", background:"var(--gr-soft)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:14, fontWeight:900, color:"var(--gr3)", flexShrink:0 }}>{(rv.client || "К").charAt(0)}</div>
                   <div>
-                    <div style={{ fontSize:13, fontWeight:700 }}>{rv.client}</div>
+                    <div style={{ fontSize:13, fontWeight:700, color:"var(--t1)" }}>{rv.client}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2 }}>
                       <Stars r={rv.rating} s={9}/>
-                      <span style={{ fontSize:10, color:"var(--t3)" }}>{rv.date}</span>
+                      <span style={{ fontSize:11, color:"var(--t3)" }}>{rv.date}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              </div>
-                <p style={{ fontSize:12, color:"var(--t2)", lineHeight:1.6 }}>{rv.text}</p>
+                <p style={{ fontSize:13, color:"var(--t2)", lineHeight:1.6, overflowWrap:"anywhere" }}>{rv.text}</p>
                 {(rv.adminReply || rv.restReply) && (
-                  <div style={{ marginTop:8, fontSize:11, color:"var(--blue)", padding:"8px 10px", background:"rgba(59,142,240,.08)", borderRadius:10 }}>
-                    {rv.adminReply || rv.restReply}
-            </div>
+                  <div style={{ marginTop:8, fontSize:12, color:"var(--t2)", padding:"9px 11px", background:"var(--gr-soft)", borderRadius:10, lineHeight:1.5 }}>{rv.adminReply || rv.restReply}</div>
                 )}
               </div>
             ))}
           </div>
         )}
         {related.length > 0 && (
-          <div style={{ marginTop:24 }}>
-            <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Похожие товары</div>
-            <div className="hscroll">
-              {related.map(rp => (
-                <div key={rp.id} className="card" style={{ width:140, flexShrink:0, cursor:"pointer" }} onClick={() => go("product", { id:rp.id })}>
-                  <div style={{ height:80, background:softFromDarkGrad(rp.grad, light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:36, overflow:"hidden" }}>
-                    {resolveProductPhoto(rp, { preferThumb: true })
-                      ? <img src={resolveProductPhoto(rp, { preferThumb: true })} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block", animation:"float 3s ease-in-out infinite" }}/>
-                      : <span style={{ animation:"float 3s ease-in-out infinite" }}>{rp.e}</span>}
-                  </div>
-                  <div style={{ padding:"9px 10px 8px" }}>
-                    <div style={{ fontSize:11, fontWeight:700, lineHeight:1.3, marginBottom:3 }}>{rp.name}</div>
-                    <div style={{ fontSize:10, color:"var(--t3)", marginBottom:5 }}>{rp.unit}</div>
-                    <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{rp.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
-                  </div>
-                  <div style={{ padding:"0 10px 10px" }}>
-                    <button onClick={e => { e.stopPropagation(); onAdd(rp.id); }} className="btn" style={{ width:"100%", padding:"8px", borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}>
-                      <Ic n="plus" s={11} c="white" w={2.5}/>В корзину
-                    </button>
-                  </div>
-                </div>
-              ))}
+          <div style={{ marginTop:26 }}>
+            <div className="store-sec-head">
+              <div className="ub store-sec-title">Похожие товары</div>
+            </div>
+            <div className="store-prod-grid">
+              {related.map(rp => <PCard key={rp.id} p={rp} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished?.[rp.id]} go={go}/>)}
             </div>
           </div>
         )}
       </div>
-      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px 24px" }}>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:10, color:"var(--t3)" }}>К оплате</div>
-            <div style={{ display:"flex", alignItems:"baseline", gap:5 }}>
-              <span className="ub" style={{ fontSize:22, fontWeight:900 }}>{qty>0?lineTotal.toFixed(2):p.price.toFixed(2)}</span>
-              <span style={{ fontSize:13, color:"var(--gd)", fontWeight:700 }}>ЅМ</span>
-            </div>
-          </div>
-          {qty === 0 ? (
-            <button onClick={add} className="btn" style={{ flex:2, padding:"14px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
-              <Ic n="bag" s={18} c="white"/>В корзину
-            </button>
-          ) : (
-            <div style={{ flex:2, display:"flex", gap:8, alignItems:"center" }}>
-              <QtyStepper qty={qty} label={qtyLabel} onAdd={add} onRm={rm} size="sm"/>
-              <button onClick={() => go("cart")} className="btn" style={{ flex:1, padding:"13px", fontSize:13, borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6, boxShadow:"0 4px 16px rgba(31,215,96,.22)" }}>
-                <Ic n="check" s={15} c="white" w={2.5}/>Оформить
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      <Nav page="catalog" go={go}/>
     </div>
   );
 };
-const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
-  const light = false;
+const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }: any) => {
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
@@ -2115,74 +2614,82 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
   const total = sub;
   const totalSaved = Math.round((bulkSaved + saleSaved) * 100) / 100;
   const tqty  = items.length;
+  const restCount = items.filter(p => p.isRest).length;
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
-        <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Корзина</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{tqty} товаров</div></div>
-          {items.length>0 && <button onClick={() => items.forEach(p=>onDel(p.id))} className="btn" style={{ fontSize:11, color:"var(--red)", background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.25)", borderRadius:10, padding:"6px 12px" }}>Очистить</button>}
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(20px)", borderBottom:"1px solid var(--b1)" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
+          <button type="button" onClick={() => storeBack("home", go)} className="btn hdr-icon" aria-label="Назад"><Ic n="arrL" s={18} c="var(--t1)"/></button>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div className="ub" style={{ fontSize:18, fontWeight:800, color:"var(--t1)" }}>Корзина</div>
+            <div style={{ fontSize:12, color:"var(--t2)" }}>{formatProductCount(tqty)}{restCount > 0 ? ` · ${restCount} из ресторана` : ""}</div>
+          </div>
+          {items.length > 0 && (
+            <button type="button" onClick={() => items.forEach(p => onDel(p.id))} className="btn store-btn store-btn-sm"
+              style={{ background:"var(--red-soft)", border:"1px solid rgba(195,52,52,.25)", color:"var(--red)" }}>Очистить</button>
+          )}
         </div>
       </header>
       {items.length === 0 ? (
-        <div style={{ textAlign:"center", padding:"60px 24px" }}>
-          <div style={{ fontSize:80, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>🛒</div>
-          <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Корзина пустая</div>
-          <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24 }}>Добавьте товары из каталога</div>
-          <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14 }}>Перейти в каталог</button>
+        <div style={{ paddingTop:24 }}>
+          <EmptyState icon="🛒" title="Корзина пуста" text="Добавьте товары из каталога — они появятся здесь." actionLabel="Перейти в каталог" onAction={() => go("catalog")}/>
         </div>
       ) : (
-        <div style={{ padding:"14px 18px calc(260px + env(safe-area-inset-bottom, 0px))" }}>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
+        <div className="store-list-pad">
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {items.map(p => {
-              const disc2 = p.old ? Math.round((1-p.price/p.old)*100) : 0;
+              const disc2 = p.old && p.old > p.price ? Math.round((1 - p.price / p.old) * 100) : 0;
               const bulkLine = !p.isRest ? bulkPricingHintForQty(p, p.qty) : null;
               const itemSaved = p.isRest ? 0 : lineTotalSavings(p, p.qty);
               const itemRetail = p.isRest ? (Number(p.price) || 0) * p.qty : lineRetailTotal(p, p.qty);
               const itemBulk = p.isRest ? 0 : lineBulkSavings(p, p.qty);
               const itemSale = p.isRest ? 0 : lineSaleSavings(p, p.qty);
               const unitPrice = cartUnitPrice(p, p.qty, !!p.isRest);
+              const atMin = isWeighted(p) ? p.qty <= productMinWeight(p) : p.qty === 1;
+              const outNow = !p.isRest && isOutOfStock(p);
               return (
-                <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"13px" }}>
-                  <div style={{ width:62, height:62, borderRadius:15, background:softFromDarkGrad(p.grad||"linear-gradient(135deg,#2A1400,#4A2400)", light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, flexShrink:0, position:"relative", overflow:"hidden" }}>
-                    {resolveProductPhoto(p, { preferThumb: true })
-                      ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
-                      : p.e}
-                    {disc2>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc2}%</div>}
+                <div key={p.id} className="store-row" style={{ alignItems:"flex-start" }}>
+                  <div className="store-row-media" aria-hidden="true">
+                    <ProductMedia p={p} emoji={p.e} padding={6} style={{ width:"100%", height:"100%" }}/>
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, marginBottom:2 }}>{p.name}</div>
-                    <div style={{ fontSize:11, color:"var(--t3)", marginBottom:4 }}>{p.isRest ? "🍽 Ресторан" : (isWeighted(p) ? `⚖️ ${formatCartQty(p, p.qty)}` : (p.unit||"шт"))}</div>
-                    <div style={{ fontSize:10, color:"var(--t2)", marginBottom:6 }}>
-                      {unitPrice.current < unitPrice.base && (
-                        <span style={{ textDecoration:"line-through", marginRight:6, color:"var(--t3)" }}>{unitPrice.base.toFixed(2)}</span>
-                      )}
-                      {p.old > p.price && unitPrice.current >= unitPrice.base && (
-                        <span style={{ textDecoration:"line-through", marginRight:6, color:"var(--t3)" }}>{Number(p.old).toFixed(2)}</span>
-                      )}
-                      <span style={{ fontWeight:700, color: unitPrice.current < unitPrice.base || (p.old > p.price) ? "var(--gr)" : "var(--t1)" }}>
-                        {unitPrice.current.toFixed(2)} ЅМ
-                      </span>
-                      <span> / {unitPrice.suffix}</span>
+                    <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                      <button type="button" className="btn p-name" style={{ fontWeight:700, fontSize:14 }}
+                        onClick={() => !p.isRest && go("product", { id:p.id })}>{p.name}</button>
+                      <button type="button" className="btn" onClick={() => onDel(p.id)} aria-label={`Удалить «${p.name}» из корзины`}
+                        style={{ width:34, height:34, borderRadius:10, background:"transparent", display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                        <Ic n="trash" s={15} c="var(--t3)"/>
+                      </button>
                     </div>
-                    {bulkLine && <div style={{ fontSize:10, color: bulkLine.startsWith('Опт') ? 'var(--gr)' : '#FF8C00', fontWeight:700, marginBottom:4 }}>{bulkLine}</div>}
+                    <div style={{ fontSize:12, color:"var(--t2)", marginTop:2 }}>
+                      {p.isRest ? "Ресторан" : (isWeighted(p) ? `На развес · ${formatCartQty(p, p.qty)}` : (p.unit || "шт"))}
+                    </div>
+                    <div style={{ fontSize:12, color:"var(--t3)", marginTop:4, display:"flex", flexWrap:"wrap", alignItems:"baseline", gap:6 }}>
+                      {unitPrice.current < unitPrice.base && <span style={{ textDecoration:"line-through" }}>{unitPrice.base.toFixed(2)}</span>}
+                      {!(unitPrice.current < unitPrice.base) && p.old > p.price && <span style={{ textDecoration:"line-through" }}>{Number(p.old).toFixed(2)}</span>}
+                      <span style={{ fontWeight:800, color: (unitPrice.current < unitPrice.base || p.old > p.price) ? "var(--gr3)" : "var(--t2)" }}>{unitPrice.current.toFixed(2)} ЅМ</span>
+                      <span>/ {unitPrice.suffix}</span>
+                      {disc2 > 0 && <span className="bdg b-rd">−{disc2}%</span>}
+                    </div>
+                    {bulkLine && <div style={{ fontSize:12, fontWeight:700, marginTop:4, color: bulkLine.startsWith('Опт') ? "var(--gr3)" : "var(--org)" }}>{bulkLine}</div>}
+                    {outNow && <div style={{ fontSize:12, fontWeight:700, marginTop:4, color:"var(--red)" }}>Сейчас нет в наличии — уточним при сборке</div>}
                     {(itemBulk > 0 || itemSale > 0) && (
-                      <div style={{ fontSize:10, color:'var(--gr)', fontWeight:700, marginBottom:4, display:'flex', flexWrap:'wrap', gap:6 }}>
-                        {itemBulk > 0 && <span>📦 Опт −{itemBulk.toFixed(2)} ЅМ</span>}
-                        {itemSale > 0 && <span>🏷️ Акция −{itemSale.toFixed(2)} ЅМ</span>}
+                      <div style={{ fontSize:12, color:"var(--gr3)", fontWeight:700, marginTop:4, display:"flex", flexWrap:"wrap", gap:8 }}>
+                        {itemBulk > 0 && <span>Опт −{itemBulk.toFixed(2)} ЅМ</span>}
+                        {itemSale > 0 && <span>Акция −{itemSale.toFixed(2)} ЅМ</span>}
                       </div>
                     )}
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:10, marginTop:10 }}>
                       <div>
-                        {itemSaved > 0 && <div style={{ fontSize:10, color:'var(--t3)', textDecoration:'line-through', marginBottom:2 }}>{itemRetail.toFixed(2)} ЅМ</div>}
-                        <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:10, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+                        {itemSaved > 0 && <div style={{ fontSize:12, color:"var(--t3)", textDecoration:"line-through" }}>{itemRetail.toFixed(2)} ЅМ</div>}
+                        <span className="ub" style={{ fontSize:16, fontWeight:800, color:"var(--t1)" }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span></span>
                       </div>
-                      <div style={{ display:"flex", alignItems:"center", gap:0, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.25)", borderRadius:11, overflow:"hidden" }}>
-                        <button onClick={() => (isWeighted(p) ? p.qty <= (p.minWeight || 100) : p.qty===1) ? onDel(p.id) : onRm(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:(!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100)) ? "var(--red)" : "var(--gr)", background:"transparent", fontSize:16 }}>
-                          {((!isWeighted(p) && p.qty===1) || (isWeighted(p) && p.qty <= (p.minWeight || p.weightStep || 100))) ? <Ic n="trash" s={13} c="var(--red)"/> : "−"}
+                      <div className="p-qty" style={{ width:"auto", minWidth:120, justifyContent:"space-between" }}>
+                        <button type="button" onClick={() => atMin ? onDel(p.id) : onRm(p.id)} aria-label={atMin ? `Удалить «${p.name}»` : `Уменьшить количество «${p.name}»`}>
+                          {atMin ? <Ic n="trash" s={15} c="var(--red)"/> : "−"}
                         </button>
-                        <span className="ub" style={{ minWidth:36, textAlign:"center", fontSize:12, fontWeight:800, color:"var(--gr)" }}>{isWeighted(p) ? formatCartQtyStepper(p, p.qty) : p.qty}</span>
-                        <button onClick={() => onAdd(p.id)} className="btn" style={{ width:33, height:33, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--gr)", background:"transparent", fontSize:18 }}>+</button>
+                        <span>{isWeighted(p) ? formatCartQtyStepper(p, p.qty) : p.qty}</span>
+                        <button type="button" onClick={() => onAdd(p.id)} aria-label={`Увеличить количество «${p.name}»`}>+</button>
                       </div>
                     </div>
                   </div>
@@ -2190,58 +2697,59 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
               );
             })}
           </div>
-            </div>
-      )}
-      {items.length > 0 && (
-        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:210, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"12px 18px calc(14px + env(safe-area-inset-bottom, 0px))" }}>
-          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
-            {retailSub > sub && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--t3)", marginBottom:6 }}>
-                <span>Без скидок</span>
-                <span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
-          </div>
-            )}
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bulkSaved > 0 || saleSaved > 0 ? 6 : 0 }}>
-              <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
-              <span style={{ fontWeight:700 }}>{sub.toFixed(2)} ЅМ</span>
-            </div>
-            {bulkSaved > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
-                <span>Оптовая скидка</span>
-                <span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2)} ЅМ</span>
-          </div>
-            )}
-            {saleSaved > 0 && (
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"var(--gr)", marginBottom:4 }}>
-                <span>Скидка по акции</span>
-                <span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
         </div>
       )}
+      {items.length > 0 && (
+        <div className="store-sticky-bar">
+          <div style={{ marginBottom:10, padding:"12px", borderRadius:14, background:"var(--l3)", border:"1px solid var(--b1)" }}>
+            {retailSub > sub && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t3)", marginBottom:6 }}>
+                <span>Без скидок</span><span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}>
+              <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
+              <span style={{ fontWeight:700, color:"var(--t1)" }}>{sub.toFixed(2)} ЅМ</span>
+            </div>
+            {bulkSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--gr3)", marginTop:4 }}>
+                <span>Оптовая скидка</span><span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            {saleSaved > 0 && (
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--gr3)", marginTop:4 }}>
+                <span>Скидка по акции</span><span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
+              </div>
+            )}
+            <div style={{ display:"flex", justifyContent:"space-between", gap:10, fontSize:12, color:"var(--t2)", marginTop:4 }}>
+              <span>Доставка</span>
+              <span style={{ color:"var(--t2)", textAlign:"right" }}>Рассчитаем при оформлении после выбора адреса</span>
+            </div>
             {totalSaved > 0 && (
-              <div style={{ marginTop:6, padding:"8px 10px", borderRadius:9, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", fontSize:12, fontWeight:800, color:"var(--gr)" }}>
-                🎉 Вы сэкономили {totalSaved.toFixed(2)} ЅМ
-          </div>
+              <div style={{ marginTop:8, padding:"8px 10px", borderRadius:10, background:"var(--gr-soft)", border:"1px solid rgba(7,136,61,.2)", fontSize:12, fontWeight:800, color:"var(--gr3)" }}>
+                Вы сэкономили {totalSaved.toFixed(2)} ЅМ
+              </div>
             )}
             <div style={{ height:1, background:"var(--b1)", margin:"10px 0 8px" }}/>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
-              <span style={{ fontSize:13, fontWeight:700 }}>Итого</span>
-              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{total.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
+              <span style={{ fontSize:13, fontWeight:700, color:"var(--t1)" }}>Итого</span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900, color:"var(--t1)" }}>{total.toFixed(2)} <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
           </div>
-          <button onClick={() => go("checkout")} className="btn" style={{ width:"100%", padding:"14px 12px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, boxShadow:"0 6px 20px rgba(31,215,96,.28)" }}>
-            <Ic n="bag" s={18} c="white"/>Оформить · {tqty} поз.
+          <button type="button" onClick={() => go("checkout")} className="btn store-btn store-btn-primary store-btn-block" style={{ minHeight:52 }}>
+            <Ic n="bag" s={18} c="white"/>Оформить заказ · {tqty} поз.
           </button>
         </div>
       )}
+      <Nav page="catalog" go={go} user={user}/>
     </div>
   );
 };
-
 const CHECKOUT_PAYS_BASE = [
   { id: 'cash', icon: '💵', label: 'Наличными', sub: 'Курьеру при получении' },
 ];
 const CHECKOUT_TIMES = [
-  { id: 'asap', l: 'Как можно скорее', s: '~45 мин' },
+  { id: 'asap', l: 'Как можно скорее', s: 'Время доставки сообщим после сборки' },
 ];
 
 function CheckoutField({ label, value, onChange, err }) {
@@ -2268,8 +2776,8 @@ function CheckoutRadio({ items, val, set }) {
           onClick={() => set(m.id)}
           style={{
             display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 13,
-            background: val === m.id ? 'rgba(31,215,96,.08)' : 'var(--l3)',
-            border: `1.5px solid ${val === m.id ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`,
+            background: val === m.id ? 'var(--gr-soft)' : 'var(--l3)',
+            border: `1.5px solid ${val === m.id ? 'var(--gr)' : 'var(--b1)'}`,
             cursor: 'pointer', transition: 'all .2s',
           }}
         >
@@ -2286,9 +2794,6 @@ function CheckoutRadio({ items, val, set }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: val === m.id ? 'var(--gr)' : 'var(--t1)' }}>{m.l || m.label}</div>
             <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>{m.s || m.sub}</div>
           </div>
-          {m.id === 'asap' && (
-            <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 8, background: 'rgba(31,215,96,.12)', color: 'var(--gr)' }}>~45 мин</span>
-          )}
         </div>
       ))}
     </div>
@@ -2306,7 +2811,7 @@ function CheckoutSec({ icon, color, title }) {
   );
 }
 
-const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) => {
+const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: any) => {
   const { prods, restaurants } = useLiveCatalog();
   const createOrder = useOrders(s => s.createOrder);
   const [step,  setStep]  = useState("form");
@@ -2331,11 +2836,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const [clientLat, setClientLat] = useState(0);
   const [clientLng, setClientLng] = useState(0);
   const [savedAddrs, setSavedAddrs] = useState([]);
+  const [comment, setComment] = useState("");
   const [addrEditorOpen, setAddrEditorOpen] = useState(false);
   const [addrEditorEdit, setAddrEditorEdit] = useState(null);
   const [addrEditorSession, setAddrEditorSession] = useState(0);
   const checkoutFooterRef = useRef(null);
   const submitLockRef = useRef(false);
+  const orderSubmitClientRef = useRef<string | null>(null);
   const [checkoutFooterPad, setCheckoutFooterPad] = useState(160);
 
   useLayoutEffect(() => {
@@ -2441,13 +2948,13 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
   const useCreditPay = pay === 'credit';
   const effectiveDelivery = deliveryFee;
   const orderTotal = sub + effectiveDelivery;
-  const bonusUsable = useBonus ? getBonusUsable(user, sub) : 0;
+  const bonusUsable = STORE_BONUS_CREDIT_ENABLED && useBonus ? getBonusUsable(user, sub) : 0;
   const payable = Math.max(0, Math.round((orderTotal - bonusUsable) * 100) / 100);
   const creditGoods = useCreditPay ? Math.max(0, Math.round((payable - effectiveDelivery) * 100) / 100) : 0;
 
   const payOptions = useMemo(() => {
     const opts = [...CHECKOUT_PAYS_BASE];
-    if (credit.enabled && credit.available > 0) {
+    if (STORE_BONUS_CREDIT_ENABLED && credit.enabled && credit.available > 0) {
       opts.push({
         id: 'credit',
         icon: '👑',
@@ -2496,6 +3003,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     submitLockRef.current = true;
     setLoading(true);
     setSubmitErr("");
+    if (!orderSubmitClientRef.current) orderSubmitClientRef.current = newClientRef();
 
     const hasMarket = prodItems.length > 0;
     const hasRest = restItems.length > 0;
@@ -2537,12 +3045,14 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       comment: [
         pay === 'credit' ? 'VIP-кредит: товары в долг, доставка наличными' : bonusUsable > 0 ? `Списано бонусов: ${bonusUsable}` : '',
         selectedSavedAddr?.comment?.trim(),
+        comment.trim(),
       ].filter(Boolean).join(' · '),
       payment_method: pay,
       pay,
       creditAmount: useCreditPay ? creditGoods : undefined,
       vip: !!user?.vip,
       bonusSpent: bonusUsable > 0 ? bonusUsable : 0,
+      clientRef: orderSubmitClientRef.current,
     };
 
     let order = null;
@@ -2597,7 +3107,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
 
   if (step === "ok") return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"32px 24px", textAlign:"center" }}>
-      <div style={{ width:90, height:90, borderRadius:"50%", background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 60px rgba(31,215,96,.5)", marginBottom:24, animation:"successPop .6s cubic-bezier(.16,1,.3,1)" }}>
+      <div style={{ width:90, height:90, borderRadius:"50%", background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"none", marginBottom:24, animation:"successPop .6s cubic-bezier(.16,1,.3,1)" }}>
         <Ic n="check" s={44} c="white" w={2.5}/>
       </div>
       <div className="ub" style={{ fontSize:24, fontWeight:900, marginBottom:6 }}>Заказ принят!</div>
@@ -2610,7 +3120,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:`~${deliveryMin || 45} минут`,c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:deliveryMin > 0 ? `в пути ~${Math.round(deliveryMin)} мин после сборки` : "Сообщим после сборки",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -2618,7 +3128,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           </div>
         ))}
       </div>
-      <button onClick={() => go("orders")} className="btn" style={{ width:"100%", padding:"15px", fontSize:14, borderRadius:17, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", marginBottom:10 }}>Мои заказы</button>
+      <button onClick={() => go("orders")} className="btn" style={{ width:"100%", padding:"15px", fontSize:14, borderRadius:17, background:"var(--gr)", color:"white", marginBottom:10 }}>Мои заказы</button>
       <button onClick={() => go("home")} className="btn" style={{ width:"100%", padding:"14px", fontSize:13, borderRadius:17, background:"var(--l2)", border:"1px solid var(--b1)", color:"var(--t2)" }}>На главную</button>
     </div>
   );
@@ -2627,11 +3137,28 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("cart")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("cart", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:16, fontWeight:900 }}>Оформление заказа</div>
         </div>
       </header>
       <div style={{ padding:`14px 18px ${checkoutFooterPad}px` }}>
+        <div className="card" style={{ padding:"18px", marginBottom:13 }}>
+          <CheckoutSec icon="bag" color="var(--gr)" title={`Ваш заказ · ${ruCount(items.length, "позиция", "позиции", "позиций")}`}/>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {items.map((it, i) => (
+              <div key={it.id || i} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0, overflow:"hidden" }}>
+                  {it.photo ? <img src={it.photo} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : (it.e || "🛒")}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</div>
+                  <div style={{ fontSize:11, color:"var(--t2)" }}>{isWeighted(it) ? formatCartQty(it, it.qty) : `× ${it.qty}`}</div>
+                </div>
+                <div className="ub" style={{ fontSize:13, fontWeight:800, flexShrink:0 }}>{calcLineTotal(it, it.qty).toFixed(2)} ЅМ</div>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="card" style={{ padding:"18px", marginBottom:13 }}>
           <CheckoutSec icon="user" color="var(--gr)" title="Получатель"/>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -2663,7 +3190,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
                       <button onClick={() => pickSavedAddr(a)} className="btn"
                         style={{ padding:"10px 14px", paddingRight: 36, borderRadius:12, textAlign:"left",
                           border:`1.5px solid ${active ? "var(--gr)" : "var(--b1)"}`,
-                          background: active ? "rgba(31,215,96,.1)" : "var(--l2)", minWidth:140 }}>
+                          background: active ? "var(--gr-soft)" : "var(--l2)", minWidth:140 }}>
                         <div style={{ fontSize:12, fontWeight:800, color: active ? "var(--gr)" : "var(--t1)", marginBottom:2 }}>{a.label}</div>
                         <div style={{ fontSize:11, color:"var(--t2)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{line}</div>
                       </button>
@@ -2686,7 +3213,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
         </div>
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <button type="button" onClick={() => openCheckoutAddrEditor(null)} className="btn"
-                  style={{ flex: 1, minWidth: 120, padding: "8px 12px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "rgba(31,215,96,.1)", border: "1px solid rgba(31,215,96,.3)", color: "var(--gr)" }}>
+                  style={{ flex: 1, minWidth: 120, padding: "8px 12px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "var(--gr-soft)", border: "1px solid rgba(7,136,61,.3)", color: "var(--gr)" }}>
                   + Добавить адрес
                 </button>
                 {selectedSavedAddr && (
@@ -2699,7 +3226,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             </div>
           ) : (
             <button type="button" onClick={() => openCheckoutAddrEditor(null)} className="btn"
-              style={{ width: "100%", marginBottom: 12, padding: "12px 14px", borderRadius: 12, fontSize: 13, fontWeight: 700, background: "rgba(31,215,96,.1)", border: "1.5px solid rgba(31,215,96,.3)", color: "var(--gr)" }}>
+              style={{ width: "100%", marginBottom: 12, padding: "12px 14px", borderRadius: 12, fontSize: 13, fontWeight: 700, background: "var(--gr-soft)", border: "1.5px solid rgba(7,136,61,.3)", color: "var(--gr)" }}>
               + Добавить адрес на карте
             </button>
           )}
@@ -2758,16 +3285,16 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           <CheckoutSec icon="card" color="var(--blue)" title="Оплата"/>
           <CheckoutRadio items={payOptions} val={pay} set={setPay}/>
           {pay === 'credit' && (
-            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.25)', fontSize: 11, color: 'var(--gd)', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(233,174,0,.14)', border: '1px solid rgba(233,174,0,.25)', fontSize: 11, color: 'var(--t2)', lineHeight: 1.5 }}>
               Товары {creditGoods.toFixed(2)} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2)} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
         </div>
           )}
         </div>
-        {(user?.bonus || 0) > 0 && (
+        {STORE_BONUS_CREDIT_ENABLED && (user?.bonus || 0) > 0 && (
         <div className="card" style={{
           padding:"16px", marginBottom:13, display:"flex", alignItems:"center", justifyContent:"space-between",
-          background: useBonus ? 'rgba(255,184,0,.12)' : 'rgba(255,184,0,.06)',
-          border: `1px solid ${useBonus ? 'rgba(255,184,0,.35)' : 'rgba(255,184,0,.2)'}`,
+          background: useBonus ? 'rgba(233,174,0,.12)' : 'rgba(233,174,0,.06)',
+          border: `1px solid ${useBonus ? 'rgba(233,174,0,.35)' : 'rgba(233,174,0,.2)'}`,
         }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <span style={{ fontSize:22 }}>⭐</span>
@@ -2775,7 +3302,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
               <div style={{ fontSize:14, fontWeight:800, color:'var(--t1)' }}>Списать бонусы</div>
               <div style={{ fontSize:12, marginTop:4, color:'var(--t2)', lineHeight:1.45 }}>
                 Баланс:{' '}
-                <span style={{ color:'var(--gd)', fontWeight:800 }}>{(user.bonus || 0).toLocaleString()}</span>
+                <span style={{ color:'var(--t2)', fontWeight:800 }}>{(user.bonus || 0).toLocaleString()}</span>
                 {' · '}можно списать до{' '}
                 <span style={{ color:'var(--gr)', fontWeight:800 }}>−{getBonusUsable(user, sub)} ЅМ</span>
           </div>
@@ -2785,8 +3312,22 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
       </div>
         )}
     </div>
-      <div ref={checkoutFooterRef} style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:'var(--store-w)', zIndex:90, background:"var(--header-bg)", backdropFilter:"blur(26px)", borderTop:"1px solid var(--b1)", padding:"13px 18px calc(28px + env(safe-area-inset-bottom, 0px))" }}>
-        {addrReady && (
+        <div className="card" style={{ padding:"18px", marginBottom:13 }}>
+          <CheckoutSec icon="bag" color="var(--gr)" title="Комментарий к заказу"/>
+          <label className="store-label" htmlFor="checkout-comment">Курьеру или сборщику (необязательно)</label>
+          <textarea
+            id="checkout-comment"
+            className="inp"
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            rows={3}
+            maxLength={400}
+            placeholder="Например: позвоните перед приездом"
+            style={{ width:"100%", resize:"vertical", minHeight:88, lineHeight:1.5 }}
+          />
+        </div>
+      <div ref={checkoutFooterRef} className="store-sticky-bar store-sticky-nonav" style={{ padding:"13px 16px calc(16px + env(safe-area-inset-bottom, 0px))" }}>
+        {items.length > 0 && (
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
               <span style={{ color: 'var(--t2)' }}>Товары</span>
@@ -2815,23 +3356,23 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
             )}
             {bonusUsable > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom: 6, fontWeight:700 }}>
-                <span style={{ color: 'var(--gd)' }}>⭐ Бонусы</span>
+                <span style={{ color: 'var(--t2)' }}>⭐ Бонусы</span>
                 <span style={{ color: 'var(--gr)' }}>−{bonusUsable} ЅМ</span>
     </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
               <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : '💵 К оплате'}</span>
-              <span className="ub" style={{ color:"var(--gd)" }}>{payable.toFixed(2)} ЅМ</span>
+              <span className="ub" style={{ color:"var(--t2)" }}>{payable.toFixed(2)} ЅМ</span>
       </div>
       </div>
         )}
         {prodItems.length > 0 && restItems.length > 0 && (
-          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.2)", fontSize:12, color:"var(--t2)", textAlign:"center" }}>
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(37,99,235,.08)", border:"1px solid rgba(37,99,235,.2)", fontSize:12, color:"var(--t2)", textAlign:"center" }}>
             📦 Один заказ · сборщик соберёт товары, ресторан приготовит блюда
       </div>
         )}
         {submitErr && (
-          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"rgba(255,69,69,.1)", border:"1px solid rgba(255,69,69,.3)", fontSize:12, color:"#FF4545", textAlign:"center" }}>
+          <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--red-soft)", border:"1px solid rgba(195,52,52,.3)", fontSize:12, color:"var(--red)", textAlign:"center" }}>
             ⚠️ {submitErr}
           </div>
         )}
@@ -2842,7 +3383,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }) =
           className="btn"
           style={{
             width:"100%", padding:"15px", fontSize:15, borderRadius:17,
-            background: loading ? "var(--l3)" : "linear-gradient(135deg,var(--gr2),var(--gr))",
+            background: loading ? "var(--l3)" : "var(--gr)",
             color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:10,
             opacity: loading ? 0.85 : 1, cursor: loading ? "not-allowed" : "pointer",
             pointerEvents: loading ? "none" : "auto",
@@ -2874,7 +3415,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width: 44, height: 44, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}><Ic n="arrL" s={17} c="var(--t2)" /></button>
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Корзина</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>Загрузка…</div>
@@ -2882,15 +3423,15 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
       </div>
       </header>
       <div style={{ padding: "48px 24px", textAlign: "center" }}>
-        <div style={{ width: 36, height: 36, margin: "0 auto", borderRadius: "50%", border: "3px solid rgba(31,215,96,.2)", borderTopColor: "var(--gr)", animation: "spin 0.8s linear infinite" }} />
+        <div style={{ width: 36, height: 36, margin: "0 auto", borderRadius: "50%", border: "3px solid rgba(7,136,61,.2)", borderTopColor: "var(--gr)", animation: "spin 0.8s linear infinite" }} />
       </div>
     </div>
   );
 }
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }: any) => {
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
+  const trackClientOrders = useOrders(s => s.trackClientOrders);
   const pendingBonusSyncCount = useMemo(
     () => (user?.phone ? deliveredOrdersNeedingBonusSync(user.phone, apiOrders).length : 0),
     [user?.phone, apiOrders],
@@ -2936,7 +3477,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     const orders = useOrders.getState().orders
 
     void (async () => {
-      if (USE_API) await fetchOrders().catch(() => {})
+      if (USE_API) await trackClientOrders(phone).catch(() => {})
       const freshOrders = USE_API ? useOrders.getState().orders : orders
       const skipLoyaltyRecalc = isManualLoyaltyActive(user, user?.level)
       if (!skipLoyaltyRecalc) {
@@ -2947,7 +3488,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     })()
 
     return () => { cancelled = true }
-  }, [user?.phone, user?.card, pendingBonusSyncCount, setUser, fetchOrders])
+  }, [user?.phone, user?.card, pendingBonusSyncCount, setUser, trackClientOrders])
 
   useEffect(() => {
     const phone = getActiveClientPhone(user);
@@ -2980,11 +3521,32 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
   if (!sessionReady) return <StoreSessionBoot />;
 
   if (!user) return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center" }}>
-      <div style={{ fontSize:60, marginBottom:16, animation:"float 3s ease-in-out infinite" }}>👤</div>
-      <div className="ub" style={{ fontSize:20, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
-      <div style={{ fontSize:13, color:"var(--t2)", marginBottom:24, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
-      <button onClick={() => go("auth")} className="btn" style={{ padding:"14px 32px", borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:14, fontWeight:800 }}>📱 Войти по номеру телефона</button>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
+      <Header title="Профиль" go={go} cart={{}} user={user} hideSearch/>
+      <div className="store-page-pad" style={{ padding:"20px 16px 0" }}>
+        <div className="card" style={{ padding:"26px 20px", textAlign:"center" }}>
+          <div style={{ fontSize:52, marginBottom:12, animation:"float 3s ease-in-out infinite" }} aria-hidden="true">👤</div>
+          <div className="ub" style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>Войдите в аккаунт</div>
+          <div style={{ fontSize:13, color:"var(--t2)", marginBottom:20, lineHeight:1.6 }}>Войдите по номеру телефона — бонусы, заказы и персональные предложения</div>
+          <button type="button" onClick={() => go("auth")} className="btn store-btn store-btn-primary" style={{ width:"100%", padding:"14px 20px", fontSize:14 }}>
+            <Ic n="phone" s={16} c="#fff"/> Войти по номеру телефона
+          </button>
+        </div>
+        <div className="store-sec-head"><div className="ub store-sec-title">Доступно без входа</div></div>
+        <div className="store-tile-grid">
+          {[
+            { l: "Каталог", e: "🛒", to: "catalog" },
+            { l: "Акции", e: "%", to: "promos" },
+            { l: "Рестораны", e: "🍽", to: "restaurants" },
+            { l: "О нас", e: "ℹ️", to: "about" },
+          ].map(x => (
+            <button key={x.to} type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--l2)" }} onClick={() => go(x.to)}>
+              <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">{x.e}</span></span>
+              <span className="cat-tile-label">{x.l}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <Nav page="profile" go={go} user={user}/>
     </div>
   );
@@ -3078,20 +3640,20 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             <div style={{
               width:56, height:56, borderRadius:16, flexShrink:0, position:'relative',
               background: loyalty.isVip
-                ? 'linear-gradient(135deg,#FFD700,#FFB800,#E89E00)'
+                ? 'linear-gradient(135deg,#E9AE00,#E0A400,#C98F00)'
                 : `linear-gradient(135deg,${profileTheme.accent},${profileTheme.accent}99)`,
               display:"flex", alignItems:"center", justifyContent:"center",
-              boxShadow: loyalty.isVip ? '0 4px 20px rgba(255,184,0,.45)' : `0 4px 16px ${profileTheme.glow}`,
+              boxShadow: loyalty.isVip ? '0 4px 20px rgba(233,174,0,.45)' : `0 4px 16px ${profileTheme.glow}`,
             }}>
-              <span style={{ fontFamily:"Unbounded", fontSize:22, fontWeight:900, color: loyalty.isVip ? '#1a1000' : 'var(--bg)' }}>
+              <span style={{ fontFamily:"Unbounded", fontSize:22, fontWeight:900, color: loyalty.isVip ? '#3A2A00' : 'var(--bg)' }}>
                 {user.name.charAt(0)}
               </span>
               {loyalty.isVip && (
                 <div style={{
                   position:'absolute', top:-4, right:-4, width:22, height:22, borderRadius:8,
-                  background:'linear-gradient(135deg,#FFD700,#FFB800)', border:'2px solid var(--bg)',
+                  background:'linear-gradient(135deg,#E9AE00,#E0A400)', border:'2px solid var(--bg)',
                   display:'flex', alignItems:'center', justifyContent:'center', fontSize:11,
-                  boxShadow:'0 2px 8px rgba(255,184,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
+                  boxShadow:'0 2px 8px rgba(233,174,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
                 }}>👑</div>
               )}
           </div>
@@ -3133,14 +3695,14 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           <div style={{
             display:"flex", alignItems:"center", justifyContent:"space-between", gap:8,
             padding:"12px 14px", borderRadius:14, marginBottom:10,
-            background:"linear-gradient(135deg, rgba(0,212,200,.14), rgba(0,212,200,.05))",
-            border:"1px solid rgba(0,212,200,.3)",
+            background:"linear-gradient(135deg, rgba(14,116,144,.14), rgba(14,116,144,.05))",
+            border:"1px solid rgba(14,116,144,.3)",
           }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <span style={{ fontSize:18 }}>⭐</span>
               <div>
                 <div style={{ fontSize:13, fontWeight:800, color:"var(--t1)" }}>Бонусы</div>
-                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 сом · магазин и приложение</div>
+                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 ЅМ · магазин и приложение</div>
               </div>
             </div>
             <div className="bank-num" style={{ fontSize:22, fontWeight:900, color:profileTheme.accent }} title={bonusBank}>
@@ -3148,7 +3710,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             </div>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:8 }}>
-            <div style={{ padding:"10px 6px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0, overflow:"hidden" }}>
+            <div style={{ padding:"10px 6px", borderRadius:12, background:"var(--gr-soft)", border:"1px solid rgba(7,136,61,.2)", textAlign:"center", minWidth:0, overflow:"hidden" }}>
               <div className="bank-num" style={{ fontSize:16, color:"var(--gr)" }}>{orderCount}</div>
               <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
               </div>
@@ -3158,8 +3720,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               className="btn"
               style={{
                 padding:"10px 6px", borderRadius:12, minWidth:0, overflow:"hidden",
-                background: wishCount > 0 ? "rgba(255,69,69,.08)" : "var(--l3)",
-                border: `1px solid ${wishCount > 0 ? "rgba(255,69,69,.25)" : "var(--b1)"}`,
+                background: wishCount > 0 ? "rgba(195,52,52,.08)" : "var(--l3)",
+                border: `1px solid ${wishCount > 0 ? "rgba(195,52,52,.25)" : "var(--b1)"}`,
                 textAlign:"center", cursor:"pointer",
               }}
             >
@@ -3191,13 +3753,15 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               <div style={{
                 width:220, height:220, margin:"0 auto 14px", borderRadius:18, padding:12,
                 background:"#fff", display:"flex", alignItems:"center", justifyContent:"center",
-                boxShadow:"0 8px 28px rgba(0,0,0,.35)",
+                boxShadow:"none",
               }}>
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=196x196&margin=0&ecc=M&data=${encodeURIComponent(user.card)}`}
-                  alt={`QR ${user.card}`}
-                  width={196}
-                  height={196}
+                <QRCodeSVG
+                  value={String(user.card || "")}
+                  size={196}
+                  level="M"
+                  marginSize={0}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
                   style={{ display:"block", borderRadius:8 }}
                 />
               </div>
@@ -3215,7 +3779,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 style={{
                   width:"100%", padding:13, borderRadius:14, fontWeight:800, fontSize:13,
                   background:`linear-gradient(135deg,${profileTheme.accent},${profileTheme.accent}cc)`,
-                  color: loyalty.isVip ? "#1a1000" : "var(--bg)",
+                  color: loyalty.isVip ? "#3A2A00" : "var(--bg)",
                 }}
               >
                 Закрыть
@@ -3242,7 +3806,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
         </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
                 {item.badge ? (
-                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : item.icon === "card" ? "rgba(255,69,69,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" || item.icon === "card" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" || item.icon === "card" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
+                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(195,52,52,.12)" : item.icon === "crown" ? "rgba(233,174,0,.12)" : item.icon === "card" ? "rgba(195,52,52,.12)" : "rgba(37,99,235,.12)", color:item.icon === "bell" || item.icon === "card" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" || item.icon === "card" ? "rgba(195,52,52,.25)" : item.icon === "crown" ? "rgba(233,174,0,.3)" : "rgba(37,99,235,.25)"}` }}>
                     {item.icon === "bell" ? String(item.badge) : item.badge === "VIP" ? "VIP" : item.badge === "долг" ? "долг" : "ответ"}
                   </span>
                 ) : null}
@@ -3252,7 +3816,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               ))}
             </div>
 
-        <div className="card" style={cardAccent}>
+        {STORE_ACCOUNT_DELETE_ENABLED && <div className="card" style={cardAccent}>
           {confirmDelete ? (
             <div style={{ padding:"14px" }}>
               <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
@@ -3308,7 +3872,7 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               }}
               style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer", opacity:(Number(user?.debt) || 0) > 0.001 ? .65 : 1 }}
             >
-              <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <div style={{ width:34, height:34, borderRadius:10, background:"rgba(195,52,52,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
                 <Ic n={(Number(user?.debt) || 0) > 0.001 ? "card" : "trash"} s={16} c="var(--red)"/>
       </div>
               <div style={{ flex:1 }}>
@@ -3319,11 +3883,11 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="card" style={cardAccent}>
           <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
-            <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ width:34, height:34, borderRadius:10, background:"rgba(195,52,52,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
               <Ic n="logout" s={16} c="var(--red)"/>
                 </div>
             <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div>
@@ -3381,9 +3945,8 @@ function OrderReviewModal({
   const canSubmit = targets.every(t => (drafts[t.restId]?.rating || 0) > 0)
   const mood = ['', '😤 Плохо', '😕 Так себе', '😐 Нормально', '😊 Хорошо', '🤩 Отлично!']
   return (
-    <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div onClick={onClose} style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.8)", backdropFilter:"blur(8px)" }}/>
-      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:'var(--store-w)', maxHeight:"88vh", overflowY:"auto", background:"var(--l1)", borderTop:"1px solid var(--b1)", borderRadius:"24px 24px 0 0", padding:"20px 20px 36px", animation:"slideUp .4s cubic-bezier(.16,1,.3,1)" }}>
+    <div className="store-sheet-backdrop" style={{ zIndex: 300 }} onClick={onClose}>
+      <div className="store-sheet" onClick={e => e.stopPropagation()} style={{ padding: "20px 20px calc(36px + env(safe-area-inset-bottom, 0px))" }}>
         <div style={{ width:40, height:4, borderRadius:2, background:"var(--b2)", margin:"0 auto 16px" }}/>
         <div style={{ fontSize:16, fontWeight:800, textAlign:"center", marginBottom:4 }}>Оцените заказ</div>
         <div style={{ fontSize:12, color:"var(--t2)", textAlign:"center", marginBottom:16 }}>Заказ {order.id}</div>
@@ -3397,18 +3960,18 @@ function OrderReviewModal({
               <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:6 }}>
                 {[1,2,3,4,5].map(i => (
                   <svg key={i} width={32} height={32} viewBox="0 0 24 24" style={{ cursor:"pointer" }} onClick={() => onRating(target.restId, i)}>
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=draft.rating?"#FFB800":"rgba(255,184,0,.12)"} stroke="#FFB800" strokeWidth={1}/>
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill={i<=draft.rating?"#E0A400":"rgba(233,174,0,.12)"} stroke="#E0A400" strokeWidth={1}/>
                   </svg>
                 ))}
               </div>
-              <div style={{ textAlign:"center", fontSize:12, color:"var(--gd)", fontWeight:700, marginBottom:10, minHeight:18 }}>
+              <div style={{ textAlign:"center", fontSize:12, color:"var(--t2)", fontWeight:700, marginBottom:10, minHeight:18 }}>
                 {mood[draft.rating] || ''}
               </div>
               <textarea className="inp" value={draft.text} onChange={e => onText(target.restId, e.target.value)} placeholder={placeholder} rows={2} style={{ width:"100%", resize:"vertical" }}/>
             </div>
           )
         })}
-        <button onClick={onSubmit} disabled={submitting || !canSubmit} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:canSubmit && !submitting?1:.5 }}>
+        <button onClick={onSubmit} disabled={submitting || !canSubmit} className="btn" style={{ width:"100%", padding:"14px", fontSize:14, borderRadius:15, background:"var(--gr)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:canSubmit && !submitting?1:.5 }}>
           <Ic n="star" s={16} c="white"/>{submitting ? "Отправка…" : targets.length > 1 ? "Отправить все отзывы" : "Отправить отзыв"}
         </button>
       </div>
@@ -3416,15 +3979,18 @@ function OrderReviewModal({
   )
 }
 
-const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
+const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }: any) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
   const pickups = usePickups();
   const assemblers = useAssemblerTeam();
   const ordersList = useMemo(() => {
-    const mine = phoneDigits(user?.phone || getActiveClientPhone(user) || '');
+    const activePhone = user?.phone || getActiveClientPhone(user) || '';
+    const mine = phoneDigits(activePhone);
     if (!mine) return [];
-    const fromApi = mapOrdersForClient(filterOrdersForStoreUser(apiOrders, user), user);
+    // Гость без аккаунта: заказы принадлежат телефону, а не StoreUser — даём трекингу «профиль» по телефону.
+    const owner = user?.phone ? user : { phone: activePhone, name: 'Клиент', level: 'basic' as const, bonus: 0 };
+    const fromApi = mapOrdersForClient(filterOrdersForStoreUser(apiOrders, owner), owner);
     if (USE_API) return fromApi;
     const demoStatic = ORDERS_LIST.filter(o => phoneDigits(o.phone || '') === mine);
     const byId = new Map<string, typeof fromApi[0]>();
@@ -3442,14 +4008,13 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft>>({});
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showRev, setShowRev] = useState(null);
-  const [step, setStep] = useState(1);
+  const step = 2;
   useEffect(() => {
     const oid = params?.orderId || params?.id
     if (!oid) return
     const o = ordersList.find(x => x.id === oid)
     if (o) setSelected(o)
   }, [params?.orderId, params?.id, ordersList])
-  useEffect(() => { if (step < 3) { const t = setTimeout(() => setStep(s => s+1), 8000); return () => clearTimeout(t); } }, [step]);
   useEffect(() => {
     if (!user?.phone) {
       setReviewed({});
@@ -3600,28 +4165,28 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
         {selected.status==="assembling" && (
-          <div style={{ padding:"16px", borderRadius:16, background:"rgba(155,109,255,.08)", border:"1px solid rgba(155,109,255,.25)", marginBottom:16 }}>
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(124,58,237,.08)", border:"1px solid rgba(124,58,237,.25)", marginBottom:16 }}>
             <div style={{ fontSize:13, fontWeight:700, color:"var(--pur)", marginBottom:6 }}>📦 Заказ собирается</div>
             <div style={{ fontSize:12, color:"var(--t2)" }}>Сборщик комплектует ваш заказ. Курьер получит его после сборки.</div>
           </div>
         )}
         {selected.status==="cooking" && (
-          <div style={{ padding:"16px", borderRadius:16, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.25)", marginBottom:16 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)", marginBottom:6 }}>👨‍🍳 Ресторан готовит заказ</div>
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(233,174,0,.14)", border:"1px solid rgba(233,174,0,.25)", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:6 }}>👨‍🍳 Ресторан готовит заказ</div>
             <div style={{ fontSize:12, color:"var(--t2)" }}>Когда блюда будут готовы — курьер заберёт заказ из ресторана.</div>
           </div>
         )}
         {selected.status==="waiting_courier" && (
-          <div style={{ padding:"16px", borderRadius:16, background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.25)", marginBottom:16 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)", marginBottom:6 }}>{selected.orderType === 'restaurant' ? '✅ Заказ готов' : '✅ Заказ собран'}</div>
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(233,174,0,.14)", border:"1px solid rgba(233,174,0,.25)", marginBottom:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:6 }}>{selected.orderType === 'restaurant' ? '✅ Заказ готов' : '✅ Заказ собран'}</div>
             <div style={{ fontSize:12, color:"var(--t2)" }}>{selected.orderType === 'restaurant' ? 'Ресторан передал заказ. Ждём курьера — когда он примет заказ, здесь появится карта.' : 'Ждём курьера. Когда он примет заказ — здесь появится карта отслеживания.'}</div>
           </div>
         )}
         {selected.status==="delivering" && (
-          <div style={{ padding:"16px", borderRadius:16, background:"rgba(59,142,240,.06)", border:"1px solid rgba(59,142,240,.2)", marginBottom:16 }}>
+          <div style={{ padding:"16px", borderRadius:16, background:"rgba(37,99,235,.06)", border:"1px solid rgba(37,99,235,.2)", marginBottom:16 }}>
             <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}>
               <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative" }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
-              <span style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер едет · {selected.eta}</span>
+              <span style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер едет{selected.eta ? ` · ${selected.eta}` : ''}</span>
             </div>
             <div style={{ display:"flex", alignItems:"center", marginBottom:14 }}>
               {["Принят","Собирается","В пути","Доставлен"].map((l,i) => (
@@ -3636,18 +4201,12 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 </div>
               ))}
             </div>
-            <div style={{ height:80, borderRadius:12, background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
-              <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(59,142,240,1) 16px,rgba(59,142,240,1) 17px)" }}/>
-              <div style={{ position:"absolute", right:"15%", top:"30%", fontSize:18 }}>🏠</div>
-              <div style={{ position:"absolute", left:"25%", top:"35%", fontSize:16 }}>🛵</div>
-              <div style={{ position:"absolute", bottom:7, left:10, fontSize:9, color:"rgba(255,255,255,.4)" }}>г. Яван · Live tracking</div>
-            </div>
           </div>
         )}
         {(selected.status==="delivered" || selected.status==="pos_sale") && (
-          <div style={{ padding:"14px 16px", borderRadius:16, background:"rgba(31,215,96,.07)", border:"1px solid rgba(31,215,96,.25)", display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
-            <div style={{ width:38, height:38, borderRadius:11, background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="check" s={20} c="var(--gr)" w={2.5}/></div>
-            <div><div style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>Заказ доставлен!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Начислено <span style={{ color:"var(--gd)", fontWeight:700 }}>+{selected.bonus} бонусов</span></div></div>
+          <div style={{ padding:"14px 16px", borderRadius:16, background:"rgba(7,136,61,.07)", border:"1px solid rgba(7,136,61,.25)", display:"flex", alignItems:"center", gap:12, marginBottom:16 }}>
+            <div style={{ width:38, height:38, borderRadius:11, background:"rgba(7,136,61,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="check" s={20} c="var(--gr)" w={2.5}/></div>
+            <div><div style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>Заказ доставлен!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Начислено <span style={{ color:"var(--t2)", fontWeight:700 }}>+{selected.bonus} бонусов</span></div></div>
           </div>
         )}
         <ClientOrderContactsBlock contacts={selectedContacts} pickups={pickups} />
@@ -3661,7 +4220,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                 {photo ? <img src={photo} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/> : item.e}
               </div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{item.name}</div><div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>× {item.qty}</div></div>
-              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
             )
           })}
@@ -3674,33 +4233,33 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           <div style={{ marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10, display:"flex", flexDirection:"column", gap:8 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
               <span style={{ fontSize:12, color:"var(--t2)" }}>Товары</span>
-              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
             {selectedAmounts!.delivery > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Доставка</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
               </div>
             )}
             {selectedAmounts!.bonusSpent > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Бонусы</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:8, borderTop:"1px solid var(--b1)" }}>
             <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
-              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selectedAmounts!.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--gd)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selectedAmounts!.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
           </div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          <button type="button" onClick={() => repeatOrder(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          <button type="button" onClick={() => repeatOrder(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"var(--gr)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
             <Ic n="repeat" s={16} c="white"/>Повторить заказ
           </button>
           {canReview(selected) && (
-            <button onClick={() => openReview(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-              <Ic n="star" s={16} c="var(--gd)"/>Оставить отзыв
+            <button onClick={() => openReview(selected)} className="btn" style={{ padding:"13px", fontSize:13, borderRadius:15, background:"rgba(233,174,0,.1)", border:"1.5px solid rgba(233,174,0,.3)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              <Ic n="star" s={16} c="var(--gd2)"/>Оставить отзыв
             </button>
           )}
           {orderReviews(selected.id).map(rev => (
@@ -3729,7 +4288,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("home", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
             <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2, flexWrap:"wrap" }}>
               <div style={{ fontSize:10, color:"var(--t2)" }}>{ordersList.length} заказов</div>
@@ -3770,13 +4329,20 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
         </div>
       </header>
       {ordersList.some(o => o.status==="delivering" && o.trackable) && filter==="all" && (
-        <div onClick={() => setSelected(ordersList.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+        <div onClick={() => setSelected(ordersList.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(37,99,235,.08)", border:"1px solid rgba(37,99,235,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative", flexShrink:0 }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
           <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:"var(--blue)" }}>Курьер в пути!</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>Нажмите чтобы отследить</div></div>
           <Ic n="arr" s={15} c="var(--blue)"/>
         </div>
       )}
       <div style={{ padding:"14px 18px 100px", display:"flex", flexDirection:"column", gap:12 }}>
+        {filtered.length === 0 && (
+          ordersList.length === 0 ? (
+            <EmptyState icon="🧾" title="Заказов пока нет" text="Оформите первый заказ — он появится здесь со статусом и составом." actionLabel="Перейти в каталог" onAction={() => go("catalog")}/>
+          ) : (
+            <EmptyState icon="🔍" title="В этом разделе пусто" text="Заказов с таким статусом нет. Покажите все заказы." actionLabel="Все заказы" onAction={() => setFilter("all")}/>
+          )
+        )}
         {filtered.map((o,i) => {
           const st = ST[o.status];
           const contacts = orderContacts(o.id);
@@ -3784,12 +4350,11 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
           return (
             <div key={o.id} className="card" onClick={() => setSelected(o)} style={{ cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.06}s both`, borderLeft:`3px solid ${st.c}`, overflow:"hidden" }}>
               {o.status==="delivering" && (
-                <div style={{ padding:"9px 14px", background:"rgba(59,142,240,.08)", borderBottom:"1px solid rgba(59,142,240,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ padding:"9px 14px", background:"rgba(37,99,235,.08)", borderBottom:"1px solid rgba(37,99,235,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <div style={{ width:7, height:7, borderRadius:"50%", background:"var(--blue)", position:"relative" }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
-                    <span style={{ fontSize:12, fontWeight:700, color:"var(--blue)" }}>Курьер едет · {o.eta}</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:"var(--blue)" }}>Курьер едет{o.eta ? ` · ${o.eta}` : ''}</span>
                   </div>
-                  <span style={{ fontSize:10, color:"var(--t3)" }}>Live</span>
                 </div>
               )}
               <div style={{ padding:"13px 14px" }}>
@@ -3802,24 +4367,30 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
                     <div style={{ fontSize:11, color:"var(--t3)" }}>{o.date} · {o.time}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:10, color:"var(--gd)" }}>ЅМ</span></div>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></div>
                     {amounts.delivery > 0 && (
                       <div style={{ fontSize:9, color:"var(--t3)", marginTop:1 }}>вкл. доставка {amounts.delivery.toFixed(2)}</div>
                     )}
-                    <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{o.items.reduce((s,it)=>s+it.qty,0)} товаров</div>
+                    <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{formatProductCount(o.items.reduce((s,it)=>s+it.qty,0))}</div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:5, marginBottom: contacts.length ? 8 : 10 }}>
-                  {o.items.slice(0,3).map((it,j) => <div key={j} style={{ width:36, height:36, borderRadius:10, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{it.e}</div>)}
+                  {o.items.slice(0,3).map((it,j) => (
+                    <div key={j} style={{ width:36, height:36, borderRadius:10, background:"#fff", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, overflow:"hidden" }}>
+                      {resolveOrderItemPhoto(it, prods)
+                        ? <img src={resolveOrderItemPhoto(it, prods)} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", padding:3, boxSizing:"border-box" }}/>
+                        : (it.e || "🛒")}
+                    </div>
+                  ))}
                   <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center" }}><Ic n="arr" s={14} c="var(--t3)"/></div>
                 </div>
                 <ClientOrderContactsBlock contacts={contacts} pickups={pickups} compact onCallClick={e => e.stopPropagation()} />
                 <div style={{ display:"flex", gap:8 }}>
-                  {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
-                  {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();openReview(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(255,184,0,.1)", border:"1.5px solid rgba(255,184,0,.3)", color:"var(--gd)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd)"/>Отзыв</button>}
+                  {o.status==="delivering" && o.trackable && <button className="btn" onClick={e=>{e.stopPropagation();setSelected(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--gr)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="map" s={13} c="white"/>Отследить</button>}
+                  {canReview(o) && <button className="btn" onClick={e=>{e.stopPropagation();openReview(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"rgba(233,174,0,.1)", border:"1.5px solid rgba(233,174,0,.3)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="star" s={13} c="var(--gd2)"/>Отзыв</button>}
                   <button type="button" className="btn" onClick={e=>{e.stopPropagation();repeatOrder(o);}} style={{ flex:1, padding:"9px", fontSize:12, borderRadius:11, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}><Ic n="repeat" s={13} c="var(--t2)"/>Повторить</button>
                 </div>
-                {o.cancelReason && <div style={{ marginTop:9, padding:"7px 10px", borderRadius:9, background:"rgba(255,69,69,.07)", border:"1px solid rgba(255,69,69,.2)", fontSize:11, color:"var(--red)" }}>ℹ️ {o.cancelReason}</div>}
+                {o.cancelReason && <div style={{ marginTop:9, padding:"7px 10px", borderRadius:9, background:"rgba(195,52,52,.07)", border:"1px solid rgba(195,52,52,.2)", fontSize:11, color:"var(--red)" }}>ℹ️ {o.cancelReason}</div>}
               </div>
             </div>
           );
@@ -3843,7 +4414,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
   );
 };
 
-const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
+const ClientReviewsPage = ({ go, user, sessionReady, params }: any) => {
   const apiOrders = useOrders(s => s.orders);
   const { restaurants } = useLiveCatalog();
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -3891,7 +4462,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>⭐</div>
         <div className="ub" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Войдите, чтобы видеть отзывы</div>
-        <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white" }}>Войти</button>
+        <button onClick={() => go("auth")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "var(--gr)", color: "white" }}>Войти</button>
         <Nav page="profile" go={go} user={user}/>
             </div>
     );
@@ -3903,13 +4474,13 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
       <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
         <div style={{ padding: "14px 18px 13px", display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width: 44, height: 44, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{ flex: 1 }}>
             <div className="ub" style={{ fontSize: 17, fontWeight: 900 }}>Мои отзывы</div>
             <div style={{ fontSize: 10, color: "var(--t2)", marginTop: 1 }}>
-              {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} отзывов`}
+              {loading ? "Загрузка…" : withReplies ? `${withReplies} с ответами` : `${reviews.length} ${reviewCountLabel(reviews.length)}`}
           </div>
           </div>
         </div>
@@ -3925,7 +4496,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
             <div style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, marginBottom: 20 }}>
               После доставки оцените магазин или ресторан в разделе «Мои заказы» — ответ придёт сюда
             </div>
-            <button onClick={() => go("orders")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "white", fontSize: 13 }}>
+            <button onClick={() => go("orders")} className="btn" style={{ padding: "12px 24px", borderRadius: 14, background: "var(--gr)", color: "white", fontSize: 13 }}>
               Перейти к заказам
             </button>
           </div>
@@ -3933,14 +4504,14 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
         {!loading && reviews.map((rev, i) => {
           const place = resolveReviewPlaceName(rev.restId || 'STORE', rev, restaurants);
           return (
-            <div key={rev.id} id={`client-review-${rev.id}`} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both`, border: highlightId === rev.id ? "1px solid rgba(59,142,240,.45)" : undefined, boxShadow: highlightId === rev.id ? "0 0 0 1px rgba(59,142,240,.15)" : undefined }}>
+            <div key={rev.id} id={`client-review-${rev.id}`} className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12, animation: `fadeUp .4s ease ${i * .06}s both`, border: highlightId === rev.id ? "1px solid rgba(37,99,235,.45)" : undefined, boxShadow: highlightId === rev.id ? "0 0 0 1px rgba(37,99,235,.15)" : undefined }}>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800 }}>{place}</div>
                   {rev.orderId && <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Заказ {rev.orderId}</div>}
                 </div>
                 {(rev.adminReply || rev.restReply) && (
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 8, background: "rgba(59,142,240,.12)", color: "var(--blue)", border: "1px solid rgba(59,142,240,.25)" }}>Есть ответ</span>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 8, background: "rgba(37,99,235,.12)", color: "var(--blue)", border: "1px solid rgba(37,99,235,.25)" }}>Есть ответ</span>
                 )}
               </div>
               <div style={{ padding: "14px 15px" }}>
@@ -3961,7 +4532,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 };
 
 const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
-  const light = false;
+  const light = true;
   const shortLabel = cat.label.split(" ")[0];
   return (
     <div
@@ -4000,7 +4571,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
-  const light = false;
+  const light = true;
   const qty = cart[p.id] || 0;
   const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
@@ -4013,33 +4584,33 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         borderRadius: 18,
         overflow: "hidden",
         background: softAccentSurface('#DC2626', light, "linear-gradient(160deg,#1A0808 0%,#2A1018 55%,#120608 100%)"),
-        border: "1px solid rgba(255,69,69,.22)",
-        boxShadow: "0 8px 28px rgba(255,69,69,.08)",
+        border: "1px solid rgba(195,52,52,.22)",
+        boxShadow: "0 8px 28px rgba(195,52,52,.08)",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: softFromDarkGrad(p.grad || "rgba(255,69,69,.06)", light, '#DC2626'), overflow: "hidden" }}>
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: softFromDarkGrad(p.grad || "rgba(195,52,52,.06)", light, '#DC2626'), overflow: "hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block", padding: 6, boxSizing: "border-box", animation: "float 3s ease-in-out infinite" }} />
           : <span style={{ animation: "float 3s ease-in-out infinite" }}>{p.e}</span>}
         <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff", zIndex: 1 }}>−{disc}%</div>
                     </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "rgba(255,140,140,.85)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "rgba(195,52,52,.85)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
           {catLabel || "·"}
                       </div>
         <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, height: 30, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.name}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 6 }}>
-          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 8, color: "var(--gd)", marginLeft: 2 }}> ЅМ</span></span>
+          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 12, color: "var(--t2)", marginLeft: 2 }}> ЅМ</span></span>
           {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
                     </div>
         <div style={{ minHeight: 22, marginBottom: 8 }}>
           {stockLabel ? (
             <>
-              <div style={{ height: 3, background: "rgba(255,255,255,.08)", borderRadius: 2, marginBottom: 4 }}>
-                <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#FF4545,#FF8C6B)", borderRadius: 2 }}/>
+              <div style={{ height: 3, background: "var(--b1)", borderRadius: 2, marginBottom: 4 }}>
+                <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#C33434,#FF8C6B)", borderRadius: 2 }}/>
               </div>
               <div style={{ fontSize: 9, color: "var(--t3)", lineHeight: 1.2 }}>{stockLabel}</div>
             </>
@@ -4050,14 +4621,14 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
             <button
               onClick={e => { e.stopPropagation(); onAdd(p.id); }}
               className="btn"
-              style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#CC2A2A,var(--red))", color: "#fff", fontWeight: 700 }}
+              style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#C33434,var(--red))", color: "#fff", fontWeight: 700 }}
             >
               + В корзину
             </button>
           ) : (
             <div
               onClick={e => e.stopPropagation()}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,69,69,.12)", border: "1px solid rgba(255,69,69,.25)", borderRadius: 10, padding: "3px 6px" }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(195,52,52,.12)", border: "1px solid rgba(195,52,52,.25)", borderRadius: 10, padding: "3px 6px" }}
             >
               <button onClick={() => onRm(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>−</button>
               <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: "var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
@@ -4070,20 +4641,14 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
                 );
 };
 
-const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
-  const light = false;
+const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }: any) => {
+  const light = true;
   const { prods, catalogReady, promosReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
   const { isVip } = resolveUserVip(user);
   const [selectedCat, setSelectedCat] = useState(null);
   const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-  const isSaleProduct = p => num(p.old) > num(p.price) && (p.promoStockLeft == null || p.promoStockLeft > 0);
-  const saleDisc = p => {
-    const old = num(p.old);
-    const price = num(p.price);
-    return old > price ? Math.round((1 - price / old) * 100) : 0;
-  };
   const parentCatForProduct = p => {
     const slug = productCatSlug(p);
     const cat = cats.find(c => c.id === slug);
@@ -4139,7 +4704,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
         <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--gr)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
             <div style={{ flex: 1 }}>
               <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
               <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Загрузка…</div>
@@ -4163,7 +4728,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
         <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
           <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 44, height: 44, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Ic n="arrL" s={17} c="var(--t2)"/>
             </button>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: cat.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{cat.e}</div>
@@ -4199,42 +4764,24 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
-        <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
-          <div style={{ flex: 1 }}>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
-            <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>
-              {saleProds.length ? `${saleProds.length} товаров со скидкой` : "Сейчас нет акционных товаров"}
-            </div>
-          </div>
-          <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Ic n="search" s={17} c="var(--t2)"/>
-                  </button>
-          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-                </div>
-      </header>
-
-      <div style={{ padding: "14px 18px 110px" }}>
+      <Header title="Акции" go={go} cart={cart} user={user}/>
+      <div className="store-page-pad" style={{ padding: "14px 16px 0" }}>
         {saleProds.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "52px 22px", background: "var(--l2)", border: "1px solid var(--b1)", borderRadius: 20 }}>
-            <div style={{ fontSize: 52, marginBottom: 14 }}>🏷️</div>
-            <div className="ub" style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Акций пока нет</div>
-            <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 22, lineHeight: 1.55 }}>
-              Здесь появятся товары со скидкой —<br/>по категориям
-            </div>
-            <button onClick={() => go("catalog")} className="btn" style={{ padding: "12px 26px", borderRadius: 14, background: "linear-gradient(135deg,var(--gr2),var(--gr))", color: "#fff", fontSize: 13, fontWeight: 700 }}>
-              Перейти в каталог
-            </button>
-          </div>
+          <EmptyState
+            icon="🏷️"
+            title="Акций пока нет"
+            text="Как только магазин запустит скидки, товары появятся здесь — с ценой до и после."
+            actionLabel="Перейти в каталог"
+            onAction={() => go("catalog")}
+          />
         ) : (
           <>
             {flashProds.length > 0 && (
               <section style={{ marginBottom: 22 }}>
-                <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: softAccentSurface('#DC2626', light, "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)"), border: "1px solid rgba(255,69,69,.2)", boxShadow: "0 10px 32px rgba(255,69,69,.06)" }}>
+                <div style={{ borderRadius: 20, padding: "16px 16px 14px", background: softAccentSurface('#DC2626', light, "linear-gradient(135deg,#180606,#2A0C0C 50%,#120404)"), border: "1px solid rgba(195,52,52,.2)", boxShadow: "0 10px 32px rgba(195,52,52,.06)" }}>
                   <div style={{ marginBottom: 12 }}>
-                    <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: light ? "var(--red)" : "#FF8C8C", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
-                    <div style={{ fontSize: 11, color: light ? "var(--t2)" : "rgba(255,200,200,.55)" }}>Быстрые скидки — успейте забрать</div>
+                    <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: light ? "var(--red)" : "var(--red)", marginBottom: 4 }}>⚡ Флэш-распродажа</div>
+                    <div style={{ fontSize: 11, color: light ? "var(--t2)" : "rgba(195,52,52,.55)" }}>Быстрые скидки — успейте забрать</div>
                   </div>
                   <div className="hscroll" style={{ gap: 10, margin: "0 -4px", padding: "0 2px 2px" }}>
                     {flashProds.map(p => {
@@ -4262,8 +4809,8 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 
             {saleByCategory.length > 0 && (
               <section>
-                <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: "#5B9CF5", marginBottom: 14 }}>По категориям</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="store-sec-head"><div className="ub store-sec-title">По категориям</div></div>
+                <div className="store-tile-grid">
                   {saleByCategory.map(({ cat, maxDisc }, i) => (
                     <PromoCategoryCard
                       key={cat.id}
@@ -4285,55 +4832,37 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   );
 };
 
-const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
+const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }: any) => {
   const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user);
   const items = useMemo(
-    () => prods.filter(p => wished[p.id]),
+    () => prods.filter(p => wished?.[p.id]),
     [prods, wished],
   );
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
-
+  const loading = USE_API && !catalogReady && items.length === 0 && Object.keys(wished || {}).some(k => wished[k]);
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)", backdropFilter:"blur(24px)", borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)" }}>
-        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Ic n="arrL" s={17} c="var(--t2)"/>
-          </button>
-          <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,69,69,.12)", border:"1px solid rgba(255,69,69,.25)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Ic n="heart" s={18} c="#FF4545" fill="#FF4545"/>
-          </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Избранное</div>
-            <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>
-              {items.length ? formatProductCount(items.length) : "Пока пусто"}
-            </div>
-          </div>
-          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-        </div>
-      </header>
-      <div style={{ padding:"14px 18px 110px" }}>
-        {items.length === 0 ? (
-          <div style={{ textAlign:"center", padding:"52px 22px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20 }}>
-            <div style={{ fontSize:52, marginBottom:14 }}>❤️</div>
-            <div className="ub" style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>Избранное пусто</div>
-            <div style={{ fontSize:13, color:"var(--t2)", marginBottom:22, lineHeight:1.55 }}>
-              Нажмите ❤️ на товаре в каталоге —<br/>он появится здесь
-            </div>
-            <button onClick={() => go("catalog")} className="btn" style={{ padding:"12px 26px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"#fff", fontSize:13, fontWeight:700 }}>
-              Перейти в каталог
-            </button>
-          </div>
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <Header title="Избранное" back="profile" go={go} cart={cart} user={user} hideSearch/>
+      <div className="store-page-pad" style={{ padding:"14px 16px 0" }}>
+        {loading ? (
+          <ProductSkeletonGrid count={4}/>
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon="❤️"
+            title="Избранное пусто"
+            text="Нажмите на сердечко в карточке товара — он появится здесь."
+            actionLabel="Перейти в каталог"
+            onAction={() => go("catalog")}
+          />
         ) : (
-          <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
-            {items.map((p, i) => (
-              <div key={p.id} style={{ animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i * .04}s both`, height:"100%" }}>
-                <PCard p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>
-              </div>
-            ))}
-          </div>
+          <>
+            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:12 }}>{formatProductCount(items.length)}</div>
+            <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
+              {items.map(p => <PCard key={p.id} p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={onWish} wished={!!wished[p.id]} go={go}/>)}
+            </div>
+          </>
         )}
       </div>
       {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
@@ -4341,117 +4870,90 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
     </div>
   );
 };
-
-const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
-  const light = false;
+const SearchPage = ({ go, cart, onAdd, onRm, user }: any) => {
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user, light);
-  const [query, setQuery] = useState("");
-  const iRef = useRef();
+  const [query, setQuery] = useState(() => readSearchQuery());
+  const topProducts = useTopProducts(prods, 8);
+  const iRef = useRef<any>(null);
   useEffect(() => {
-    const t = setTimeout(() => iRef.current?.focus(), 100);
+    const t = setTimeout(() => { iRef.current?.focus(); writeSearchQuery(query) }, 100);
     return () => clearTimeout(t);
   }, []);
-  const results = query.trim() ? prods.filter(p => p.name.toLowerCase().includes(query.toLowerCase())) : [];
+  useEffect(() => { writeSearchQuery(query) }, [query]);
+  const norm = query.trim().toLowerCase();
+  const results = useMemo(
+    () => (norm ? (prods || []).filter(p => String(p.name || "").toLowerCase().includes(norm)) : []),
+    [prods, norm],
+  );
   const totalQty = formatCartBadgeCount(sumCartUnits(cart, prods));
   const totalQtyNum = sumCartUnits(cart, prods);
+  const loading = USE_API && !catalogReady;
+  const clear = () => { setQuery(""); writeSearchQuery("") };
   return (
-    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
-        <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1, position:"relative" }}>
-            <div style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}><Ic n="search" s={15} c="var(--t3)"/></div>
-            <input ref={iRef} className="inp" value={query} onChange={e => setQuery(e.target.value)} placeholder="Поиск в КАКАПО..." style={{ paddingLeft:36, paddingRight:query?32:14, width:"100%", fontSize:14 }}/>
-            {query && <button onClick={() => setQuery("")} className="btn" style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", width:20, height:20, borderRadius:5, background:"rgba(255,255,255,.1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="x" s={11} c="var(--t2)"/></button>}
-          </div>
-          {totalQtyNum > 0 && (
-            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-          )}
+    <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:"var(--store-w)", margin:"0 auto" }}>
+      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(20px)", borderBottom:"1px solid var(--b1)" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:10 }}>
+          <button type="button" onClick={() => storeBack("home", go)} className="btn hdr-icon" aria-label="Назад"><Ic n="arrL" s={18} c="var(--t1)"/></button>
+          <form className="store-search" onSubmit={e => { e.preventDefault(); writeSearchQuery(query) }} role="search" style={{ flex:1, minWidth:0 }}>
+            <Ic n="search" s={18} c="var(--t3)"/>
+            <input ref={iRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти продукты" aria-label="Поиск продуктов" type="search" enterKeyHint="search"/>
+            {query ? <button type="button" onClick={clear} aria-label="Очистить поиск"><Ic n="x" s={16} c="var(--t3)"/></button> : null}
+          </form>
+          {totalQtyNum > 0 && <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />}
         </div>
       </header>
-      <div style={{ padding:"16px 18px 100px" }}>
-        {!query && (
+      <div className="store-page-pad" style={{ padding:"16px 16px 0" }}>
+        {loading && <ProductSkeletonGrid count={6}/>}
+
+        {!loading && !norm && topProducts.length > 0 && (
           <div>
-            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Популярные</div>
+            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Часто покупают</div>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:24 }}>
-              {["Молоко","Хлеб","Мясо","Брокколи","Кофе","Яйца","Сыр","Лосось"].map(s => (
-                <button key={s} onClick={() => setQuery(s)} className="btn chip">🔍 {s}</button>
+              {topProducts.map(p => (
+                <button key={p.id} type="button" onClick={() => { setQuery(p.name) }} className="btn chip">{p.name}</button>
               ))}
             </div>
-            <div className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--t2)", marginBottom:12 }}>Недавние поиски</div>
-            {["Говядина вырезка","Молоко 3.2%","Круассан масляный"].map((r,i) => (
-              <div key={i} onClick={() => setQuery(r)} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:"1px solid var(--b1)", cursor:"pointer" }}>
-                <div style={{ width:32, height:32, borderRadius:9, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n="clock" s={14} c="var(--t3)"/></div>
-                <span style={{ flex:1, fontSize:13, fontWeight:600 }}>{r}</span>
-                <div style={{ transform:"rotate(225deg)" }}><Ic n="arr" s={13} c="var(--t3)"/></div>
-              </div>
-            ))}
           </div>
         )}
-        {query && results.length===0 && (
-          <div style={{ textAlign:"center", paddingTop:50 }}>
-            <div style={{ fontSize:56, marginBottom:14, animation:"float 3s ease-in-out infinite" }}>🔍</div>
-            <div className="ub" style={{ fontSize:18, fontWeight:800, marginBottom:8 }}>Ничего не найдено</div>
-            <div style={{ fontSize:13, color:"var(--t2)", marginBottom:20 }}>По запросу <span style={{ color:"var(--gr)", fontWeight:700 }}>«{query}»</span></div>
-            <button onClick={() => setQuery("")} className="btn" style={{ padding:"12px 24px", borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Очистить поиск</button>
-          </div>
+
+        {!loading && norm && results.length === 0 && (
+          <EmptyState
+            icon="🔍"
+            title="Ничего не найдено"
+            text={`По запросу «${query.trim()}» товаров нет. Попробуйте другое название.`}
+            actionLabel="Очистить поиск"
+            onAction={clear}
+          />
         )}
-        {query && results.length>0 && (
+
+        {!loading && norm && results.length > 0 && (
           <div>
-            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:14 }}>Найдено: <span style={{ color:"var(--gr)", fontWeight:700 }}>{results.length}</span> товаров</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {results.map((p,i) => {
-                const qty=cart[p.id]||0, disc=p.old?Math.round((1-p.price/p.old)*100):0;
-                const rating = productRatingUi(p, catalogReady);
-                return (
-                  <div key={p.id} className="card" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }} onClick={() => go("product",{id:p.id})}>
-                    <div style={{ width:60, height:60, borderRadius:14, background:softFromDarkGrad(p.grad, light), display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, flexShrink:0, position:"relative", overflow:"hidden" }}>
-                      {resolveProductPhoto(p, { preferThumb: true })
-                        ? <img src={resolveProductPhoto(p, { preferThumb: true })} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", padding:4, boxSizing:"border-box", display:"block" }}/>
-                        : p.e}
-                      {disc>0 && <div style={{ position:"absolute", top:-4, left:-4, borderRadius:8, background:"var(--red)", padding:"1px 5px", fontSize:9, fontWeight:800, color:"white" }}>-{disc}%</div>}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, marginBottom:1 }}>{p.name}</div>
-                      <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
-                      <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
-                      <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
-                        <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
-                        {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink:0 }}>
-                      {qty===0 ? <button onClick={e=>{e.stopPropagation();onAdd(p.id);}} className="btn" style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,var(--gr2),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="plus" s={16} c="white" w={2.5}/></button> :
-                        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:10, padding:"4px 6px" }}>
-                          <button onClick={e=>{e.stopPropagation();onRm(p.id);}} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>−</button>
-                          <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
-                          <button onClick={e=>{e.stopPropagation();onAdd(p.id);}} className="btn" style={{ width:22, height:22, borderRadius:6, background:"rgba(31,215,96,.18)", color:"var(--gr)", fontSize:14, fontWeight:700 }}>+</button>
-                        </div>}
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={{ fontSize:12, color:"var(--t2)", marginBottom:12 }}>Найдено: <span style={{ color:"var(--gr3)", fontWeight:700 }}>{formatProductCount(results.length)}</span></div>
+            <div className="store-prod-grid" style={{ alignItems:"stretch" }}>
+              {results.map(p => <PCard key={p.id} p={p} cart={cart} onAdd={onAdd} onRm={onRm} onWish={() => {}} wished={false} go={go}/>)}
             </div>
           </div>
         )}
       </div>
+      {totalQtyNum > 0 && <FloatingCartBtn count={totalQty} onClick={() => go("cart")} isVip={isVip} />}
     </div>
   );
 };
-
-const FAQPage = ({ go }) => {
-  const light = false;
+const FAQPage = ({ go }: any) => {
+  const light = true;
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
   const support = useSupportContacts();
-  const items = useMemo(() => FAQ(), []);
+  const { pricing } = usePricing();
+  const items = useMemo(() => FAQ(pricing), [pricing]);
   const filtered = items.filter(f => q==="" || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase()));
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900 }}>FAQ</div>
         </div>
         <div style={{ padding:"0 18px 12px", position:"relative" }}>
@@ -4460,12 +4962,12 @@ const FAQPage = ({ go }) => {
         </div>
       </header>
       <div style={{ padding:"16px 18px 100px" }}>
-        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:softAccentSurface('#129B45', light, "linear-gradient(135deg,#061A0C,#0F3020)"), border:"1px solid rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о КАКАПО</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
+        {!q && <div style={{ borderRadius:18, padding:"18px", marginBottom:20, background:softAccentSurface('#07883D', light, "linear-gradient(135deg,#061A0C,#0F3020)"), border:"1px solid rgba(7,136,61,.2)", display:"flex", alignItems:"center", justifyContent:"space-between" }}><div><div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:4 }}>Центр помощи</div><div style={{ fontSize:12, color:"var(--t2)" }}>Ответы на ваши вопросы о КАКАПО</div></div><div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>❓</div></div>}
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {filtered.map((f,i) => (
-            <div key={i} style={{ background:"var(--l2)", border:`1px solid ${open===i?"rgba(31,215,96,.3)":"var(--b1)"}`, borderRadius:16, overflow:"hidden", transition:"border-color .2s", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
+            <div key={i} style={{ background:"var(--l2)", border:`1px solid ${open===i?"rgba(7,136,61,.3)":"var(--b1)"}`, borderRadius:16, overflow:"hidden", transition:"border-color .2s", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}>
               <div onClick={() => setOpen(open===i?null:i)} style={{ padding:"15px", display:"flex", alignItems:"center", gap:12, cursor:"pointer" }}>
-                <div style={{ width:30, height:30, borderRadius:9, background:open===i?"rgba(31,215,96,.14)":"var(--l3)", border:`1px solid ${open===i?"rgba(31,215,96,.3)":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all .2s" }}>
+                <div style={{ width:30, height:30, borderRadius:9, background:open===i?"var(--gr-soft)":"var(--l3)", border:`1px solid ${open===i?"rgba(7,136,61,.3)":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all .2s" }}>
                   <Ic n={open===i?"minus":"plus"} s={14} c={open===i?"var(--gr)":"var(--t2)"} w={2.5}/>
                 </div>
                 <div style={{ flex:1, fontSize:13, fontWeight:700, color:open===i?"var(--gr)":"var(--t1)", lineHeight:1.38 }}>{f.q}</div>
@@ -4474,11 +4976,11 @@ const FAQPage = ({ go }) => {
             </div>
           ))}
         </div>
-        {filtered.length===0 && <div style={{ textAlign:"center", paddingTop:50 }}><div style={{ fontSize:50, marginBottom:14 }}>🔍</div><div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:8 }}>Не найдено</div><button onClick={() => setQ("")} className="btn" style={{ padding:"12px 24px", borderRadius:13, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", fontSize:13 }}>Сбросить</button></div>}
+        {filtered.length===0 && <div style={{ textAlign:"center", paddingTop:50 }}><div style={{ fontSize:50, marginBottom:14 }}>🔍</div><div className="ub" style={{ fontSize:16, fontWeight:800, marginBottom:8 }}>Не найдено</div><button onClick={() => setQ("")} className="btn" style={{ padding:"12px 24px", borderRadius:13, background:"var(--gr)", color:"white", fontSize:13 }}>Сбросить</button></div>}
         <div style={{ marginTop:20, background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:18, padding:"16px" }}>
           <div className="ub" style={{ fontSize:13, fontWeight:800, marginBottom:4 }}>Не нашли ответ?</div>
           <div style={{ fontSize:12, color:"var(--t2)", marginBottom:14, lineHeight:1.6 }}>Наша поддержка в рабочие часы</div>
-          {[{icon:"phone",l:"Позвонить",s:support.phone,c:"var(--gr)",href:support.phoneTel},{icon:"tg",l:"Telegram",s:support.telegramLabel,c:"#29B6F6",href:support.telegram}].map((ct,i) => (
+          {[{icon:"phone",l:"Позвонить",s:support.phone,c:"var(--gr)",href:support.phoneTel},{icon:"tg",l:"Telegram",s:support.telegramLabel,c:"#0369A1",href:support.telegram}].map((ct,i) => (
             <a key={i} href={ct.href} {...(ct.icon === 'tg' ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 0", borderBottom:i<1?"1px solid var(--b1)":"none", cursor:"pointer", textDecoration:"none", color:"inherit" }}>
               <div style={{ width:38, height:38, borderRadius:11, background:`${ct.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={ct.icon} s={18} c={ct.c}/></div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700 }}>{ct.l}</div><div style={{ fontSize:11, color:"var(--t2)", marginTop:1 }}>{ct.s}</div></div>
@@ -4487,6 +4989,7 @@ const FAQPage = ({ go }) => {
           ))}
         </div>
       </div>
+      <Nav page="profile" go={go}/>
     </div>
   );
 };
@@ -4496,15 +4999,15 @@ type DebtTab = 'all' | 'debt' | 'pay'
 function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string }) {
   const s = useSupportContacts()
   return (
-    <div style={{ marginTop: 14, padding: '14px', borderRadius: 14, background: 'rgba(59,142,240,.08)', border: '1px solid rgba(59,142,240,.25)' }}>
+    <div style={{ marginTop: 14, padding: '14px', borderRadius: 14, background: 'rgba(37,99,235,.08)', border: '1px solid rgba(37,99,235,.25)' }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--sky)', marginBottom: 6 }}>Погашение через поддержку</div>
       <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 12 }}>
         Чтобы погасить {debt.toLocaleString()} ЅМ, позвоните или напишите в поддержку — оператор подскажет способ оплаты и спишет долг.
-        {cardNum && <> Назовите номер карты: <strong style={{ color: 'var(--gd)' }}>{cardNum}</strong>.</>}
+        {cardNum && <> Назовите номер карты: <strong style={{ color: 'var(--t2)' }}>{cardNum}</strong>.</>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <a href={s.phoneTel} className="btn" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px', borderRadius: 12, background: 'rgba(31,215,96,.1)', border: '1px solid rgba(31,215,96,.28)', textDecoration: 'none', color: 'inherit' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(31,215,96,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <a href={s.phoneTel} className="btn" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px', borderRadius: 12, background: 'var(--gr-soft)', border: '1px solid rgba(7,136,61,.3)', textDecoration: 'none', color: 'inherit' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(7,136,61,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Ic n="phone" s={18} c="var(--gr)" />
           </div>
           <div style={{ flex: 1, textAlign: 'left' }}>
@@ -4513,12 +5016,12 @@ function DebtSupportBlock({ debt, cardNum }: { debt: number; cardNum?: string })
           </div>
           <Ic n="arr" s={14} c="var(--t3)" />
         </a>
-        <a href={s.telegram} target="_blank" rel="noopener noreferrer" className="btn" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px', borderRadius: 12, background: 'rgba(41,182,246,.1)', border: '1px solid rgba(41,182,246,.28)', textDecoration: 'none', color: 'inherit' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(41,182,246,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Ic n="tg" s={18} c="#29B6F6" />
+        <a href={s.telegram} target="_blank" rel="noopener noreferrer" className="btn" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 14px', borderRadius: 12, background: 'rgba(2,132,199,.1)', border: '1px solid rgba(2,132,199,.28)', textDecoration: 'none', color: 'inherit' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(2,132,199,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Ic n="tg" s={18} c="#0369A1" />
           </div>
           <div style={{ flex: 1, textAlign: 'left' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#29B6F6' }}>Telegram</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#0369A1' }}>Telegram</div>
             <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 2 }}>{s.telegramLabel}</div>
           </div>
           <Ic n="arr" s={14} c="var(--t3)" />
@@ -4538,13 +5041,13 @@ function VipSupportBlock() {
         Помощь по заказам, бонусам и долгу — без очереди, по телефону или в Telegram.
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <a href={s.phoneTel} className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'rgba(31,215,96,.1)', border: '1px solid rgba(31,215,96,.28)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+        <a href={s.phoneTel} className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'var(--gr-soft)', border: '1px solid rgba(7,136,61,.3)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
           <Ic n="phone" s={18} c="var(--gr)" />
           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gr)' }}>Позвонить</span>
         </a>
-        <a href={s.telegram} target="_blank" rel="noopener noreferrer" className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'rgba(41,182,246,.1)', border: '1px solid rgba(41,182,246,.28)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-          <Ic n="tg" s={18} c="#29B6F6" />
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#29B6F6' }}>Telegram</span>
+        <a href={s.telegram} target="_blank" rel="noopener noreferrer" className="btn" style={{ flex: 1, padding: '12px 10px', borderRadius: 12, background: 'rgba(2,132,199,.1)', border: '1px solid rgba(2,132,199,.28)', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+          <Ic n="tg" s={18} c="#0369A1" />
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#0369A1' }}>Telegram</span>
         </a>
       </div>
       <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 10, textAlign: 'center' }}>{s.hours}</div>
@@ -4554,15 +5057,8 @@ function VipSupportBlock() {
 
 function DebtBottomSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-      <div style={{
-        position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)',
-        background: 'var(--l1)', borderTop: '1px solid var(--b1)',
-        borderRadius: '24px 24px 0 0', padding: '20px 20px 36px',
-        maxHeight: '88vh', overflowY: 'auto',
-        animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)',
-      }}>
+    <div className="store-sheet-backdrop" style={{ zIndex: 300 }} onClick={onClose}>
+      <div className="store-sheet" onClick={e => e.stopPropagation()} style={{ padding: "20px 20px calc(36px + env(safe-area-inset-bottom, 0px))" }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
         {children}
       </div>
@@ -4728,7 +5224,7 @@ function VipDebtSection({
         style={{
           width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
           background: 'var(--l3)',
-          border: `1px solid ${b.partial ? 'rgba(255,184,0,.28)' : 'rgba(255,69,69,.28)'}`,
+          border: `1px solid ${b.partial ? 'rgba(233,174,0,.28)' : 'rgba(195,52,52,.28)'}`,
           display: 'flex', alignItems: 'center', gap: 12,
           cursor: clickable ? 'pointer' : 'default',
           animation: `fadeUp .3s ease ${i * 0.03}s both`,
@@ -4736,8 +5232,8 @@ function VipDebtSection({
       >
         <div style={{
           width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-          background: b.partial ? 'rgba(255,184,0,.12)' : 'rgba(255,69,69,.1)',
-          border: `1px solid ${b.partial ? 'rgba(255,184,0,.28)' : 'rgba(255,69,69,.25)'}`,
+          background: b.partial ? 'rgba(233,174,0,.12)' : 'var(--red-soft)',
+          border: `1px solid ${b.partial ? 'rgba(233,174,0,.28)' : 'rgba(195,52,52,.25)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
         }}>
           🛒
@@ -4749,14 +5245,14 @@ function VipDebtSection({
             </span>
             <span style={{
               fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
-              background: b.partial ? 'rgba(255,184,0,.15)' : 'rgba(255,69,69,.15)',
-              color: b.partial ? 'var(--gd)' : '#FF8080',
+              background: b.partial ? 'rgba(233,174,0,.15)' : 'rgba(195,52,52,.15)',
+              color: b.partial ? 'var(--gd)' : 'var(--red)',
             }}>
               {b.partial ? 'частично' : 'не оплачен'}
             </span>
           </div>
           {b.orderId && b.desc && (
-            <div style={{ fontSize: 10, color: 'var(--gd)', marginBottom: 3 }}>
+            <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 3 }}>
               Чек {b.orderId}
             </div>
           )}
@@ -4771,7 +5267,7 @@ function VipDebtSection({
           {b.dueDate && (
             <div style={{
               fontSize: 10,
-              color: b.overdue ? '#FF8080' : 'var(--gd)',
+              color: b.overdue ? 'var(--red)' : 'var(--gd)',
               marginTop: 4,
               fontWeight: 700,
             }}>
@@ -4788,7 +5284,7 @@ function VipDebtSection({
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <div>
-            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: '#FF8080' }}>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: 'var(--red)' }}>
               −{b.remainingAmount.toLocaleString()} ЅМ
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
@@ -4819,8 +5315,8 @@ function VipDebtSection({
         className="btn"
         style={{
           width: '100%', textAlign: 'left', padding: '13px 14px', borderRadius: 14,
-          background: settled ? 'rgba(31,215,96,.06)' : 'var(--l3)',
-          border: `1px solid ${settled ? 'rgba(31,215,96,.22)' : 'rgba(255,184,0,.18)'}`,
+          background: settled ? 'rgba(7,136,61,.06)' : 'var(--l3)',
+          border: `1px solid ${settled ? 'rgba(7,136,61,.22)' : 'rgba(233,174,0,.18)'}`,
           display: 'flex', alignItems: 'center', gap: 12,
           cursor: clickable ? 'pointer' : 'default',
           opacity: clickable ? 1 : 0.85,
@@ -4829,8 +5325,8 @@ function VipDebtSection({
       >
         <div style={{
           width: 44, height: 44, borderRadius: 13, flexShrink: 0,
-          background: settled ? 'rgba(31,215,96,.12)' : 'rgba(255,184,0,.12)',
-          border: `1px solid ${settled ? 'rgba(31,215,96,.25)' : 'rgba(255,184,0,.25)'}`,
+          background: settled ? 'var(--gr-soft)' : 'rgba(233,174,0,.12)',
+          border: `1px solid ${settled ? 'rgba(7,136,61,.25)' : 'rgba(233,174,0,.25)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
         }}>
           {isPurchase ? '🏪' : settled ? '✅' : '🛒'}
@@ -4847,13 +5343,13 @@ function VipDebtSection({
             {isPurchase && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
-                background: 'rgba(31,215,96,.15)', color: 'var(--gr)',
+                background: 'rgba(7,136,61,.15)', color: 'var(--gr)',
               }}>касса</span>
             )}
             {!isPay && !isPurchase && (
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 5,
-                background: 'rgba(255,184,0,.15)', color: 'var(--gd)',
+                background: 'rgba(233,174,0,.15)', color: 'var(--t2)',
               }}>VIP</span>
             )}
           </div>
@@ -4868,7 +5364,7 @@ function VipDebtSection({
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <div>
-            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: settled ? 'var(--gr)' : '#FF8080' }}>
+            <div className="ub" style={{ fontSize: 15, fontWeight: 900, color: settled ? 'var(--gr)' : 'var(--red)' }}>
               {settled ? '' : '−'}{Math.abs(h.amount).toLocaleString()} ЅМ
             </div>
             <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 2 }}>
@@ -4893,14 +5389,14 @@ function VipDebtSection({
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)' }}>
+      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', border: '1px solid rgba(233,174,0,.28)', boxShadow: '0 8px 32px rgba(233,174,0,.08)' }}>
         {/* Шапка — текущий долг */}
         <div style={{
           flexShrink: 0,
           padding: '18px 16px',
           background: creditUsed > 0
-            ? 'linear-gradient(135deg, rgba(255,69,69,.12) 0%, rgba(26,16,0,.6) 100%)'
-            : 'linear-gradient(135deg, rgba(31,215,96,.1) 0%, rgba(26,16,0,.5) 100%)',
+            ? 'linear-gradient(135deg, rgba(195,52,52,.12) 0%, rgba(26,16,0,.6) 100%)'
+            : 'linear-gradient(135deg, var(--gr-soft) 0%, rgba(26,16,0,.5) 100%)',
           borderBottom: '1px solid var(--b1)',
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -4908,7 +5404,7 @@ function VipDebtSection({
               <div style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: .5 }}>
                 {creditUsed > 0 ? 'Сейчас в долгу' : 'Долга нет'}
               </div>
-              <div className="ub" style={{ fontSize: 32, fontWeight: 900, color: creditUsed > 0 ? '#FF6969' : 'var(--gr)', lineHeight: 1 }}>
+              <div className="ub" style={{ fontSize: 32, fontWeight: 900, color: creditUsed > 0 ? 'var(--red)' : 'var(--gr)', lineHeight: 1 }}>
                 {creditUsed.toLocaleString()}<span style={{ fontSize: 14, marginLeft: 4, opacity: .8 }}>ЅМ</span>
               </div>
               {creditLimit > 0 && (
@@ -4924,7 +5420,7 @@ function VipDebtSection({
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 2 }}>Всего взято</div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#FF9090' }}>{totals.borrowed.toLocaleString()} ЅМ</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--red)' }}>{totals.borrowed.toLocaleString()} ЅМ</div>
               <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 8, marginBottom: 2 }}>Погашено</div>
               <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--gr)' }}>{totals.repaid.toLocaleString()} ЅМ</div>
             </div>
@@ -4933,8 +5429,8 @@ function VipDebtSection({
           {ledger?.creditBlocked && (
             <div style={{
               marginTop: 14, padding: '12px 14px', borderRadius: 12,
-              background: 'rgba(255,69,69,.12)', border: '1px solid rgba(255,69,69,.35)',
-              fontSize: 12, fontWeight: 700, color: '#FF9090', lineHeight: 1.45,
+              background: 'rgba(195,52,52,.12)', border: '1px solid rgba(195,52,52,.35)',
+              fontSize: 12, fontWeight: 700, color: 'var(--red)', lineHeight: 1.45,
             }}>
               🚫 Новый долг закрыт из-за повторной просрочки. Погасите текущий долг в магазине.
             </div>
@@ -4944,11 +5440,11 @@ function VipDebtSection({
             <div style={{
               marginTop: 14, padding: '12px 14px', borderRadius: 12,
               background: ledger.entries.some(e => e.overdue)
-                ? 'rgba(255,69,69,.1)'
-                : 'rgba(255,184,0,.1)',
-              border: `1px solid ${ledger.entries.some(e => e.overdue) ? 'rgba(255,69,69,.35)' : 'rgba(255,184,0,.28)'}`,
+                ? 'var(--red-soft)'
+                : 'rgba(233,174,0,.1)',
+              border: `1px solid ${ledger.entries.some(e => e.overdue) ? 'rgba(195,52,52,.35)' : 'rgba(233,174,0,.28)'}`,
               fontSize: 12, fontWeight: 700,
-              color: ledger.entries.some(e => e.overdue) ? '#FF9090' : 'var(--gd)',
+              color: ledger.entries.some(e => e.overdue) ? 'var(--red)' : 'var(--gd)',
               lineHeight: 1.45,
             }}>
               {ledger.entries.some(e => e.overdue)
@@ -4964,13 +5460,13 @@ function VipDebtSection({
       {/* Не оплачено — отдельный блок */}
       <div className="card" style={{
         marginBottom: 12, display: 'flex', flexDirection: 'column',
-        border: '1px solid rgba(255,69,69,.28)', boxShadow: '0 6px 24px rgba(255,69,69,.06)',
+        border: '1px solid rgba(195,52,52,.28)', boxShadow: '0 6px 24px rgba(195,52,52,.06)',
       }}>
         <div style={{
           flexShrink: 0, padding: '14px 16px', borderBottom: '1px solid var(--b1)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: '#FF8080' }}>⚠ Не оплачено</div>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: 'var(--red)' }}>⚠ Не оплачено</div>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)' }}>{unpaidOrders.length}</span>
         </div>
         <div style={scrollBoxStyle}>
@@ -4996,13 +5492,13 @@ function VipDebtSection({
       {/* Вся история — отдельный блок */}
       <div className="card" style={{
         marginBottom: 16, display: 'flex', flexDirection: 'column',
-        border: '1px solid rgba(255,184,0,.28)', boxShadow: '0 8px 32px rgba(255,184,0,.08)',
+        border: '1px solid rgba(233,174,0,.28)', boxShadow: '0 8px 32px rgba(233,174,0,.08)',
       }}>
         <div style={{
           flexShrink: 0, padding: '14px 16px', borderBottom: '1px solid var(--b1)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: 'var(--gd)' }}>📋 История</div>
+          <div className="ub" style={{ fontSize: 14, fontWeight: 800, color: 'var(--t2)' }}>📋 История</div>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)' }}>{history.length}</span>
         </div>
 
@@ -5023,10 +5519,10 @@ function VipDebtSection({
                 className="btn"
                 style={{
                   flex: 1, padding: '9px 8px', borderRadius: 11, border: 'none',
-                  background: on ? 'rgba(255,184,0,.15)' : 'var(--l3)',
+                  background: on ? 'rgba(233,174,0,.15)' : 'var(--l3)',
                   color: on ? 'var(--gd)' : 'var(--t3)',
                   fontSize: 11, fontWeight: on ? 800 : 600,
-                  boxShadow: on ? 'inset 0 0 0 1px rgba(255,184,0,.35)' : 'none',
+                  boxShadow: on ? 'inset 0 0 0 1px rgba(233,174,0,.35)' : 'none',
                 }}
               >
                 {t.icon} {t.label}{count > 0 ? ` (${count})` : ''}
@@ -5076,17 +5572,17 @@ function VipDebtSection({
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
               <div style={{
                 width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
-                background: 'rgba(255,184,0,.12)', border: '1px solid rgba(255,184,0,.3)',
+                background: 'rgba(233,174,0,.12)', border: '1px solid rgba(233,174,0,.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
               }}>🛒</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
                 <span className="ub" style={{ fontSize: 18, fontWeight: 900 }}>{hist.orderId}</span>
-                <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 5, background: 'rgba(255,184,0,.15)', color: 'var(--gd)' }}>VIP</span>
+                <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 5, background: 'rgba(233,174,0,.15)', color: 'var(--t2)' }}>VIP</span>
               </div>
               {st && (
                 <span className="bdg" style={{ background: `${st.c}18`, color: st.c, border: `1px solid ${st.c}30`, fontSize: 11 }}>{st.l}</span>
               )}
-              <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: '#FF8080', marginTop: 12 }}>
+              <div className="ub" style={{ fontSize: 28, fontWeight: 900, color: 'var(--red)', marginTop: 12 }}>
                 −{debtAmt.toLocaleString()} ЅМ
               </div>
               <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
@@ -5108,7 +5604,7 @@ function VipDebtSection({
                 ...(balance?.partial ? [
                   { l: 'Сумма заказа', v: `${originalAmt.toLocaleString()} ЅМ` },
                   { l: 'Уже оплачено', v: `${paidAmt.toLocaleString()} ЅМ`, c: 'var(--gr)' },
-                  { l: 'Осталось', v: `${debtAmt.toLocaleString()} ЅМ`, c: '#FF8080' },
+                  { l: 'Осталось', v: `${debtAmt.toLocaleString()} ЅМ`, c: 'var(--red)' },
                 ] : []),
                 ...(order?.addr ? [{ l: 'Адрес', v: order.addr }] : []),
                 ...(deliveryFee > 0 ? [{ l: 'Доставка', v: `${Number(deliveryFee).toFixed(2)} ЅМ · наличными курьеру`, c: 'var(--t2)' }] : []),
@@ -5133,7 +5629,7 @@ function VipDebtSection({
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>× {item.qty}</div>
                   </div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
                 </div>
                 )
               }) : (
@@ -5144,7 +5640,7 @@ function VipDebtSection({
               {order && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 15px', borderTop: '1px solid var(--b1)' }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Итого заказа</span>
-                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 10, color: 'var(--gd)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
                 </div>
               )}
             </div>
@@ -5162,7 +5658,7 @@ function VipDebtSection({
             <div style={{ textAlign: 'center', marginBottom: 20 }}>
               <div style={{
                 width: 56, height: 56, borderRadius: 16, margin: '0 auto 12px',
-                background: 'rgba(31,215,96,.12)', border: '1px solid rgba(31,215,96,.3)',
+                background: 'var(--gr-soft)', border: '1px solid rgba(7,136,61,.3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28,
               }}>{payDetail.type === 'purchase' ? '🏪' : '✅'}</div>
               <div className="ub" style={{ fontSize: 18, fontWeight: 900, marginBottom: 4 }}>
@@ -5202,16 +5698,16 @@ function VipDebtSection({
   )
 }
 
-const DebtsPage = ({ go, user }) => {
+const DebtsPage = ({ go, user }: any) => {
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
+  const trackClientOrders = useOrders(s => s.trackClientOrders);
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
   const spentTotal = useMemo(() => countClientSpent(apiOrders, user), [apiOrders, user?.phone]);
   useEffect(() => subscribeLoyaltyStatusConfig(() => setLoyaltyCfgTick(t => t + 1)), []);
   useEffect(() => {
-    if (USE_API) void fetchOrders().catch(() => {})
-  }, [fetchOrders])
+    if (USE_API) void trackClientOrders(getActiveClientPhone(user)).catch(() => {})
+  }, [user?.phone, trackClientOrders])
   const loyalty = useMemo(
     () => getLoyaltyProgress(spentTotal, orderCount, 0, user?.level, user?.vip, user?.loyaltyPeriod, loyaltyLockFromRecord(user, user?.level)),
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil, loyaltyCfgTick],
@@ -5238,7 +5734,7 @@ const DebtsPage = ({ go, user }) => {
     <div data-store-page style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <header data-store-header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'var(--bg)', borderBottom: '1px solid var(--b1)' }}>
         <div style={{ padding: '14px 18px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => go('profile')} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Ic n="arrL" s={17} c="var(--t2)" />
           </button>
           <div style={{ flex: 1 }}>
@@ -5262,7 +5758,7 @@ const DebtsPage = ({ go, user }) => {
   );
 };
 
-const VIPPage = ({ go, user, setUser }) => {
+const VIPPage = ({ go, user, setUser }: any) => {
   const [loyaltyCfgTick, setLoyaltyCfgTick] = useState(0);
   const apiOrders = useOrders(s => s.orders);
   const orderCount = useMemo(() => countClientOrders(apiOrders, user), [apiOrders, user?.phone]);
@@ -5273,7 +5769,7 @@ const VIPPage = ({ go, user, setUser }) => {
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const light = false;
+  const light = true;
   const { isVip, theme, tier } = resolveUserVip(vipUser, light)
   const showVipSupport =
     resolveAdminVipActive(user?.vip, user?.loyaltyPeriod, user?.vipUntil) ||
@@ -5296,17 +5792,14 @@ const VIPPage = ({ go, user, setUser }) => {
   const memberSinceLabel = formatMemberSinceLabel(user?.memberSince);
 
   const PERKS = [
-    { e:"🚀", title:"Приоритетная доставка",  desc:"Ваши заказы собираются первыми. Доставка за 30 мин.", color:"var(--blue)" },
-    { e:"💳", title:"Покупки в долг",          desc:creditLimit > 0 ? `Кредитный лимит ${creditLimit.toLocaleString()} ЅМ. Платите потом.` : "Кредитный лимит доступен только VIP-клиентам.", color:"var(--gd)" },
-    { e:"📞", title:"Линия поддержки VIP",      desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
-    { e:"⭐", title:"5% кешбэк бонусами",       desc:"Максимальный уровень Platinum — 5% с каждой покупки.", color:"var(--gd)" },
-    { e:"🔔", title:"Уведомления первым",        desc:"Узнаёте о новых акциях и поступлениях раньше всех.", color:"var(--org)" },
+    { e:"💳", title:"Покупки в долг на кассе", desc:creditLimit > 0 ? `Лимит ${creditLimit.toLocaleString()} ЅМ — покупки в магазине с оплатой позже.` : "Лимит открывает магазин VIP-клиентам.", color:"var(--t2)" },
+    { e:"⭐", title:"Бонусы по карте",          desc:"Процент бонусов зависит от уровня карты КАКАПО. Тратятся на кассе.", color:"var(--t2)" },
+    { e:"📞", title:"Линия поддержки",          desc:"Помощь по заказам, бонусам и долгу — звонок или Telegram.", color:"var(--sky)" },
   ];
   const promoPerks = [
-    { e:"🚀", title:"Приоритетная доставка", desc:"VIP-заказы собираются первыми и приезжают быстрее обычных." },
-    { e:"💳", title:"Покупки в долг", desc:"VIP-клиентам открывается лимит на покупки с оплатой позже." },
-    { e:"📞", title:"Линия поддержки", desc:"Отдельный номер и Telegram для вопросов по заказам, бонусам и долгу." },
-    { e:"⭐", title:"Максимальный кешбэк", desc:"Больше бонусов с каждого заказа и больше выгоды от покупок." },
+    { e:"💳", title:"Покупки в долг", desc:"VIP-клиентам магазин открывает лимит на покупки с оплатой позже." },
+    { e:"⭐", title:"Больше бонусов", desc:"Чем выше уровень карты, тем больше бонусов с каждой покупки." },
+    { e:"📞", title:"Линия поддержки", desc:"Номер и Telegram для вопросов по заказам, бонусам и долгу." },
   ];
   const vipRules = getVipRules();
 
@@ -5318,17 +5811,17 @@ const VIPPage = ({ go, user, setUser }) => {
     }}>
       <header style={{
         position:"sticky", top:0, zIndex:100,
-        background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
+        background: isVip ? "var(--header-bg)" : "var(--header-bg)",
         backdropFilter:"blur(24px)",
-        borderBottom: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
-        boxShadow: isVip ? "0 4px 20px rgba(255,184,0,.12)" : "none",
+        borderBottom: isVip ? "1px solid rgba(233,174,0,.35)" : "1px solid var(--b1)",
+        boxShadow: isVip ? "0 4px 20px rgba(233,174,0,.12)" : "none",
       }}>
         <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
-            <div className="ub" style={{ fontSize:17, fontWeight:900, color: isVip ? "#FFD700" : "var(--t1)" }}>{isVip ? "VIP Профиль" : "VIP программа"}</div>
-            <div style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
-              <Ic n="crown" s={10} c={isVip ? "#FFD700" : "var(--gd)"}/>{isVip ? "VIP Elite" : tier.label}{user?.card ? ` · ${user.card}` : ""}
+            <div className="ub" style={{ fontSize:17, fontWeight:900, color: isVip ? "#E9AE00" : "var(--t1)" }}>{isVip ? "VIP Профиль" : "VIP программа"}</div>
+            <div style={{ fontSize:10, color: isVip ? "rgba(138,100,0,.8)" : "var(--gd)", marginTop:1, display:"flex", alignItems:"center", gap:4 }}>
+              <Ic n="crown" s={10} c={isVip ? "#E9AE00" : "var(--gd)"}/>{isVip ? "VIP Elite" : tier.label}{user?.card ? ` · ${user.card}` : ""}
           </div>
           </div>
           {isVip && <UserStatusBadge user={vipUser} size="md" />}
@@ -5338,9 +5831,9 @@ const VIPPage = ({ go, user, setUser }) => {
       <div style={{ padding:"16px 18px 100px" }}>
         {isVip ? (
           <>
-        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:softAccentSurface('#D97706', light, "linear-gradient(135deg,#1A1000,#2E1E00,#1A1000)"), border:"1.5px solid rgba(255,184,0,.4)", boxShadow:"0 8px 40px rgba(255,184,0,.2)" }}>
-          <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
-          <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
+        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:softAccentSurface('#D97706', light, "linear-gradient(135deg,#3A2A00,#2E1E00,#3A2A00)"), border:"1.5px solid rgba(233,174,0,.4)", boxShadow:"0 8px 40px rgba(233,174,0,.2)" }}>
+          <div style={{ position:"absolute", inset:0, opacity:.04, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(233,174,0,1) 8px,rgba(233,174,0,1) 9px)" }}/>
+          <div style={{ position:"absolute", right:-30, top:-30, width:160, height:160, borderRadius:"50%", background:"radial-gradient(circle,rgba(233,174,0,.18),transparent 70%)", filter:"blur(20px)" }}/>
           <div style={{ position:"relative", zIndex:2, padding:"22px 22px 20px" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
               <div>
@@ -5349,27 +5842,27 @@ const VIPPage = ({ go, user, setUser }) => {
                     <Ic n="crown" s={18} c="var(--bg)" w={2}/>
                   </div>
                   <div>
-                        <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>КАКАПО VIP</div>
-                        <div style={{ fontSize:9, color:"rgba(255,184,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
+                        <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--t2)" }}>КАКАПО VIP</div>
+                        <div style={{ fontSize:9, color:"rgba(233,174,0,.6)" }}>{tier.label.toUpperCase()} MEMBER</div>
                   </div>
                 </div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Клиент с</div>
-                    <div style={{ fontSize:11, fontWeight:700, color:"var(--gd)" }}>{memberSinceLabel}</div>
+                <div style={{ fontSize:9, color:"rgba(233,174,0,.6)", marginBottom:2 }}>Клиент с</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:"var(--t2)" }}>{memberSinceLabel}</div>
               </div>
             </div>
-            <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--gd)", marginBottom:16, textShadow:"0 2px 12px rgba(255,184,0,.5)" }}>
+            <div className="ub" style={{ fontSize:20, letterSpacing:3, color:"var(--t2)", marginBottom:16, textShadow:"0 2px 12px rgba(233,174,0,.5)" }}>
                   {cardLabel}
             </div>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
               <div>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Имя</div>
-                <div style={{ fontSize:13, fontWeight:700, color:"var(--gd)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
+                <div style={{ fontSize:9, color:"rgba(233,174,0,.6)", marginBottom:2 }}>Имя</div>
+                <div style={{ fontSize:13, fontWeight:700, color:"var(--t2)" }}>{user?.name?.toUpperCase() || "ДИЛОВАР Р."}</div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize:9, color:"rgba(255,184,0,.6)", marginBottom:2 }}>Лимит</div>
-                <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--gd)" }}>{creditLimit.toLocaleString()} ЅМ</div>
+                <div style={{ fontSize:9, color:"rgba(233,174,0,.6)", marginBottom:2 }}>Лимит</div>
+                <div className="ub" style={{ fontSize:14, fontWeight:900, color:"var(--t2)" }}>{creditLimit.toLocaleString()} ЅМ</div>
               </div>
             </div>
           </div>
@@ -5392,34 +5885,34 @@ const VIPPage = ({ go, user, setUser }) => {
           </>
         ) : (
           <>
-            <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,rgba(38,24,0,.96),rgba(86,56,0,.92),rgba(30,18,0,.96))", border:"1.5px solid rgba(255,184,0,.34)", boxShadow:"0 10px 44px rgba(255,184,0,.14)" }}>
-              <div style={{ position:"absolute", inset:0, opacity:.06, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,184,0,1) 8px,rgba(255,184,0,1) 9px)" }}/>
-              <div style={{ position:"absolute", right:-40, top:-40, width:180, height:180, borderRadius:"50%", background:"radial-gradient(circle,rgba(255,184,0,.18),transparent 70%)", filter:"blur(22px)" }}/>
+            <div style={{ borderRadius:22, overflow:"hidden", marginBottom:18, position:"relative", background:"linear-gradient(135deg,var(--header-bg),var(--header-bg),var(--header-bg))", border:"1.5px solid rgba(233,174,0,.34)", boxShadow:"0 10px 44px rgba(233,174,0,.14)" }}>
+              <div style={{ position:"absolute", inset:0, opacity:.06, background:"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(233,174,0,1) 8px,rgba(233,174,0,1) 9px)" }}/>
+              <div style={{ position:"absolute", right:-40, top:-40, width:180, height:180, borderRadius:"50%", background:"radial-gradient(circle,rgba(233,174,0,.18),transparent 70%)", filter:"blur(22px)" }}/>
               <div style={{ position:"relative", zIndex:2, padding:"22px 20px 20px" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-                  <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 14px rgba(255,184,0,.28)" }}>
+                  <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,var(--gd2),var(--gd))", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 4px 14px rgba(233,174,0,.28)" }}>
                     <Ic n="crown" s={20} c="var(--bg)" w={2}/>
                   </div>
                   <div>
-                    <div className="ub" style={{ fontSize:16, fontWeight:900, color:"var(--gd)" }}>Откройте VIP в КАКАПО</div>
-                    <div style={{ fontSize:10, color:"rgba(255,220,100,.8)", marginTop:2 }}>Больше выгоды, приоритет и отдельная поддержка</div>
+                    <div className="ub" style={{ fontSize:16, fontWeight:900, color:"var(--t2)" }}>Откройте VIP в КАКАПО</div>
+                    <div style={{ fontSize:10, color:"rgba(138,100,0,.8)", marginTop:2 }}>Больше выгоды, приоритет и отдельная поддержка</div>
                   </div>
                 </div>
                 <div style={{ fontSize:13, color:"#FFF1C2", lineHeight:1.6, marginBottom:14 }}>
                   VIP даёт доступ к лучшим привилегиям для постоянных клиентов: быстрые заказы, увеличенный кешбэк, покупки в долг и личную линию поддержки.
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minSpent.toLocaleString()}+</div>
-                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>траты</div>
+                  <div style={{ background:"rgba(23,37,27,.18)", border:"1px solid rgba(233,174,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--t2)" }}>{vipRules.minSpent.toLocaleString()}+</div>
+                    <div style={{ fontSize:10, color:"rgba(138,100,0,.78)" }}>траты</div>
                   </div>
-                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minOrders}+</div>
-                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>заказов</div>
+                  <div style={{ background:"rgba(23,37,27,.18)", border:"1px solid rgba(233,174,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--t2)" }}>{vipRules.minOrders}+</div>
+                    <div style={{ fontSize:10, color:"rgba(138,100,0,.78)" }}>заказов</div>
                   </div>
-                  <div style={{ background:"rgba(0,0,0,.18)", border:"1px solid rgba(255,184,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--gd)" }}>{vipRules.minReviews}+</div>
-                    <div style={{ fontSize:10, color:"rgba(255,220,100,.78)" }}>отзывов</div>
+                  <div style={{ background:"rgba(23,37,27,.18)", border:"1px solid rgba(233,174,0,.2)", borderRadius:12, padding:"10px 8px", textAlign:"center" }}>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900, color:"var(--t2)" }}>{vipRules.minReviews}+</div>
+                    <div style={{ fontSize:10, color:"rgba(138,100,0,.78)" }}>отзывов</div>
                   </div>
                 </div>
               </div>
@@ -5461,8 +5954,8 @@ const VIPPage = ({ go, user, setUser }) => {
             onClick={() => go("debts")}
             style={{
               width: "100%", marginTop: creditLimit > 0 ? 0 : 12, padding: "12px", borderRadius: 12,
-              background: "rgba(255,184,0,.1)", border: "1px solid rgba(255,184,0,.28)",
-              color: "var(--gd)", fontSize: 13, fontWeight: 800,
+              background: "rgba(233,174,0,.1)", border: "1px solid rgba(233,174,0,.28)",
+              color: "var(--t2)", fontSize: 13, fontWeight: 800,
             }}
           >
             Открыть раздел «Долги» →
@@ -5490,16 +5983,16 @@ const VIPPage = ({ go, user, setUser }) => {
             <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:14 }}>Что входит в VIP</div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {promoPerks.map((perk, i) => (
-                <div key={i} style={{ background:"var(--l2)", border:"1px solid rgba(255,184,0,.18)", borderRadius:16, padding:"14px 12px" }}>
+                <div key={i} style={{ background:"var(--l2)", border:"1px solid rgba(233,174,0,.18)", borderRadius:16, padding:"14px 12px" }}>
                   <div style={{ fontSize:26, marginBottom:8 }}>{perk.e}</div>
-                  <div style={{ fontSize:12, fontWeight:800, color:"var(--gd)", marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
+                  <div style={{ fontSize:12, fontWeight:800, color:"var(--t2)", marginBottom:4, lineHeight:1.3 }}>{perk.title}</div>
                   <div style={{ fontSize:10, color:"var(--t3)", lineHeight:1.55 }}>{perk.desc}</div>
                 </div>
               ))}
       </div>
 
-            <div style={{ background:"rgba(255,184,0,.08)", border:"1px solid rgba(255,184,0,.16)", borderRadius:18, padding:"18px" }}>
-              <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:8, color:"var(--gd)" }}>Как получить VIP</div>
+            <div style={{ background:"rgba(233,174,0,.14)", border:"1px solid rgba(233,174,0,.16)", borderRadius:18, padding:"18px" }}>
+              <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:8, color:"var(--t2)" }}>Как получить VIP</div>
               <div style={{ fontSize:11, color:"var(--t2)", lineHeight:1.65 }}>
                 Выполняйте условия программы: оформляйте заказы, накапливайте сумму покупок и оставляйте отзывы. Как только все условия будут выполнены, VIP станет доступен автоматически.
               </div>
@@ -5512,9 +6005,11 @@ const VIPPage = ({ go, user, setUser }) => {
     </div>
   );
 };
-const AboutPage = ({ go, user }) => {
-  const light = false;
-  const [tab, setTab] = useState("about");
+/** Only real store contacts are shown; history/team/stores tabs held placeholder text. */
+const ABOUT_TABS = [{ id: "contacts", l: "Контакты" }];
+const AboutPage = ({ go, user }: any) => {
+  const light = true;
+  const [tab, setTab] = useState("contacts");
   const support = useSupportContacts();
   const [sent, setSent] = useState(false);
   const [name, setName] = useState("");
@@ -5538,7 +6033,7 @@ const AboutPage = ({ go, user }) => {
   const TEAM = [
     { name:"Диловар Рахимов",  role:"Основатель и директор",    av:"Д", color:"var(--gr)" },
     { name:"Нилуфар Хасанова", role:"Управляющая магазина",     av:"Н", color:"var(--blue)" },
-    { name:"Зафар Мирзоев",    role:"Руководитель доставки",    av:"З", color:"var(--gd)" },
+    { name:"Зафар Мирзоев",    role:"Руководитель доставки",    av:"З", color:"var(--t2)" },
     { name:"Мадина Холова",    role:"Менеджер по клиентам",     av:"М", color:"var(--pur)" },
   ];
 
@@ -5561,28 +6056,27 @@ const AboutPage = ({ go, user }) => {
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
         <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("profile")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack("profile", go)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{ flex:1 }}>
             <div className="ub" style={{ fontSize:17, fontWeight:900 }}>О КАКАПО</div>
-            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>г. Яван, Таджикистан · с 2019 года</div>
+            <div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{support.address || "г. Яван, Таджикистан"}</div>
           </div>
-          <button className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="share" s={17} c="var(--t2)"/></button>
         </div>
-        <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
-          {[{id:"about",l:"О нас"},{id:"contacts",l:"Контакты"},{id:"stores",l:"Магазины"},{id:"team",l:"Команда"}].map(t => (
+        {ABOUT_TABS.length > 1 && <div className="hscroll" style={{ padding:"0 18px 12px", gap:6 }}>
+          {ABOUT_TABS.map(t => (
             <button key={t.id} className={`chip ${tab===t.id?"on":""}`} onClick={() => setTab(t.id)}>{t.l}</button>
           ))}
-        </div>
+        </div>}
       </header>
 
       <div style={{ padding:"0 0 100px" }}>
         {tab==="about" && (
           <div>
-            <div style={{ height:200, background:softAccentSurface('#129B45', light, "linear-gradient(160deg,#061A0A 0%,#103020 50%,#040E06 100%)"), display:"flex", alignItems:"center", justifyContent:"space-between", padding:"28px 24px", position:"relative", overflow:"hidden" }}>
-              <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
+            <div style={{ height:200, background:softAccentSurface('#07883D', light, "linear-gradient(160deg,#061A0A 0%,#103020 50%,#040E06 100%)"), display:"flex", alignItems:"center", justifyContent:"space-between", padding:"28px 24px", position:"relative", overflow:"hidden" }}>
+              <div style={{ position:"absolute", left:0, right:0, height:1, background:"linear-gradient(90deg,transparent,rgba(7,136,61,.5),transparent)", animation:"scanLine 3s linear infinite" }}/>
               <div>
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
-                  <div style={{ width:52, height:52, borderRadius:16, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:22, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"0 4px 16px rgba(31,215,96,.4)" }}>K</div>
+                  <div style={{ width:52, height:52, borderRadius:16, background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:22, fontWeight:900, color:"var(--bg)", animation:"glow 3s ease-in-out infinite", boxShadow:"none" }}>K</div>
                   <div>
                     <div className="ub" style={{ fontSize:20, fontWeight:900, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>КАКАПО</div>
                     <div style={{ fontSize:11, color:"var(--t2)" }}>Ваш семейный супермаркет</div>
@@ -5590,7 +6084,7 @@ const AboutPage = ({ go, user }) => {
                 </div>
                 <div style={{ fontSize:13, color:light ? "var(--t2)" : "rgba(255,255,255,.65)", lineHeight:1.6 }}>Свежие продукты каждой семье г. Яван</div>
               </div>
-              <div style={{ fontSize:52, animation:"float 3s ease-in-out infinite", filter:"drop-shadow(0 6px 16px rgba(31,215,96,.35))" }}>🛒</div>
+              <div style={{ fontSize:52, animation:"float 3s ease-in-out infinite", filter:"drop-shadow(0 6px 16px rgba(7,136,61,.38))" }}>🛒</div>
               <div style={{ position:"absolute", bottom:0, left:0, right:0, height:60, background:"linear-gradient(transparent,var(--bg))" }}/>
             </div>
 
@@ -5610,12 +6104,12 @@ const AboutPage = ({ go, user }) => {
                 {TIMELINE.map((step,i) => (
                   <div key={i} style={{ display:"flex", gap:14, marginBottom:i<TIMELINE.length-1?16:0 }}>
                     <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
-                      <div style={{ width:36, height:36, borderRadius:11, background:"linear-gradient(135deg,var(--gr3),var(--gr))", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{step.e}</div>
+                      <div style={{ width:36, height:36, borderRadius:11, background:"var(--gr)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>{step.e}</div>
                       {i<TIMELINE.length-1 && <div style={{ width:2, flex:1, minHeight:20, background:"linear-gradient(180deg,var(--gr),var(--b1))", margin:"4px 0" }}/>}
                     </div>
                     <div style={{ flex:1, paddingBottom:i<TIMELINE.length-1?4:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                        <span style={{ fontSize:9, fontWeight:800, color:"var(--gr)", padding:"2px 7px", borderRadius:6, background:"rgba(31,215,96,.12)", border:"1px solid rgba(31,215,96,.25)" }}>{step.year}</span>
+                        <span style={{ fontSize:9, fontWeight:800, color:"var(--gr)", padding:"2px 7px", borderRadius:6, background:"var(--gr-soft)", border:"1px solid rgba(7,136,61,.25)" }}>{step.year}</span>
                         <span style={{ fontSize:12, fontWeight:800 }}>{step.t}</span>
                       </div>
                       <div style={{ fontSize:11, color:"var(--t2)", lineHeight:1.6 }}>{step.d}</div>
@@ -5624,13 +6118,13 @@ const AboutPage = ({ go, user }) => {
                 ))}
               </div>
 
-              <div style={{ borderRadius:18, background:softAccentSurface('#129B45', light, "linear-gradient(135deg,#0A1A06,#142A0E)"), border:"1px solid rgba(31,215,96,.2)", padding:"18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ borderRadius:18, background:softAccentSurface('#07883D', light, "linear-gradient(135deg,#0A1A06,#142A0E)"), border:"1px solid rgba(7,136,61,.2)", padding:"18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
                   <div style={{ fontSize:11, fontWeight:800, color:"var(--gr)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:6 }}>Нас выбирают</div>
                   <div className="ub" style={{ fontSize:16, fontWeight:900, marginBottom:4 }}>Лучший супермаркет Явана</div>
                   <div style={{ fontSize:11, color:"var(--t2)" }}>По версии жителей · 2023–2024</div>
                 </div>
-                <div style={{ fontSize:48, animation:"float 3s ease-in-out infinite", filter:"drop-shadow(0 6px 16px rgba(255,184,0,.4))" }}>🏆</div>
+                <div style={{ fontSize:48, animation:"float 3s ease-in-out infinite", filter:"drop-shadow(0 6px 16px rgba(233,174,0,.4))" }}>🏆</div>
               </div>
             </div>
           </div>
@@ -5640,11 +6134,11 @@ const AboutPage = ({ go, user }) => {
             <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Связаться с нами</div>
             <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:22 }}>
               {[
-                { icon:"phone", label:"Позвонить",       sub:support.phone, color:"var(--gr)",   bg:"rgba(31,215,96,.1)", href: support.phoneTel },
-                { icon:"phone", label:"Второй номер",     sub:support.phone2, color:"var(--gr)",   bg:"rgba(31,215,96,.08)", href: support.phone2Tel },
-                { icon:"tg",    label:"Telegram",         sub:support.telegramLabel, color:"#29B6F6", bg:"rgba(41,182,246,.1)", href: support.telegram },
-                { icon:"msg",   label:"Email",            sub:support.email, color:"var(--gd)",  bg:"rgba(255,184,0,.1)", href: `mailto:${support.email}` },
-              ].map((c,i) => (
+                { icon:"phone", label:"Позвонить",       sub:support.phone, color:"var(--gr)",   bg:"var(--gr-soft)", href: support.phoneTel },
+                { icon:"phone", label:"Второй номер",     sub:support.phone2, color:"var(--gr)",   bg:"var(--gr-soft)", href: support.phone2Tel },
+                { icon:"tg",    label:"Telegram",         sub:support.telegramLabel, color:"#0369A1", bg:"rgba(2,132,199,.1)", href: support.telegram },
+                { icon:"msg",   label:"Email",            sub:support.email, color:"var(--t2)",  bg:"rgba(233,174,0,.1)", href: `mailto:${support.email}` },
+              ].filter(c => String(c.sub || '').trim() && c.href).map((c,i) => (
                 <a key={i} href={c.href} {...(c.icon === 'tg' ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, cursor:"pointer", transition:"all .2s", textDecoration:"none", color:"inherit" }}>
                   <div style={{ width:42, height:42, borderRadius:13, background:c.bg, border:`1px solid ${c.color}30`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
                     <Ic n={c.icon} s={20} c={c.color}/>
@@ -5667,24 +6161,23 @@ const AboutPage = ({ go, user }) => {
               <span className="ub" style={{ fontSize:12, fontWeight:800, color:"var(--gr)" }}>{support.hours}</span>
             </div>
 
-            <div className="ub" style={{ fontSize:13, fontWeight:800, color:"var(--t3)", textTransform:"uppercase", letterSpacing:".8px", marginBottom:10 }}>Написать нам</div>
-            {!sent ? (
+            {false && (!sent ? (
               <div className="card" style={{ padding:"18px", display:"flex", flexDirection:"column", gap:10 }}>
                 <input className="inp" value={name} onChange={e => setName(e.target.value)} placeholder="Ваше имя *" style={{ width:"100%" }}/>
                 <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Ваше сообщение *"
                   style={{ width:"100%", background:"var(--l3)", border:"1.5px solid var(--b1)", borderRadius:14, padding:"13px 16px", color:"var(--t1)", fontFamily:"Nunito", fontSize:14, resize:"none", height:90, outline:"none" }}/>
-                <button onClick={send} className="btn" style={{ padding:"14px", fontSize:14, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:name&&msg?1:.5 }}>
+                <button onClick={send} className="btn" style={{ padding:"14px", fontSize:14, borderRadius:14, background:"var(--gr)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:name&&msg?1:.5 }}>
                   {sending ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="send" s={16} c="white"/>Отправить сообщение</>}
                 </button>
               </div>
             ) : (
-              <div style={{ background:"rgba(31,215,96,.07)", border:"1.5px solid rgba(31,215,96,.3)", borderRadius:18, padding:"28px", textAlign:"center" }}>
+              <div style={{ background:"rgba(7,136,61,.07)", border:"1.5px solid rgba(7,136,61,.3)", borderRadius:18, padding:"28px", textAlign:"center" }}>
                 <div style={{ fontSize:40, marginBottom:12, animation:"float 3s ease-in-out infinite" }}>✉️</div>
                 <div className="ub" style={{ fontSize:16, fontWeight:800, color:"var(--gr)", marginBottom:6 }}>Сообщение отправлено!</div>
                 <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.6 }}>Ответим в течение нескольких часов в рабочее время</div>
-                <button className="btn" onClick={() => { setSent(false); setName(""); setMsg(""); }} style={{ marginTop:14, padding:"10px 22px", borderRadius:13, background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.3)", color:"var(--gr)", fontSize:12, fontWeight:700 }}>Написать ещё</button>
+                <button className="btn" onClick={() => { setSent(false); setName(""); setMsg(""); }} style={{ marginTop:14, padding:"10px 22px", borderRadius:13, background:"var(--gr-soft)", border:"1.5px solid rgba(7,136,61,.3)", color:"var(--gr)", fontSize:12, fontWeight:700 }}>Написать ещё</button>
               </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -5693,32 +6186,32 @@ const AboutPage = ({ go, user }) => {
             <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:16 }}>Наши магазины</div>
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
               {STORES.map((store,i) => (
-                <div key={i} style={{ background:"var(--l2)", border:`1.5px solid ${store.main?"rgba(31,215,96,.3)":"var(--b1)"}`, borderRadius:20, overflow:"hidden" }}>
+                <div key={i} style={{ background:"var(--l2)", border:`1.5px solid ${store.main?"rgba(7,136,61,.3)":"var(--b1)"}`, borderRadius:20, overflow:"hidden" }}>
                   {store.main && (
-                    <div style={{ padding:"8px 16px", background:"rgba(31,215,96,.08)", borderBottom:"1px solid rgba(31,215,96,.15)", display:"flex", alignItems:"center", gap:7 }}>
+                    <div style={{ padding:"8px 16px", background:"var(--gr-soft)", borderBottom:"1px solid rgba(7,136,61,.15)", display:"flex", alignItems:"center", gap:7 }}>
                       <div style={{ width:6, height:6, borderRadius:"50%", background:"var(--gr)", animation:"pulse 2s infinite" }}/>
                       <span style={{ fontSize:10, fontWeight:800, color:"var(--gr)" }}>Главный магазин · Открыт сейчас</span>
                     </div>
                   )}
                   <div style={{ padding:"16px" }}>
                     <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:14 }}>
-                      <div style={{ width:44, height:44, borderRadius:13, background:store.main?"linear-gradient(135deg,var(--gr3),var(--gr))":"var(--l3)", border:`1px solid ${store.main?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:store.main?"var(--bg)":"var(--t2)", flexShrink:0 }}>K</div>
+                      <div style={{ width:44, height:44, borderRadius:13, background:store.main?"var(--gr)":"var(--l3)", border:`1px solid ${store.main?"transparent":"var(--b1)"}`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:store.main?"var(--bg)":"var(--t2)", flexShrink:0 }}>K</div>
                       <div style={{ flex:1 }}>
                         <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:3 }}>{store.name}</div>
                         <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--t2)", marginBottom:2 }}><Ic n="map" s={12} c="var(--gr)"/>{store.addr}</div>
-                        <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--t2)" }}><Ic n="clock" s={12} c="var(--gd)"/>{store.hours}</div>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"var(--t2)" }}><Ic n="clock" s={12} c="var(--gd2)"/>{store.hours}</div>
                       </div>
                     </div>
-                    <div style={{ height:90, borderRadius:12, overflow:"hidden", position:"relative", background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid rgba(31,215,96,.12)", marginBottom:12, cursor:"pointer" }}>
-                      <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(31,215,96,1) 16px,rgba(31,215,96,1) 17px)" }}/>
+                    <div style={{ height:90, borderRadius:12, overflow:"hidden", position:"relative", background:"linear-gradient(135deg,var(--l1),var(--l3))", border:"1px solid var(--gr-soft)", marginBottom:12, cursor:"pointer" }}>
+                      <div style={{ position:"absolute", inset:0, opacity:.05, background:"repeating-linear-gradient(0deg,transparent,transparent 16px,rgba(7,136,61,1) 16px,rgba(7,136,61,1) 17px),repeating-linear-gradient(90deg,transparent,transparent 16px,rgba(7,136,61,1) 16px,rgba(7,136,61,1) 17px)" }}/>
                       <div style={{ position:"absolute", top:"40%", left:"45%", display:"flex", flexDirection:"column", alignItems:"center" }}>
-                        <div style={{ width:26, height:26, borderRadius:"50%", background:"rgba(31,215,96,.9)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:10, fontWeight:900, color:"var(--bg)", boxShadow:"0 0 10px rgba(31,215,96,.6)" }}>K</div>
+                        <div style={{ width:26, height:26, borderRadius:"50%", background:"rgba(7,136,61,.9)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Unbounded", fontSize:10, fontWeight:900, color:"var(--bg)", boxShadow:"none" }}>K</div>
                         <div style={{ width:2, height:8, background:"var(--gr)" }}/>
                       </div>
                       <div style={{ position:"absolute", bottom:7, right:10, fontSize:9, color:"rgba(255,255,255,.4)", display:"flex", alignItems:"center", gap:4 }}>Открыть карту</div>
                     </div>
                     <div style={{ display:"flex", gap:8 }}>
-                      <a href={toTelHref(store.phone)} className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6, textDecoration:"none" }}>
+                      <a href={toTelHref(store.phone)} className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"var(--gr)", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:6, textDecoration:"none" }}>
                         <Ic n="phone" s={13} c="white"/>{store.phone}
                       </a>
                       <button className="btn" style={{ flex:1, padding:"10px", fontSize:12, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", color:"var(--t2)", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
@@ -5756,20 +6249,20 @@ const AboutPage = ({ go, user }) => {
                 </div>
               ))}
             </div>
-            <div style={{ background:softAccentSurface('#2563EB', light, "linear-gradient(135deg,#060C20,#0E1640)"), border:"1px solid rgba(59,142,240,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
+            <div style={{ background:softAccentSurface('#2563EB', light, "linear-gradient(135deg,#060C20,#0E1640)"), border:"1px solid rgba(37,99,235,.2)", borderRadius:18, padding:"20px", textAlign:"center", marginBottom:16 }}>
               <div style={{ fontSize:36, marginBottom:10 }}>💼</div>
               <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:6 }}>Хотите к нам?</div>
               <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.65, marginBottom:14 }}>Ищем ответственных и позитивных людей для работы в КАКАПО</div>
-              <button className="btn" style={{ padding:"12px 24px", fontSize:13, borderRadius:14, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white" }}>Отправить резюме →</button>
+              <button className="btn" style={{ padding:"12px 24px", fontSize:13, borderRadius:14, background:"var(--gr)", color:"white" }}>Отправить резюме →</button>
             </div>
             <div className="card" style={{ padding:"16px" }}>
               <div style={{ fontSize:13, fontWeight:800, marginBottom:12 }}>Мы в социальных сетях</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                 {[
                   { icon:"insta",label:"Instagram",sub:"@kakapo.tj",  color:"#E1306C",bg:"rgba(225,48,108,.1)" },
-                  { icon:"tg",   label:"Telegram", sub:"@kakapo_tj",  color:"#29B6F6",bg:"rgba(41,182,246,.1)" },
+                  { icon:"tg",   label:"Telegram", sub:"@kakapo_tj",  color:"#0369A1",bg:"rgba(2,132,199,.1)" },
                   { icon:"wa",   label:"WhatsApp",  sub:"Чат поддержки",color:"#25D366",bg:"rgba(37,211,102,.1)" },
-                  { icon:"msg",  label:"Написать",  sub:"kakapo.tj",  color:"var(--gd)",bg:"rgba(255,184,0,.1)" },
+                  { icon:"msg",  label:"Написать",  sub:"kakapo.tj",  color:"var(--t2)",bg:"rgba(233,174,0,.1)" },
                 ].map((s,i) => (
                   <button key={i} className="btn" style={{ padding:"12px", borderRadius:14, background:s.bg, border:`1px solid ${s.color}25`, display:"flex", alignItems:"center", gap:10 }}>
                     <Ic n={s.icon} s={20} c={s.color}/>
@@ -5788,7 +6281,7 @@ const AboutPage = ({ go, user }) => {
     </div>
   );
 };
-const NotifPage = ({go, user}) => {
+const NotifPage = ({ go, user }: any) => {
   const phone = getActiveClientPhone(user);
   const [notifs, setNotifs] = useState(() => loadClientNotifications(!USE_API, phone));
   const [tab, setTab] = useState<'all' | ClientNotificationKind>('all');
@@ -5841,12 +6334,12 @@ const NotifPage = ({go, user}) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div style={{flex:1}}>
             <div className="ub" style={{fontSize:17,fontWeight:900}}>Уведомления</div>
             {unread>0&&<div style={{fontSize:10,color:'var(--red)',marginTop:1}}>{unread} непрочитанных</div>}
           </div>
-          {unread>0&&<button onClick={markAll} className="btn" style={{fontSize:11,color:'var(--gr)',background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',borderRadius:10,padding:'6px 12px',fontFamily:'Nunito',fontWeight:700}}>Прочитать все</button>}
+          {unread>0&&<button onClick={markAll} className="btn" style={{fontSize:11,color:'var(--gr)',background:'var(--gr-soft)',border:'1px solid rgba(7,136,61,.25)',borderRadius:10,padding:'6px 12px',fontFamily:'Nunito',fontWeight:700}}>Прочитать все</button>}
         </div>
         <div style={{ display:'flex', gap:6, padding:'0 18px 12px', overflowX:'auto' }}>
           {tabs.map(t => {
@@ -5856,8 +6349,8 @@ const NotifPage = ({go, user}) => {
               <button key={t.id} type="button" onClick={() => setTab(t.id)} className="btn"
                 style={{
                   flexShrink:0, padding:'7px 12px', borderRadius:999, fontSize:11, fontWeight:700,
-                  background: active ? 'rgba(31,215,96,.14)' : 'var(--l3)',
-                  border: active ? '1px solid rgba(31,215,96,.35)' : '1px solid var(--b1)',
+                  background: active ? 'var(--gr-soft)' : 'var(--l3)',
+                  border: active ? '1px solid rgba(7,136,61,.38)' : '1px solid var(--b1)',
                   color: active ? 'var(--gr)' : 'var(--t2)',
                 }}>
                 {t.label}{cnt > 0 ? ` · ${cnt}` : ''}
@@ -5880,7 +6373,7 @@ const NotifPage = ({go, user}) => {
         )}
         {filtered.map((n,i)=>(
           <div key={n.id} onClick={()=>openNotif(n)}
-            style={{display:'flex',gap:12,padding:'14px 16px',background:n.read?'var(--l2)':'rgba(31,215,96,.06)',border:`1px solid ${n.read?'var(--b1)':'rgba(31,215,96,.2)'}`,borderRadius:16,cursor:'pointer',animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both`}}>
+            style={{display:'flex',gap:12,padding:'14px 16px',background:n.read?'var(--l2)':'rgba(7,136,61,.06)',border:`1px solid ${n.read?'var(--b1)':'rgba(7,136,61,.2)'}`,borderRadius:16,cursor:'pointer',animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.04}s both`}}>
             <div style={{width:42,height:42,borderRadius:13,background:`${n.color}14`,border:`1px solid ${n.color}25`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{n.icon}</div>
             <div style={{flex:1}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}}>
@@ -5907,11 +6400,11 @@ const DEFAULT_ADDRESSES = [
   { id: 2, label: '💼 Работа', street: 'ул. Сомони, 12', apt: '', floor: '1', ent: '1', comment: '', def: false, lat: 38.3160, lng: 69.0340 },
 ];
 
-const AddressesPage = ({ go, user }) => {
+const AddressesPage = ({ go, user }: any) => {
   const clientPhone = user?.phone || getActiveClientPhone(user);
   const [addrs, setAddrs] = useState(() => {
     const saved = loadClientAddresses(clientPhone);
-    return saved.length ? saved : (clientPhone ? [] : DEFAULT_ADDRESSES);
+    return saved.length ? saved : (USE_API || clientPhone ? [] : DEFAULT_ADDRESSES);
   });
   const persistReadyRef = useRef(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -6071,20 +6564,20 @@ const AddressesPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Мои адреса</div>
-          <button onClick={openAdd} className="btn" style={{padding:'8px 14px',borderRadius:12,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
+          <button onClick={openAdd} className="btn" style={{padding:'8px 14px',borderRadius:12,background:'var(--gr)',border:'none',color:'var(--bg)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
         </div>
       </header>
       <div style={{padding:'16px 18px 100px',display:'flex',flexDirection:'column',gap:12}}>
         {addrs.map((a,i)=>(
-          <div key={a.id} className="card" style={{padding:'16px',border:`1.5px solid ${a.def?'rgba(31,215,96,.35)':'var(--b1)'}`,animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
+          <div key={a.id} className="card" style={{padding:'16px',border:`1.5px solid ${a.def?'rgba(7,136,61,.38)':'var(--b1)'}`,animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.08}s both`}}>
             <div style={{display:'flex',alignItems:'flex-start',gap:12}}>
-              <div style={{width:44,height:44,borderRadius:13,background:a.def?'rgba(31,215,96,.14)':'var(--l3)',border:`1px solid ${a.def?'rgba(31,215,96,.3)':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{a.label.split(' ')[0]}</div>
+              <div style={{width:44,height:44,borderRadius:13,background:a.def?'var(--gr-soft)':'var(--l3)',border:`1px solid ${a.def?'rgba(7,136,61,.3)':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{a.label.split(' ')[0]}</div>
               <div style={{flex:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
                   <span style={{fontSize:13,fontWeight:800}}>{a.label}</span>
-                  {a.def&&<span style={{padding:'2px 7px',borderRadius:7,fontSize:10,fontWeight:800,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.28)'}}>По умолчанию</span>}
+                  {a.def&&<span style={{padding:'2px 7px',borderRadius:7,fontSize:10,fontWeight:800,background:'var(--gr-soft)',color:'var(--gr)',border:'1px solid rgba(7,136,61,.3)'}}>По умолчанию</span>}
                 </div>
                 <div style={{fontSize:13,fontWeight:600,marginBottom:2}}>{a.street}{a.apt&&`, кв. ${a.apt}`}</div>
                 {(a.floor||a.ent)&&<div style={{fontSize:11,color:'var(--t3)',marginBottom:2}}>
@@ -6097,13 +6590,13 @@ const AddressesPage = ({ go, user }) => {
               </div>
             </div>
             <div style={{display:'flex',gap:8,marginTop:12}}>
-              {!a.def&&<button onClick={()=>setDef(a.id)} className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'rgba(31,215,96,.08)',border:'1px solid rgba(31,215,96,.25)',color:'var(--gr)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✓ Сделать основным</button>}
+              {!a.def&&<button onClick={()=>setDef(a.id)} className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'var(--gr-soft)',border:'1px solid rgba(7,136,61,.25)',color:'var(--gr)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✓ Сделать основным</button>}
               <button onClick={() => openEdit(a)} className="btn" style={{flex:1,padding:'9px',borderRadius:11,background:'var(--l3)',border:'1px solid var(--b1)',color:'var(--t2)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>✏️ Изменить</button>
-              {!a.def&&<button onClick={()=>remove(a.id)} className="btn" style={{width:38,height:38,borderRadius:11,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.25)',color:'var(--red)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🗑</button>}
+              {!a.def&&<button onClick={()=>remove(a.id)} className="btn" style={{width:38,height:38,borderRadius:11,background:'var(--red-soft)',border:'1px solid rgba(195,52,52,.25)',color:'var(--red)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🗑</button>}
             </div>
           </div>
         ))}
-        <div style={{padding:'16px',borderRadius:16,background:'rgba(31,215,96,.06)',border:'1.5px dashed rgba(31,215,96,.3)',textAlign:'center',cursor:'pointer'}} onClick={openAdd}>
+        <div style={{padding:'16px',borderRadius:16,background:'rgba(7,136,61,.06)',border:'1.5px dashed rgba(7,136,61,.3)',textAlign:'center',cursor:'pointer'}} onClick={openAdd}>
           <div style={{fontSize:28,marginBottom:6}}>📍</div>
           <div style={{fontSize:13,fontWeight:700,color:'var(--gr)'}}>Добавить новый адрес</div>
           <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>С точкой на карте для курьера</div>
@@ -6116,7 +6609,7 @@ const AddressesPage = ({ go, user }) => {
               type="button"
               onClick={() => (editId != null || coords ? setMapOpen(false) : resetForm())}
               className="btn"
-              style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--l3)', border: '1px solid var(--b1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <Ic n="arrL" s={17} c="var(--t2)" />
             </button>
@@ -6141,7 +6634,7 @@ const AddressesPage = ({ go, user }) => {
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', touchAction: 'pan-y', padding: '8px 16px calc(12px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
-                  <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
+                  <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'var(--gr)' : 'var(--b1)'}`, background: label === l ? 'var(--gr-soft)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
               ))}
             </div>
               <div style={{ borderRadius: 18, background: 'var(--l1)', border: '1px solid var(--b1)', padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -6174,7 +6667,7 @@ const AddressesPage = ({ go, user }) => {
                 <button
                   onClick={confirmAndSave}
                   className="btn"
-                  style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: buildFullStreet() && coords ? 1 : 0.5 }}
+                  style={{ width: '100%', padding: '14px', borderRadius: 15, background: 'var(--gr)', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: buildFullStreet() && coords ? 1 : 0.5 }}
                 >
                   ✓ Подтвердить и сохранить адрес
             </button>
@@ -6184,14 +6677,13 @@ const AddressesPage = ({ go, user }) => {
         </div>
       )}
       {showAdd && !mapOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div onClick={resetForm} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-          <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 16px calc(40px + env(safe-area-inset-bottom, 0px))', maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+        <div className="store-sheet-backdrop" style={{ zIndex: 300 }} onClick={resetForm}>
+          <div className="store-sheet" onClick={e => e.stopPropagation()} style={{ maxHeight: "92vh", overflowX: "hidden", boxSizing: "border-box", padding: "20px 16px calc(40px + env(safe-area-inset-bottom, 0px))" }}>
             <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 18px' }} />
             <div className="ub" style={{ fontSize: 15, fontWeight: 800, marginBottom: 16 }}>{editId != null ? 'Изменить адрес' : 'Новый адрес'}</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               {['🏠 Дом', '💼 Работа', '📍 Другое'].map(l => (
-                <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'rgba(31,215,96,.4)' : 'var(--b1)'}`, background: label === l ? 'rgba(31,215,96,.1)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
+                <button key={l} onClick={() => setLabel(l)} className="btn" style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${label === l ? 'var(--gr)' : 'var(--b1)'}`, background: label === l ? 'var(--gr-soft)' : 'var(--l3)', color: label === l ? 'var(--gr)' : 'var(--t2)', fontFamily: 'Nunito' }}>{l}</button>
               ))}
             </div>
 
@@ -6199,7 +6691,7 @@ const AddressesPage = ({ go, user }) => {
               type="button"
               onClick={() => setMapOpen(true)}
               className="btn"
-              style={{ width: '100%', marginBottom: 12, padding: '14px', borderRadius: 14, background: coords ? 'rgba(59,142,240,.1)' : 'rgba(31,215,96,.08)', border: `1.5px solid ${coords ? 'rgba(59,142,240,.35)' : 'rgba(31,215,96,.35)'}`, color: coords ? 'var(--sky)' : 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito' }}
+              style={{ width: '100%', marginBottom: 12, padding: '14px', borderRadius: 14, background: coords ? 'rgba(37,99,235,.1)' : 'var(--gr-soft)', border: `1.5px solid ${coords ? 'rgba(37,99,235,.35)' : 'rgba(7,136,61,.38)'}`, color: coords ? 'var(--sky)' : 'var(--gr)', fontSize: 13, fontWeight: 700, fontFamily: 'Nunito' }}
             >
               {coords ? '✓ Точка выбрана · изменить на карте' : '🗺 Указать точку на карте'}
             </button>
@@ -6207,7 +6699,7 @@ const AddressesPage = ({ go, user }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Улица, дом *</div>
-                <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="ул. Ленина, 42" style={{ width: '100%' }} />
+                <input className="inp" value={street} onChange={e => setStreet(e.target.value)} placeholder="Улица и номер дома" style={{ width: '100%' }} />
                 <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 5 }}>
                   Карта подсказывает ближайшую улицу, номер дома лучше проверить и вписать вручную.
                 </div>
@@ -6229,9 +6721,9 @@ const AddressesPage = ({ go, user }) => {
               <div><div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 5, fontWeight: 700 }}>Комментарий</div><input className="inp" value={comment} onChange={e => setComment(e.target.value)} placeholder="Домофон, пожелания..." /></div>
             </div>
             {!coords && (
-              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--gd)', fontWeight: 600 }}>⚠️ Укажите точку на карте — курьер увидит ваш дом</div>
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--t2)', fontWeight: 600 }}>⚠️ Укажите точку на карте — курьер увидит ваш дом</div>
             )}
-            <button onClick={save} className="btn" style={{ width: '100%', marginTop: 14, padding: '14px', borderRadius: 15, background: 'linear-gradient(135deg,var(--gr2),var(--gr))', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: street && coords ? 1 : 0.5 }}>
+            <button onClick={save} className="btn" style={{ width: '100%', marginTop: 14, padding: '14px', borderRadius: 15, background: 'var(--gr)', border: 'none', color: 'white', fontSize: 14, fontFamily: 'Nunito', fontWeight: 700, opacity: street && coords ? 1 : 0.5 }}>
               📍 {editId != null ? 'Сохранить изменения' : 'Сохранить адрес'}
             </button>
           </div>
@@ -6241,8 +6733,8 @@ const AddressesPage = ({ go, user }) => {
     </div>
   );
 };
-const ReferralPage = ({ go, user }) => {
-  const light = false;
+const ReferralPage = ({ go, user }: any) => {
+  const light = true;
   const [copied, setCopied] = useState(false);
   const welcomeBonus = getRegistrationWelcomeBonus();
   const code = user?.card
@@ -6265,25 +6757,25 @@ const ReferralPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
           <div className="ub" style={{fontSize:17,fontWeight:900,flex:1}}>Пригласи друга</div>
         </div>
       </header>
       <div style={{padding:'16px 18px 100px'}}>
-        <div style={{borderRadius:22,background:softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)'),border:'1px solid rgba(31,215,96,.2)',padding:'24px',textAlign:'center',marginBottom:18,position:'relative',overflow:'hidden'}}>
-          <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(31,215,96,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
+        <div style={{borderRadius:22,background:softAccentSurface('#07883D', light, 'linear-gradient(135deg,#061A0C,#0F3020)'),border:'1px solid rgba(7,136,61,.2)',padding:'24px',textAlign:'center',marginBottom:18,position:'relative',overflow:'hidden'}}>
+          <div style={{position:'absolute',left:0,right:0,height:1,background:'linear-gradient(90deg,transparent,rgba(7,136,61,.5),transparent)',animation:'scanLine 3s linear infinite'}}/>
           <div style={{fontSize:48,marginBottom:10,animation:'float 3s ease-in-out infinite'}}>🎁</div>
           <div className="ub" style={{fontSize:18,fontWeight:900,marginBottom:6}}>Пригласи — получи бонусы</div>
           <div style={{fontSize:13,color:'var(--t2)',lineHeight:1.65,marginBottom:16}}>
             За каждого друга который сделает первый заказ —<br/>
-            <span style={{color:'var(--gr)',fontWeight:700}}>ты +50 бонусов</span>, он <span style={{color:'var(--gd)',fontWeight:700}}>+{welcomeBonus} бонусов</span>
+            <span style={{color:'var(--gr)',fontWeight:700}}>ты +50 бонусов</span>, он <span style={{color:'var(--t2)',fontWeight:700}}>+{welcomeBonus} бонусов</span>
           </div>
-          <div style={{background:'var(--bg)',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(31,215,96,.25)'}}>
+          <div style={{background:'var(--bg)',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',border:'1px solid rgba(7,136,61,.25)'}}>
             <div>
               <div style={{fontSize:10,color:'var(--t3)',marginBottom:3}}>Твой реферальный код</div>
               <div className="ub" style={{fontSize:18,fontWeight:900,color:'var(--gr)',letterSpacing:2}}>{code}</div>
             </div>
-            <button onClick={copy} className="btn" style={{padding:'9px 16px',borderRadius:11,background:copied?'rgba(31,215,96,.2)':'rgba(31,215,96,.1)',border:`1.5px solid ${copied?'rgba(31,215,96,.5)':'rgba(31,215,96,.3)'}`,color:'var(--gr)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>
+            <button onClick={copy} className="btn" style={{padding:'9px 16px',borderRadius:11,background:copied?'rgba(7,136,61,.2)':'var(--gr-soft)',border:`1.5px solid ${copied?'rgba(7,136,61,.5)':'rgba(7,136,61,.3)'}`,color:'var(--gr)',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>
               {copied?'✓ Скопировано':'📋 Копировать'}
             </button>
           </div>
@@ -6301,7 +6793,7 @@ const ReferralPage = ({ go, user }) => {
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:18}}>
           {[
             {e:'💬',l:'WhatsApp',c:'#25D366',bg:'rgba(37,211,102,.1)'},
-            {e:'📨',l:'Telegram',c:'#29B6F6',bg:'rgba(41,182,246,.1)'},
+            {e:'📨',l:'Telegram',c:'#0369A1',bg:'rgba(2,132,199,.1)'},
           ].map((s,i)=>(
             <button key={i} className="btn" style={{padding:'13px',borderRadius:14,background:s.bg,border:`1.5px solid ${s.c}30`,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
               <span style={{fontSize:22}}>{s.e}</span>
@@ -6319,16 +6811,16 @@ const ReferralPage = ({ go, user }) => {
         <div className="card" style={{overflow:'hidden',display:friends.length?'block':'none'}}>
           {friends.map((f,i)=>(
             <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 15px',borderBottom:i<friends.length-1?'1px solid var(--b1)':'none'}}>
-              <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'var(--bg)',flexShrink:0}}>{f.name.charAt(0)}</div>
+              <div style={{width:36,height:36,borderRadius:'50%',background:'var(--gr)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'var(--bg)',flexShrink:0}}>{f.name.charAt(0)}</div>
               <div style={{flex:1}}>
                 <div style={{fontSize:13,fontWeight:700}}>{f.name}</div>
                 <div style={{fontSize:11,color:'var(--t3)',marginTop:1}}>{f.date}</div>
               </div>
               <div style={{textAlign:'right'}}>
-                <span style={{padding:'3px 9px',borderRadius:8,fontSize:11,fontWeight:800,background:f.status==='ordered'?'rgba(31,215,96,.12)':'rgba(255,184,0,.12)',color:f.status==='ordered'?'var(--gr)':'var(--gd)',border:`1px solid ${f.status==='ordered'?'rgba(31,215,96,.28)':'rgba(255,184,0,.28)'}`}}>
+                <span style={{padding:'3px 9px',borderRadius:8,fontSize:11,fontWeight:800,background:f.status==='ordered'?'var(--gr-soft)':'rgba(233,174,0,.12)',color:f.status==='ordered'?'var(--gr)':'var(--gd)',border:`1px solid ${f.status==='ordered'?'rgba(7,136,61,.3)':'rgba(233,174,0,.28)'}`}}>
                   {f.status==='ordered'?'Заказал':'Зарегистрировался'}
                 </span>
-                {f.bonus>0&&<div style={{fontSize:11,color:'var(--gd)',fontWeight:700,marginTop:3}}>+{f.bonus} ⭐</div>}
+                {f.bonus>0&&<div style={{fontSize:11,color:'var(--t2)',fontWeight:700,marginTop:3}}>+{f.bonus} ⭐</div>}
               </div>
             </div>
           ))}
@@ -6353,7 +6845,7 @@ const ReferralPage = ({ go, user }) => {
   );
 };
 
-const ChatPage = ({ go, user }) => {
+const ChatPage = ({ go, user }: any) => {
   const [msgs, setMsgs] = useState([
     {from:'support',text:'Здравствуйте! Чем могу помочь?',time:'14:00',read:true},
     {from:'me',     text:'Я хочу уточнить статус моего заказа K-4832',time:'14:01',read:true},
@@ -6378,8 +6870,8 @@ const ChatPage = ({ go, user }) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto',display:'flex',flexDirection:'column'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'14px 18px 13px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('profile')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{width:38,height:38,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
+          <button onClick={() => storeBack('profile', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center'}}><Ic n="arrL" s={17} c="var(--t2)"/></button>
+          <div style={{width:38,height:38,borderRadius:'50%',background:'var(--gr)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
           <div style={{flex:1}}>
             <div className="ub" style={{fontSize:14,fontWeight:800}}>Поддержка КАКАПО</div>
             <div style={{display:'flex',alignItems:'center',gap:4,marginTop:1}}>
@@ -6400,9 +6892,9 @@ const ChatPage = ({ go, user }) => {
       <div style={{flex:1,padding:'14px 18px',display:'flex',flexDirection:'column',gap:10,overflowY:'auto'}}>
         {msgs.map((m,i)=>(
           <div key={i} style={{display:'flex',justifyContent:m.from==='me'?'flex-end':'flex-start',gap:8,animation:'fadeIn .3s ease'}}>
-            {m.from!=='me'&&<div style={{width:32,height:32,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'var(--bg)',flexShrink:0,marginTop:'auto'}}>K</div>}
+            {m.from!=='me'&&<div style={{width:32,height:32,borderRadius:'50%',background:'var(--gr)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'var(--bg)',flexShrink:0,marginTop:'auto'}}>K</div>}
             <div style={{maxWidth:'75%'}}>
-              <div style={{padding:'11px 14px',borderRadius:m.from==='me'?'18px 18px 4px 18px':'18px 18px 18px 4px',background:m.from==='me'?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l2)',border:m.from==='me'?'none':'1px solid var(--b1)',color:m.from==='me'?'white':'var(--t1)',fontSize:13,lineHeight:1.55}}>
+              <div style={{padding:'11px 14px',borderRadius:m.from==='me'?'18px 18px 4px 18px':'18px 18px 18px 4px',background:m.from==='me'?'var(--gr)':'var(--l2)',border:m.from==='me'?'none':'1px solid var(--b1)',color:m.from==='me'?'white':'var(--t1)',fontSize:13,lineHeight:1.55}}>
                 {m.text}
               </div>
               <div style={{fontSize:10,color:'var(--t3)',marginTop:4,textAlign:m.from==='me'?'right':'left'}}>{m.time}</div>
@@ -6411,7 +6903,7 @@ const ChatPage = ({ go, user }) => {
         ))}
         {typing&&(
           <div style={{display:'flex',gap:8,animation:'fadeIn .3s ease'}}>
-            <div style={{width:32,height:32,borderRadius:'50%',background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
+            <div style={{width:32,height:32,borderRadius:'50%',background:'var(--gr)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:12,fontWeight:900,color:'var(--bg)',flexShrink:0}}>K</div>
             <div style={{padding:'12px 16px',borderRadius:'18px 18px 18px 4px',background:'var(--l2)',border:'1px solid var(--b1)',display:'flex',gap:5,alignItems:'center'}}>
               {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:'50%',background:'var(--t3)',animation:`pulse 1.4s ease ${i*.2}s infinite`}}/>)}
             </div>
@@ -6421,7 +6913,7 @@ const ChatPage = ({ go, user }) => {
 
       <div style={{padding:'12px 18px 28px',borderTop:'1px solid var(--b1)',background:'var(--header-bg)',backdropFilter:'blur(20px)',display:'flex',gap:10}}>
         <input className="inp" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send(input)} placeholder="Написать сообщение..." style={{flex:1}}/>
-        <button onClick={()=>send(input)} className="btn" style={{width:46,height:46,borderRadius:13,background:input?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:input?'none':'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+        <button onClick={()=>send(input)} className="btn" style={{width:46,height:46,borderRadius:13,background:input?'var(--gr)':'var(--l3)',border:input?'none':'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <Ic n="send" s={18} c={input?'white':'var(--t3)'}/>
         </button>
       </div>
@@ -6430,8 +6922,8 @@ const ChatPage = ({ go, user }) => {
 };
 
 
-const RestaurantsPage = ({go, cart, onAdd}) => {
-  const light = false;
+const RestaurantsPage = ({ go, cart, onAdd }: any) => {
+  const light = true;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -6449,9 +6941,9 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
     <div data-store-page style={{minHeight:'100vh',background:'var(--bg)',maxWidth:'var(--store-w)',margin:'0 auto'}}>
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:40,height:40,borderRadius:12,background:'linear-gradient(135deg,var(--gr3),var(--gr))',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px rgba(31,215,96,.4)',flexShrink:0}}>K</div>
+          <div style={{width:40,height:40,borderRadius:12,background:'var(--gr)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:17,fontWeight:900,color:'var(--bg)',animation:'glow 3s ease-in-out infinite',boxShadow:'0 4px 16px var(--gr)',flexShrink:0}}>K</div>
           <div className="ub" style={{flex:1,fontSize:16,fontWeight:900}}>Рестораны</div>
-          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px rgba(31,215,96,.4)':'none'}}>
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'var(--gr)':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px var(--gr)':'none'}}>
             <Ic n="cart" s={17} c={totalQtyNum>0?'white':'var(--t2)'}/>
             {totalQtyNum>0&&<div style={{position:'absolute',top:-6,right:-6,minWidth:17,height:17,padding:'0 4px',borderRadius:999,background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
           </button>
@@ -6468,13 +6960,13 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
       </header>
 
       <div style={{padding:'14px 18px 100px'}}>
-        <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:softAccentSurface('#129B45', light, 'linear-gradient(135deg,#0A1A06,#14300F)'),border:'1px solid rgba(31,215,96,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:softAccentSurface('#07883D', light, 'linear-gradient(135deg,#0A1A06,#14300F)'),border:'1px solid rgba(7,136,61,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div>
             <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
             <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
             <div style={{display:'flex',gap:8}}>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{restaurants.length} ресторана</span>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.1)',color:'var(--red)',border:'1px solid rgba(255,69,69,.25)'}}>{restaurants.filter(x=>x.open).length} открыто</span>
+              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'var(--gr-soft)',color:'var(--gr)',border:'1px solid rgba(7,136,61,.25)'}}>{ruCount(restaurants.length, "ресторан", "ресторана", "ресторанов")}</span>
+              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'var(--red-soft)',color:'var(--red)',border:'1px solid rgba(195,52,52,.25)'}}>{restaurants.filter(x=>x.open).length} открыто</span>
             </div>
           </div>
           <div style={{fontSize:48,animation:'float 3s ease-in-out infinite'}}>🍽</div>
@@ -6483,21 +6975,21 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {filtered.map((r,i)=>(
             <div key={r.id} onClick={()=>go('restaurant',{rid:r.id})} className="card" style={{cursor:'pointer',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`,opacity:r.open?1:.7}}>
-              <div style={{height:130,background:softFromDarkGrad(r.img, light, '#EA580C'),display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
+              <div style={{height:130,background:softFromDarkGrad(r.img, light, '#C2410C'),display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
                 {!light && <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>}
                 <div>
-                  <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4,textShadow:light?'none':'0 2px 8px rgba(0,0,0,.5)'}}>{r.name}</div>
+                  <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4,textShadow:light?'none':'0 2px 8px rgba(23,37,27,.5)'}}>{r.name}</div>
                   <div style={{fontSize:12,color:light?'var(--t2)':'rgba(255,255,255,.7)',marginBottom:8}}>{restaurantsReady ? r.cuisine : '…'}</div>
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                     {r.tags.map((t,j)=><span key={j} style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:light?'rgba(12,26,16,.06)':'rgba(255,255,255,.15)',color:light?'var(--t2)':'white'}}>{t}</span>)}
                   </div>
                 </div>
-                <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:light?'none':'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
-                {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
+                <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:light?'none':'drop-shadow(0 4px 12px rgba(23,37,27,.5))'}}>{r.emoji}</div>
+                {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(23,37,27,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
               </div>
               <div style={{padding:'12px 16px',display:'flex',alignItems:'center'}}>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{color:'var(--gd)',fontSize:14}}>★</span>
+                  <span style={{color:'var(--t2)',fontSize:14}}>★</span>
                   <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{restaurantsReady ? r.rating : '…'}</span>
                   <span style={{fontSize:11,color:'var(--t3)'}}>({restaurantsReady ? (Number(r.reviews) || 0) : '…'})</span>
                 </div>
@@ -6510,7 +7002,7 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
           <div style={{textAlign:'center',paddingTop:50}}>
             <div style={{fontSize:52,marginBottom:12}}>🍽</div>
             <div style={{fontFamily:'Unbounded',fontSize:16,fontWeight:800,marginBottom:8}}>Не найдено</div>
-            <button onClick={()=>{setSearch('');setFilter('all');}} className="btn" style={{padding:'11px 22px',borderRadius:13,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'white',fontFamily:'Nunito',fontWeight:700}}>Сбросить</button>
+            <button onClick={()=>{setSearch('');setFilter('all');}} className="btn" style={{padding:'11px 22px',borderRadius:13,background:'var(--gr)',border:'none',color:'white',fontFamily:'Nunito',fontWeight:700}}>Сбросить</button>
           </div>
         )}
       </div>
@@ -6545,16 +7037,15 @@ function PublicReviewsSheet({
   onClose: () => void;
 }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.8)', backdropFilter: 'blur(8px)' }} />
-      <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth:'var(--store-w)', maxHeight: '88vh', overflowY: 'auto', background: 'var(--l1)', borderTop: '1px solid var(--b1)', borderRadius: '24px 24px 0 0', padding: '20px 20px 36px', animation: 'slideUp .4s cubic-bezier(.16,1,.3,1)' }}>
+    <div className="store-sheet-backdrop" style={{ zIndex: 300 }} onClick={onClose}>
+      <div className="store-sheet" onClick={e => e.stopPropagation()} style={{ padding: '20px 20px calc(36px + env(safe-area-inset-bottom, 0px))' }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--b2)', margin: '0 auto 16px' }} />
         <div style={{ fontSize: 16, fontWeight: 800, textAlign: 'center', marginBottom: 4 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 12, color: 'var(--t2)', textAlign: 'center', marginBottom: 14 }}>{subtitle}</div>}
         {!loading && reviews.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 14px', borderRadius: 14, background: 'rgba(255,184,0,.08)', border: '1px solid rgba(255,184,0,.22)' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16, padding: '10px 14px', borderRadius: 14, background: 'rgba(233,174,0,.14)', border: '1px solid rgba(233,174,0,.22)' }}>
             <Stars r={avgRating || 0} s={14} />
-            <span className="ub" style={{ fontSize: 18, fontWeight: 900, color: 'var(--gd)' }}>{avgRating ?? '—'}</span>
+            <span className="ub" style={{ fontSize: 18, fontWeight: 900, color: 'var(--t2)' }}>{avgRating ?? '—'}</span>
             <span style={{ fontSize: 12, color: 'var(--t2)' }}>· {reviews.length} {reviewCountLabel(reviews.length)}</span>
           </div>
         )}
@@ -6569,7 +7060,7 @@ function PublicReviewsSheet({
         {!loading && reviews.map((rv, i) => (
           <div key={rv.id || i} style={{ background: 'var(--l2)', border: '1px solid var(--b1)', borderRadius: 16, padding: 14, marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,var(--gr3),var(--gr))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 14, fontWeight: 900, color: 'var(--bg)', flexShrink: 0 }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--gr)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Unbounded', fontSize: 14, fontWeight: 900, color: 'var(--bg)', flexShrink: 0 }}>
                 {(rv.client || 'К').charAt(0)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -6582,12 +7073,12 @@ function PublicReviewsSheet({
             </div>
             {rv.text && <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.6, margin: 0 }}>{rv.text}</p>}
             {rv.restReply && (
-              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gr)', padding: '8px 10px', background: 'rgba(31,215,96,.08)', borderRadius: 10, lineHeight: 1.5 }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gr)', padding: '8px 10px', background: 'var(--gr-soft)', borderRadius: 10, lineHeight: 1.5 }}>
                 🍽 Ответ ресторана: {rv.restReply}
               </div>
             )}
             {rv.adminReply && (
-              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--blue)', padding: '8px 10px', background: 'rgba(59,142,240,.08)', borderRadius: 10, lineHeight: 1.5 }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--blue)', padding: '8px 10px', background: 'rgba(37,99,235,.08)', borderRadius: 10, lineHeight: 1.5 }}>
                 💬 Ответ КАКАПО: {rv.adminReply}
               </div>
             )}
@@ -6598,8 +7089,8 @@ function PublicReviewsSheet({
   );
 }
 
-const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const light = false;
+const RestaurantPage = ({ go, params, cart, onAdd, onRm }: any) => {
+  const light = true;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
@@ -6665,7 +7156,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       {/* Sticky header — back + name + cart + categories */}
       <header data-store-header style={{position:'sticky',top:0,zIndex:100,background:'var(--header-bg)',backdropFilter:'blur(24px)',borderBottom:'1px solid var(--b1)'}}>
         <div style={{padding:'13px 18px 12px',display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>go('restaurants')} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <button onClick={() => storeBack('restaurants', go)} className="btn" style={{width:38,height:38,borderRadius:12,background:'var(--l3)',border:'1px solid var(--b1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <Ic n="arrL" s={17} c="var(--t2)"/>
           </button>
           <div style={{flex:1,minWidth:0}}>
@@ -6676,7 +7167,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
               <span style={{fontSize:10,color:r.open?'var(--gr)':'var(--red)',fontWeight:700}}>{r.open?'● Открыто':'● Закрыто'}</span>
         </div>
         </div>
-          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'linear-gradient(135deg,var(--gr2),var(--gr))':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px rgba(31,215,96,.4)':'none',flexShrink:0}}>
+          <button onClick={()=>go('cart')} className="btn" style={{width:38,height:38,borderRadius:12,background:totalQtyNum>0?'var(--gr)':'var(--l3)',border:`1px solid ${totalQtyNum>0?'transparent':'var(--b1)'}`,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',boxShadow:totalQtyNum>0?'0 4px 14px var(--gr)':'none',flexShrink:0}}>
             <Ic n="cart" s={17} c={totalQtyNum>0?'white':'var(--t2)'}/>
             {totalQtyNum>0&&<div style={{position:'absolute',top:-6,right:-6,minWidth:17,height:17,padding:'0 4px',borderRadius:999,background:'var(--red)',border:'2px solid var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Unbounded',fontSize:9,fontWeight:900,color:'white'}}>{totalQty}</div>}
           </button>
@@ -6697,16 +7188,16 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       </header>
 
       {/* Hero banner — scrollable */}
-      <div style={{height:180,background:softFromDarkGrad(r.img, light, '#EA580C'),display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
+      <div style={{height:180,background:softFromDarkGrad(r.img, light, '#C2410C'),display:'flex',alignItems:'flex-end',padding:'18px',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',inset:0,background:'linear-gradient(transparent 30%,var(--bg))'}}/>
         <div style={{position:'relative',zIndex:1}}>
           <div style={{fontFamily:'Unbounded',fontSize:20,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4}}>{r.name}</div>
           <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-            <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(255,184,0,.14)',border:'1px solid rgba(255,184,0,.35)',color:'var(--gd)',fontSize:12,fontWeight:800}}>
-              <Ic n="star" s={13} c="var(--gd)"/>
+            <button type="button" onClick={openReviews} className="btn" style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:'rgba(233,174,0,.14)',border:'1px solid rgba(233,174,0,.35)',color:'var(--t2)',fontSize:12,fontWeight:800}}>
+              <Ic n="star" s={13} c="var(--gd2)"/>
               <span style={{fontWeight:800}}>{ratingLabel}</span>
-              <span style={{color:'rgba(255,255,255,.55)',fontSize:11,fontWeight:600}}>({reviewCountLabel})</span>
-              <span style={{color:'white',fontSize:11,fontWeight:700}}>· Отзывы</span>
+              <span style={{color:'var(--t2)',fontSize:11,fontWeight:600}}>({reviewCountLabel})</span>
+              <span style={{color:'var(--gr3)',fontSize:11,fontWeight:700}}>· Отзывы</span>
             </button>
             <span style={{width:1,height:14,background:'var(--b1)'}}/>
             <span style={{fontSize:12,color:'var(--t2)'}}>{restaurantsReady ? r.cuisine : '…'}</span>
@@ -6717,7 +7208,7 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
       </div>
 
       {!r.open && (
-        <div style={{margin:'0 18px 12px',padding:'12px 14px',borderRadius:14,background:'rgba(255,69,69,.1)',border:'1px solid rgba(255,69,69,.35)',textAlign:'center'}}>
+        <div style={{margin:'0 18px 12px',padding:'12px 14px',borderRadius:14,background:'var(--red-soft)',border:'1px solid rgba(195,52,52,.35)',textAlign:'center'}}>
           <div style={{fontSize:13,fontWeight:800,color:'var(--red)',marginBottom:4}}>🔴 Ресторан сейчас закрыт</div>
           <div style={{fontSize:11,color:'var(--t2)'}}>Заказ временно недоступен — попробуйте позже</div>
           </div>
@@ -6740,21 +7231,21 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
           const qty = getQty(item);
           const disc = item.old ? Math.round((1-item.price/item.old)*100) : 0;
           return (
-            <div key={item.id} style={{display:'flex',gap:12,padding:'14px',background:'var(--l2)',border:`1px solid ${item.inStock?'var(--b1)':'rgba(255,69,69,.2)'}`,borderRadius:16,animation:`fadeUp .4s ease ${i*.05}s both`,opacity:item.inStock?1:.6}}>
+            <div key={item.id} style={{display:'flex',gap:12,padding:'14px',background:'var(--l2)',border:`1px solid ${item.inStock?'var(--b1)':'rgba(195,52,52,.2)'}`,borderRadius:16,animation:`fadeUp .4s ease ${i*.05}s both`,opacity:item.inStock?1:.6}}>
               <div style={{width:80,height:80,borderRadius:14,background:'var(--l3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40,flexShrink:0,position:'relative',overflow:'hidden'}}>
                 {resolvePhotoUrl(item.photo)
                   ? <img src={resolvePhotoUrl(item.photo)} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                   : item.e}
                 {item.popular&&<div style={{position:'absolute',top:-4,right:-4,padding:'2px 6px',borderRadius:7,background:'var(--red)',fontSize:8,fontWeight:800,color:'white'}}>ХИТ</div>}
                 {disc>0&&<div style={{position:'absolute',bottom:-4,left:-4,padding:'2px 6px',borderRadius:7,background:'var(--org)',fontSize:8,fontWeight:800,color:'white'}}>-{disc}%</div>}
-                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
+                {!item.inStock&&<div style={{position:'absolute',inset:0,borderRadius:14,background:'rgba(23,37,27,.6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'white'}}>Стоп</div>}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3,flexWrap:'wrap'}}>
                   <div style={{fontSize:14,fontWeight:700,lineHeight:1.3}}>{item.name}</div>
                   {isAllView && (
                     <button type="button" onClick={() => setActiveCat(item.cat)} className="btn"
-                      style={{padding:'2px 8px',borderRadius:20,fontSize:9,fontWeight:800,background:'rgba(31,215,96,.1)',border:'1px solid rgba(31,215,96,.25)',color:'var(--gr)'}}>
+                      style={{padding:'2px 8px',borderRadius:20,fontSize:9,fontWeight:800,background:'var(--gr-soft)',border:'1px solid rgba(7,136,61,.25)',color:'var(--gr)'}}>
                       {item.cat}
                     </button>
                   )}
@@ -6762,14 +7253,14 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
                 <div style={{fontSize:11,color:'var(--t3)',marginBottom:6,lineHeight:1.5}}>{item.desc}</div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                   <div style={{display:'flex',alignItems:'baseline',gap:5}}>
-                    <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:10,color:'var(--gd)',marginLeft:2}}>ЅМ</span></span>
+                    <span style={{fontFamily:'Unbounded',fontSize:15,fontWeight:900}}>{item.price}<span style={{fontSize:12,color:'var(--t2)',marginLeft:2}}>ЅМ</span></span>
                     {item.old&&<span style={{fontSize:11,color:'var(--t3)',textDecoration:'line-through'}}>{item.old}</span>}
                   </div>
                   {item.inStock && r.open ? (
                     qty===0 ? (
-                      <button onClick={()=>addItem(item)} className="btn" style={{padding:'7px 16px',borderRadius:11,background:'linear-gradient(135deg,var(--gr2),var(--gr))',border:'none',color:'white',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
+                      <button onClick={()=>addItem(item)} className="btn" style={{padding:'7px 16px',borderRadius:11,background:'var(--gr)',border:'none',color:'white',fontSize:12,fontFamily:'Nunito',fontWeight:700}}>+ Добавить</button>
                     ) : (
-                      <div style={{display:'flex',alignItems:'center',gap:0,background:'rgba(31,215,96,.1)',border:'1.5px solid rgba(31,215,96,.28)',borderRadius:11,overflow:'hidden'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:0,background:'var(--gr-soft)',border:'1.5px solid rgba(7,136,61,.3)',borderRadius:11,overflow:'hidden'}}>
                         <button onClick={()=>rmItem(item)} className="btn" style={{width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',color:'var(--gr)',fontSize:18}}>−</button>
                         <span style={{minWidth:24,textAlign:'center',fontFamily:'Unbounded',fontSize:13,fontWeight:900,color:'var(--gr)'}}>{qty}</span>
                         <button onClick={()=>addItem(item)} className="btn" style={{width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',color:'var(--gr)',fontSize:18}}>+</button>
@@ -6805,14 +7296,14 @@ const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
 };
 const Page404 = ({ go }) => (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", textAlign:"center", position:"relative", overflow:"hidden" }}>
-    <div style={{ position:"absolute", inset:0, opacity:.03, background:"repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(31,215,96,1) 28px,rgba(31,215,96,1) 29px)" }}/>
+    <div style={{ position:"absolute", inset:0, opacity:.03, background:"repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(7,136,61,1) 28px,rgba(7,136,61,1) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(7,136,61,1) 28px,rgba(7,136,61,1) 29px)" }}/>
     <div style={{ position:"relative", zIndex:2 }}>
       <div className="ub" style={{ fontSize:96, fontWeight:900, lineHeight:1, marginBottom:8, background:"linear-gradient(135deg,var(--gr),var(--gd))", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>404</div>
       <div style={{ fontSize:56, marginBottom:20, animation:"float 3s ease-in-out infinite" }}>🛒</div>
       <div className="ub" style={{ fontSize:20, fontWeight:900, marginBottom:8 }}>Страница не найдена</div>
       <div style={{ fontSize:13, color:"var(--t2)", lineHeight:1.7, marginBottom:32 }}>Похоже, эта страница уехала<br/>вместе с курьером 🛵</div>
-      <button onClick={() => go("home")} className="btn" style={{ padding:"15px 32px", fontSize:14, borderRadius:16, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", marginBottom:12, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><Ic n="home" s={17} c="white"/>На главную</button>
-      <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", fontSize:13, borderRadius:16, background:"rgba(31,215,96,.09)", border:"1.5px solid rgba(31,215,96,.28)", color:"var(--gr)", width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><Ic n="tag" s={15} c="var(--gr)"/>Каталог товаров</button>
+      <button onClick={() => go("home")} className="btn" style={{ padding:"15px 32px", fontSize:14, borderRadius:16, background:"var(--gr)", color:"white", marginBottom:12, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><Ic n="home" s={17} c="white"/>На главную</button>
+      <button onClick={() => go("catalog")} className="btn" style={{ padding:"14px 32px", fontSize:13, borderRadius:16, background:"rgba(7,136,61,.09)", border:"1.5px solid rgba(7,136,61,.3)", color:"var(--gr)", width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}><Ic n="tag" s={15} c="var(--gr)"/>Каталог товаров</button>
     </div>
   </div>
 );
@@ -6839,17 +7330,15 @@ function hydrateStoreSessionFromStorage(): {
     return { user: null, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
   }
   const user = loadStoreUser();
-  if (!user?.phone) {
-    return { user, cart: {}, cartMeta: {}, cartUpdatedAt: '', wished: {}, wishedUpdatedAt: '' };
-  }
-  migrateLegacyClientData(user.phone);
+  const accountPhone = getActiveClientPhone(user) || undefined;
+  migrateLegacyClientData(accountPhone);
   return {
     user,
-    cart: loadAccountJson(ACCOUNT_NS.cart, {}, user.phone),
-    cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone),
-    cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone),
-    wished: loadAccountJson(ACCOUNT_NS.wished, {}, user.phone),
-    wishedUpdatedAt: loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone),
+    cart: loadAccountJson(ACCOUNT_NS.cart, {}, accountPhone),
+    cartMeta: loadAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone),
+    cartUpdatedAt: loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', accountPhone),
+    wished: loadAccountJson(ACCOUNT_NS.wished, {}, accountPhone),
+    wishedUpdatedAt: loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', accountPhone),
   };
 }
 
@@ -6857,7 +7346,7 @@ function KakapoAppInner() {
   useApiSync('catalog');
   const { prods } = useLiveCatalog();
   const { page, params, go } = useAppNavigation('home');
-  useForcedDarkTheme();
+  useStoreLightTheme();
   const [sessionBoot] = useState(hydrateStoreSessionFromStorage);
   const [cart,   setCart]   = useState(sessionBoot.cart);
   const [cartMeta, setCartMeta] = useState(sessionBoot.cartMeta);
@@ -6901,33 +7390,22 @@ function KakapoAppInner() {
   }, [user, sessionReady]);
 
   useEffect(() => {
-    if (!user?.phone) {
-      setCartSyncReady(false);
-      cartUpdatedAtRef.current = '';
-      wishedUpdatedAtRef.current = '';
-      if (!user) {
-        setCart({});
-        setCartMeta({});
-        setCartUpdatedAt('');
-        setWished({});
-        setWishedUpdatedAt('');
-      }
-      return;
-    }
-
+    // Корзина и избранное должны жить и у покупателя без входа: ключ — телефон,
+    // а если телефона ещё нет — гостевой слот устройства (getAccountId → 'guest').
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     setCartSyncReady(false);
-    migrateLegacyClientData(user.phone);
-    const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, user.phone);
-    const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
-    const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', user.phone);
+    migrateLegacyClientData(accountPhone);
+    const localCart = loadAccountJson(ACCOUNT_NS.cart, {}, accountPhone);
+    const localMeta = loadAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone);
+    const localUpdatedAt = loadAccountJson(ACCOUNT_NS.cartUpdatedAt, '', accountPhone);
     const localBundle = { cart: localCart, cartMeta: localMeta, cartUpdatedAt: localUpdatedAt };
     cartUpdatedAtRef.current = localUpdatedAt;
-    const localWished = loadAccountJson(ACCOUNT_NS.wished, {}, user.phone);
-    const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', user.phone);
+    const localWished = loadAccountJson(ACCOUNT_NS.wished, {}, accountPhone);
+    const localWishedUpdatedAt = loadAccountJson(ACCOUNT_NS.wishedUpdatedAt, '', accountPhone);
     const localWishBundle = { wished: localWished, wishedUpdatedAt: localWishedUpdatedAt };
     wishedUpdatedAtRef.current = localWishedUpdatedAt;
-    const localAddresses = loadClientAddresses(user.phone);
-    const localAddressesUpdatedAt = loadClientAddressesUpdatedAt(user.phone);
+    const localAddresses = loadClientAddresses(accountPhone);
+    const localAddressesUpdatedAt = loadClientAddressesUpdatedAt(accountPhone);
     const localAddressBundle = { addresses: localAddresses, addressesUpdatedAt: localAddressesUpdatedAt };
     addressesUpdatedAtRef.current = localAddressesUpdatedAt;
     setCart(localCart);
@@ -6938,7 +7416,7 @@ function KakapoAppInner() {
 
     let cancelled = false;
     const syncRemote = async () => {
-      if (!USE_API || !user.clientId) {
+      if (!USE_API || !user?.clientId) {
         if (!cancelled) setCartSyncReady(true);
         return;
       }
@@ -6956,9 +7434,9 @@ function KakapoAppInner() {
         setCart(merged.cart);
         setCartMeta(merged.cartMeta);
         setCartUpdatedAt(merged.cartUpdatedAt || '');
-        saveAccountJson(ACCOUNT_NS.cart, merged.cart, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, user.phone);
-        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', user.phone);
+        saveAccountJson(ACCOUNT_NS.cart, merged.cart, accountPhone);
+        saveAccountJson(ACCOUNT_NS.cartMeta, merged.cartMeta, accountPhone);
+        saveAccountJson(ACCOUNT_NS.cartUpdatedAt, merged.cartUpdatedAt || '', accountPhone);
         const localTs = cartSyncTimestamp(localUpdatedAt);
         const remoteTs = cartSyncTimestamp(remote.cartUpdatedAt);
         if (localTs > remoteTs || (localTs === remoteTs && Object.keys(localCart).length > 0 && !Object.keys(remote.cart).length)) {
@@ -6968,8 +7446,8 @@ function KakapoAppInner() {
         wishedUpdatedAtRef.current = mergedWish.wishedUpdatedAt || '';
         setWished(mergedWish.wished);
         setWishedUpdatedAt(mergedWish.wishedUpdatedAt || '');
-        saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, user.phone);
-        saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', user.phone);
+        saveAccountJson(ACCOUNT_NS.wished, mergedWish.wished, accountPhone);
+        saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, mergedWish.wishedUpdatedAt || '', accountPhone);
         const localWishTs = cartSyncTimestamp(localWishedUpdatedAt);
         const remoteWishTs = cartSyncTimestamp(remoteWish.wishedUpdatedAt);
         if (
@@ -6978,7 +7456,7 @@ function KakapoAppInner() {
         ) {
           void saveRemoteWish(user.clientId, mergedWish.wished, mergedWish.wishedUpdatedAt);
         }
-        saveClientAddressesLocal(mergedAddresses.addresses, user.phone, mergedAddresses.addressesUpdatedAt);
+        saveClientAddressesLocal(mergedAddresses.addresses, accountPhone, mergedAddresses.addressesUpdatedAt);
         const localAddrTs = cartSyncTimestamp(localAddressesUpdatedAt);
         const remoteAddrTs = cartSyncTimestamp(remoteAddresses.addressesUpdatedAt);
         if (
@@ -7006,7 +7484,7 @@ function KakapoAppInner() {
   }, [cartMeta]);
 
   useEffect(() => {
-    if (!user?.phone) return;
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     let ts = cartUpdatedAtRef.current;
     if (cartMutatedByUserRef.current) {
       ts = new Date().toISOString();
@@ -7014,9 +7492,9 @@ function KakapoAppInner() {
       setCartUpdatedAt(ts);
       cartMutatedByUserRef.current = false;
     }
-    saveAccountJson(ACCOUNT_NS.cart, cart, user.phone);
-    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, user.phone);
-    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
+    saveAccountJson(ACCOUNT_NS.cart, cart, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartMeta, cartMeta, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, accountPhone);
   }, [cart, cartMeta, user?.phone]);
 
   useEffect(() => {
@@ -7037,6 +7515,7 @@ function KakapoAppInner() {
         const remoteClient = await findSyncClient(user.phone, user.clientId);
         const remote = clientCartPayload(remoteClient);
         const remoteWish = wishBundleFromClient(remoteClient);
+        const remoteAddresses = addressBundleFromClient(remoteClient);
 
         const localCartBundle = {
           cart: cartRef.current,
@@ -7108,7 +7587,7 @@ function KakapoAppInner() {
   }, [wished]);
 
   useEffect(() => {
-    if (!user?.phone) return;
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
     let ts = wishedUpdatedAtRef.current;
     if (wishMutatedByUserRef.current) {
       ts = new Date().toISOString();
@@ -7116,8 +7595,8 @@ function KakapoAppInner() {
       setWishedUpdatedAt(ts);
       wishMutatedByUserRef.current = false;
     }
-    saveAccountJson(ACCOUNT_NS.wished, wished, user.phone);
-    saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, ts, user.phone);
+    saveAccountJson(ACCOUNT_NS.wished, wished, accountPhone);
+    saveAccountJson(ACCOUNT_NS.wishedUpdatedAt, ts, accountPhone);
   }, [wished, user?.phone]);
 
   useEffect(() => {
@@ -7131,14 +7610,7 @@ function KakapoAppInner() {
   }, [wished, wishedUpdatedAt, user?.phone, user?.clientId, cartSyncReady]);
 
   const apiOrders = useOrders(s => s.orders);
-  const fetchOrders = useOrders(s => s.fetchOrders);
-
-  useEffect(() => {
-    if (!USE_API) return
-    void fetchOrders().catch(() => {})
-    const id = setInterval(() => { void fetchOrders().catch(() => {}) }, 30000)
-    return () => clearInterval(id)
-  }, [fetchOrders])
+  useClientOrderTracking(getActiveClientPhone(user));
 
   const logout = useCallback(() => {
     clearClientSession();
@@ -7183,10 +7655,19 @@ function KakapoAppInner() {
     markCartTouched();
     const p = prods.find(x => x.id == id);
     if (p && !restId) {
+      if (isOutOfStock(p)) {
+        if (!silent) showToast('Нет в наличии');
+        return;
+      }
       const promo = activeProductPromos(apiPromos).find(pr => Number(pr.productId) === Number(p.id));
       setCart(c => {
         const cur = c[id] || 0;
         let next = nextCartQty(p, cur, true);
+        const cap = stockCartCap(p);
+        if (cap != null && next > cap) {
+          if (!silent) showToast(`В наличии только ${formatCartQty(p, cap)}`);
+          return c;
+        }
         if (promo) {
           const room = promoCartRoom(promo, cur);
           if (room != null && room <= 0) {
@@ -7252,11 +7733,11 @@ function KakapoAppInner() {
     setCart({});
     setCartMeta({});
     setCartUpdatedAt(ts);
-    if (user?.phone) {
-      saveAccountJson(ACCOUNT_NS.cart, {}, user.phone);
-      saveAccountJson(ACCOUNT_NS.cartMeta, {}, user.phone);
-      saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, user.phone);
-    }
+    // Чистим и гостевой слот: иначе после оформления заказа корзина «вернётся» при перезагрузке.
+    const accountPhone = user?.phone || getActiveClientPhone(user) || undefined;
+    saveAccountJson(ACCOUNT_NS.cart, {}, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartMeta, {}, accountPhone);
+    saveAccountJson(ACCOUNT_NS.cartUpdatedAt, ts, accountPhone);
     if (USE_API && user?.clientId) {
       void saveRemoteCart(user.clientId, {}, {}, ts);
     }
@@ -7302,19 +7783,36 @@ function KakapoAppInner() {
       case "restaurant":       return <RestaurantPage    go={go} params={params} cart={cart} onAdd={addItem} onRm={rmItem}/>;
       case "notifs":           return <NotifPage             {...shared}/>;
       case "addresses":        return <AddressesPage         {...shared}/>;
-      case "referral":         return <ReferralPage          {...shared}/>;
-      case "chat":             return <ChatPage              {...shared}/>;
+      // Referral rewards and the auto-reply chat are not real services yet.
+      case "referral":
+      case "chat":             return <FAQPage               {...shared}/>;
       default:                 return <Page404               go={go}/>;
     }
   };
 
   return (
-    <>
+    <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
       <style>{CSS}</style>
       <Toast msg={toast} isVip={isVipUser}/>
-      <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
-        {render()}
-      </div>
-    </>
+      <nav className="store-topnav">
+        <div className="store-topnav-brand">
+          <span className="store-brand-mark" aria-hidden="true">K</span>
+          <span>КАКАПО{isVipUser ? " VIP" : ""}</span>
+        </div>
+        <div className="store-topnav-tabs">
+          {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(it => (
+            <button key={it.id} type="button" onClick={() => go(it.id)} className={`store-topnav-tab${page === it.id ? " on" : ""}`}>
+              <Ic n={it.icon} s={16}/>
+              <span>{it.label}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="store-topnav-cart" onClick={() => go("cart")} aria-label="Корзина">
+          <Ic n="cart" s={17}/>
+          {formatCartBadgeCount(sumCartUnits(cart, prods)) ? <span className="store-topnav-cart-count">{formatCartBadgeCount(sumCartUnits(cart, prods))}</span> : null}
+        </button>
+      </nav>
+      {render()}
+    </div>
   );
 }

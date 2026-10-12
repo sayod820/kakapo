@@ -18,6 +18,23 @@ type CartLine = {
   price: number
   isRest: boolean
   restId?: string
+  /** Поля товара, которые читает витрина магазина (цена «до», вес, опт). */
+  old?: number | null
+  unit?: string
+  cat?: string
+  catId?: string
+  sellType?: string
+  unitGrams?: number
+  weightStep?: number
+  minWeight?: number
+  bulkPricing?: unknown
+  discount?: number
+  grad?: string
+  hot?: boolean
+  isNew?: boolean
+  org?: boolean
+  r?: number
+  rv?: number
   [key: string]: unknown
 }
 

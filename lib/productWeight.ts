@@ -16,12 +16,20 @@ export function productUnitGrams(p: Partial<Product>): number {
   return isWeighted(p) ? 1000 : 1
 }
 
+/** Шаг/минимум весового товара в граммах; < 10 г — старые значения «1» из кассы/импорта → 100 г. */
+const MIN_SANE_WEIGHT_GRAMS = 10
+const DEFAULT_WEIGHT_STEP_GRAMS = 100
+
 export function weightStep(p: Partial<Product>): number {
-  return p.weightStep && p.weightStep > 0 ? p.weightStep : 1
+  const step = Number(p.weightStep) || 0
+  if (!isWeighted(p)) return step > 0 ? step : 1
+  return step >= MIN_SANE_WEIGHT_GRAMS ? step : DEFAULT_WEIGHT_STEP_GRAMS
 }
 
 export function minWeight(p: Partial<Product>): number {
-  return p.minWeight && p.minWeight > 0 ? p.minWeight : weightStep(p)
+  const min = Number(p.minWeight) || 0
+  if (!isWeighted(p)) return min > 0 ? min : weightStep(p)
+  return min >= MIN_SANE_WEIGHT_GRAMS ? min : weightStep(p)
 }
 
 export function formatWeightGrams(grams: number): string {
@@ -120,6 +128,19 @@ export function nextCartQty(p: Partial<Product>, current: number, add: boolean):
   if (add) return current === 0 ? min : current + step
   const next = current - step
   return next < min ? 0 : next
+}
+
+/** Store: tracked stock is 0 or below (weighted stock is in kg, pieces in units). */
+export function isOutOfStock(p: Partial<Product>): boolean {
+  const s = (p as { stock?: unknown }).stock
+  return typeof s === 'number' && Number.isFinite(s) && s <= 0
+}
+
+/** Store: max cart qty (grams for weighted, pieces otherwise); null when stock is not tracked. */
+export function stockCartCap(p: Partial<Product>): number | null {
+  const s = (p as { stock?: unknown }).stock
+  if (typeof s !== 'number' || !Number.isFinite(s)) return null
+  return isWeighted(p) ? Math.max(0, Math.floor(s * 1000)) : Math.max(0, Math.floor(s))
 }
 
 export function orderItemFromProduct(p: Partial<Product>, qty: number) {
