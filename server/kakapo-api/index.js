@@ -58,6 +58,12 @@ import {
   isCourierMapSync,
   marketItems,
 } from './ordersLogic.js'
+import { rateLimitCheck, clientIp } from './authRateLimit.js'
+import {
+  trackGuestOrders,
+  GUEST_TRACK_RATE_LIMIT,
+  guestRateLimitKey,
+} from './storeGuestOrders.js'
 import {
   releaseOrderStock,
   reserveOrderStock,
@@ -1837,6 +1843,11 @@ app.get('/orders', (req, res) => {
   if (req.query.status) orders = orders.filter(o => o.status === req.query.status)
   if (req.query.type) orders = orders.filter(o => o.type === req.query.type)
   res.json(orders)
+})
+app.post('/orders/track', (req, res) => {
+  const rl = rateLimitCheck(guestRateLimitKey('track', clientIp(req)), GUEST_TRACK_RATE_LIMIT)
+  if (!rl.ok) return res.status(rl.status).json({ detail: rl.detail, code: rl.code })
+  res.json(trackGuestOrders(db, req.body || {}))
 })
 app.get('/orders/assembler', (_req, res) => res.json(db.orders.filter(isAssemblerOrder)))
 app.get('/orders/courier', (_req, res) => res.json(db.orders.filter(isCourierMapSync)))
