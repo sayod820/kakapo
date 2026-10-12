@@ -51,6 +51,30 @@ export function isNetworkError(e: unknown): boolean {
   return e instanceof NetworkError
 }
 
+export interface ShowcaseBanner {
+  id: string
+  badge: string
+  title: string
+  sub: string
+  disc: number
+  e: string
+  bg: string
+  ac: string
+  on: boolean
+}
+
+export interface ShowcaseTicker {
+  id: string
+  text: string
+  on: boolean
+}
+
+export interface ShowcaseSettings {
+  banners: ShowcaseBanner[]
+  tickers: ShowcaseTicker[]
+  updatedAtIso?: string | null
+}
+
 /** Браузер уже знает, что сети нет — не ждём таймаутов (кроме ложного offline в Electron) */
 function browserOffline(): boolean {
   return shouldSkipFetchAsOffline()
@@ -601,6 +625,9 @@ export const api = {
     return request<Order[]>(`/orders?${q}`)
   },
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
+  /** Гостевой трекинг: публичный ответ только для заказов этого телефона (POST /orders/track). */
+  trackOrders: (ids: string[], phone: string) =>
+    request<Order[]>('/orders/track', { method: 'POST', body: JSON.stringify({ ids, phone }) }),
   getAssemblerOrders: () => request<Order[]>('/orders/assembler'),
   getCourierOrders: () => request<Order[]>('/orders/courier'),
   updateOrderStatus: (id: string | number, status: string, extra?: Record<string, unknown>) =>
@@ -781,6 +808,12 @@ export const api = {
     telegram?: string
     hours?: string
   }>('/settings/store'),
+  /** Баннеры и бегущая строка витрины магазина */
+  getShowcase: () => request<ShowcaseSettings>('/settings/showcase'),
+  saveShowcase: (data: Pick<ShowcaseSettings, 'banners' | 'tickers'>) =>
+    request<ShowcaseSettings>('/settings/showcase', { method: 'PUT', body: JSON.stringify(data) }),
+  /** Хиты магазина: id товаров, ранжированные по числу чеков (без количеств и выручки) */
+  getTopProductIds: (limit = 12) => request<{ ids: number[] }>(`/products/top?limit=${limit}`),
   syncLoyalty: (phone: string) =>
     request<{ ok: boolean; credited: number; orders: number; bonus: number }>('/loyalty/sync', {
       method: 'POST',

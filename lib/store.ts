@@ -27,6 +27,7 @@ import { findCourierByPhone } from './courierTeam'
 import { canCourierAffordOrder, getCourierBalance, isNewCourierAssignment } from './courierWallet'
 import { DEFAULT_PRICING } from './courierData'
 import { isPerfEnabled, perfCount } from './devTelemetry'
+import { rememberClientOrder, listClientOrderIds, mergeTrackedIntoOrders } from './clientOrderTracking'
 
 function applyBonusLoyaltySync(
   set: (fn: (s: OrdersStore) => Partial<OrdersStore> | OrdersStore) => void,
@@ -287,6 +288,8 @@ interface OrdersStore {
   fetchRestaurantOrders: () => Promise<void>
   createOrder: (data: any) => Promise<Order | null>
   addOrder: (order: Order) => void
+  /** Обновить статусы заказов гостя через публичный трекинг (id из этого браузера + телефон). */
+  trackClientOrders: (phone: string) => Promise<void>
   updateStatus: (id: string, status: OrderStatus, extra?: Record<string, unknown>) => Promise<void>
   adminUpdateStatus: (id: string, status: OrderStatus) => Promise<void>
   adminAssignCourier: (id: string, courier: { id?: string; name: string; phone: string } | null) => Promise<void>
@@ -369,6 +372,10 @@ export const useOrders = create<OrdersStore>((set, get) => ({
           status: 'new',
         })
         patchOrders(set, get, s => [normalized, ...s])
+        rememberClientOrder(
+          String(normalized.id),
+          normalized.client?.phone || (prepared as { client_phone?: string })?.client_phone,
+        )
         return normalized
       } catch (e) {
         console.error(e)
@@ -398,6 +405,19 @@ export const useOrders = create<OrdersStore>((set, get) => ({
   },
 
   addOrder: (order) => patchOrders(set, get, s => [order, ...s]),
+
+  trackClientOrders: async (phone) => {
+    if (!USE_API) return
+    const ids = listClientOrderIds(phone)
+    if (!ids.length) return
+    try {
+      const tracked = await api.trackOrders(ids, phone)
+      if (!Array.isArray(tracked) || !tracked.length) return
+      patchOrders(set, get, s => mergeTrackedIntoOrders(s, tracked, phone))
+    } catch {
+      /* гостевой трекинг необязателен — молча пропускаем */
+    }
+  },
 
   updateStatus: async (id, status, extra) => {
     const prev = get().orders.find(o => o.id === id)
