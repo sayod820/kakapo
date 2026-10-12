@@ -126,6 +126,8 @@ const CSS = `
   --t1:#17251B;--t2:#5F6D64;--t3:#87918B;
   /* бренд */
   --gr:#07883D;--gr2:#066F33;--gr3:#055B2A;--gr-soft:#EAF6EC;--gd:#E9AE00;--gd2:#B45309;
+  /* акцент логотипа «КАКА·по» и витрины */
+  --brand-2:#ED9A00;
   /* статусы */
   --red:#C33434;--red-soft:#FFF1F1;--blue:#2563EB;--sky:#0E7490;--pur:#7C3AED;--org:#C2410C;
   /* служебные */
@@ -140,6 +142,8 @@ const CSS = `
   /* тени */
   --sh1:0 1px 2px rgba(23,37,27,.05);
   --sh2:0 6px 20px rgba(23,37,27,.09);
+  /* витрина: герой-баннер и карточки товара */
+  --hero-1:#E7F4E3;--hero-2:#FBFDF9;--sh-card:0 2px 10px rgba(23,37,27,.06);
   --store-w:480px;
   /* высота нижнего меню: используется закреплёнными панелями */
   --nav-h:66px;
@@ -158,13 +162,14 @@ html[data-store-light],html[data-store-light] body{background:#F6F7F5;color:#172
 .store-shell{width:100%;max-width:var(--store-w);margin:0 auto;min-height:100vh;min-height:100dvh;overflow-x:clip;background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
 /* Нижнее меню: белая панель 64–72px + safe-area. Контент получает отступ
    через .store-page-pad, чтобы панель не перекрывала цены и кнопки. */
-.store-page-pad{padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px));}
+.store-page-pad{padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px));}
 .store-nav{
-  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:200;
-  min-height:var(--nav-h);
+  position:fixed;bottom:calc(10px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%);
+  width:calc(100% - 24px);max-width:calc(var(--store-w) - 24px);z-index:200;
+  min-height:var(--nav-h);border-radius:22px;
 }
 .store-fixed-bar{left:50%!important;transform:translateX(-50%)!important;width:100%!important;max-width:var(--store-w)!important;}
-.store-nav-above{bottom:calc(70px + env(safe-area-inset-bottom, 0px))!important;}
+.store-nav-above{bottom:calc(86px + env(safe-area-inset-bottom, 0px))!important;}
 .store-topnav{display:none;}
 /* Логотип-плитка магазина (брендового файла в проекте нет — сохраняем прежнее представление) */
 .store-brand-mark{width:34px;height:34px;border-radius:11px;background:var(--gr);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:'Unbounded',sans-serif;font-size:15px;font-weight:900;flex-shrink:0;}
@@ -247,11 +252,18 @@ html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webk
 .p-add-icon:hover{background:var(--gr2);}
 .p-add-icon:active{background:var(--gr3);}
 .p-add-off{width:100%;min-height:44px;padding:10px;border-radius:var(--r-field);background:var(--l3);border:1px solid var(--b1);color:var(--t3);font-size:13px;font-weight:700;text-align:center;}
-.p-qty{display:flex;align-items:center;justify-content:space-between;gap:2px;background:var(--gr-soft);border:1.5px solid rgba(7,136,61,.3);border-radius:var(--r-field);padding:3px;min-height:44px;}
-.p-qty button{width:38px;height:38px;border-radius:10px;background:transparent;border:none;display:inline-flex;align-items:center;justify-content:center;color:var(--gr3);font-size:20px;font-weight:800;cursor:pointer;line-height:1;}
+.p-qty{display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--l3);border:none;border-radius:999px;padding:4px;min-height:44px;}
+.p-qty button{width:36px;height:36px;border-radius:999px;background:var(--l1);border:none;display:inline-flex;align-items:center;justify-content:center;color:var(--gr3);font-size:20px;font-weight:800;cursor:pointer;line-height:1;box-shadow:var(--sh-card);transition:background-color .18s ease;}
 .p-qty button:hover{background:var(--gr-soft);}
-.p-qty button:disabled{opacity:.4;cursor:not-allowed;}
-.p-qty span{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:800;color:var(--gr3);min-width:28px;text-align:center;}
+.p-qty button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;}
+.p-qty button.p-qty-plus{background:var(--gr);color:#fff;box-shadow:0 2px 8px rgba(7,136,61,.3);}
+.p-qty button.p-qty-plus:hover{background:var(--gr2);}
+.p-qty span{font-family:'Nunito',sans-serif;font-size:16px;font-weight:800;color:var(--t1);min-width:28px;text-align:center;}
+/* Бейджи на карточках: тихие белые пилюли с цветным текстом */
+.p-badges .bdg{font-size:10px;padding:2px 7px;background:rgba(255,255,255,.94);border-color:transparent;box-shadow:var(--sh-card);}
+.p-badges .bdg.b-rd{color:var(--red);}
+.p-badges .bdg.b-gr{color:var(--gr3);}
+.p-badges .bdg.b-gd{color:var(--gd2);}
 /* Карточка товара: избранное, название-кнопка, строка цены */
 .p-wish{position:absolute;top:4px;right:4px;z-index:3;width:44px;height:44px;border-radius:12px;background:transparent;display:inline-flex;align-items:center;justify-content:center;}
 .p-wish:hover{background:var(--l3);}
@@ -266,8 +278,8 @@ html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webk
 }
 /* Компактные карточки, чтобы на телефоне было видно больше товаров */
 .p-name{min-height:36px;}
-.hdr-icon{width:44px;height:44px;border-radius:12px;background:var(--l3);border:1px solid var(--b1);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
-.hdr-icon:hover{background:var(--l4);}
+.hdr-icon{width:40px;height:40px;border-radius:999px;background:var(--l1);border:1px solid var(--b1);box-shadow:var(--sh-card);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.hdr-icon:hover{background:var(--gr-soft);border-color:rgba(7,136,61,.3);}
 .hdr-addr{display:inline-flex;align-items:center;gap:4px;padding:2px 0;margin-top:1px;max-width:100%;font-size:12px;font-weight:600;color:var(--t2);background:transparent;}
 .hdr-addr span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw;}
 .hdr-addr:hover span{color:var(--gr3);}
@@ -275,7 +287,7 @@ html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webk
 .store-nav-item:hover{background:var(--l3);}
 /* Заголовок раздела + ссылка «Все» */
 .store-sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
-.store-sec-title{font-size:20px;font-weight:800;color:var(--t1);line-height:1.2;}
+.store-sec-title{font-family:'Nunito',sans-serif;font-size:20px;font-weight:800;color:var(--t1);line-height:1.2;letter-spacing:-.01em;}
 .store-sec-all{display:inline-flex;align-items:center;gap:4px;font-family:'Nunito',sans-serif;font-size:14px;font-weight:700;color:var(--gr3);background:transparent;padding:4px 2px;}
 .store-sec-all:hover{color:var(--gr2);}
 /* Баннер: светло-зелёная поверхность + реальное фото продукта справа */
@@ -286,17 +298,33 @@ html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webk
 .store-banner-sub{font-size:13px;color:var(--t2);}
 .store-banner-photo{width:112px;height:88px;object-fit:contain;flex-shrink:0;border-radius:12px;background:#fff;}
 @media (min-width:600px){.store-banner-photo{width:168px;height:104px;} .store-banner-title{font-size:20px;}}
+/* Герой витрины: светлый градиент, мягкие световые пятна, CTA-пилюля.
+   Отдельный класс от .store-banner (тот — баннер акций ниже по странице). */
+.store-hero{position:relative;display:flex;align-items:center;gap:12px;width:100%;text-align:left;border-radius:22px;border:1px solid rgba(7,136,61,.14);padding:18px;margin-bottom:20px;min-height:166px;overflow:hidden;cursor:pointer;background:linear-gradient(135deg,var(--hero-1) 0%,var(--hero-2) 64%);box-shadow:var(--sh-card);transition:box-shadow .18s ease,transform .18s ease;}
+.store-hero:hover{box-shadow:var(--sh2);}
+.store-hero::before{content:'';position:absolute;width:200px;height:200px;right:-72px;top:-84px;border-radius:50%;background:radial-gradient(circle,rgba(7,136,61,.17),transparent 70%);pointer-events:none;}
+.store-hero::after{content:'';position:absolute;width:160px;height:160px;left:-64px;bottom:-96px;border-radius:50%;background:radial-gradient(circle,rgba(237,154,0,.13),transparent 70%);pointer-events:none;}
+.store-hero-text{position:relative;z-index:2;flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
+.store-hero-badge{align-self:flex-start;padding:4px 10px;border-radius:999px;background:#fff;color:var(--gr3);font-size:11px;font-weight:800;box-shadow:var(--sh-card);}
+.store-hero-title{font-family:'Nunito',sans-serif;font-size:23px;font-weight:800;color:var(--t1);line-height:1.16;letter-spacing:-.01em;}
+.store-hero-sub{font-size:13px;color:var(--t2);line-height:1.35;}
+.store-hero-cta{margin-top:8px;display:inline-flex;align-items:center;gap:7px;padding:0 18px;height:42px;border-radius:999px;background:var(--gr);color:#fff;font-size:14px;font-weight:800;box-shadow:0 6px 16px rgba(7,136,61,.32);transition:background-color .18s ease;}
+.store-hero:hover .store-hero-cta{background:var(--gr2);}
+.store-hero-photo{position:relative;z-index:1;width:150px;height:142px;object-fit:contain;flex-shrink:0;filter:drop-shadow(0 12px 20px rgba(23,37,27,.2));}
+@media (min-width:600px){.store-hero{min-height:196px;padding:24px;}.store-hero-title{font-size:28px;}.store-hero-sub{font-size:14px;}.store-hero-photo{width:216px;height:176px;}}
+@media (max-width:359px){.store-hero-photo{width:104px;height:112px;}.store-hero-title{font-size:20px;}.store-hero{min-height:150px;padding:14px;}}
 .store-ticker{background:var(--red-soft);border:1px solid rgba(195,52,52,.18);border-radius:12px;padding:8px 0;overflow:hidden;margin:-8px 0 20px;}
-/* Категории: горизонтальная лента с видимым краем следующей плитки */
-.cat-rail{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 24px;padding:0 16px 4px;}
+/* Категории: пастельные плитки без рамки, подпись под плиткой */
+.cat-rail{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 24px;padding:0 16px 4px;}
 .cat-rail::-webkit-scrollbar{display:none;}
-.cat-tile{flex:0 0 110px;display:flex;flex-direction:column;border-radius:var(--r-card);border:1px solid var(--b1);overflow:hidden;cursor:pointer;padding:0;text-align:center;}
-.cat-tile:hover{box-shadow:var(--sh2);border-color:var(--b2);}
-.cat-tile-media{display:flex;align-items:center;justify-content:center;width:100%;height:76px;background:#fff;overflow:hidden;}
-.cat-tile-media img{width:100%;height:100%;object-fit:contain;padding:6px;box-sizing:border-box;display:block;}
-.cat-tile-emoji{font-size:30px;line-height:1;}
-.cat-tile-label{padding:8px 8px 10px;font-size:12px;font-weight:700;line-height:1.25;min-height:40px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.cat-tile-count{display:block;padding:0 8px 10px;font-size:11px;color:var(--t3);margin-top:-6px;}
+.cat-tile{flex:0 0 102px;display:flex;flex-direction:column;gap:7px;border:none;background:transparent;cursor:pointer;padding:0;text-align:center;}
+.cat-tile-media{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:1 / 1;border-radius:18px;overflow:hidden;background:var(--l3);transition:transform .18s ease;}
+.cat-tile:hover .cat-tile-media{transform:translateY(-2px);}
+.cat-tile-media img{width:100%;height:100%;object-fit:contain;padding:8px;box-sizing:border-box;display:block;}
+.cat-tile-emoji{font-size:32px;line-height:1;}
+.cat-tile-label{font-size:12px;font-weight:700;line-height:1.25;color:var(--t1);min-height:30px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.cat-tile-count{display:block;font-size:11px;color:var(--t3);}
+@media (min-width:600px){.cat-tile{flex:0 0 124px;}}
 /* Строка поиска магазина */
 .store-search{display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border-radius:var(--r-field);background:var(--l1);border:1.5px solid var(--b1);color:var(--t2);}
 .store-search:focus-within{border-color:rgba(7,136,61,.45);box-shadow:0 0 0 4px var(--gr-soft);}
@@ -400,7 +428,7 @@ html,body{background:#F6F7F5;color:#17251B;font-family:'Nunito',sans-serif;-webk
 .store-row-media{width:64px;height:64px;border-radius:14px;background:#fff;border:1px solid var(--b1);flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;}
 /* Закреплённая панель действия: не накладывается на нижнее меню */
 .store-sticky-bar{position:fixed;left:50%;transform:translateX(-50%);width:100%;max-width:var(--store-w);z-index:190;bottom:0;background:var(--header-bg);backdrop-filter:blur(24px);border-top:1px solid var(--b1);box-shadow:0 -2px 14px rgba(23,37,27,.05);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));}
-@media (max-width:899px){.store-sticky-bar{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px));}}
+@media (max-width:899px){.store-sticky-bar{bottom:calc(var(--nav-h) + 20px + env(safe-area-inset-bottom,0px));}}
 /* Страницы без нижнего меню (например, оформление заказа) */
 .store-sticky-nonav{bottom:0!important;}
 .store-page-pad-lg{padding-bottom:calc(180px + env(safe-area-inset-bottom,0px));}
@@ -506,9 +534,9 @@ const Nav = ({ page, go, user: userProp }: any) => {
   return (
   <nav className="store-nav" style={{
     background:"var(--l1)",
-    borderTop:"1px solid var(--b1)",
-    boxShadow:"0 -2px 14px rgba(23,37,27,.05)",
-    padding:"6px 8px calc(6px + env(safe-area-inset-bottom, 0px))",
+    border:"1px solid var(--b1)",
+    boxShadow:"0 10px 30px rgba(23,37,27,.14)",
+    padding:"8px 8px",
     display:"flex", justifyContent:"space-around", alignItems:"stretch",
   }}>
     {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
@@ -615,7 +643,7 @@ const Header = ({ title, back, go, cart, user: userProp, hideSearch = false }: a
             <div className="ub" style={{ fontSize:18, fontWeight:800, color:"var(--t1)" }}>{title}</div>
           ) : (
             <>
-              <div className="ub" style={{ fontSize:17, fontWeight:900, color:"var(--t1)", letterSpacing:"-.01em" }}>КАКАПО{isVip ? " VIP" : ""}</div>
+              <div className="ub" style={{ fontSize:17, fontWeight:900, letterSpacing:"-.01em" }}><span style={{ color:"var(--t1)" }}>КАКА</span><span style={{ color:"var(--brand-2)" }}>по</span>{isVip ? <span style={{ color:"var(--t1)" }}> VIP</span> : ""}</div>
               <button type="button" className="btn hdr-addr" onClick={() => go("addresses")} aria-label="Изменить адрес доставки">
                 <Ic n="map" s={12} c={isVip ? "#8A6400" : "var(--gr3)"} w={2}/>
                 <span>{address}</span>
@@ -758,7 +786,7 @@ function storeBannerSlides(light: boolean, showcase: StoreShowcase) {
     }))
   if (fromAdmin.length) return fromAdmin
   return [
-    { e: '🥬', title: 'Свежие продукты к вашему столу', sub: 'Доставка по Явану', badge: '', disc: null as number | null, ac: 'var(--gr)', bg: softAccentSurface('#07883D', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
+    { e: '🥬', title: 'Свежие продукты каждый день', sub: 'Доставка по Явану', badge: '', disc: null as number | null, ac: 'var(--gr)', bg: softAccentSurface('#07883D', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
   ]
 }
 
@@ -1265,29 +1293,29 @@ function headerCartButtonStyle(isVip: boolean, hasItems: boolean) {
     }
   }
   return {
-    width: 44, height: 44, borderRadius: 12,
-    background: hasItems ? 'var(--gr)' : 'var(--l3)',
-    border: `1px solid ${hasItems ? 'transparent' : 'var(--b1)'}`,
+    width: 40, height: 40, borderRadius: 999,
+    background: 'var(--l1)',
+    border: '1px solid var(--b1)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     position: 'relative' as const,
-    boxShadow: hasItems ? '0 4px 14px var(--gr)' : 'none',
+    boxShadow: 'var(--sh-card)',
   }
 }
 
 function headerCartIconColor(isVip: boolean, hasItems: boolean) {
   if (isVip && hasItems) return '#3A2A00'
   if (isVip) return 'rgba(138,100,0,.78)'
-  return hasItems ? 'white' : 'var(--t2)'
+  return 'var(--t1)'
 }
 
 function cartCountBadgeStyle(isVip: boolean) {
   return {
-    position: 'absolute' as const, top: -6, right: -6,
-    minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999,
-    background: isVip ? 'linear-gradient(135deg,#C33434,#C33434)' : 'var(--red)',
-    border: isVip ? '2px solid #E9AE00' : '2px solid var(--bg)',
+    position: 'absolute' as const, top: -5, right: -5,
+    minWidth: 18, height: 18, padding: '0 4px', borderRadius: 999,
+    background: isVip ? 'linear-gradient(135deg,#C33434,#C33434)' : 'var(--gr)',
+    border: isVip ? '2px solid #E9AE00' : '2px solid var(--l1)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontFamily: 'Unbounded', fontSize: 9, fontWeight: 900, color: 'white',
+    fontFamily: 'Nunito', fontSize: 11, fontWeight: 800, color: 'white',
     boxShadow: isVip ? '0 2px 8px rgba(233,174,0,.45)' : 'none',
   }
 }
@@ -1776,6 +1804,9 @@ const FAQ = (pricing) => {
 /** Единая валюта магазина (уже используется в приложении). */
 const CURRENCY = 'ЅМ'
 
+/** Деньги для API: округление до копеек, остаётся числом. */
+const roundMoney = (n: any) => Math.round(Number(n || 0) * 100) / 100
+
 /** Фото товара: белая поверхность, object-fit: contain, нейтральная заглушка. */
 const ProductMedia = ({ p, emoji, padding = 8, style, className }: { p: any; emoji?: any; padding?: number; style?: any; className?: string }) => {
   const [failed, setFailed] = useState(false)
@@ -1803,11 +1834,11 @@ const ProductMedia = ({ p, emoji, padding = 8, style, className }: { p: any; emo
 /** Цена товара: текущая крупно, старая — зачёркнутая. */
 const PriceTag = ({ price, old, size = 20, suffixSize = 12 }: { price: any; old?: any; size?: number; suffixSize?: number }) => (
   <div style={{ display:"flex", alignItems:"baseline", gap:6, minWidth:0, flexWrap:"nowrap" }}>
-    <span className="ub" style={{ fontSize:size, fontWeight:800, color:"var(--t1)", letterSpacing:"-.02em", whiteSpace:"nowrap" }}>
-      {Number(price || 0).toFixed(2)}
+    <span style={{ fontFamily:"'Nunito',sans-serif", fontSize:size, fontWeight:900, color:"var(--t1)", letterSpacing:"-.01em", whiteSpace:"nowrap" }}>
+      {Number(price || 0).toFixed(2).replace('.', ',')}
       <span style={{ fontSize:suffixSize, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>{CURRENCY}</span>
     </span>
-    {old ? <span style={{ fontSize:suffixSize, color:"var(--t3)", textDecoration:"line-through", whiteSpace:"nowrap" }}>{Number(old).toFixed(2)}</span> : null}
+    {old ? <span style={{ fontSize:suffixSize, color:"var(--t3)", textDecoration:"line-through", whiteSpace:"nowrap" }}>{Number(old).toFixed(2).replace('.', ',')}</span> : null}
   </div>
 )
 
@@ -1816,7 +1847,7 @@ const QtyStepper = ({ p, qty, onAdd, onRm, label }: { p: any; qty: number; onAdd
   <div className="p-qty" onClick={e => e.stopPropagation()} role="group" aria-label={label || `Количество: ${p?.name || ""}`}>
     <button type="button" className="btn" onClick={e => { e.stopPropagation(); onRm(p.id) }} aria-label="Уменьшить количество">−</button>
     <span aria-live="polite">{formatCartQtyStepper(p, qty)}</span>
-    <button type="button" className="btn" onClick={e => { e.stopPropagation(); onAdd(p.id) }} aria-label="Увеличить количество">+</button>
+    <button type="button" className="btn p-qty-plus" onClick={e => { e.stopPropagation(); onAdd(p.id) }} aria-label="Увеличить количество">+</button>
   </div>
 )
 
@@ -1841,7 +1872,7 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }: any) => {
       >
         <Ic n="heart" s={16} c={wished ? "var(--red)" : "var(--t3)"} fill={wished ? "var(--red)" : "none"} w={2}/>
       </button>
-      <div style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:4, zIndex:3, pointerEvents:"none" }}>
+      <div className="p-badges" style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:4, zIndex:3, pointerEvents:"none" }}>
         {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
         {p.isNew && <span className="bdg b-gr">Новинка</span>}
         {hasBulkPricing(p) && <span className="bdg b-gd">Опт</span>}
@@ -1854,17 +1885,16 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }: any) => {
         {bulkHint ? <div style={{ fontSize:11, color:"var(--org)", fontWeight:700, lineHeight:1.3 }}>{bulkHint}</div> : null}
         <div className="p-price-row">
           <PriceTag price={p.price} old={p.old} />
-          {qty === 0 && !out ? (
-            <button type="button" className="btn p-add-icon" onClick={add} aria-label={`Добавить «${p.name}» в корзину`} style={{ animation: pop ? "cartPop .26s ease" : "none", flexShrink:0 }}>
-              <Ic n="plus" s={18} c="white" w={2.5}/>
-            </button>
-          ) : null}
         </div>
         {out ? (
           <div className="p-add-off">Нет в наличии</div>
         ) : qty > 0 ? (
           <QtyStepper p={p} qty={qty} onAdd={add} onRm={onRm} />
-        ) : null}
+        ) : (
+          <button type="button" className="btn p-add" onClick={add} aria-label={`Добавить «${p.name}» в корзину`} style={{ animation: pop ? "cartPop .26s ease" : "none" }}>
+            <Ic n="cart" s={16} c="white" w={2}/>В корзину
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1987,13 +2017,14 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }: any) => {
           )}
         </form>
 
-        <button type="button" className="btn store-banner" onClick={() => go("promos")} style={{ background:b.bg }}>
-          <span className="store-banner-text">
-            {b.badge ? <span className="bdg b-gr" style={{ marginBottom:6 }}>{b.badge}</span> : null}
-            <span className="ub store-banner-title">{b.title}</span>
-            {b.sub ? <span className="store-banner-sub">{b.sub}</span> : null}
+        <button type="button" className="btn store-hero" onClick={() => go("catalog")}>
+          <span className="store-hero-text">
+            {b.badge ? <span className="store-hero-badge">{b.badge}{b.disc ? ` −${b.disc}%` : ""}</span> : null}
+            <span className="ub store-hero-title">{b.title}</span>
+            {b.sub ? <span className="store-hero-sub">{b.sub}</span> : null}
+            <span className="store-hero-cta">В каталог <Ic n="arr" s={15} c="white"/></span>
           </span>
-          {bannerPhoto ? <img className="store-banner-photo" src={bannerPhoto} alt="" loading="lazy" decoding="async"/> : null}
+          {bannerPhoto ? <img className="store-hero-photo" src={bannerPhoto} alt="" loading="lazy" decoding="async"/> : null}
         </button>
 
         {tickerItems.length > 0 && (
@@ -2022,25 +2053,25 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }: any) => {
             const cp = findCatProduct(c.id);
             const ph = cp ? photoOf(cp) : undefined;
             return (
-              <button key={c.id} type="button" className="btn cat-tile" onClick={() => go("plist", { cat:c.id })} style={{ background:c.bg }}>
-                <span className="cat-tile-media">
+              <button key={c.id} type="button" className="btn cat-tile" onClick={() => go("plist", { cat:c.id })}>
+                <span className="cat-tile-media" style={{ background:c.bg }}>
                   {ph ? <img src={ph} alt="" loading="lazy" decoding="async"/> : <span className="cat-tile-emoji" aria-hidden="true">{c.e}</span>}
                 </span>
-                <span className="cat-tile-label" style={{ color:c.color }}>{c.label}</span>
+                <span className="cat-tile-label">{c.label}</span>
               </button>
             )
           })}
           {hasRestaurants && (
-            <button type="button" className="btn cat-tile" onClick={() => go("restaurants")} style={{ background:restTileBg }}>
-              <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">🍽</span></span>
-              <span className="cat-tile-label" style={{ color:"var(--org)" }}>Рестораны</span>
+            <button type="button" className="btn cat-tile" onClick={() => go("restaurants")}>
+              <span className="cat-tile-media" style={{ background:restTileBg }}><span className="cat-tile-emoji" aria-hidden="true">🍽</span></span>
+              <span className="cat-tile-label">Рестораны</span>
             </button>
           )}
         </div>
 
         {topProducts.length > 0 && <>
           <div className="store-sec-head">
-            <div className="ub store-sec-title">Хиты продаж</div>
+            <div className="ub store-sec-title">🔥 Популярное</div>
             <button type="button" className="btn store-sec-all" onClick={() => go("hot")}>Все <Ic n="arr" s={14}/></button>
           </div>
           <div className="store-prod-grid" style={{ marginBottom:24 }}>
@@ -2138,13 +2169,13 @@ const CatalogPage = ({ go, cart, user }: any) => {
         </form>
 
         <div className="store-tile-grid" style={{ marginBottom:24 }}>
-          <button type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--gr-soft)" }} onClick={() => go("promos")}>
-            <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">%</span></span>
-            <span className="cat-tile-label" style={{ color:"var(--gr3)" }}>Акции и скидки</span>
+          <button type="button" className="btn cat-tile" style={{ flex:"unset" }} onClick={() => go("promos")}>
+            <span className="cat-tile-media" style={{ background:"var(--gr-soft)" }}><span className="cat-tile-emoji" aria-hidden="true">%</span></span>
+            <span className="cat-tile-label">Акции и скидки</span>
           </button>
-          <button type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--l3)" }} onClick={() => go("hot")}>
-            <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">🔥</span></span>
-            <span className="cat-tile-label" style={{ color:"var(--org)" }}>Хиты продаж</span>
+          <button type="button" className="btn cat-tile" style={{ flex:"unset" }} onClick={() => go("hot")}>
+            <span className="cat-tile-media" style={{ background:"var(--l3)" }}><span className="cat-tile-emoji" aria-hidden="true">🔥</span></span>
+            <span className="cat-tile-label">Хиты продаж</span>
           </button>
         </div>
 
@@ -2176,11 +2207,11 @@ const CatalogPage = ({ go, cart, user }: any) => {
               const ph = catImage(c.id);
               const count = productsInCategory(prods, c.id, null, cats).length;
               return (
-                <button key={c.id} type="button" className="btn cat-tile" style={{ flex:"unset", background:c.bg }} onClick={() => go("plist", { cat:c.id })}>
-                  <span className="cat-tile-media">
+                <button key={c.id} type="button" className="btn cat-tile" style={{ flex:"unset" }} onClick={() => go("plist", { cat:c.id })}>
+                  <span className="cat-tile-media" style={{ background:c.bg }}>
                     {ph ? <img src={ph} alt="" loading="lazy" decoding="async"/> : <span className="cat-tile-emoji" aria-hidden="true">{c.e}</span>}
                   </span>
-                  <span className="cat-tile-label" style={{ color:c.color }}>{c.label}</span>
+                  <span className="cat-tile-label">{c.label}</span>
                   <span className="cat-tile-count">{formatProductCount(count)}</span>
                 </button>
               );
@@ -2300,8 +2331,8 @@ const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }: any)
                     <div style={{ fontSize:10, color:"var(--t3)", marginBottom:4 }}>{p.unit}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:3 }}>{rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}</div>
                     <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:4 }}>
-                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:12, color:"var(--t2)", marginLeft:2 }}>ЅМ</span></span>
-                      {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
+                      <span className="ub" style={{ fontSize:14, fontWeight:800 }}>{p.price.toFixed(2).replace('.', ',')}<span style={{ fontSize:12, color:"var(--t2)", marginLeft:2 }}>ЅМ</span></span>
+                      {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2).replace('.', ',')}</span>}
                     </div>
                   </div>
                   <div style={{ flexShrink:0 }}>
@@ -2494,9 +2525,9 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }: any) => 
         <div className="card" style={{ padding:16, marginTop:14 }}>
           <div style={{ display:"flex", alignItems:"flex-end", gap:10, flexWrap:"wrap" }}>
             <span className="ub" style={{ fontSize:30, fontWeight:900, color:"var(--t1)", letterSpacing:"-.02em" }}>
-              {p.price.toFixed(2)}<span style={{ fontSize:15, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span>
+              {p.price.toFixed(2).replace('.', ',')}<span style={{ fontSize:15, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span>
             </span>
-            {p.old > p.price && <span style={{ fontSize:15, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{Number(p.old).toFixed(2)} ЅМ</span>}
+            {p.old > p.price && <span style={{ fontSize:15, color:"var(--t3)", textDecoration:"line-through", marginBottom:4 }}>{Number(p.old).toFixed(2).replace('.', ',')} ЅМ</span>}
             {disc > 0 && <span className="bdg b-rd" style={{ marginBottom:4 }}>−{disc}%</span>}
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:6 }}>
@@ -2520,13 +2551,13 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }: any) => 
               <div className="p-add-off" style={{ minHeight:52 }}>Нет в наличии — добавление недоступно</div>
             ) : qty === 0 ? (
               <button type="button" className="btn store-btn store-btn-primary store-btn-block" onClick={add} style={{ minHeight:52 }}>
-                <Ic n="bag" s={19} c="white"/>В корзину · {p.price.toFixed(2)} ЅМ
+                <Ic n="bag" s={19} c="white"/>В корзину · {p.price.toFixed(2).replace('.', ',')} ЅМ
               </button>
             ) : (
               <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
                 <QtyStepperBar qty={qty} label={qtyLabel} onAdd={add} onRm={rm}/>
                 <button type="button" className="btn store-btn store-btn-sec" onClick={() => go("cart")} style={{ flex:1, minWidth:150 }}>
-                  <Ic n="check" s={16} c="var(--gr3)" w={2.5}/>В корзине · {lineTotal.toFixed(2)} ЅМ
+                  <Ic n="check" s={16} c="var(--gr3)" w={2.5}/>В корзине · {lineTotal.toFixed(2).replace('.', ',')} ЅМ
                 </button>
               </div>
             )}
@@ -2665,9 +2696,9 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
                       {p.isRest ? "Ресторан" : (isWeighted(p) ? `На развес · ${formatCartQty(p, p.qty)}` : (p.unit || "шт"))}
                     </div>
                     <div style={{ fontSize:12, color:"var(--t3)", marginTop:4, display:"flex", flexWrap:"wrap", alignItems:"baseline", gap:6 }}>
-                      {unitPrice.current < unitPrice.base && <span style={{ textDecoration:"line-through" }}>{unitPrice.base.toFixed(2)}</span>}
-                      {!(unitPrice.current < unitPrice.base) && p.old > p.price && <span style={{ textDecoration:"line-through" }}>{Number(p.old).toFixed(2)}</span>}
-                      <span style={{ fontWeight:800, color: (unitPrice.current < unitPrice.base || p.old > p.price) ? "var(--gr3)" : "var(--t2)" }}>{unitPrice.current.toFixed(2)} ЅМ</span>
+                      {unitPrice.current < unitPrice.base && <span style={{ textDecoration:"line-through" }}>{unitPrice.base.toFixed(2).replace('.', ',')}</span>}
+                      {!(unitPrice.current < unitPrice.base) && p.old > p.price && <span style={{ textDecoration:"line-through" }}>{Number(p.old).toFixed(2).replace('.', ',')}</span>}
+                      <span style={{ fontWeight:800, color: (unitPrice.current < unitPrice.base || p.old > p.price) ? "var(--gr3)" : "var(--t2)" }}>{unitPrice.current.toFixed(2).replace('.', ',')} ЅМ</span>
                       <span>/ {unitPrice.suffix}</span>
                       {disc2 > 0 && <span className="bdg b-rd">−{disc2}%</span>}
                     </div>
@@ -2675,14 +2706,14 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
                     {outNow && <div style={{ fontSize:12, fontWeight:700, marginTop:4, color:"var(--red)" }}>Сейчас нет в наличии — уточним при сборке</div>}
                     {(itemBulk > 0 || itemSale > 0) && (
                       <div style={{ fontSize:12, color:"var(--gr3)", fontWeight:700, marginTop:4, display:"flex", flexWrap:"wrap", gap:8 }}>
-                        {itemBulk > 0 && <span>Опт −{itemBulk.toFixed(2)} ЅМ</span>}
-                        {itemSale > 0 && <span>Акция −{itemSale.toFixed(2)} ЅМ</span>}
+                        {itemBulk > 0 && <span>Опт −{itemBulk.toFixed(2).replace('.', ',')} ЅМ</span>}
+                        {itemSale > 0 && <span>Акция −{itemSale.toFixed(2).replace('.', ',')} ЅМ</span>}
                       </div>
                     )}
                     <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:10, marginTop:10 }}>
                       <div>
-                        {itemSaved > 0 && <div style={{ fontSize:12, color:"var(--t3)", textDecoration:"line-through" }}>{itemRetail.toFixed(2)} ЅМ</div>}
-                        <span className="ub" style={{ fontSize:16, fontWeight:800, color:"var(--t1)" }}>{calcLineTotal(p, p.qty).toFixed(2)}<span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span></span>
+                        {itemSaved > 0 && <div style={{ fontSize:12, color:"var(--t3)", textDecoration:"line-through" }}>{itemRetail.toFixed(2).replace('.', ',')} ЅМ</div>}
+                        <span className="ub" style={{ fontSize:16, fontWeight:800, color:"var(--t1)" }}>{calcLineTotal(p, p.qty).toFixed(2).replace('.', ',')}<span style={{ fontSize:12, fontWeight:700, color:"var(--t2)", marginLeft:3 }}>ЅМ</span></span>
                       </div>
                       <div className="p-qty" style={{ width:"auto", minWidth:120, justifyContent:"space-between" }}>
                         <button type="button" onClick={() => atMin ? onDel(p.id) : onRm(p.id)} aria-label={atMin ? `Удалить «${p.name}»` : `Уменьшить количество «${p.name}»`}>
@@ -2704,21 +2735,21 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
           <div style={{ marginBottom:10, padding:"12px", borderRadius:14, background:"var(--l3)", border:"1px solid var(--b1)" }}>
             {retailSub > sub && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--t3)", marginBottom:6 }}>
-                <span>Без скидок</span><span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2)} ЅМ</span>
+                <span>Без скидок</span><span style={{ textDecoration:"line-through" }}>{retailSub.toFixed(2).replace('.', ',')} ЅМ</span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:13 }}>
               <span style={{ color:"var(--t2)" }}>Товары ({tqty} поз.)</span>
-              <span style={{ fontWeight:700, color:"var(--t1)" }}>{sub.toFixed(2)} ЅМ</span>
+              <span style={{ fontWeight:700, color:"var(--t1)" }}>{sub.toFixed(2).replace('.', ',')} ЅМ</span>
             </div>
             {bulkSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--gr3)", marginTop:4 }}>
-                <span>Оптовая скидка</span><span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2)} ЅМ</span>
+                <span>Оптовая скидка</span><span style={{ fontWeight:700 }}>−{bulkSaved.toFixed(2).replace('.', ',')} ЅМ</span>
               </div>
             )}
             {saleSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:"var(--gr3)", marginTop:4 }}>
-                <span>Скидка по акции</span><span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2)} ЅМ</span>
+                <span>Скидка по акции</span><span style={{ fontWeight:700 }}>−{saleSaved.toFixed(2).replace('.', ',')} ЅМ</span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", gap:10, fontSize:12, color:"var(--t2)", marginTop:4 }}>
@@ -2727,13 +2758,13 @@ const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady =
             </div>
             {totalSaved > 0 && (
               <div style={{ marginTop:8, padding:"8px 10px", borderRadius:10, background:"var(--gr-soft)", border:"1px solid rgba(7,136,61,.2)", fontSize:12, fontWeight:800, color:"var(--gr3)" }}>
-                Вы сэкономили {totalSaved.toFixed(2)} ЅМ
+                Вы сэкономили {totalSaved.toFixed(2).replace('.', ',')} ЅМ
               </div>
             )}
             <div style={{ height:1, background:"var(--b1)", margin:"10px 0 8px" }}/>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
               <span style={{ fontSize:13, fontWeight:700, color:"var(--t1)" }}>Итого</span>
-              <span className="ub" style={{ fontSize:20, fontWeight:900, color:"var(--t1)" }}>{total.toFixed(2)} <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900, color:"var(--t1)" }}>{total.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, fontWeight:700, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
           </div>
           <button type="button" onClick={() => go("checkout")} className="btn store-btn store-btn-primary store-btn-block" style={{ minHeight:52 }}>
@@ -3032,11 +3063,11 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
           }
         }),
       ],
-      total: Number(payable.toFixed(2)),
-      goodsTotal: Number(sub.toFixed(2)),
+      total: roundMoney(payable),
+      goodsTotal: roundMoney(sub),
       deliveryFee: effectiveDelivery,
       pickupIds,
-      distanceKm: deliveryKm > 0 ? Number(deliveryKm.toFixed(2)) : undefined,
+      distanceKm: deliveryKm > 0 ? roundMoney(deliveryKm) : undefined,
       durationMin: deliveryMin > 0 ? Math.round(deliveryMin) : undefined,
       weightKg: Number(weightKg.toFixed(1)),
       restIds,
@@ -3120,7 +3151,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
             : 'Сначала соберут заказ, затем назначат курьера. Отслеживание появится когда курьер примет заказ.'}
       </div>
       <div style={{ width:"100%", background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:20, padding:"18px", marginBottom:20 }}>
-        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:deliveryMin > 0 ? `в пути ~${Math.round(deliveryMin)} мин после сборки` : "Сообщим после сборки",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2)} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
+        {[{icon:"bag",l:"Номер заказа",v:orderId||"—",c:"var(--gr)"},{icon:"clock",l:"Доставка",v:deliveryMin > 0 ? `в пути ~${Math.round(deliveryMin)} мин после сборки` : "Сообщим после сборки",c:"var(--gd)"},{icon:"map",l:"Адрес",v:addr||"—",c:"var(--sky)"},{icon:"card",l:"Оплата",v:paidWithCredit > 0 ? `VIP-долг ${paidWithCredit.toFixed(2).replace('.', ',')} ЅМ` + (bonusSpent > 0 ? ` · бонусы −${bonusSpent}` : '') : bonusSpent > 0 ? `Бонусы −${bonusSpent}` : "При получении",c:"var(--gd)"}].map((r,i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:i<3?"1px solid var(--b1)":"none" }}>
             <div style={{ width:30, height:30, borderRadius:8, background:`${r.c}18`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><Ic n={r.icon} s={14} c={r.c}/></div>
             <span style={{ fontSize:12, color:"var(--t2)", flex:1 }}>{r.l}</span>
@@ -3154,7 +3185,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
                   <div style={{ fontSize:13, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</div>
                   <div style={{ fontSize:11, color:"var(--t2)" }}>{isWeighted(it) ? formatCartQty(it, it.qty) : `× ${it.qty}`}</div>
                 </div>
-                <div className="ub" style={{ fontSize:13, fontWeight:800, flexShrink:0 }}>{calcLineTotal(it, it.qty).toFixed(2)} ЅМ</div>
+                <div className="ub" style={{ fontSize:13, fontWeight:800, flexShrink:0 }}>{calcLineTotal(it, it.qty).toFixed(2).replace('.', ',')} ЅМ</div>
               </div>
             ))}
           </div>
@@ -3286,7 +3317,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
           <CheckoutRadio items={payOptions} val={pay} set={setPay}/>
           {pay === 'credit' && (
             <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: 'rgba(233,174,0,.14)', border: '1px solid rgba(233,174,0,.25)', fontSize: 11, color: 'var(--t2)', lineHeight: 1.5 }}>
-              Товары {creditGoods.toFixed(2)} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2)} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
+              Товары {creditGoods.toFixed(2).replace('.', ',')} ЅМ — в долг на VIP-карту. Доставка {effectiveDelivery.toFixed(2).replace('.', ',')} ЅМ — наличными курьеру. Остаток лимита: {(credit.available - creditGoods).toLocaleString()} ЅМ
         </div>
           )}
         </div>
@@ -3331,27 +3362,27 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
           <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:12, background:"var(--l2)", border:"1px solid var(--b1)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0 }}>
               <span style={{ color: 'var(--t2)' }}>Товары</span>
-              <span>{sub.toFixed(2)} ЅМ</span>
+              <span>{sub.toFixed(2).replace('.', ',')} ЅМ</span>
       </div>
             {bulkSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
                 <span>Оптовая скидка</span>
-                <span>−{bulkSaved.toFixed(2)} ЅМ</span>
+                <span>−{bulkSaved.toFixed(2).replace('.', ',')} ЅМ</span>
       </div>
             )}
             {saleSaved > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6, color: 'var(--gr)' }}>
                 <span>Скидка по акции</span>
-                <span>−{saleSaved.toFixed(2)} ЅМ</span>
+                <span>−{saleSaved.toFixed(2).replace('.', ',')} ЅМ</span>
       </div>
             )}
             {totalSaved > 0 && (
-              <div style={{ fontSize:11, color:'var(--gr)', fontWeight:700, marginBottom: 6 }}>🎉 Сэкономили {totalSaved.toFixed(2)} ЅМ</div>
+              <div style={{ fontSize:11, color:'var(--gr)', fontWeight:700, marginBottom: 6 }}>🎉 Сэкономили {totalSaved.toFixed(2).replace('.', ',')} ЅМ</div>
             )}
             {effectiveDelivery > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--t2)' }}>Доставка</span>
-                <span>{effectiveDelivery.toFixed(2)} ЅМ</span>
+                <span>{effectiveDelivery.toFixed(2).replace('.', ',')} ЅМ</span>
       </div>
             )}
             {bonusUsable > 0 && (
@@ -3362,7 +3393,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
             )}
             <div style={{ display:"flex", justifyContent:"space-between", fontSize:14, fontWeight:800, paddingTop: bonusUsable > 0 || effectiveDelivery > 0 ? 6 : 0, borderTop: bonusUsable > 0 || effectiveDelivery > 0 ? '1px solid var(--b1)' : 'none' }}>
               <span>{pay === 'credit' ? (effectiveDelivery > 0 ? '💵 Доставка + 👑 в долг' : '👑 В кредит') : '💵 К оплате'}</span>
-              <span className="ub" style={{ color:"var(--t2)" }}>{payable.toFixed(2)} ЅМ</span>
+              <span className="ub" style={{ color:"var(--t2)" }}>{payable.toFixed(2).replace('.', ',')} ЅМ</span>
       </div>
       </div>
         )}
@@ -3389,7 +3420,7 @@ const CheckoutPage = ({ go, cart, cartMeta = {}, onClearCart, user, setUser }: a
             pointerEvents: loading ? "none" : "auto",
           }}
         >
-          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2)} ЅМ` : "Подтвердить заказ"}</>}
+          {loading ? <div style={{ width:18, height:18, borderRadius:"50%", border:"2.5px solid rgba(255,255,255,.3)", borderTopColor:"white", animation:"spin 1s linear infinite" }}/> : <><Ic n="check" s={19} c="white" w={2.5}/>{addrReady ? `Подтвердить · ${payable.toFixed(2).replace('.', ',')} ЅМ` : "Подтвердить заказ"}</>}
       </button>
       </div>
       <ClientAddressEditorSheet
@@ -3540,8 +3571,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
             { l: "Рестораны", e: "🍽", to: "restaurants" },
             { l: "О нас", e: "ℹ️", to: "about" },
           ].map(x => (
-            <button key={x.to} type="button" className="btn cat-tile" style={{ flex:"unset", background:"var(--l2)" }} onClick={() => go(x.to)}>
-              <span className="cat-tile-media"><span className="cat-tile-emoji" aria-hidden="true">{x.e}</span></span>
+            <button key={x.to} type="button" className="btn cat-tile" style={{ flex:"unset" }} onClick={() => go(x.to)}>
+              <span className="cat-tile-media" style={{ background:"var(--l2)" }}><span className="cat-tile-emoji" aria-hidden="true">{x.e}</span></span>
               <span className="cat-tile-label">{x.l}</span>
             </button>
           ))}
@@ -4220,7 +4251,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }: any) =>
                 {photo ? <img src={photo} alt="" loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", display:"block" }}/> : item.e}
               </div>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:600 }}>{item.name}</div><div style={{ fontSize:11, color:"var(--t3)", marginTop:1 }}>× {item.qty}</div></div>
-              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:800 }}>{(item.price * item.qty).toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
             )
           })}
@@ -4233,23 +4264,23 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }: any) =>
           <div style={{ marginTop:10, borderTop:"1px solid var(--b1)", paddingTop:10, display:"flex", flexDirection:"column", gap:8 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
               <span style={{ fontSize:12, color:"var(--t2)" }}>Товары</span>
-              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.goods.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
             {selectedAmounts!.delivery > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Доставка</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700 }}>{selectedAmounts!.delivery.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
               </div>
             )}
             {selectedAmounts!.bonusSpent > 0 && (
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
                 <span style={{ fontSize:12, color:"var(--t2)" }}>Бонусы</span>
-                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
+                <span className="ub" style={{ fontSize:13, fontWeight:700, color:"var(--gr)" }}>−{selectedAmounts!.bonusSpent.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
               </div>
             )}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", paddingTop:8, borderTop:"1px solid var(--b1)" }}>
             <span style={{ fontSize:14, fontWeight:700 }}>Итого</span>
-              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selectedAmounts!.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
+              <span className="ub" style={{ fontSize:20, fontWeight:900 }}>{selectedAmounts!.payable.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></span>
             </div>
           </div>
         </div>
@@ -4367,9 +4398,9 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }: any) =>
                     <div style={{ fontSize:11, color:"var(--t3)" }}>{o.date} · {o.time}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2)} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></div>
+                    <div className="ub" style={{ fontSize:15, fontWeight:900 }}>{amounts.payable.toFixed(2).replace('.', ',')} <span style={{ fontSize:12, color:"var(--t2)" }}>ЅМ</span></div>
                     {amounts.delivery > 0 && (
-                      <div style={{ fontSize:9, color:"var(--t3)", marginTop:1 }}>вкл. доставка {amounts.delivery.toFixed(2)}</div>
+                      <div style={{ fontSize:9, color:"var(--t3)", marginTop:1 }}>вкл. доставка {amounts.delivery.toFixed(2).replace('.', ',')}</div>
                     )}
                     <div style={{ fontSize:10, color:"var(--t3)", marginTop:1 }}>{formatProductCount(o.items.reduce((s,it)=>s+it.qty,0))}</div>
                   </div>
@@ -4571,7 +4602,6 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
-  const light = true;
   const qty = cart[p.id] || 0;
   const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
@@ -4583,34 +4613,34 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
         flexShrink: 0,
         borderRadius: 18,
         overflow: "hidden",
-        background: softAccentSurface('#DC2626', light, "linear-gradient(160deg,#1A0808 0%,#2A1018 55%,#120608 100%)"),
-        border: "1px solid rgba(195,52,52,.22)",
-        boxShadow: "0 8px 28px rgba(195,52,52,.08)",
+        background: "var(--l1)",
+        border: "1px solid var(--b1)",
+        boxShadow: "var(--sh-card)",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
       }}
     >
-      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: softFromDarkGrad(p.grad || "rgba(195,52,52,.06)", light, '#DC2626'), overflow: "hidden" }}>
+      <div style={{ height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative", background: "var(--l3)", overflow: "hidden" }}>
         {photo
           ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", display: "block", padding: 6, boxSizing: "border-box", animation: "float 3s ease-in-out infinite" }} />
           : <span style={{ animation: "float 3s ease-in-out infinite" }}>{p.e}</span>}
-        <div className="ub" style={{ position: "absolute", top: 8, left: 8, padding: "3px 8px", borderRadius: 8, background: "var(--red)", fontSize: 10, fontWeight: 900, color: "#fff", zIndex: 1 }}>−{disc}%</div>
+        <div style={{ position: "absolute", top: 8, left: 8, padding: "3px 9px", borderRadius: 999, background: "rgba(255,255,255,.94)", boxShadow: "var(--sh-card)", fontSize: 10, fontWeight: 800, color: "var(--red)", zIndex: 1 }}>−{disc}%</div>
                     </div>
       <div style={{ padding: "10px 11px 11px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "rgba(195,52,52,.85)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: catLabel ? "var(--t3)" : "transparent", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4, minHeight: 11, lineHeight: 1 }}>
           {catLabel || "·"}
                       </div>
         <div style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.35, height: 30, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{p.name}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 6 }}>
-          <span className="ub" style={{ fontSize: 14, fontWeight: 900, color: "#FF6B6B" }}>{Number(p.price).toFixed(2)}<span style={{ fontSize: 12, color: "var(--t2)", marginLeft: 2 }}> ЅМ</span></span>
-          {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2)}</span>}
+          <span style={{ fontFamily: "'Nunito',sans-serif", fontSize: 15, fontWeight: 900, color: "var(--t1)" }}>{Number(p.price).toFixed(2).replace('.', ',')}<span style={{ fontSize: 11, color: "var(--t2)", marginLeft: 2 }}> ЅМ</span></span>
+          {p.old > p.price && <span style={{ fontSize: 10, color: "var(--t3)", textDecoration: "line-through" }}>{Number(p.old).toFixed(2).replace('.', ',')}</span>}
                     </div>
         <div style={{ minHeight: 22, marginBottom: 8 }}>
           {stockLabel ? (
             <>
               <div style={{ height: 3, background: "var(--b1)", borderRadius: 2, marginBottom: 4 }}>
-                <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,#C33434,#FF8C6B)", borderRadius: 2 }}/>
+                <div style={{ height: "100%", width: `${stockPct ?? 50}%`, background: "linear-gradient(90deg,var(--gr),#4ADE80)", borderRadius: 2 }}/>
               </div>
               <div style={{ fontSize: 9, color: "var(--t3)", lineHeight: 1.2 }}>{stockLabel}</div>
             </>
@@ -4621,18 +4651,19 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
             <button
               onClick={e => { e.stopPropagation(); onAdd(p.id); }}
               className="btn"
-              style={{ width: "100%", padding: "8px", fontSize: 11, borderRadius: 10, background: "linear-gradient(135deg,#C33434,var(--red))", color: "#fff", fontWeight: 700 }}
+              style={{ width: "100%", padding: "9px", fontSize: 12, borderRadius: 10, background: "var(--gr)", color: "#fff", fontWeight: 800 }}
             >
               + В корзину
             </button>
           ) : (
             <div
+              className="p-qty"
               onClick={e => e.stopPropagation()}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(195,52,52,.12)", border: "1px solid rgba(195,52,52,.25)", borderRadius: 10, padding: "3px 6px" }}
+              style={{ minHeight: 36, padding: 3 }}
             >
-              <button onClick={() => onRm(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>−</button>
-              <span className="ub" style={{ fontSize: 12, fontWeight: 900, color: "var(--red)" }}>{formatCartQtyStepper(p, qty)}</span>
-              <button onClick={() => onAdd(p.id)} className="btn" style={{ width: 26, height: 26, borderRadius: 7, background: "transparent", color: "var(--red)", fontSize: 16 }}>+</button>
+              <button type="button" className="btn" onClick={() => onRm(p.id)} aria-label="Уменьшить количество" style={{ width: 28, height: 28, fontSize: 16 }}>−</button>
+              <span>{formatCartQtyStepper(p, qty)}</span>
+              <button type="button" className="btn p-qty-plus" onClick={() => onAdd(p.id)} aria-label="Увеличить количество" style={{ width: 28, height: 28, fontSize: 16 }}>+</button>
             </div>
           )}
         </div>
@@ -5607,7 +5638,7 @@ function VipDebtSection({
                   { l: 'Осталось', v: `${debtAmt.toLocaleString()} ЅМ`, c: 'var(--red)' },
                 ] : []),
                 ...(order?.addr ? [{ l: 'Адрес', v: order.addr }] : []),
-                ...(deliveryFee > 0 ? [{ l: 'Доставка', v: `${Number(deliveryFee).toFixed(2)} ЅМ · наличными курьеру`, c: 'var(--t2)' }] : []),
+                ...(deliveryFee > 0 ? [{ l: 'Доставка', v: `${Number(deliveryFee).toFixed(2).replace('.', ',')} ЅМ · наличными курьеру`, c: 'var(--t2)' }] : []),
               ].map((row, i, arr) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--b1)' : 'none' }}>
                   <span style={{ fontSize: 12, color: 'var(--t3)', flexShrink: 0 }}>{row.l}</span>
@@ -5629,7 +5660,7 @@ function VipDebtSection({
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1 }}>× {item.qty}</div>
                   </div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2)} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(item.price * item.qty).toFixed(2).replace('.', ',')} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
                 </div>
                 )
               }) : (
@@ -5640,7 +5671,7 @@ function VipDebtSection({
               {order && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 15px', borderTop: '1px solid var(--b1)' }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Итого заказа</span>
-                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2)} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
+                  <span className="ub" style={{ fontSize: 15, fontWeight: 900 }}>{order.total.toFixed(2).replace('.', ',')} <span style={{ fontSize: 12, color: 'var(--t2)' }}>ЅМ</span></span>
                 </div>
               )}
             </div>
@@ -7797,7 +7828,7 @@ function KakapoAppInner() {
       <nav className="store-topnav">
         <div className="store-topnav-brand">
           <span className="store-brand-mark" aria-hidden="true">K</span>
-          <span>КАКАПО{isVipUser ? " VIP" : ""}</span>
+          <span><span style={{ color:"var(--t1)" }}>КАКА</span><span style={{ color:"var(--brand-2)" }}>по</span>{isVipUser ? " VIP" : ""}</span>
         </div>
         <div className="store-topnav-tabs">
           {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(it => (
