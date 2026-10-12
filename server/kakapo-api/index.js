@@ -1131,6 +1131,44 @@ app.get('/products', (_req, res) => {
   kickProductPhotoMigration()
   res.json((db.products || []).map(stripHeavyPhotoFields))
 })
+
+let topProductsCache = { at: 0, ids: [] }
+
+/**
+ * Store «Хиты»: ids товаров, отсортированные по числу POS-чеков за 30 дней.
+ * Наружу уходят только id — без количеств и выручки.
+ */
+function topSellingProductIds(store, { days = 30, limit = 12, now = Date.now() } = {}) {
+  const from = new Date(now - days * 86400000).toISOString()
+  const sellable = new Map((store.products || [])
+    .filter(p => !p.deleted && !p.archived && Number(p.price) > 0 && !(typeof p.stock === 'number' && p.stock <= 0))
+    .map(p => [Number(p.id), p]))
+  const receipts = new Map()
+  for (const s of store.posSales || []) {
+    if (s.status === 'returned' || String(s.createdAtIso || '') < from) continue
+    const seen = new Set()
+    for (const it of s.items || []) {
+      const pid = Number(it.productId) || 0
+      if (!pid || seen.has(pid) || !sellable.has(pid)) continue
+      if (!((Number(it.qty) || 0) - (Number(it.returnedQty) || 0) > 0)) continue
+      seen.add(pid)
+      receipts.set(pid, (receipts.get(pid) || 0) + 1)
+    }
+  }
+  return [...receipts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .slice(0, Math.max(1, Math.min(48, limit)))
+    .map(([id]) => id)
+}
+
+app.get('/products/top', (req, res) => {
+  if (Date.now() - topProductsCache.at > 10 * 60 * 1000) {
+    topProductsCache = { at: Date.now(), ids: topSellingProductIds(db, { limit: 24 }) }
+  }
+  const limit = Math.max(1, Math.min(24, Number(req.query.limit) || 12))
+  res.json({ ids: topProductsCache.ids.slice(0, limit) })
+})
+
 app.get('/products/next-codes', (_req, res) => {
   const next = nextFreeProductCode(db.products)
   const barcode = nextFreeEan13(db.products, next)
@@ -4306,6 +4344,53 @@ app.get('/settings/admin', (_req, res) => {
 app.get('/settings/store', (_req, res) => {
   const a = ensureAdminSettings()
   res.json({ ...(a.store || DEFAULT_ADMIN_SETTINGS.store) })
+})
+
+/** Баннеры и бегущая строка витрины магазина */
+function sanitizeShowcase(body = {}) {
+  const str = (v, max) => String(v ?? '').slice(0, max)
+  const banners = (Array.isArray(body.banners) ? body.banners : []).slice(0, 12).map((b, i) => ({
+    id: str(b?.id || `b${Date.now()}${i}`, 40),
+    badge: str(b?.badge, 40),
+    title: str(b?.title, 80),
+    sub: str(b?.sub, 160),
+    disc: Math.max(0, Math.min(100, Math.round(Number(b?.disc) || 0))),
+    e: str(b?.e, 16),
+    bg: str(b?.bg, 300),
+    ac: str(b?.ac, 40),
+    on: b?.on !== false,
+  })).filter(b => b.title.trim())
+  const tickers = (Array.isArray(body.tickers) ? body.tickers : []).slice(0, 20).map((t, i) => ({
+    id: str(t?.id || `t${Date.now()}${i}`, 40),
+    text: str(t?.text, 200),
+    on: t?.on !== false,
+  })).filter(t => t.text.trim())
+  return { banners, tickers }
+}
+
+function getShowcase() {
+  if (!db.settings) db.settings = {}
+  const s = db.settings.showcase
+  return s && typeof s === 'object' ? { banners: s.banners || [], tickers: s.tickers || [], updatedAtIso: s.updatedAtIso || null } : { banners: [], tickers: [], updatedAtIso: null }
+}
+
+app.get('/settings/showcase', (_req, res) => {
+  res.json(getShowcase())
+})
+
+app.put('/settings/showcase', (req, res) => {
+  const next = { ...sanitizeShowcase(req.body || {}), updatedAtIso: new Date().toISOString() }
+  if (!db.settings) db.settings = {}
+  db.settings.showcase = next
+  auditFromReq(db, req, {
+    action: 'update',
+    entity: 'settings',
+    entityId: 'showcase',
+    entityName: 'Баннеры и бегущая строка',
+    summary: `Баннеров: ${next.banners.length}, строк: ${next.tickers.length}`,
+  })
+  persist()
+  res.json(next)
 })
 
 app.patch('/settings/admin', (req, res) => {
