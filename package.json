@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "КАКАПО Supermarket & Marketplace — г. Яван, Таджикистан",
   "private": true,
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:backend": "npm run dev --prefix server/kakapo-api",
@@ -27,6 +30,7 @@
     "jsbarcode": "^3.12.3",
     "leaflet": "^1.9.4",
     "next": "14.2.0",
+    "qrcode.react": "^4.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-leaflet": "^4.2.1",
