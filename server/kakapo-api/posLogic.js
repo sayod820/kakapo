@@ -865,15 +865,6 @@ export function sumProductLayers(db, productId) {
   return round2(sum)
 }
 
-function hasStockLayerHistory(db, productId) {
-  for (const receipt of db.stockReceipts || []) {
-    for (const item of receipt.items || []) {
-      if (Number(item.productId) === Number(productId)) return true
-    }
-  }
-  return false
-}
-
 export function syncProductStock(db, productId) {
   const product = (db.products || []).find(p => Number(p.id) === Number(productId))
   if (!product) return 0
@@ -913,6 +904,43 @@ function createStockAdjustmentLayer(db, product, qty, meta = {}) {
   return receipt
 }
 
+/**
+ * Остаток, доступный к продаже: открытые партии, либо счётчик товара, если он
+ * больше (висячий остаток после импорта/восстановления). Продажа и проверки
+ * наличия должны смотреть одинаково, иначе касса отказывает «есть 0».
+ */
+export function availableProductStock(db, productOrId) {
+  const product = productOrId && typeof productOrId === 'object'
+    ? productOrId
+    : (db.products || []).find(p => Number(p.id) === Number(productOrId))
+  if (!product) return 0
+  return round2(Math.max(sumProductLayers(db, product.id), round2(product.stock)))
+}
+
+/**
+ * «Висячий» остаток: счётчик товара больше суммы открытых партий.
+ * Так бывает после импорта каталога, восстановления из истории или правки
+ * остатка в обход партий (старый приход уже списан, а цифра в карточке осталась).
+ * Склад считает остаток по партиям, поэтому продажа отвечала
+ * «Недостаточно остатка … (есть 0)», хотя товар в карточке есть.
+ *
+ * Недостающую часть переносим отдельным слоем-корректировкой: остаток товара
+ * не меняется, но списание снова идёт из партий по FIFO (старые — первыми).
+ */
+export function ensureLegacyStockLayer(db, product, meta = {}) {
+  if (!product) return 0
+  const gap = round2(round2(product.stock) - sumProductLayers(db, product.id))
+  if (!(gap > 0.0001)) return 0
+  createStockAdjustmentLayer(db, product, gap, {
+    reason: meta.reason || 'Перенос остатка · старый приход',
+    createdBy: meta.createdBy || 'stock-heal',
+    costPrice: meta.costPrice,
+    retailPrice: meta.retailPrice != null ? meta.retailPrice : product.price,
+  })
+  syncProductStock(db, product.id)
+  return gap
+}
+
 /** Привести партии к точному количеству (ревизия / ручная правка). */
 export function setProductStockExact(db, productId, targetQty, meta = {}) {
   ensurePosCollections(db)
@@ -930,15 +958,22 @@ export function reconcileAllProductStock(db, meta = {}) {
   const fixed = []
   for (const product of db.products || []) {
     const before = round2(product.stock)
-    if (before > 0 && !hasStockLayerHistory(db, product.id)) {
-      createStockAdjustmentLayer(db, product, before, {
-        reason: 'Перенос остатка',
+    // Раньше проверялось «есть ли вообще строки приходов у товара». Но у товара
+    // с полностью списанным старым приходом строки есть, а остатка в партиях нет:
+    // тогда перенос не срабатывал и продажа говорила «есть 0». Сравниваем суммы.
+    const gap = round2(before - sumProductLayers(db, product.id))
+    if (gap > 0.0001) {
+      createStockAdjustmentLayer(db, product, gap, {
+        reason: 'Перенос остатка · старый приход',
         createdBy: meta.createdBy || 'system',
       })
     }
     const after = syncProductStock(db, product.id)
     if (Math.abs(after - before) > 0.0001) {
       fixed.push({ id: product.id, name: product.name, before, after })
+    } else if (gap > 0.0001) {
+      // Остаток не менялся — в партии перенесена недостающая часть
+      fixed.push({ id: product.id, name: product.name, before, after, movedToLayers: gap })
     }
   }
   return fixed
@@ -1200,7 +1235,11 @@ function consumeStock(db, items) {
     const qty = round2(raw.qty)
     if (!(qty > 0)) throw new Error(`Некорректное количество для ${productStockHint(product)}`)
     const alreadyPlanned = planned.get(product.id) || 0
-    const available = round2(sumProductLayers(db, product.id) - alreadyPlanned)
+    // Остаток может жить только в счётчике товара, если открытых партий нет или
+    // они разошлись со счётом (импорт, восстановление, правка в обход партий).
+    // Касса должна продавать то, что числится в наличии, — поэтому при проверке
+    // берём максимум из партий и счётчика, а недостающее переносим в слой ниже.
+    const available = round2(availableProductStock(db, product) - alreadyPlanned)
     if (available < qty) {
       throw new Error(`Недостаточно остатка: ${productStockHint(product)} (есть ${available})`)
     }
@@ -1215,6 +1254,10 @@ function consumeStock(db, items) {
   const snapshot = snapshotProductLayers(db, normalized.map(r => r.product.id))
   try {
     for (const row of normalized) {
+      // Списание идёт из старых партий (FIFO). Если открытых партий меньше, чем
+      // числится в карточке, «висячий» остаток переносим отдельным слоем —
+      // остаток товара не меняется, а продажа проходит.
+      ensureLegacyStockLayer(db, row.product, { reason: 'Перенос остатка · списание' })
       row.cogs = consumeReceiptBalances(db, row.product.id, row.qty, row.receiptId, row.preferRetailPrice)
       syncProductStock(db, row.product.id)
     }

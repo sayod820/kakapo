@@ -9,7 +9,7 @@ import {
   restoreStockLines,
   rollbackProductLayers,
   snapshotProductLayers,
-  sumProductLayers,
+  availableProductStock,
 } from './posLogic.js'
 
 function round2(n) {
@@ -96,7 +96,9 @@ function touchedProductIds(...lineGroups) {
 export function assertMarketStockAvailable(db, orderOrItems) {
   const lines = buildMarketStockLines(db, orderOrItems)
   for (const line of lines) {
-    const have = sumProductLayers(db, line.productId)
+    // Товар мог прийти старым приходом без открытых партий — счётчик карточки
+    // тоже считаем наличием, иначе заказ отклоняется при живом остатке.
+    const have = availableProductStock(db, line.productId)
     if (have + 1e-9 < line.qty) {
       throw new Error(`Недостаточно остатка: ${line.productName} (есть ${have}, нужно ${line.qty})`)
     }
@@ -171,7 +173,7 @@ export function syncOrderStockReserve(db, order, nextItems) {
   // Сначала проверяем, хватит ли после возврата текущего резерва
   const freed = new Map(prevLines.map(l => [Number(l.productId), round2(l.qty)]))
   for (const line of nextLines) {
-    const have = sumProductLayers(db, line.productId) + (freed.get(line.productId) || 0)
+    const have = availableProductStock(db, line.productId) + (freed.get(line.productId) || 0)
     if (have + 1e-9 < line.qty) {
       throw new Error(`Недостаточно остатка: ${line.productName} (есть ${round2(have - (freed.get(line.productId) || 0))}, нужно ${line.qty})`)
     }

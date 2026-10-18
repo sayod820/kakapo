@@ -85,16 +85,24 @@ export function liveProductSellPrice(
   return catalog
 }
 
-/** Живой остаток: партии, если есть; иначе кэш product.stock. */
+/**
+ * Живой остаток: партии, но не меньше счётчика карточки.
+ *
+ * Сервер продаёт по максимуму из открытых партий и `product.stock`
+ * (висячий остаток после импорта/восстановления переносится в слой при продаже).
+ * Если UI показывал только партии, товар выглядел как «0» и казалось, что касса
+ * не даёт его пробить. Держим отображение и продажу одинаковыми.
+ */
 export function liveProductStock(
   product: Product | null | undefined,
   layers: { remainingQty?: number }[] | undefined | null,
   layersLoaded = false,
 ): number {
   if (!product) return 0
-  if (layersLoaded) return sumRemainingQty(layers)
-  if (layers && layers.length) return sumRemainingQty(layers)
-  return Number(product.stock) || 0
+  const catalog = Math.max(0, Number(product.stock) || 0)
+  if (layersLoaded) return Math.max(catalog, sumRemainingQty(layers))
+  if (layers && layers.length) return Math.max(catalog, sumRemainingQty(layers))
+  return catalog
 }
 
 export type WriteoffReason = {
