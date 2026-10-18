@@ -281,13 +281,17 @@ if (!db._supplierPayableSyncVersion) {
   db._supplierPayableSyncVersion = 1
   if (changed) persist()
 }
-if (!db._stockLayerSyncVersion || db._stockLayerSyncVersion < 2) {
+if (!db._stockLayerSyncVersion || db._stockLayerSyncVersion < 3) {
   const fixed = reconcileAllProductStock(db, { createdBy: 'system' })
   if (fixed.length) {
     console.log(`[stock] Остатки приведены к партиям (${fixed.length} поз.):`)
-    for (const row of fixed) console.log(`  · ${row.name}: ${row.before} → ${row.after}`)
+    for (const row of fixed) {
+      console.log(row.movedToLayers != null
+        ? `  · ${row.name}: в партии перенесено ${row.movedToLayers} (остаток ${row.before})`
+        : `  · ${row.name}: ${row.before} → ${row.after}`)
+    }
   }
-  db._stockLayerSyncVersion = 2
+  db._stockLayerSyncVersion = 3
   persist()
 }
 
