@@ -65,6 +65,26 @@ fi
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d nginx
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart nginx
 
+echo "==> Автопродление сертификата (certbot)"
+# Держим контейнер продления запущенным: без него сертификат молча истекает.
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d certbot || true
+# Предупреждаем заранее, если сертификат скоро истечёт
+CERT_END=$(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm --entrypoint sh certbot -c \
+  "openssl x509 -enddate -noout -in /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 2>/dev/null | cut -d= -f2" 2>/dev/null || true)
+if [[ -n "${CERT_END}" ]]; then
+  CERT_TS=$(date -d "${CERT_END}" +%s 2>/dev/null || echo 0)
+  DAYS_LEFT=$(( (CERT_TS - $(date +%s)) / 86400 ))
+  if [[ ${DAYS_LEFT} -lt 0 ]]; then
+    echo "   ❌ Сертификат ИСТЁК. Запустите: bash deploy/hetzner/ssl-init.sh"
+  elif [[ ${DAYS_LEFT} -lt 14 ]]; then
+    echo "   ⚠️  Сертификат истекает через ${DAYS_LEFT} дн. Проверьте: docker logs kakapo-certbot"
+  else
+    echo "   OK · осталось ${DAYS_LEFT} дн."
+  fi
+else
+  echo "   ⚠️  Не удалось прочитать срок сертификата"
+fi
+
 echo ""
 echo "==> Статус"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
