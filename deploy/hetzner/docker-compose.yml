@@ -102,6 +102,9 @@ services:
   certbot:
     image: certbot/certbot:latest
     container_name: kakapo-certbot
+    # Без этой строки контейнер не поднимался после перезагрузки сервера,
+    # автопродление молчало, и сертификат истекал (инцидент 19.10.2026).
+    restart: unless-stopped
     volumes:
       - certbot-www:/var/www/certbot
       - certbot-certs:/etc/letsencrypt
