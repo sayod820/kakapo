@@ -54,6 +54,8 @@ const DEBT_HIST = ACCOUNT_NS.debtHistory
 export const DEBT_HISTORY_EVT = 'kakapo_debt_history'
 const LEDGER_DEBT_PREFIX = 'ldg-'
 const LEDGER_PAY_PREFIX = 'ldg-pay-'
+/** Снимок paidAmount по id записи ledger — чтобы новые погашения склеивать в один batchId */
+const DEBT_PAID_SNAP = 'debt_paid_snap'
 const DEBT_HISTORY_CAP = 120
 const ledgerSyncInflight = new Map<string, Promise<DebtLedgerResponse | null>>()
 
@@ -688,7 +690,9 @@ function localPaysCovered(local: DebtHistoryEntry[], e: DebtLedgerEntry): number
   let covered = 0
   for (const r of local) {
     if (r.type !== 'pay') continue
-    if (r.id === ledgerPayId) {
+    // Оплата текущего чека (payScope=sale) — не погашение долга
+    if (r.payScope === 'sale') continue
+    if (r.id === ledgerPayId || r.id.startsWith(`${ledgerPayId}-`)) {
       covered += Math.abs(Number(r.amount) || 0)
       continue
     }
@@ -697,6 +701,26 @@ function localPaysCovered(local: DebtHistoryEntry[], e: DebtLedgerEntry): number
     }
   }
   return Math.round(covered * 100) / 100
+}
+
+function loadDebtPaidSnap(phone: string): Record<string, number> | null {
+  const raw = loadAccountJson<Record<string, number> | null>(DEBT_PAID_SNAP, null, phone)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  return raw
+}
+
+function saveDebtPaidSnap(phone: string, snap: Record<string, number>) {
+  saveAccountJson(DEBT_PAID_SNAP, snap, phone)
+}
+
+function buildDebtPaidSnap(entries: DebtLedgerEntry[]): Record<string, number> {
+  const snap: Record<string, number> = {}
+  for (const e of entries) {
+    const id = String(e.id || '').trim()
+    if (!id) continue
+    snap[id] = Math.max(0, Math.round((Number(e.paidAmount) || 0) * 100) / 100)
+  }
+  return snap
 }
 
 function historyDebtMatchesSale(
@@ -754,9 +778,32 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
   let changed = false
   let unlinkedPayPool = Math.round(
     next
-      .filter(r => r.type === 'pay' && !String(r.orderId || '').trim() && !isImportedLedgerHistoryId(r.id))
+      .filter(r =>
+        r.type === 'pay'
+        && r.payScope !== 'sale'
+        && !String(r.orderId || '').trim()
+        && !isImportedLedgerHistoryId(r.id))
       .reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
   ) / 100
+
+  const paidSnap = loadDebtPaidSnap(phone)
+  const hasPaidSnap = !!paidSnap
+  const nextPaidSnap = buildDebtPaidSnap(entries)
+
+  // Если локальные погашения (с batchId / FIFO) уже покрывают весь paid на сервере —
+  // не плодим «Погашение (с сервера)» по каждому чеку.
+  const localDebtPayTotal = Math.round(
+    next
+      .filter(r => r.type === 'pay' && r.payScope !== 'sale')
+      .reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0) * 100,
+  ) / 100
+  const ledgerPaidTotal = Math.round(
+    entries.reduce((s, e) => s + Math.max(0, Number(e.paidAmount) || 0), 0) * 100,
+  ) / 100
+  const localCoversLedgerPays = localDebtPayTotal >= ledgerPaidTotal - 0.05
+
+  type PayGap = { e: DebtLedgerEntry; oid?: string; need: number }
+  const payGaps: PayGap[] = []
 
   for (const e of entries) {
     const oid = String(e.orderId || e.saleId || '').trim() || undefined
@@ -849,32 +896,58 @@ function mergeLedgerIntoLocalHistory(phone: string, ledger: DebtLedgerResponse):
       }
     }
 
+    if (localCoversLedgerPays) continue
+
     const paid = Math.max(0, Math.round((Number(e.paidAmount) || 0) * 100) / 100)
-    if (paid > 0.05) {
-      const covered = localPaysCovered(next, e)
-      let need = Math.round((paid - covered) * 100) / 100
-      if (need > 0.05 && unlinkedPayPool > 0.05) {
-        const fromPool = Math.min(need, unlinkedPayPool)
-        unlinkedPayPool = Math.round((unlinkedPayPool - fromPool) * 100) / 100
-        need = Math.round((need - fromPool) * 100) / 100
-      }
-      if (need > 0.05) {
-        const payWhen = ledgerWhen(e.createdAtIso)
-        next.push({
-          id: `${LEDGER_PAY_PREFIX}${e.id}`,
-          date: payWhen.date,
-          time: payWhen.time,
-          ts: payWhen.ts + 1,
-          desc: 'Погашение (с сервера)',
-          amount: need,
-          type: 'pay',
-          orderId: oid,
-          source: 'cashier',
-        })
-        changed = true
-      }
+    if (!(paid > 0.05)) continue
+
+    const covered = localPaysCovered(next, e)
+    let need = Math.round((paid - covered) * 100) / 100
+    if (need > 0.05 && unlinkedPayPool > 0.05) {
+      const fromPool = Math.min(need, unlinkedPayPool)
+      unlinkedPayPool = Math.round((unlinkedPayPool - fromPool) * 100) / 100
+      need = Math.round((need - fromPool) * 100) / 100
+    }
+    if (!(need > 0.05)) continue
+
+    // После первого снимка — только прирост paidAmount (одно погашение → один batch).
+    if (hasPaidSnap) {
+      const prevPaid = Math.max(0, Math.round((Number(paidSnap![e.id]) || 0) * 100) / 100)
+      const delta = Math.round((paid - prevPaid) * 100) / 100
+      if (!(delta > 0.05)) continue
+      need = Math.min(need, delta)
+    }
+
+    if (need > 0.05) payGaps.push({ e, oid, need })
+  }
+
+  if (payGaps.length) {
+    const syncTs = Date.now()
+    const when = ledgerWhen(new Date(syncTs).toISOString())
+    // Снимок уже был: все дыры этой синхронизации — одна оплата (общий batchId).
+    // Первый импорт: без batchId (старое поведение, чтобы не склеить всю историю в одну строку).
+    const batchId = hasPaidSnap ? `ledpay-${syncTs}` : undefined
+    for (const gap of payGaps) {
+      next.push({
+        id: batchId
+          ? `${LEDGER_PAY_PREFIX}${gap.e.id}-${syncTs}`
+          : `${LEDGER_PAY_PREFIX}${gap.e.id}`,
+        date: when.date,
+        time: when.time,
+        ts: batchId ? syncTs : (ledgerWhen(gap.e.createdAtIso).ts + 1),
+        desc: 'Погашение (с сервера)',
+        amount: gap.need,
+        type: 'pay',
+        orderId: gap.oid,
+        source: 'cashier',
+        batchId,
+        clientRef: batchId,
+      })
+      changed = true
     }
   }
+
+  saveDebtPaidSnap(phone, nextPaidSnap)
 
   if (!changed) return false
   next.sort((a, b) => (b.ts || 0) - (a.ts || 0))

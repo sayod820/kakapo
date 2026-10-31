@@ -54,6 +54,7 @@ export type ClientDebtPayView = {
   isReturn: boolean
   partKind: 'check' | 'cash' | 'other'
   batchId?: string
+  clientRef?: string
   ts: number
   source?: string
   payScope?: 'sale' | 'debt'
@@ -369,6 +370,7 @@ export function buildClientDebtPanel({
       isReturn,
       partKind: (payScope === 'sale' || sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
       batchId: r.batchId || undefined,
+      clientRef: r.clientRef || undefined,
       ts: Number(r.ts) || 0,
       source: r.source,
       payScope,
@@ -415,7 +417,7 @@ export function buildClientDebtPanel({
     }
     if (!bits.length && active[0]) bits.push(active[0].checkLabel)
     payGroups.push({
-      id: parts[0].batchId || `cluster-${parts[0].id}`,
+      id: parts[0].batchId || parts[0].clientRef || `cluster-${parts[0].id}`,
       when: newest.when,
       ts: newest.ts,
       amount,
@@ -446,7 +448,8 @@ export function buildClientDebtPanel({
     }
     const last = cluster[cluster.length - 1]
     const sameBatch = !!(row.batchId && last?.batchId && row.batchId === last.batchId)
-    const closeInTime = !row.batchId && !last?.batchId && last
+      || !!(row.clientRef && last?.clientRef && row.clientRef === last.clientRef)
+    const closeInTime = !row.batchId && !last?.batchId && !row.clientRef && !last?.clientRef && last
       && Math.abs(row.ts - last.ts) <= PAY_CLUSTER_MS
     if (!cluster.length || sameBatch || closeInTime) {
       cluster.push(row)

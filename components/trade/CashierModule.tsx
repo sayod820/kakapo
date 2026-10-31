@@ -3294,7 +3294,7 @@ export default function CashierModule({
         isResidual?: boolean
       }[],
       payRows: [] as DebtHistoryEntry[],
-      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind: 'check' | 'cash' | 'other'; batchId?: string; ts: number; source?: string; payScope?: 'sale' | 'debt' }[],
+      payView: [] as { id: string; when: string; amount: number; desc: string; checkLabel: string; items?: string; saleId?: string; isReturn: boolean; partKind: 'check' | 'cash' | 'other'; batchId?: string; clientRef?: string; ts: number; source?: string; payScope?: 'sale' | 'debt' }[],
       payGroups: [] as {
         id: string
         when: string
@@ -3496,6 +3496,7 @@ export default function CashierModule({
         isReturn,
         partKind: (payScope === 'sale' || sale ? 'check' : isCashPart ? 'cash' : 'other') as 'check' | 'cash' | 'other',
         batchId: r.batchId || undefined,
+        clientRef: r.clientRef || undefined,
         ts: Number(r.ts) || 0,
         source: r.source,
         payScope,
@@ -3503,7 +3504,7 @@ export default function CashierModule({
     })
 
     // Одна оплата клиента (100 сом) → одна строка; внутри — разбивка по чекам / нал. выдачам.
-    // Новые записи: batchId. Старые FIFO без batchId: склеиваем по времени (~2.5 с).
+    // Новые записи: batchId / clientRef. Старые FIFO без batchId: склеиваем по времени (~2.5 с).
     type PayPart = typeof payView[number]
     type PayGroup = {
       id: string
@@ -3557,7 +3558,7 @@ export default function CashierModule({
       }
       if (!bits.length && active[0]) bits.push(active[0].checkLabel)
       payGroups.push({
-        id: parts[0].batchId || `cluster-${parts[0].id}`,
+        id: parts[0].batchId || parts[0].clientRef || `cluster-${parts[0].id}`,
         when: newest.when,
         ts: newest.ts,
         amount,
@@ -3588,7 +3589,8 @@ export default function CashierModule({
       }
       const last = cluster[cluster.length - 1]
       const sameBatch = !!(row.batchId && last?.batchId && row.batchId === last.batchId)
-      const closeInTime = !row.batchId && !last?.batchId && last
+        || !!(row.clientRef && last?.clientRef && row.clientRef === last.clientRef)
+      const closeInTime = !row.batchId && !last?.batchId && !row.clientRef && !last?.clientRef && last
         && Math.abs(row.ts - last.ts) <= PAY_CLUSTER_MS
       if (!cluster.length || sameBatch || closeInTime) {
         cluster.push(row)
