@@ -208,6 +208,7 @@ import {
   runDebtMaintenance,
   syncDebtLedgerFromCard,
   syncDebtLedgerToCard,
+  unblockDebtCredit,
 } from './debtLedger.js'
 import {
   unlinkNonCanonicalSiblingCards,
@@ -1007,7 +1008,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'kakapo-api',
-    version: '2.16-admin-orders-delete',
+    version: '2.17-debt-unblock',
     loyaltyVip: true,
     engine: stats.engine,
     dataDir: stats.dataDir,
@@ -4714,6 +4715,31 @@ app.get('/debt/ledger', (req, res) => {
   const client = (db.clients || []).find(c => normalizePhoneDigits(c.phone) === normalizePhoneDigits(phone))
   if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
   res.json(buildDebtLedgerResponse(client))
+})
+
+/** Ручная разблокировка долга (кнопка в Trade → Долги). Долг не меняется. */
+app.post('/clients/:id/debt-unblock', (req, res) => {
+  const client = (db.clients || []).find(x => x.id === req.params.id)
+  if (!client) return res.status(404).json({ detail: 'Клиент не найден' })
+  const card = client.card ? findCardByNum(client.card) : null
+  const before = {
+    debtCreditBlocked: !!(client.debtCreditBlocked || card?.debtCreditBlocked),
+    debtOverdueStrikes: Number(client.debtOverdueStrikes) || 0,
+  }
+  const { markedEntries } = unblockDebtCredit(client, card)
+  client.updatedAtIso = new Date().toISOString()
+  auditFromReq(db, req, {
+    action: 'debt_unblock',
+    entity: 'client',
+    entityId: client.id,
+    entityName: client.name || client.phone,
+    summary: `Долг разблокирован вручную: «${client.name || client.phone}» (было страйков ${before.debtOverdueStrikes})`,
+    before,
+    after: { debtCreditBlocked: false, debtOverdueStrikes: 0, markedEntries },
+  })
+  persist()
+  notifyCrmChange(client)
+  res.json({ ok: true, client, card })
 })
 
 app.post('/cards/generate', (req, res) => {
