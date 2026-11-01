@@ -1,0 +1,1270 @@
+/* Loyalty status chrome from KAKAPO_NextJS_Design_Kit_v1 / kakapo-national-kit */
+@import url("/assets/fonts.css");
+
+.kk {
+  --bg: #f8f6ef;
+  --surface: #fff;
+  --text: #192a21;
+  --muted: #617168;
+  --line: #e6e8df;
+  --accent: #0a7148;
+  --soft: #eaf3e9;
+  --header: #073f30;
+  --on-header: #fffdf4;
+  --trim: #d4ae54;
+  --card: #064331;
+  --on-card: #fff8df;
+  --nav: #063a2d;
+  --nav-text: #e8f0e7;
+  --active: #eed38b;
+  --active-text: #173e2d;
+  /* store tokens → light kit */
+  --l1: #f1eee6;
+  --l2: #ffffff;
+  --l3: #eef3eb;
+  --l4: #e5ebe4;
+  --b1: #e6e8df;
+  --b2: #d5d9d0;
+  --t1: #192a21;
+  --t2: #617168;
+  --t3: #8b948c;
+  --gr: #0a7148;
+  --gr2: #08623b;
+  --gr3: #064e30;
+  --header-bg: #fffdf8;
+  --fab-bg: rgba(255, 255, 255, 0.92);
+  --overlay: rgba(25, 42, 33, 0.45);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100dvh;
+  font-family: Manrope, "Noto Sans", system-ui, sans-serif;
+}
+
+.kk[data-tier="basic"] {
+  --header: #164e3c;
+  --trim: #b9c8a7;
+  --card: #eef5e8;
+  --on-card: #214d37;
+  --nav: #fff;
+  --nav-text: #53685b;
+  --active: #e7f2e7;
+  --active-text: #08623b;
+}
+
+.kk[data-tier="bronze"] {
+  --accent: #86502d;
+  --soft: #f9ede0;
+  --header: #55341f;
+  --card: #70412b;
+  --on-card: #fff4e5;
+  --trim: #ce9c6c;
+  --nav: #563925;
+  --nav-text: #f5e8dd;
+  --active: #edc397;
+  --active-text: #402715;
+}
+
+.kk[data-tier="silver"] {
+  --accent: #4c6174;
+  --soft: #eef1f5;
+  --header: #e0e6eb;
+  --on-header: #243e50;
+  --card: #edf1f5;
+  --on-card: #2d4559;
+  --trim: #879bab;
+  --nav: #3a4a58;
+  --nav-text: #f4f6f8;
+  --active: #dce5ea;
+  --active-text: #2c4150;
+}
+
+.kk[data-tier="gold"] {
+  --accent: #7d5a1a;
+  --soft: #faf1db;
+  --header: #f0dfa9;
+  --on-header: #473814;
+  --card: #f8e8b5;
+  --on-card: #483818;
+  --trim: #b38a37;
+  --nav: #5e451b;
+  --nav-text: #fff4d2;
+  --active: #f1d181;
+  --active-text: #4f3613;
+}
+
+.kk[data-tier="platinum"] {
+  --accent: #286574;
+  --soft: #e7f2f4;
+  --header: #124955;
+  --on-header: #f6fbfc;
+  --card: #164e5a;
+  --on-card: #e8f9fb;
+  --trim: #a6c7d0;
+  --nav: #103e4a;
+  --nav-text: #edf9fa;
+  --active: #cee7eb;
+  --active-text: #154653;
+}
+
+.kk[data-tier="vip"] {
+  --trim: #d6b66b;
+}
+
+/* Горный хедер / логотип — глобально (профиль + остальные экраны при входе) */
+.store-header.national,
+.kk .customer-card.national {
+  background-image: url("/assets/mountains.svg");
+  background-repeat: no-repeat;
+  background-position: right bottom;
+}
+
+.kk .customer-card.national {
+  background-size: auto 155px;
+}
+
+.store-header {
+  background-color: var(--header, #073f30);
+  color: var(--on-header, #fffdf4);
+  padding: 12px 18px 15px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  isolation: isolate;
+}
+
+.store-header.national {
+  background-size: auto 130px;
+}
+
+.store-header:after {
+  content: "";
+  height: 9px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: url("/assets/ornament.svg") repeat-x;
+  background-size: auto 9px;
+  border-top: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 35%, transparent);
+}
+
+.header-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.logo-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.brand {
+  display: inline-flex;
+  position: relative;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.brand-stars {
+  color: var(--trim, #d4ae54);
+  font-size: 8px;
+  letter-spacing: 3px;
+  line-height: 1.1;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.brand-text {
+  font-family: "Noto Serif", Georgia, serif;
+  font-weight: 700;
+  font-size: 30px;
+  letter-spacing: 0.2px;
+  background: linear-gradient(#d6363a 0 31%, #fffbef 32% 63%, #24905d 64%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0.35px #ecdcb0;
+  filter: drop-shadow(0 1px 0.4px #152e20);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.store-header .icon-button,
+.kk .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 13px;
+  background: none;
+  border: 0;
+  padding: 9px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.header-vip {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--on-header, #fffdf4);
+  font-family: Georgia, serif;
+  font-size: 11px;
+  border: 1px solid var(--trim, #d4ae54);
+  padding: 4px 7px;
+  border-radius: 20px;
+}
+
+.cart-button {
+  position: relative;
+}
+
+.cart-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: #fff;
+  background: #d72438;
+  min-width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 0 4px;
+}
+
+.store-header .location {
+  padding: 5px 0 2px;
+  background: none;
+  border: 0;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.kk .kk-content {
+  padding: 17px 16px calc(110px + env(safe-area-inset-bottom));
+}
+
+.kk-page-title-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 8px;
+  background: #f8f6ef;
+  color: #192a21;
+  font-family: Manrope, "Noto Sans", system-ui, sans-serif;
+}
+
+.kk-page-title-bar h1 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  min-width: 0;
+  color: #192a21;
+  line-height: 1.15;
+}
+
+.kk-page-title-bar .icon-button.back {
+  margin-left: -8px;
+  color: #192a21;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 13px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.kk .screen-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.kk .page-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -2px 0 15px;
+}
+
+.kk .page-title h1 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 23px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
+}
+
+.kk .page-title .icon-button.back {
+  margin-left: -10px;
+  color: var(--text);
+}
+
+.kk .eyebrow {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.7px;
+}
+
+.kk .tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: var(--soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--trim) 45%, transparent);
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 800;
+  width: fit-content;
+}
+
+.kk .profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 3px;
+}
+
+.kk .profile-identity > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.kk .profile-identity h1 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
+}
+
+.kk .profile-identity small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+
+.kk .avatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--trim);
+  border-radius: 50%;
+  background: var(--header);
+  color: var(--on-header);
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 25px;
+  box-shadow: 0 0 0 4px var(--soft);
+  flex-shrink: 0;
+}
+
+.kk .customer-card {
+  min-height: 182px;
+  padding: 24px;
+  display: flex;
+  align-items: flex-start;
+  position: relative;
+  border-radius: 17px;
+  background-color: var(--card);
+  color: var(--on-card);
+  border: 1px solid var(--trim);
+  box-shadow: 0 5px 17px #30422812;
+  overflow: hidden;
+  isolation: isolate;
+  background-size: auto 155px;
+  cursor: pointer;
+}
+
+.kk .customer-card:after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 1px solid color-mix(in srgb, var(--trim) 50%, transparent);
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.kk .customer-card > div {
+  position: relative;
+  z-index: 1;
+}
+
+.kk .customer-card h2 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 29px;
+  font-weight: 700;
+  margin: 12px 0 27px;
+  line-height: 1.15;
+}
+
+.kk .card-number {
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.kk .emblem {
+  width: 70px;
+  height: 80px;
+  object-fit: contain;
+}
+
+.kk .customer-card .emblem {
+  position: absolute;
+  right: 24px;
+  top: 20px;
+  width: 67px;
+  height: 70px;
+  z-index: 1;
+}
+
+.kk .qr-button {
+  position: absolute;
+  bottom: 25px;
+  right: 24px;
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #fff9e7;
+  color: #173426;
+  border: 1px solid var(--trim);
+  z-index: 2;
+  cursor: pointer;
+  padding: 0;
+}
+
+.kk .card-signature {
+  position: absolute;
+  bottom: 10px;
+  left: 24px;
+  font-size: 7px;
+  letter-spacing: 2px;
+  opacity: 0.7;
+  z-index: 1;
+}
+
+.kk .panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 17px;
+  box-shadow: 0 3px 12px #423b1d04;
+}
+
+.kk .bonus {
+  display: flex;
+  text-align: left;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 17px;
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.kk .bonus > span:nth-child(2) {
+  flex: 1;
+}
+
+.kk .bonus-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  background: var(--soft);
+  color: var(--accent);
+  border-radius: 13px;
+  flex-shrink: 0;
+}
+
+.kk .bonus small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kk .bonus b {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.kk .bonus em {
+  font-family: Manrope, "Noto Sans", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.kk .stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.kk .stat-grid button,
+.kk .stat-grid .stat-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px;
+  text-align: left;
+  align-items: center;
+  padding: 15px;
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.kk .stat-grid b {
+  font-size: 18px;
+  font-family: "Noto Serif", Georgia, serif;
+  color: var(--text);
+}
+
+.kk .stat-grid span {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kk .stat-grid .stat-ico {
+  grid-row: span 2;
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+
+.kk .status-summary small {
+  font-size: 8px;
+  letter-spacing: 1.7px;
+  color: var(--muted);
+}
+
+.kk .status-summary h2 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 7px 0 0;
+  color: var(--text);
+}
+
+.kk .text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.kk .menu-panel {
+  padding: 0 15px;
+}
+
+.kk .menu-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 1px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.kk .menu-row:last-child {
+  border-bottom: 0;
+}
+
+.kk .row-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.kk .row-main {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.kk .row-main small {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+.kk .menu-row-danger {
+  color: #c62828;
+}
+
+.kk .menu-row-danger .row-icon {
+  color: #c62828;
+}
+
+.kk .menu-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--trim) 40%, transparent);
+}
+
+.kk .loyalty-kit-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 3px 12px #423b1d04;
+  color: var(--text);
+}
+
+.kk .tier-list {
+  padding: 5px 17px;
+}
+
+.kk .tier-row {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  min-height: 61px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.kk .tier-row:last-child {
+  border-bottom: 0;
+}
+
+.kk .tier-row > b {
+  flex: 1;
+  font-family: "Noto Serif", Georgia, serif;
+}
+
+.kk .tier-dot {
+  width: 25px;
+  height: 25px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #dedfd6;
+  border-radius: 50%;
+  background: #5a8b68;
+  flex-shrink: 0;
+}
+
+.kk .dot-basic { background: linear-gradient(135deg, #d7eadc, #164e3c); }
+.kk .dot-bronze { background: linear-gradient(135deg, #f9d7b4, #8b4b26); }
+.kk .dot-silver { background: linear-gradient(135deg, #f4f8ff, #6a7e92); }
+.kk .dot-gold { background: linear-gradient(135deg, #ffe9a6, #ae741a); }
+.kk .dot-platinum { background: linear-gradient(135deg, #e6f8ff, #36717c); }
+.kk .dot-vip { background: linear-gradient(135deg, #0f7149, #023624); border-color: #d8b55b; }
+
+/* Hero баннер из design-kit */
+.hero {
+  min-height: 202px;
+  border-radius: 17px;
+  background:
+    linear-gradient(90deg, #022b2280, #022b2200 80%),
+    url("/assets/hero.png") center / cover;
+  color: #fff;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 0 0 1px #d6b66b70;
+  margin-bottom: 18px;
+}
+
+.hero-copy {
+  padding: 22px 18px;
+  position: relative;
+  width: 70%;
+}
+
+.hero .eyebrow {
+  font-size: 8px;
+  font-weight: 800;
+  color: #f3d991;
+  letter-spacing: 1.05px;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 31px;
+  font-weight: 700;
+  margin: 9px 0 0;
+  line-height: 1.04;
+  letter-spacing: -0.6px;
+  text-shadow: 0 1px 5px #06291d44;
+  color: #fff;
+}
+
+.hero p {
+  font-size: 10px;
+  margin: 9px 0 14px;
+  color: #f3f2df;
+  line-height: 1.45;
+}
+
+.hero .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 12px;
+  background: #087545;
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 80%, transparent);
+  box-shadow: 0 2px 3px #14322208;
+  cursor: pointer;
+  font-family: Manrope, "Noto Sans", system-ui, sans-serif;
+}
+
+.hero .primary:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 699px) {
+  .hero-copy { width: 82%; padding: 19px 18px; }
+  .hero h1 { font-size: 28px; line-height: 1.08; }
+  .hero p { font-size: 9px; margin: 8px 0 12px; }
+}
+
+@media (max-width: 359px) {
+  .hero-copy { width: 87%; padding: 18px 14px; }
+  .hero h1 { font-size: 25px; }
+}
+
+/* Категории / рестораны / товары — светлый макет, мягче и «вкуснее» */
+.kk-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.kk-section-head h2 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 19px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--t1, #192a21);
+  letter-spacing: -0.01em;
+}
+
+.kk-section-head .text-action {
+  margin-top: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gr, #0a7148);
+}
+
+.kk-cat-chip {
+  flex-shrink: 0;
+  width: 112px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--chip, #0a7148) 16%, #e6e8df);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--chip, #0a7148) 14%, #fff) 0%,
+      #fff 58%
+    );
+  padding: 14px 10px 12px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 8px 20px color-mix(in srgb, var(--chip, #0a7148) 10%, transparent);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kk-cat-chip:active {
+  transform: scale(0.96);
+}
+
+.kk-cat-chip .kk-cat-emoji {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 10px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  border: 1px solid color-mix(in srgb, var(--chip, #0a7148) 22%, transparent);
+  background:
+    radial-gradient(circle at 30% 25%, #ffffffee, transparent 55%),
+    color-mix(in srgb, var(--chip, #0a7148) 18%, #fff);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--chip, #0a7148) 14%, transparent);
+}
+
+.kk-cat-chip .kk-cat-label {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--t1, #192a21);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kk-rest-card {
+  flex-shrink: 0;
+  width: 176px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 28%, #e6e8df);
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 10px 24px #30422812;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kk-rest-card:active {
+  transform: scale(0.98);
+}
+
+.kk-rest-card .kk-rest-media {
+  height: 98px;
+  display: grid;
+  place-items: center;
+  font-size: 44px;
+  position: relative;
+  background:
+    radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--trim, #d4ae54) 28%, transparent), transparent 42%),
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--rest, #ea580c) 18%, #fff8ef) 0%,
+      #fff 72%
+    );
+  border-bottom: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 18%, #e6e8df);
+}
+
+.kk-rest-card .kk-rest-media::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 10px;
+  background: url("/assets/ornament.svg") repeat-x center;
+  background-size: auto 8px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.kk-rest-card .kk-rest-body {
+  padding: 12px 13px 13px;
+}
+
+.kk-rest-card .kk-rest-name {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1, #192a21);
+  line-height: 1.25;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 34px;
+}
+
+.kk-rest-card .kk-rest-meta {
+  font-size: 11px;
+  color: var(--t2, #617168);
+  margin-bottom: 10px;
+}
+
+.kk-rest-card .kk-rest-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff8e8, #f4e7c4);
+  color: #6a4f12;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 55%, transparent);
+  box-shadow: 0 1px 0 #fff8 inset;
+}
+
+.kk-rest-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 92% 18%, color-mix(in srgb, var(--trim, #d4ae54) 34%, transparent), transparent 36%),
+    linear-gradient(125deg, var(--header, #164e3c), color-mix(in srgb, var(--header, #164e3c) 72%, #0a7148));
+  color: var(--on-header, #fffdf4);
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 70%, transparent);
+  box-shadow: 0 12px 28px #30422822;
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+}
+
+.kk-rest-banner::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 9px;
+  background: url("/assets/ornament.svg") repeat-x center;
+  background-size: auto 8px;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.kk-rest-banner .kk-rest-banner-emoji {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  background:
+    radial-gradient(circle at 35% 30%, #ffffff33, transparent 55%),
+    color-mix(in srgb, #fff 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 65%, transparent);
+  box-shadow: 0 8px 18px #00000022;
+}
+
+.kk-rest-banner .kk-rest-banner-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.kk-rest-banner small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  font-weight: 800;
+  opacity: 0.85;
+  color: color-mix(in srgb, var(--trim, #d4ae54) 80%, #fff);
+}
+
+.kk-rest-banner h3 {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 6px 0 8px;
+  color: inherit;
+}
+
+.kk-rest-banner .kk-rest-banner-sub {
+  font-size: 11px;
+  opacity: 0.88;
+}
+
+.kk-rest-banner .kk-rest-banner-go {
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  opacity: 0.95;
+  color: color-mix(in srgb, var(--trim, #d4ae54) 85%, #fff);
+}
+
+.kk-product-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 18%, #e6e8df);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 10px 22px #30422810;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kk-product-card:active {
+  transform: scale(0.985);
+}
+
+.kk-product-card .kk-product-media {
+  height: 124px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52px;
+  background:
+    radial-gradient(circle at 70% 20%, color-mix(in srgb, var(--trim, #d4ae54) 16%, transparent), transparent 45%),
+    linear-gradient(180deg, #f3f7f0 0%, #fffdf8 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 14%, #e6e8df);
+  position: relative;
+  overflow: hidden;
+}
+
+.kk-product-card .kk-product-wish {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 3;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #ffffffef;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 28%, #eeeee5);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 10px #30422814;
+}
+
+.kk-product-card .kk-product-badges {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kk-product-card .kk-product-info {
+  padding: 11px 11px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.kk-product-card .kk-product-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--t1, #192a21);
+  min-height: 34px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kk-product-card .kk-product-unit {
+  font-size: 10px;
+  color: var(--t3, #8b948c);
+}
+
+.kk-product-card .kk-product-price {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--t1, #192a21);
+}
+
+.kk-product-card .kk-product-price span {
+  font-family: Manrope, "Noto Sans", system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--gd, #b8860b);
+  margin-left: 3px;
+}
+
+.kk-product-card .kk-product-add {
+  width: 100%;
+  padding: 10px;
+  font-size: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--gr, #0a7148) 88%, #fff), var(--gr, #0a7148));
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 55%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-weight: 800;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--gr, #0a7148) 22%, transparent);
+}
+
+.kk-product-card .kk-product-qty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--gr, #0a7148) 9%, #fff);
+  border: 1.5px solid color-mix(in srgb, var(--gr, #0a7148) 26%, transparent);
+  border-radius: 12px;
+  padding: 4px 8px;
+}
+
+.kk-cat-grid-card {
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--chip, #0a7148) 12%, #fff) 0%,
+      #fff 62%
+    );
+  border: 1px solid color-mix(in srgb, var(--chip, #0a7148) 16%, #e6e8df);
+  border-radius: 18px;
+  padding: 15px;
+  cursor: pointer;
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 10px 22px color-mix(in srgb, var(--chip, #0a7148) 10%, transparent);
+  min-height: 138px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.18s ease;
+}
+
+.kk-cat-grid-card:active {
+  transform: scale(0.98);
+}
+
+.kk-cat-grid-card .kk-cat-grid-emoji {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-size: 27px;
+  margin-bottom: 11px;
+  border: 1px solid color-mix(in srgb, var(--chip, #0a7148) 22%, transparent);
+  background:
+    radial-gradient(circle at 30% 25%, #ffffffee, transparent 55%),
+    color-mix(in srgb, var(--chip, #0a7148) 18%, #fff);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--chip, #0a7148) 12%, transparent);
+}
+
+.kk-cat-grid-card .kk-cat-grid-name {
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1, #192a21);
+  margin-bottom: 4px;
+  line-height: 1.25;
+}
+
+.kk-cat-grid-card .kk-cat-grid-count {
+  font-size: 10px;
+  color: var(--t3, #8b948c);
+  margin-bottom: 10px;
+}
+
+.kk-cat-grid-card .kk-cat-grid-go {
+  margin-top: auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--chip, var(--gr, #0a7148));
+}
+
+/* Нижнее меню — плавающая капсула из design-kit, цвета = 6 статусов */
+.bottom-nav {
+  position: fixed;
+  z-index: 200;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 24px);
+  max-width: min(456px, calc(var(--store-w, 480px) - 24px));
+  padding: 7px 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  background: var(--nav, #063a2d);
+  color: var(--nav-text, #e8f0e7);
+  border: 1px solid color-mix(in srgb, var(--trim, #d4ae54) 60%, transparent);
+  box-shadow: 0 7px 30px #17281933;
+  border-radius: 23px;
+  font-family: Manrope, "Noto Sans", system-ui, sans-serif;
+}
+
+.bottom-nav button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 52px;
+  border-radius: 15px;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 5px 1px;
+  font-size: 9px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.bottom-nav button[aria-current="page"] {
+  background: var(--active, #eed38b);
+  color: var(--active-text, #173e2d);
+  box-shadow: inset 0 0 0 1px #ffffff44;
+  font-weight: 800;
+}
+
+.bottom-nav button span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}

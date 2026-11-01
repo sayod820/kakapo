@@ -26,25 +26,27 @@ html, body { background: var(--bg); color: var(--t1); font-family: 'Nunito', san
 }
 
 html[data-theme="light"] {
-  --bg:  #F3F7F4;
-  --l1:  #FFFFFF;
-  --l2:  #FFFFFF;
-  --l3:  #EAF1EC;
-  --b1:  #D0DDD4;
-  --b2:  #BCCBBF;
-  --gr:  #129B45;
-  --gr2: #0F8A3A;
-  --gr3: #0A6B2E;
-  --gd:  #D97706;
-  --red: #DC2626;
-  --org: #EA580C;
+  --bg:  #f8f6ef;
+  --l1:  #f1eee6;
+  --l2:  #ffffff;
+  --l3:  #eef3eb;
+  --b1:  #e6e8df;
+  --b2:  #d5d9d0;
+  --gr:  #0a7148;
+  --gr2: #08623b;
+  --gr3: #064e30;
+  --gd:  #B8860B;
+  --red: #c62828;
+  --org: #E86A2B;
   --blue:#2563EB;
-  --pur: #7C3AED;
-  --t1:  #0C1A10;
-  --t2:  #4A6B52;
-  --t3:  #7A9580;
-  --header-bg: rgba(255,255,255,.96);
-  --shade: rgba(12,26,16,.1);
+  --pur: #7C5CBF;
+  --t1:  #192a21;
+  --t2:  #617168;
+  --t3:  #8b948c;
+  --header-bg: #fffdf8;
+  --shade: rgba(25,42,33,.1);
+  --overlay: rgba(25,42,33,.45);
+  --fab-bg: rgba(255,255,255,.92);
 }
 
 .ub { font-family: 'Unbounded', sans-serif; }

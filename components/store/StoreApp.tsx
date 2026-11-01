@@ -70,6 +70,8 @@ import { syncLoyaltyBonuses, deliveredOrdersNeedingBonusSync } from "@/lib/loyal
 import { loyaltyStatsFromOrders } from "@/lib/clientCrm";
 import { tierPresentationMap, tierTopGlowMap, loadLoyaltyStatusConfig, subscribeLoyaltyStatusConfig, getRegistrationWelcomeBonus, resolveEffectiveDebtLimit } from "@/lib/loyaltyStatusConfig";
 import { getVipRules } from "@/lib/clientLoyalty";
+import { KakapoLogo, NationalEmblem, TierBadge } from "@/components/store/NationalBrand";
+import "@/components/store/nationalKit.css";
 import {
   getUnreadNotificationCount,
   loadClientNotifications,
@@ -100,14 +102,14 @@ const AddressMapPicker = dynamic(() => import("@/components/shared/AddressMapPic
 const CSS = `
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 :root{
-  --gr:#1FD760;--gr2:#17B34E;--gr3:#0F8A3A;--gd:#FFB800;
-  --bg:#030B05;--l1:#06100A;--l2:#091508;--l3:#0C1C0F;--l4:#102213;
-  --b1:#162B1A;--b2:#1D3822;
-  --t1:#EBF5ED;--t2:#8FB897;--t3:#3D6645;
-  --red:#FF4545;--blue:#3B8EF0;--sky:#00D4C8;--pur:#9B6DFF;--org:#FF7D3B;--gd2:#E89E00;
-  --header-bg:rgba(3,11,5,.96);
-  --overlay:var(--overlay);
-  --fab-bg:var(--fab-bg);
+  --gr:#0a7148;--gr2:#08623b;--gr3:#064e30;--gd:#B8860B;
+  --bg:#f8f6ef;--l1:#f1eee6;--l2:#ffffff;--l3:#eef3eb;--l4:#e5ebe4;
+  --b1:#e6e8df;--b2:#d5d9d0;
+  --t1:#192a21;--t2:#617168;--t3:#8b948c;
+  --red:#c62828;--blue:#3B8EF0;--sky:#00A8A0;--pur:#7C5CBF;--org:#E86A2B;--gd2:#9A7200;
+  --header-bg:#fffdf8;
+  --overlay:rgba(25,42,33,.45);
+  --fab-bg:rgba(255,255,255,.92);
   --store-w:480px;
 }
 @media (min-width:600px){:root{--store-w:640px;}}
@@ -129,8 +131,8 @@ const CSS = `
 @media (max-width:480px){
   .inp{font-size:16px;min-height:44px;}
 }
-html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-webkit-font-smoothing:antialiased;}
-.ub{font-family:'Unbounded',sans-serif;}
+html,body{background:var(--bg);color:var(--t1);font-family:Manrope,"Noto Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+.ub{font-family:"Noto Serif",Georgia,serif;}
 .bank-num{
   font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   font-variant-numeric:tabular-nums;
@@ -170,18 +172,18 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 .loyalty-level-up{animation:levelUpPop 2.4s ease forwards;}
 .loyalty-tier-node-active{animation:tierPulse 2.2s ease-in-out infinite;}
 .loyalty-vip-shimmer{background:linear-gradient(105deg,transparent 30%,rgba(255,220,100,.35) 50%,transparent 70%);background-size:200% 100%;animation:vipShimmer 3s linear infinite;}
-.btn{font-family:'Nunito',sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:all .22s cubic-bezier(.16,1,.3,1);}
+.btn{font-family:Manrope,"Noto Sans",system-ui,sans-serif;font-weight:700;cursor:pointer;border:none;background:transparent;color:inherit;transition:all .22s cubic-bezier(.16,1,.3,1);}
 .btn:active{transform:scale(.96);}
-.card{background:var(--l2);border:1px solid var(--b1);border-radius:20px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);}
-.kakapo-card{background:var(--l2);border:1px solid var(--b1);border-radius:18px;overflow:hidden;}
+.card{background:var(--l2);border:1px solid var(--b1);border-radius:16px;overflow:hidden;transition:all .25s cubic-bezier(.16,1,.3,1);box-shadow:0 3px 12px #423b1d08;}
+.kakapo-card{background:var(--l2);border:1px solid var(--b1);border-radius:16px;overflow:hidden;box-shadow:0 3px 12px #423b1d08;}
 .hscroll{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;}.hscroll::-webkit-scrollbar{display:none;}
-.chip{padding:8px 15px;border-radius:50px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--b1);background:var(--l2);color:var(--t2);transition:all .2s;font-family:'Nunito',sans-serif;}
-.chip.on{background:rgba(31,215,96,.12);color:var(--gr);border-color:rgba(31,215,96,.38);}
-.inp{background:var(--l3);border:1.5px solid var(--b1);border-radius:14px;color:var(--t1);font-family:'Nunito',sans-serif;font-size:14px;outline:none;transition:border-color .2s;padding:13px 16px;}
-.inp:focus{border-color:rgba(31,215,96,.5);box-shadow:0 0 0 4px rgba(31,215,96,.07);}
+.chip{padding:8px 15px;border-radius:50px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--b1);background:var(--l2);color:var(--t2);transition:all .2s;font-family:Manrope,"Noto Sans",system-ui,sans-serif;}
+.chip.on{background:rgba(10,113,72,.1);color:var(--gr);border-color:rgba(10,113,72,.35);}
+.inp{background:#fff;border:1.5px solid var(--b1);border-radius:14px;color:var(--t1);font-family:Manrope,"Noto Sans",system-ui,sans-serif;font-size:14px;outline:none;transition:border-color .2s;padding:13px 16px;}
+.inp:focus{border-color:rgba(10,113,72,.45);box-shadow:0 0 0 4px rgba(10,113,72,.1);}
 .inp::placeholder{color:var(--t3);}
-.inp-err{border-color:rgba(255,69,69,.5)!important;}
-.inp-ok{border-color:rgba(31,215,96,.45)!important;}
+.inp-err{border-color:rgba(198,40,40,.5)!important;}
+.inp-ok{border-color:rgba(10,113,72,.45)!important;}
 .toggle{width:44px;height:24px;border-radius:12px;background:var(--b2);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0;}
 .toggle.on{background:var(--gr);}
 .toggle-dot{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:white;transition:transform .2s cubic-bezier(.16,1,.3,1);}
@@ -192,39 +194,20 @@ html,body{background:var(--bg);color:var(--t1);font-family:'Nunito',sans-serif;-
 .b-rd{background:rgba(255,69,69,.12);color:var(--red);border:1px solid rgba(255,69,69,.28);}
 .b-bl{background:rgba(59,142,240,.1);color:var(--blue);border:1px solid rgba(59,142,240,.25);}
 .store-vip{
-  --l1:#0a0802;--l2:#0d0a04;--l3:#120e06;--l4:#181208;
-  --b1:rgba(255,184,0,.2);--b2:rgba(255,184,0,.32);
-  background:radial-gradient(ellipse 100% 42% at 50% -5%, rgba(255,184,0,.11) 0%, transparent 48%), var(--bg);
+  background:radial-gradient(ellipse 100% 42% at 50% -5%, rgba(214,182,107,.18) 0%, transparent 48%), var(--bg);
 }
-.store-vip .card{
-  border-color:rgba(255,184,0,.26);
-  box-shadow:0 4px 22px rgba(255,184,0,.09);
+.store-vip .card,.store-vip .kakapo-card{
+  border-color:color-mix(in srgb, var(--trim, #d6b66b) 55%, var(--b1));
+  box-shadow:0 4px 18px rgba(184,134,11,.08);
 }
-.store-vip .kakapo-card{border-color:rgba(255,184,0,.22);}
-.store-vip .chip.on{background:rgba(255,184,0,.12);color:var(--gd);border-color:rgba(255,184,0,.4);}
-.store-vip .inp:focus{border-color:rgba(255,184,0,.48);box-shadow:0 0 0 4px rgba(255,184,0,.08);}
-.store-vip header{
-  background:rgba(10,8,2,.96)!important;
-  border-bottom-color:rgba(255,184,0,.28)!important;
-  box-shadow:0 4px 18px rgba(255,184,0,.07)!important;
-}
+.store-vip .chip.on{background:rgba(184,134,11,.12);color:var(--gd);border-color:rgba(184,134,11,.35);}
+.store-vip .inp:focus{border-color:rgba(184,134,11,.45);box-shadow:0 0 0 4px rgba(184,134,11,.08);}
 .store-vip .btn-vip-cta{
   background:linear-gradient(135deg,#E89E00,#FFB800,#FFD700)!important;
   color:#1a1000!important;
-  box-shadow:0 4px 18px rgba(255,184,0,.35)!important;
+  box-shadow:0 4px 18px rgba(255,184,0,.28)!important;
 }
 .store-vip [data-store-page]:not([data-profile-tier]){background:transparent!important;}
-.store-vip header[data-store-header],.store-vip [data-store-header]{
-  background:rgba(10,8,2,.96)!important;
-  border-bottom-color:rgba(255,184,0,.3)!important;
-  box-shadow:0 4px 20px rgba(255,184,0,.08)!important;
-}
-.store-vip .store-toast{
-  background:linear-gradient(135deg,#1a1200,#2a1a00)!important;
-  border-color:rgba(255,184,0,.45)!important;
-  box-shadow:0 8px 36px rgba(255,184,0,.15)!important;
-}
-.store-vip .store-toast-icon{background:rgba(255,184,0,.2)!important;}
 .store-vip [data-header-cart]{animation:vipGlow 3s ease-in-out infinite;}
 `;
 const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
@@ -269,6 +252,7 @@ const Ic = ({ n, s=20, c="currentColor", w=1.8, fill="none" }) => {
     help:    <><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
     tg:      <><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>,
     crown:   <><path d="M2 20h20"/><path d="M5 20V8l7-6 7 6v12"/><path d="M2 8l4 4 6-6 6 6 4-4"/></>,
+    gear:    <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></>,
     wa:      <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>,
     share:   <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,
     insta:   <><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></>,
@@ -288,41 +272,54 @@ const Stars = ({ r, s=10 }) => (
 );
 
 const Toast = ({ msg, isVip = false }) => !msg ? null : (
-  <div className={isVip ? 'store-toast' : undefined} style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background:"linear-gradient(135deg,#091C0D,#123020)", border:"1.5px solid rgba(31,215,96,.45)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 36px rgba(0,0,0,.65)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw" }}>
-    <div className={isVip ? 'store-toast-icon' : undefined} style={{ width:24, height:24, borderRadius:"50%", background:"rgba(31,215,96,.2)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+  <div className={isVip ? 'store-toast' : undefined} style={{ position:"fixed", top:16, left:"50%", zIndex:999, animation:"notif .38s cubic-bezier(.16,1,.3,1)", background: isVip ? "linear-gradient(135deg,#fff8e7,#f7ecd0)" : "#fff", border: isVip ? "1.5px solid rgba(184,134,11,.4)" : "1.5px solid var(--b1)", borderRadius:16, padding:"12px 18px", display:"flex", alignItems:"center", gap:10, boxShadow:"0 8px 28px rgba(25,42,33,.12)", whiteSpace:"nowrap", transform:"translateX(-50%)", maxWidth:"90vw", color:"var(--t1)" }}>
+    <div className={isVip ? 'store-toast-icon' : undefined} style={{ width:24, height:24, borderRadius:"50%", background: isVip ? "rgba(184,134,11,.15)" : "rgba(10,113,72,.12)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
       <Ic n="check" s={12} c={isVip ? "var(--gd)" : "var(--gr)"} w={2.5}/>
     </div>
     <span style={{ fontSize:13, fontWeight:700 }}>{msg}</span>
   </div>
 );
 
+const NAV_ITEMS = [
+  { id: 'home', icon: 'home', label: 'Главная' },
+  { id: 'catalog', icon: 'grid', label: 'Каталог' },
+  { id: 'orders', icon: 'bag', label: 'Заказы' },
+  { id: 'promos', icon: 'gift', label: 'Акции' },
+  { id: 'profile', icon: 'user', label: 'Профиль' },
+] as const
+
 const Nav = ({ page, go, user: userProp }) => {
   const syncedUser = userProp ?? loadStoreUser()
   const { isVip } = resolveUserVip(syncedUser)
+  const look = getStatusLook(syncedUser)
+
   return (
-  <nav className="store-nav" style={{
-    background: isVip ? "rgba(10,8,2,.97)" : "var(--header-bg)",
-    backdropFilter:"blur(26px)",
-    borderTop: isVip ? "1px solid rgba(255,184,0,.35)" : "1px solid var(--b1)",
-    boxShadow: isVip ? "0 -4px 24px rgba(255,184,0,.12)" : "none",
-    padding:"8px 18px calc(16px + env(safe-area-inset-bottom, 0px))", display:"flex", justifyContent:"space-around",
-  }}>
-    {[{id:"home",icon:"home",label:"Главная"},{id:"catalog",icon:"tag",label:"Каталог"},{id:"orders",icon:"truck",label:"Заказы"},{id:"promos",icon:"gift",label:"Акции"},{id:"profile",icon:"user",label:"Профиль"}].map(item => {
-      const on = page === item.id
-      const activeColor = isVip && on ? "#FFD700" : on ? "var(--gr)" : "var(--t3)"
-      const activeBg = isVip && on ? "rgba(255,184,0,.12)" : on ? "rgba(31,215,96,.09)" : "transparent"
-      const activeBorder = isVip && on ? "rgba(255,184,0,.35)" : on ? "rgba(31,215,96,.22)" : "transparent"
-      return (
-      <button key={item.id} type="button" onClick={() => go(item.id)} className="btn"
-        style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"6px 12px", borderRadius:12, background:on?activeBg:"transparent", border:`1.5px solid ${on?activeBorder:"transparent"}`, color:on?activeColor:"var(--t3)", position:"relative" }}>
-        {isVip && item.id === "profile" && (
-          <div style={{ position:"absolute", top:2, right:6, fontSize:9, animation:"crownFloat 2.5s ease-in-out infinite" }}>👑</div>
-        )}
-        <Ic n={item.icon} s={20} c={on?activeColor:"var(--t3)"}/>
-        <span style={{ fontSize:9, fontWeight:on?800:600 }}>{item.id === "profile" && isVip ? "VIP" : item.label}</span>
-      </button>
-    )})}
-  </nav>
+    <nav
+      className="bottom-nav"
+      aria-label="Нижнее меню"
+      style={{
+        ['--nav' as string]: look.nav,
+        ['--nav-text' as string]: look.navText,
+        ['--active' as string]: look.active,
+        ['--active-text' as string]: look.activeText,
+        ['--trim' as string]: look.cardBorder,
+      }}
+    >
+      {NAV_ITEMS.map(item => {
+        const on = page === item.id
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={on ? 'page' : undefined}
+            onClick={() => go(item.id)}
+          >
+            <Ic n={item.icon} s={22} c="currentColor" />
+            <span>{item.id === 'profile' && isVip ? 'VIP' : item.label}</span>
+          </button>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -331,7 +328,7 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: i
   const { isVip: isVipUser } = resolveUserVip(loadStoreUser())
   const isVip = isVipProp ?? isVipUser
   return (
-  <div style={{ position:"fixed", bottom:82, left:0, right:0, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none", animation:"fadeUp .35s cubic-bezier(.16,1,.3,1)" }}>
+  <div style={{ position:"fixed", bottom:100, left:0, right:0, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none", animation:"fadeUp .35s cubic-bezier(.16,1,.3,1)" }}>
     <button
       type="button"
       onClick={onClick}
@@ -362,71 +359,33 @@ const FloatingCartBtn = ({ count, onClick, label = "В корзину", isVip: i
   );
 };
 
-const Header = ({ title, back, go, cart, user: userProp }) => {
-  const { prods } = useLiveCatalog();
+const Header = ({ title, back, onBack, subtitle, go, cart, user: userProp }) => {
   const user = userProp ?? loadStoreUser()
-  const { isVip, theme } = resolveUserVip(user)
-  const qty = formatCartBadgeCount(sumCartUnits(cart || {}, prods));
-  const qtyNum = sumCartUnits(cart || {}, prods);
+  const showBack = Boolean(back || onBack)
   return (
-    <header style={{
-      position:"sticky", top:0, zIndex:100,
-      background: isVip ? "rgba(10,8,2,.96)" : "var(--header-bg)",
-      backdropFilter:"blur(24px)",
-      borderBottom: isVip ? "1px solid rgba(255,184,0,.3)" : "1px solid var(--b1)",
-      boxShadow: isVip ? "0 4px 24px rgba(255,184,0,.1)" : "none",
-    }}>
-      <div style={{ padding:"13px 18px 12px", display:"flex", alignItems:"center", gap:10 }}>
-        {back ? (
-          <button onClick={() => go(back)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-            <Ic n="arrL" s={17} c="var(--t2)"/>
-          </button>
-        ) : (
-          <div style={{
-            width:40, height:40, borderRadius:12, position:"relative", flexShrink:0,
-            background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800,#E89E00)" : "linear-gradient(135deg,var(--gr3),var(--gr))",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"Unbounded", fontSize:17, fontWeight:900,
-            color: isVip ? "#1a1000" : "var(--bg)",
-            animation: isVip ? "vipGlow 3s ease-in-out infinite" : "glow 3s ease-in-out infinite",
-            boxShadow: isVip ? "0 4px 16px rgba(255,184,0,.45)" : "0 4px 16px rgba(31,215,96,.4)",
-          }}>
-            K
-            {isVip && <span style={{ position:"absolute", top:-4, right:-4, fontSize:10 }}>👑</span>}
+    <>
+      <NationalStoreHeader go={go} cart={cart || {}} user={user} />
+      {title ? (
+        <div className="kk-page-title-bar">
+          {showBack ? (
+            <button
+              type="button"
+              className="icon-button back"
+              aria-label="Назад"
+              onClick={() => (onBack ? onBack() : go(back))}
+            >
+              <Ic n="arrL" s={21} c="currentColor" />
+            </button>
+          ) : null}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1>{title}</h1>
+            {subtitle ? <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>{subtitle}</div> : null}
           </div>
-        )}
-        <div style={{ flex:1, minWidth:0 }}>
-          {title ? (
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-            <div className="ub" style={{ fontSize:16, fontWeight:900 }}>{title}</div>
-              {isVip && <UserStatusBadge user={user} size="sm" />}
-            </div>
-          ) : (
-            <>
-              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                <div className="ub" style={{
-                  fontSize:16, fontWeight:900,
-                  background: isVip ? "linear-gradient(135deg,#FFD700,#FFB800)" : "linear-gradient(135deg,var(--gr),var(--gd))",
-                  WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
-                }}>КАКАПО{isVip ? " VIP" : ""}</div>
-                {isVip && user && <UserStatusBadge user={user} size="sm" />}
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:4, marginTop:1 }}>
-                <div style={{ width:5, height:5, borderRadius:"50%", background: isVip ? "#FFD700" : "var(--gr)", animation:"pulse 2s infinite" }}/>
-                <span style={{ fontSize:10, color: isVip ? "rgba(255,220,100,.8)" : "var(--t2)" }}>
-                  {isVip ? "VIP · Приоритетная доставка · г. Яван" : "г. Яван · Доставка 45 мин"}
-                </span>
-              </div>
-            </>
-          )}
+          {user ? <UserStatusBadge user={user} size="sm" /> : null}
         </div>
-        <button onClick={() => go("search")} className="btn" style={{ width:38, height:38, borderRadius:12, background: isVip ? "rgba(255,184,0,.1)" : "var(--l3)", border: isVip ? "1px solid rgba(255,184,0,.25)" : "1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <Ic n="search" s={17} c={isVip ? "rgba(255,220,100,.78)" : "var(--t2)"}/>
-        </button>
-        <CartHeaderButton count={qty} qtyNum={qtyNum} onClick={() => go("cart")} isVip={isVip} />
-      </div>
-    </header>
-  );
+      ) : null}
+    </>
+  )
 };
 const PRODS = [
   {id:1,art:"KAK-0001",e:"🥦",name:"Брокколи свежая",    unit:"500 гр",price:5.50, old:7.20, hot:true, isNew:false,org:true, r:4.9,rv:184,grad:"linear-gradient(145deg,#0D2A0D,#1A4A1A)",cat:"veg",   desc:"Свежая брокколи без пестицидов, богата витаминами.",   specs:{Вес:"500 гр",Калории:"34 ккал/100г",Страна:"Таджикистан"}},
@@ -500,17 +459,19 @@ function softFromDarkGrad(darkGrad: string, light: boolean, fallbackAccent = '#1
   return softAccentSurface(accent, true, darkGrad)
 }
 
-function insetChipBg(light: boolean, alphaDark = 0.25) {
-  return light ? 'rgba(12,26,16,.05)' : `rgba(0,0,0,${alphaDark})`
+/** Мягкий акцент карточки ресторана по кухне / id */
+function restAccentColor(r: { id?: string; cuisine?: string; img?: string }) {
+  const cuisine = String(r?.cuisine || '').toLowerCase()
+  if (cuisine.includes('тадж') || cuisine.includes('плов') || cuisine.includes('чайхон')) return '#C46A2B'
+  if (cuisine.includes('итал') || cuisine.includes('пицц')) return '#D14343'
+  if (cuisine.includes('япон') || cuisine.includes('суш')) return '#2F6B8A'
+  if (cuisine.includes('быстр') || cuisine.includes('фаст')) return '#D4A017'
+  const m = String(r?.img || '').match(/#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})\b/)
+  return m ? `#${m[1]}` : '#0A7148'
 }
 
-function storeBannerSlides(light: boolean) {
-  return [
-    { e: '🥛', title: 'Молочная среда', sub: 'Скидка 30% на молочную продукцию', badge: 'Сегодня', disc: 30, ac: 'var(--gr)', bg: softAccentSurface('#129B45', light, 'linear-gradient(135deg,#061A0C,#0F3020)') },
-    { e: '🥩', title: 'Мясные выходные', sub: 'Скидки до 25% на мясо и птицу', badge: 'Сб–Вс', disc: 25, ac: 'var(--red)', bg: softAccentSurface('#DC2626', light, 'linear-gradient(135deg,#1A0608,#3A1014)') },
-    { e: '🥦', title: 'Органик-день', sub: '20% на органические продукты', badge: 'Пятница', disc: 20, ac: '#56C956', bg: softAccentSurface('#56C956', light, 'linear-gradient(135deg,#061A08,#102A14)') },
-    { e: '🚀', title: 'Бесплатная доставка', sub: 'При заказе от 30 ЅМ', badge: 'Всегда', disc: null as number | null, bg: softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#060820,#0E1840)'), ac: 'var(--blue)' },
-  ]
+function insetChipBg(light: boolean, alphaDark = 0.25) {
+  return light ? 'rgba(12,26,16,.05)' : `rgba(0,0,0,${alphaDark})`
 }
 
 function catThemeKey(id: string) {
@@ -538,7 +499,7 @@ function catThemeKey(id: string) {
 }
 
 function useStoreCategories() {
-  const light = false
+  const light = true
   const { categories, loaded } = useCategories()
   return useMemo(() => {
     if (!categories.length) {
@@ -864,6 +825,80 @@ function vipPageShell(isVip: boolean) {
 
 type TierTheme = { bg: string; border: string; glow: string; accent: string; rail: string }
 
+/** Цвета 6 статусов из design-kit globals.css (.kk[data-tier]) */
+type StatusLook = {
+  header: string
+  headerFg: string
+  page: string
+  badgeBg: string
+  badgeFg: string
+  cardBg: string
+  cardFg: string
+  cardMuted: string
+  cardBorder: string
+  solidDark: boolean
+  nav: string
+  navText: string
+  active: string
+  activeText: string
+}
+
+const STATUS_LOOKS: Record<string, StatusLook> = {
+  basic: {
+    header: '#164e3c', headerFg: '#fffdf4', page: '#f8f6ef',
+    badgeBg: '#eaf3e9', badgeFg: '#0a7148',
+    cardBg: '#eef5e8', cardFg: '#214d37', cardMuted: 'rgba(33,77,55,.62)', cardBorder: '#b9c8a7',
+    solidDark: false,
+    nav: '#fff', navText: '#53685b', active: '#e7f2e7', activeText: '#08623b',
+  },
+  bronze: {
+    header: '#55341f', headerFg: '#fffdf4', page: '#f8f6ef',
+    badgeBg: '#f9ede0', badgeFg: '#86502d',
+    cardBg: '#70412b', cardFg: '#fff4e5', cardMuted: 'rgba(255,244,229,.72)', cardBorder: '#ce9c6c',
+    solidDark: true,
+    nav: '#563925', navText: '#f5e8dd', active: '#edc397', activeText: '#402715',
+  },
+  silver: {
+    header: '#e0e6eb', headerFg: '#243e50', page: '#f8f6ef',
+    badgeBg: '#eef1f5', badgeFg: '#4c6174',
+    cardBg: '#edf1f5', cardFg: '#2d4559', cardMuted: 'rgba(45,69,89,.65)', cardBorder: '#879bab',
+    solidDark: false,
+    nav: '#3a4a58', navText: '#f4f6f8', active: '#dce5ea', activeText: '#2c4150',
+  },
+  gold: {
+    header: '#f0dfa9', headerFg: '#473814', page: '#f8f6ef',
+    badgeBg: '#faf1db', badgeFg: '#7d5a1a',
+    cardBg: '#f8e8b5', cardFg: '#483818', cardMuted: 'rgba(72,56,24,.68)', cardBorder: '#b38a37',
+    solidDark: false,
+    nav: '#5e451b', navText: '#fff4d2', active: '#f1d181', activeText: '#4f3613',
+  },
+  platinum: {
+    header: '#124955', headerFg: '#f6fbfc', page: '#f8f6ef',
+    badgeBg: '#e7f2f4', badgeFg: '#286574',
+    cardBg: '#164e5a', cardFg: '#e8f9fb', cardMuted: 'rgba(232,249,251,.72)', cardBorder: '#a6c7d0',
+    solidDark: true,
+    nav: '#103e4a', navText: '#edf9fa', active: '#cee7eb', activeText: '#154653',
+  },
+  vip: {
+    header: '#073f30', headerFg: '#fffdf4', page: '#f8f6ef',
+    badgeBg: '#eaf3e9', badgeFg: '#0a7148',
+    cardBg: '#064331', cardFg: '#fff8df', cardMuted: 'rgba(255,248,223,.7)', cardBorder: '#d6b66b',
+    solidDark: true,
+    nav: '#063a2d', navText: '#e8f0e7', active: '#eed38b', activeText: '#173e2d',
+  },
+}
+
+function resolveStatusLookId(user?: { level?: string; vip?: boolean } | null): string {
+  if (user?.vip) return 'vip'
+  const level = user?.level || 'basic'
+  if (level === 'new') return 'basic'
+  return STATUS_LOOKS[level] ? level : 'basic'
+}
+
+function getStatusLook(user?: { level?: string; vip?: boolean } | null): StatusLook {
+  return STATUS_LOOKS[resolveStatusLookId(user)] || STATUS_LOOKS.basic
+}
+
 function getTierThemes(light = false): Record<string, TierTheme> {
   const map = tierPresentationMap(loadLoyaltyStatusConfig())
   if (!light) return map
@@ -987,24 +1022,71 @@ const CartHeaderButton = ({ count, qtyNum, onClick, isVip = false }) => (
 
 function UserStatusBadge({ user, size = 'md' }: { user: VipUserLike; size?: 'sm' | 'md' | 'lg' }) {
   if (!user) return null
-  const { isVip, theme, tier, label } = resolveUserVip(user)
-  const isBasic = (user.level === 'basic' || user.level === 'new') && !isVip
-  const sz = size === 'sm' ? { fontSize: 9, padding: '2px 8px' } : size === 'lg' ? { fontSize: 12, padding: '5px 14px' } : { fontSize: 10, padding: '3px 10px' }
+  const { label, isVip } = resolveUserVip(user)
+  const look = getStatusLook(user)
+  const sz = size === 'sm' ? { fontSize: 9, padding: '3px 9px' } : size === 'lg' ? { fontSize: 12, padding: '5px 14px' } : { fontSize: 10, padding: '4px 11px' }
   return (
     <span style={{
-      ...sz, fontWeight: 800, borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
-      background: isVip ? 'linear-gradient(135deg,rgba(255,184,0,.28),rgba(255,140,0,.12))' : isBasic ? 'rgba(143,184,151,.1)' : `${tier.color}18`,
-      color: isVip ? '#FFD700' : isBasic ? '#8FB897' : tier.color,
-      border: isVip ? '1px solid rgba(255,184,0,.55)' : isBasic ? '1px solid rgba(143,184,151,.28)' : `1px solid ${tier.color}35`,
-      boxShadow: isVip ? '0 0 14px rgba(255,184,0,.3)' : 'none',
+      ...sz, fontWeight: 800, borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+      background: look.badgeBg,
+      color: look.badgeFg,
+      border: `1px solid ${look.cardBorder}`,
     }}>
-      {isVip ? '👑 VIP' : isBasic ? '👤 Базовый' : `${tier.emoji} ${label}`}
+      {isVip ? `♛ ${label}` : label}
     </span>
   )
 }
 
+function NationalStoreHeader({ go, cart, user }: { go: (p: string) => void; cart: Record<string, number>; user: VipUserLike }) {
+  const { prods } = useLiveCatalog()
+  const qtyNum = sumCartUnits(cart || {}, prods)
+  const qty = formatCartBadgeCount(qtyNum)
+  const { isVip } = resolveUserVip(user)
+  const look = getStatusLook(user)
+  const tier = resolveStatusLookId(user)
+  return (
+    <header
+      className="store-header national"
+      data-tier={tier}
+      style={{
+        ['--header' as string]: look.header,
+        ['--on-header' as string]: look.headerFg,
+        ['--trim' as string]: look.cardBorder,
+        backgroundColor: look.header,
+        color: look.headerFg,
+      }}
+    >
+      <div className="header-main">
+        <button type="button" className="logo-link" onClick={() => go('home')}>
+          <KakapoLogo />
+        </button>
+        <div className="header-actions">
+          {isVip && (
+            <span className="header-vip">
+              <Ic n="crown" s={13} c="currentColor" />
+              VIP
+            </span>
+          )}
+          <button type="button" className="icon-button" aria-label="Поиск" onClick={() => go('search')}>
+            <Ic n="search" s={22} c="currentColor" />
+          </button>
+          <button type="button" className="icon-button cart-button" aria-label="Корзина" onClick={() => go('cart')}>
+            <Ic n="cart" s={22} c="currentColor" />
+            {qtyNum > 0 && <span className="cart-count">{qty}</span>}
+          </button>
+        </div>
+      </div>
+      <button type="button" className="location" onClick={() => go('addresses')}>
+        <Ic n="map" s={13} c="currentColor" />
+        Доставка · Яван
+        <Ic n="arr" s={12} c="currentColor" />
+      </button>
+    </header>
+  )
+}
+
 function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => void }) {
-  const light = false;
+  const light = true;
   const { isVip, theme } = resolveUserVip(user, light)
   if (!user || !isVip) return null
   const firstName = (user.name || 'Клиент').split(' ')[0]
@@ -1052,15 +1134,30 @@ function HomeVipWelcome({ user, go }: { user: VipUserLike; go: (p: string) => vo
   )
 }
 
-function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean }) {
-  const light = false;
+function LoyaltyStatusCard({ loyalty, onVip, adminVip, kit = false }: { loyalty: ReturnType<typeof getLoyaltyProgress>; onVip: () => void; adminVip?: boolean; kit?: boolean }) {
+  const light = kit
   const { tier, nextTier, progressPct, remaining, spent, isVip, isBasicClient, vipSteps, vipDoneCount, periodSubtitle } = loyalty
   const themes = getTierThemes(light)
-  const theme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
+  const baseTheme = isVip ? themes.vip : isBasicClient ? themes.basic : (themes[tier.id] || themes.bronze)
+  const theme = kit
+    ? {
+        bg: 'var(--surface)',
+        border: 'var(--line)',
+        glow: 'transparent',
+        accent: 'var(--accent)',
+        rail: 'linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff))',
+      }
+    : baseTheme
+  const t1 = kit ? 'var(--text)' : 'var(--t1)'
+  const t2 = kit ? 'var(--muted)' : 'var(--t2)'
+  const t3 = kit ? 'var(--muted)' : 'var(--t3)'
+  const b1 = kit ? 'var(--line)' : 'var(--b1)'
+  const l3 = kit ? 'var(--soft)' : 'var(--l3)'
+  const gr = kit ? 'var(--accent)' : 'var(--gr)'
   const prevTierRef = useRef(tier.id)
   const [levelFlash, setLevelFlash] = useState<string | null>(null)
-  const chip = insetChipBg(light)
-  const railTrack = insetChipBg(light, 0.35)
+  const chip = kit ? 'var(--soft)' : insetChipBg(light)
+  const railTrack = kit ? 'color-mix(in srgb, var(--line) 80%, #fff)' : insetChipBg(light, 0.35)
 
   useEffect(() => {
     if (prevTierRef.current !== tier.id) {
@@ -1076,20 +1173,20 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
 
   return (
     <div
-      className={`loyalty-tier-card${isVip ? ' loyalty-vip-card' : ''}`}
+      className={`${kit ? 'loyalty-kit-card' : 'loyalty-tier-card'}${isVip ? ' loyalty-vip-card' : ''}`}
       style={{
         padding: 16,
         marginBottom: 12,
         background: theme.bg,
         border: `1.5px solid ${theme.border}`,
-        boxShadow: isVip ? `0 8px 32px ${theme.glow}, inset 0 1px 0 rgba(255,255,255,.06)` : `0 4px 24px ${theme.glow}`,
+        boxShadow: kit ? '0 3px 12px #423b1d04' : (isVip ? `0 8px 32px ${theme.glow}, inset 0 1px 0 rgba(255,255,255,.06)` : `0 4px 24px ${theme.glow}`),
         transition: 'border-color .5s ease, box-shadow .5s ease, background .5s ease',
       }}
     >
-      {isVip && (
+      {isVip && !kit && (
         <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1, borderRadius: 20 }} />
       )}
-      {[0, 1, 2].map(i => (
+      {!kit && [0, 1, 2].map(i => (
         <div key={i} style={{
           position: 'absolute', width: 4, height: 4, borderRadius: '50%', background: theme.accent,
           opacity: .35, animation: `sparkle ${2 + i * 0.7}s ease-in-out infinite`, animationDelay: `${i * 0.4}s`,
@@ -1101,10 +1198,10 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
         <div className="loyalty-level-up" style={{
           position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
           padding: '6px 14px', borderRadius: 20, whiteSpace: 'nowrap',
-          background: `linear-gradient(135deg,${theme.accent}33,${theme.accent}18)`,
+          background: kit ? 'var(--soft)' : `linear-gradient(135deg,${theme.accent}33,${theme.accent}18)`,
           border: `1px solid ${theme.border}`, backdropFilter: 'blur(8px)',
           fontSize: 11, fontWeight: 800, color: theme.accent,
-          boxShadow: `0 4px 20px ${theme.glow}`,
+          boxShadow: kit ? 'none' : `0 4px 20px ${theme.glow}`,
         }}>
           🎉 Новый уровень — {levelFlash}!
         </div>
@@ -1115,17 +1212,18 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 44, height: 44, borderRadius: 14, flexShrink: 0,
-              background: `linear-gradient(135deg,${theme.accent}33,${theme.accent}12)`,
+              background: kit ? 'var(--soft)' : `linear-gradient(135deg,${theme.accent}33,${theme.accent}12)`,
               border: `1.5px solid ${theme.border}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: `0 0 20px ${theme.glow}`,
+              boxShadow: kit ? 'none' : `0 0 20px ${theme.glow}`,
               fontSize: 22,
+              color: theme.accent,
             }}>
-              {isVip ? <span style={{ animation: 'crownFloat 2.5s ease-in-out infinite', display: 'inline-block' }}>👑</span> : tier.emoji}
+              {isVip ? <span style={{ animation: 'crownFloat 2.5s ease-in-out infinite', display: 'inline-block' }}>👑</span> : (kit ? <Ic n="user" s={22} c="currentColor" /> : tier.emoji)}
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: theme.accent, letterSpacing: isVip ? 0.5 : 0 }}>
+                <div className="ub" style={{ fontSize: 14, fontWeight: 900, color: theme.accent, letterSpacing: isVip ? 0.5 : 0, fontFamily: kit ? '"Noto Serif", Georgia, serif' : undefined }}>
                   {isVip ? 'VIP' : tier.label}
                 </div>
                 {isVip && (
@@ -1136,11 +1234,11 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   }}>Elite</span>
                 )}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--t2)' }}>
+              <div style={{ fontSize: 10, color: t2 }}>
                 Кешбэк {tier.cashback} · {isVip ? 'Все привилегии' : tier.perk}
               </div>
-              <div style={{ fontSize: 9, color: 'var(--t3)', marginTop: 4 }}>
-                📅 {periodSubtitle}
+              <div style={{ fontSize: 9, color: t3, marginTop: 4 }}>
+                {periodSubtitle}
               </div>
             </div>
           </div>
@@ -1148,10 +1246,10 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             textAlign: 'right', padding: '6px 10px', borderRadius: 12,
             background: chip, border: `1px solid ${theme.border}`,
           }}>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: 'var(--t1)', lineHeight: 1.1 }}>
+            <div className="ub" style={{ fontSize: 16, fontWeight: 900, color: t1, lineHeight: 1.1 }}>
               {spent.toLocaleString()} <span style={{ fontSize: 9, color: theme.accent }}>ЅМ</span>
             </div>
-            <div style={{ fontSize: 8, color: 'var(--t3)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>покупок</div>
+            <div style={{ fontSize: 8, color: t3, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>покупок</div>
           </div>
         </div>
 
@@ -1160,15 +1258,15 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             <div style={{
               fontSize: 11, fontWeight: 700, marginBottom: 10, padding: '10px 12px', borderRadius: 12, lineHeight: 1.55,
               background: chip,
-              border: '1px solid rgba(143,184,151,.2)', color: 'var(--t2)',
+              border: `1px solid ${theme.border}`, color: t2,
             }}>
               <span style={{ color: theme.accent, fontWeight: 800 }}>Привилегий пока нет.</span>
-              {' '}Купите налом или картой (магазин или приложение) — откроется уровень {LOYALTY_TIERS[0].emoji} {LOYALTY_TIERS[0].label} с бонусами.
+              {' '}Купите налом или картой (магазин или приложение) — откроется уровень {LOYALTY_TIERS[0].label} с бонусами.
             </div>
             {nextTier && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--t2)' }}>До {nextTier.emoji} {nextTier.label}</span>
+                  <span style={{ fontSize: 10, color: t2 }}>До {nextTier.label}</span>
                   <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
                 </div>
                 <div style={{ height: 8, borderRadius: 4, background: railTrack, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
@@ -1180,7 +1278,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
         ) : nextTier && !isVip ? (
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 10, color: 'var(--t2)' }}>Прогресс до {nextTier.emoji} {nextTier.label}</span>
+              <span style={{ fontSize: 10, color: t2 }}>Прогресс до {nextTier.label}</span>
               <span className="ub" style={{ fontSize: 10, fontWeight: 800, color: theme.accent }}>{progressPct}%</span>
             </div>
             <div style={{ height: 8, borderRadius: 4, background: railTrack, overflow: 'hidden', position: 'relative', border: `1px solid ${theme.border}` }}>
@@ -1196,17 +1294,17 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                 }} />
               </div>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 6 }}>
-              Ещё <span style={{ fontWeight: 800, color: 'var(--gr)' }}>{remaining.toLocaleString()} ЅМ</span> до следующего уровня
+            <div style={{ fontSize: 10, color: t2, marginTop: 6 }}>
+              Ещё <span style={{ fontWeight: 800, color: gr }}>{remaining.toLocaleString()} ЅМ</span> до следующего уровня
             </div>
           </div>
         ) : (
           <div style={{
             fontSize: 11, fontWeight: 700, marginBottom: 14, padding: '8px 12px', borderRadius: 10,
-            background: `linear-gradient(90deg,${theme.accent}18,transparent)`,
+            background: kit ? 'var(--soft)' : `linear-gradient(90deg,${theme.accent}18,transparent)`,
             border: `1px solid ${theme.border}`, color: theme.accent,
           }}>
-            {isVip ? '✨ VIP-статус активен — максимальные привилегии' : `✨ Максимальный уровень ${tier.label}`}
+            {isVip ? 'VIP-статус активен — максимальные привилегии' : `Максимальный уровень ${tier.label}`}
           </div>
         )}
 
@@ -1219,7 +1317,7 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
               const reached = spent >= t.minSpent
               const active = (t.id === tier.id && !isVip && !isBasicClient)
               const vipActive = isVip && i === LOYALTY_TIERS.length - 1
-              const nodeColor = vipActive ? themes.vip.accent : (reached ? t.color : 'var(--b2)')
+              const nodeColor = vipActive ? (kit ? 'var(--accent)' : themes.vip.accent) : (reached ? t.color : (kit ? 'var(--muted)' : 'var(--b2)'))
               return (
                 <div key={t.id} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
                   <div
@@ -1232,22 +1330,24 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: active || vipActive ? 16 : 13,
                       background: reached || vipActive
-                        ? `linear-gradient(135deg,${nodeColor}44,${nodeColor}18)`
-                        : 'var(--l3)',
-                      border: `2px solid ${reached || vipActive ? nodeColor : 'var(--b1)'}`,
-                      boxShadow: active || vipActive ? `0 0 16px ${nodeColor}66` : reached ? `0 0 8px ${nodeColor}33` : 'none',
+                        ? (kit ? 'var(--soft)' : `linear-gradient(135deg,${nodeColor}44,${nodeColor}18)`)
+                        : l3,
+                      border: `2px solid ${reached || vipActive ? nodeColor : b1}`,
+                      boxShadow: kit ? 'none' : (active || vipActive ? `0 0 16px ${nodeColor}66` : reached ? `0 0 8px ${nodeColor}33` : 'none'),
                       transition: 'all .35s ease',
                       ['--tier-glow' as string]: `${nodeColor}44`,
                     }}
                   >
-                    {vipActive ? '👑' : reached && !active ? '✓' : t.emoji}
+                    {vipActive ? '👑' : reached && !active ? '✓' : kit ? (
+                      <span className={`tier-dot dot-${t.id}`} style={{ width: 18, height: 18, boxShadow: 'none', borderWidth: 1 }} />
+                    ) : t.emoji}
                   </div>
                   <div style={{
                     fontSize: 8, fontWeight: active || vipActive ? 900 : 600,
-                    color: active || vipActive ? (vipActive ? themes.vip.accent : t.color) : reached ? 'var(--t2)' : 'var(--t3)',
+                    color: active || vipActive ? (vipActive ? theme.accent : t.color) : reached ? t2 : t3,
                     overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>{t.label}</div>
-                  <div style={{ fontSize: 7, color: 'var(--t3)', marginTop: 1 }}>{t.minSpent > 0 ? t.minSpent : '0'}</div>
+                  <div style={{ fontSize: 7, color: t3, marginTop: 1 }}>{t.minSpent > 0 ? t.minSpent : '0'}</div>
                 </div>
               )
             })}
@@ -1263,40 +1363,41 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             position: 'relative',
             overflow: 'hidden',
             background: isVip
-              ? 'linear-gradient(135deg,rgba(255,184,0,.22),rgba(255,140,0,.08),rgba(255,184,0,.15))'
+              ? (kit ? 'var(--soft)' : 'linear-gradient(135deg,rgba(255,184,0,.22),rgba(255,140,0,.08),rgba(255,184,0,.15))')
               : chip,
-            border: isVip ? '1.5px solid rgba(255,184,0,.55)' : `1px solid ${theme.border}`,
-            boxShadow: isVip ? '0 4px 24px rgba(255,184,0,.2), inset 0 1px 0 rgba(255,220,100,.15)' : 'none',
+            border: isVip ? (kit ? `1px solid var(--trim)` : '1.5px solid rgba(255,184,0,.55)') : `1px solid ${theme.border}`,
+            boxShadow: isVip && !kit ? '0 4px 24px rgba(255,184,0,.2), inset 0 1px 0 rgba(255,220,100,.15)' : 'none',
             transition: 'all .3s ease',
           }}
         >
-          {isVip && <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />}
+          {isVip && !kit && <div className="loyalty-vip-shimmer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />}
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isVip ? 10 : 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: 8,
-                  background: isVip ? 'linear-gradient(135deg,#FFD700,#FFB800)' : 'rgba(255,184,0,.12)',
+                  background: isVip ? 'linear-gradient(135deg,#FFD700,#FFB800)' : (kit ? 'var(--surface)' : 'rgba(255,184,0,.12)'),
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: isVip ? '0 0 12px rgba(255,184,0,.5)' : 'none',
+                  boxShadow: isVip && !kit ? '0 0 12px rgba(255,184,0,.5)' : 'none',
+                  border: kit && !isVip ? `1px solid ${theme.border}` : undefined,
                 }}>
-                  <Ic n="crown" s={14} c={isVip ? '#1a1000' : 'var(--gd)'} />
+                  <Ic n="crown" s={14} c={isVip ? '#1a1000' : (kit ? 'var(--accent)' : 'var(--gd)')} />
                 </div>
                 <div>
-                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? (light ? '#B45309' : '#FFD700') : 'var(--t1)', display: 'block' }}>
+                  <span className="ub" style={{ fontSize: 13, fontWeight: 900, color: isVip ? (kit || light ? '#B45309' : '#FFD700') : t1, display: 'block' }}>
                     {isVip ? 'VIP MEMBER' : 'Путь к VIP'}
                   </span>
                   {isVip && adminVip && (
-                    <span style={{ fontSize: 9, color: 'rgba(255,184,0,.75)', fontWeight: 600 }}>Назначен администратором</span>
+                    <span style={{ fontSize: 9, color: kit ? t3 : 'rgba(255,184,0,.75)', fontWeight: 600 }}>Назначен администратором</span>
                   )}
                 </div>
               </div>
               <div style={{
                 padding: '4px 10px', borderRadius: 20,
-                background: isVip ? 'rgba(255,184,0,.25)' : 'rgba(255,255,255,.06)',
-                border: `1px solid ${isVip ? 'rgba(255,184,0,.4)' : 'var(--b1)'}`,
+                background: isVip ? 'rgba(255,184,0,.25)' : (kit ? 'var(--surface)' : 'rgba(255,255,255,.06)'),
+                border: `1px solid ${isVip ? 'rgba(255,184,0,.4)' : b1}`,
               }}>
-                <span style={{ fontSize: 11, fontWeight: 900, color: isVip ? '#FFD700' : 'var(--t3)' }}>
+                <span style={{ fontSize: 11, fontWeight: 900, color: isVip ? '#B8860B' : t3 }}>
                   {isVip ? '★ VIP ★' : `${vipDoneCount}/3`}
                 </span>
               </div>
@@ -1314,15 +1415,15 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
                   return (
                     <div key={step.id} style={{
                       flex: 1, padding: '8px 4px', borderRadius: 10, textAlign: 'center',
-                      background: step.done ? 'rgba(31,215,96,.12)' : chip,
-                      border: `1px solid ${step.done ? 'rgba(31,215,96,.35)' : 'var(--b1)'}`,
+                      background: step.done ? (kit ? 'var(--soft)' : 'rgba(31,215,96,.12)') : (kit ? 'var(--surface)' : chip),
+                      border: `1px solid ${step.done ? (kit ? 'var(--trim)' : 'rgba(31,215,96,.35)') : b1}`,
                       position: 'relative', overflow: 'hidden',
                     }}>
                       {!step.done && (
-                        <div style={{ position: 'absolute', bottom: 0, left: 0, height: 2, width: `${Math.min(100, pct || 0)}%`, background: 'var(--gr)', borderRadius: 1, transition: 'width .4s ease' }} />
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, height: 2, width: `${Math.min(100, pct || 0)}%`, background: gr, borderRadius: 1, transition: 'width .4s ease' }} />
                       )}
-                      <div style={{ fontSize: 9, fontWeight: 700, color: step.done ? 'var(--gr)' : 'var(--t3)', marginBottom: 3 }}>{step.label}</div>
-                      <div style={{ fontSize: 9, fontWeight: 800, color: step.done ? 'var(--gr)' : 'var(--t2)' }}>{step.done ? '✓ Готово' : step.progress}</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: step.done ? gr : t3, marginBottom: 3 }}>{step.label}</div>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: step.done ? gr : t2 }}>{step.done ? '✓ Готово' : step.progress}</div>
                     </div>
                   )
                 })}
@@ -1330,11 +1431,12 @@ function LoyaltyStatusCard({ loyalty, onVip, adminVip }: { loyalty: ReturnType<t
             )}
             {isVip && (
               <div style={{ display: 'flex', gap: 8 }}>
-                {['🚀 Приоритет', '💳 Кредит', '🎁 Акции', '🌿 Доставка'].map((p, i) => (
+                {['Приоритет', 'Кредит', 'Акции', 'Доставка'].map((p, i) => (
                   <div key={i} style={{
                     flex: 1, fontSize: 8, fontWeight: 700, textAlign: 'center', padding: '6px 2px',
-                    borderRadius: 8, color: 'rgba(255,220,100,.9)',
-                    background: light ? 'rgba(217,119,6,.1)' : 'rgba(0,0,0,.25)', border: '1px solid rgba(255,184,0,.2)',
+                    borderRadius: 8, color: kit ? theme.accent : 'rgba(255,220,100,.9)',
+                    background: kit ? 'var(--surface)' : (light ? 'rgba(217,119,6,.1)' : 'rgba(0,0,0,.25)'),
+                    border: `1px solid ${kit ? 'var(--trim)' : 'rgba(255,184,0,.2)'}`,
                   }}>{p}</div>
                 ))}
               </div>
@@ -1462,7 +1564,6 @@ const FAQ = () => {
   {q:"Что если меня нет дома?",              a:"Курьер подождёт 10 минут. Оставьте комментарий к заказу — например, 'оставить у соседа'."},
 ]; };
 const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
-  const light = false;
   const { catalogReady } = useLiveCatalog();
   const rating = productRatingUi(p, catalogReady);
   const qty  = cart[p.id] || 0;
@@ -1472,40 +1573,39 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
   const localPhoto = useProductPhotos(s => s.photos[p.id]);
   const photo = resolveProductPhoto(p, { preferThumb: true, getPhoto: () => localPhoto });
   const add = e => { e.stopPropagation(); setPop(true); setTimeout(() => setPop(false), 300); onAdd(p.id); };
-  const mediaBg = softFromDarkGrad(p.grad || 'linear-gradient(135deg,#2A1400,#4A2400)', light);
   return (
-    <div className="card" style={{ display:"flex", flexDirection:"column", height:"100%", cursor:"default", position:"relative" }} onClick={() => go("product", { id:p.id })}>
-      <button onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn" style={{ position:"absolute", top:8, right:8, zIndex:3, width:28, height:28, borderRadius:"50%", background: light ? "rgba(255,255,255,.85)" : "rgba(0,0,0,.5)", border: light ? "1px solid var(--b1)" : "none", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <Ic n="heart" s={13} c={wished ? "#FF4545" : light ? "var(--t3)" : "rgba(255,255,255,.5)"} fill={wished ? "#FF4545" : "none"} w={2}/>
+    <div className="kk-product-card" onClick={() => go("product", { id:p.id })}>
+      <button type="button" onClick={e => { e.stopPropagation(); onWish(p.id); }} className="btn kk-product-wish" aria-label="Избранное">
+        <Ic n="heart" s={14} c={wished ? "#c42639" : "#42554a"} fill={wished ? "#c42639" : "none"} w={2}/>
       </button>
-      <div style={{ position:"absolute", top:8, left:8, display:"flex", flexDirection:"column", gap:3, zIndex:3 }}>
+      <div className="kk-product-badges">
         {disc > 0 && <span className="bdg b-rd">−{disc}%</span>}
         {p.isNew && <span className="bdg b-gr">NEW</span>}
-        {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#34D399", border:"1px solid rgba(52,211,153,.28)" }}>🌿</span>}
-        {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(255,140,0,.12)", color:"#FF8C00", border:"1px solid rgba(255,140,0,.28)", fontSize:8 }}>ОПТ</span>}
+        {p.org && <span className="bdg" style={{ background:"rgba(52,211,153,.12)", color:"#0a7148", border:"1px solid rgba(10,113,72,.22)" }}>ORG</span>}
+        {hasBulkPricing(p) && <span className="bdg" style={{ background:"rgba(184,134,11,.12)", color:"#B8860B", border:"1px solid rgba(184,134,11,.28)", fontSize:8 }}>ОПТ</span>}
       </div>
-      <div style={{ height:110, flexShrink:0, background:mediaBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:48, animation:p.hot ? "float 3s ease-in-out infinite" : "none", position:"relative", overflow:"hidden" }}>
+      <div className="kk-product-media" style={{ animation: p.hot ? "float 3s ease-in-out infinite" : undefined }}>
         {photo
-          ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:6, boxSizing:"border-box", animation:"float 3.2s ease-in-out infinite" }}/>
+          ? <img src={photo} alt={p.name} loading="lazy" decoding="async" style={{ width:"100%", height:"100%", objectFit:"contain", objectPosition:"center", display:"block", padding:8, boxSizing:"border-box" }}/>
           : p.e
         }
       </div>
-      <div style={{ padding:"10px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3, minHeight:0 }}>
-        <div style={{ fontSize:12, fontWeight:700, lineHeight:1.35, minHeight:32, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{p.name}</div>
-        <div style={{ fontSize:10, color:"var(--t3)", minHeight:14 }}>{p.unit}</div>
+      <div className="kk-product-info">
+        <div className="kk-product-name">{p.name}</div>
+        <div className="kk-product-unit">{p.unit}</div>
         <div style={{ display:"flex", alignItems:"center", gap:3, minHeight:14 }}>
           {rating ? (<><Stars r={rating.stars} s={8}/><span style={{ fontSize:9, color:"var(--t2)" }}>{rating.label}</span></>) : null}
         </div>
-        <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:18 }}>
-          <span className="ub" style={{ fontSize:15, fontWeight:800 }}>{p.price.toFixed(2)}<span style={{ fontSize:9, color:"var(--gd)", marginLeft:2 }}>ЅМ</span></span>
+        <div style={{ display:"flex", alignItems:"baseline", gap:5, marginTop:2, minHeight:20 }}>
+          <span className="kk-product-price">{p.price.toFixed(2)}<span>ЅМ</span></span>
           {p.old && <span style={{ fontSize:10, color:"var(--t3)", textDecoration:"line-through" }}>{p.old.toFixed(2)}</span>}
         </div>
         <div style={{
           fontSize:9,
-          color: bulkHint ? "#FF8C00" : "transparent",
+          color: bulkHint ? "#B8860B" : "transparent",
           fontWeight:700,
           lineHeight:1.35,
-          minHeight:34,
+          minHeight:28,
           display:"-webkit-box",
           WebkitLineClamp:2,
           WebkitBoxOrient:"vertical",
@@ -1513,14 +1613,14 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
         }}>{bulkHint || "\u00A0"}</div>
         <div style={{ marginTop:"auto", paddingTop:4 }}>
         {qty === 0 ? (
-          <button className="btn" onClick={add} style={{ width:"100%", padding:"9px", fontSize:12, borderRadius:12, background:"linear-gradient(135deg,var(--gr2),var(--gr))", color:"white", display:"flex", alignItems:"center", justifyContent:"center", gap:4, animation:pop ? "cartPop .3s ease" : "none" }}>
+          <button type="button" className="btn kk-product-add" onClick={add} style={{ animation: pop ? "cartPop .3s ease" : undefined }}>
             <Ic n="plus" s={12} c="white" w={2.5}/>В корзину
           </button>
         ) : (
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(31,215,96,.1)", border:"1.5px solid rgba(31,215,96,.28)", borderRadius:12, padding:"4px 8px" }}>
-            <button onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>−</button>
+          <div className="kk-product-qty" onClick={e => e.stopPropagation()}>
+            <button type="button" onClick={e => { e.stopPropagation(); onRm(p.id); }} className="btn" style={{ width:28, height:28, borderRadius:8, background:"color-mix(in srgb, var(--gr) 14%, #fff)", color:"var(--gr)", fontSize:17 }}>−</button>
             <span className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--gr)" }}>{formatCartQtyStepper(p, qty)}</span>
-            <button onClick={add} className="btn" style={{ width:28, height:28, borderRadius:8, background:"rgba(31,215,96,.15)", color:"var(--gr)", fontSize:17 }}>+</button>
+            <button type="button" onClick={add} className="btn" style={{ width:28, height:28, borderRadius:8, background:"color-mix(in srgb, var(--gr) 14%, #fff)", color:"var(--gr)", fontSize:17 }}>+</button>
           </div>
         )}
         </div>
@@ -1530,8 +1630,6 @@ const PCard = ({ p, cart, onAdd, onRm, onWish, wished, go }) => {
 };
 
 const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
-  const light = false;
-  const banners = storeBannerSlides(light);
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, ready: catsReady } = useStoreCategories();
   const apiOrders = useOrders(s => s.orders);
@@ -1542,78 +1640,77 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const [bi, setBi] = useState(0);
-  useEffect(() => { const t = setInterval(() => setBi(b => (b + 1) % banners.length), 4000); return () => clearInterval(t); }, [banners.length]);
-  const b = banners[bi];
-  const bannerTitle = light ? 'var(--t1)' : '#fff';
-  const bannerSub = light ? 'var(--t2)' : 'rgba(255,255,255,.6)';
-  const restTileBg = softAccentSurface('#EA580C', light, 'linear-gradient(145deg,#1A0808,#3A1010)');
-  const promoBannerBg = softAccentSurface('#2563EB', light, 'linear-gradient(135deg,#070A18,#0E1430)');
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
       <Header go={go} cart={cart} user={vipUser}/>
       <div style={{ padding:"14px 18px 100px" }}>
         <HomeVipWelcome user={vipUser} go={go}/>
-        <div style={{ borderRadius:22, overflow:"hidden", marginBottom:20, cursor:"pointer" }} onClick={() => go("promos")}>
-          <div style={{ background:b.bg, padding:"22px 20px 18px", position:"relative", overflow:"hidden" }}>
-            <div style={{ position:"absolute", left:0, right:0, height:1, background:`linear-gradient(90deg,transparent,${b.ac}55,transparent)`, animation:"scanLine 3s linear infinite" }}/>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <span className="bdg" style={{ background:`${b.ac}20`, color:b.ac, border:`1px solid ${b.ac}40`, marginBottom:10, display:"inline-flex" }}>✦ {b.badge}</span>
-                <div className="ub" style={{ fontSize:22, fontWeight:900, color:bannerTitle, lineHeight:1.2, marginBottom:6 }}>{b.title}</div>
-                <div style={{ fontSize:12, color:bannerSub, marginBottom:12 }}>{b.sub}</div>
-                {b.disc && <div style={{ padding:"7px 16px", borderRadius:11, background:b.ac, color:"white", fontFamily:"Unbounded", fontSize:20, fontWeight:900, display:"inline-block" }}>−{b.disc}%</div>}
-              </div>
-              <div style={{ fontSize:52, animation:"float 2.5s ease-in-out infinite", flexShrink:0 }}>{b.e}</div>
-            </div>
-            <div style={{ display:"flex", gap:5, marginTop:12 }}>
-              {banners.map((_, i) => <div key={i} onClick={e => { e.stopPropagation(); setBi(i); }} style={{ width:i===bi?20:6, height:6, borderRadius:3, background:i===bi?b.ac: light ? "rgba(12,26,16,.15)" : "rgba(255,255,255,.2)", transition:"all .3s", cursor:"pointer" }}/>)}
-            </div>
+        <section className="hero" aria-label="Главный баннер">
+          <div className="hero-copy">
+            <span className="eyebrow">С ЛЮБОВЬЮ К РОДНОМУ</span>
+            <h1>
+              Вкус
+              <br />
+              родного дома
+            </h1>
+            <p>Свежие продукты каждый день</p>
+            <button type="button" className="primary" onClick={() => go('catalog')}>
+              В каталог
+              <Ic n="arr" s={16} c="currentColor" />
+            </button>
           </div>
+        </section>
+        <div className="kk-section-head">
+          <h2>Категории</h2>
+          <button type="button" onClick={() => go("catalog")} className="btn text-action">Все →</button>
         </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>Категории</div>
-          <button onClick={() => go("catalog")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
-        </div>
-        <div className="hscroll" style={{ marginBottom:22 }}>
+        <div className="hscroll" style={{ marginBottom:22, gap:12 }}>
           {!catsReady ? (
-            <CatSkeleton count={6} width={108} />
+            <CatSkeleton count={6} width={112} />
           ) : (
             rootCats.slice(0,6).map(c => (
-            <div key={c.id} onClick={() => go("plist", { cat:c.id })} style={{ flexShrink:0, width:108, borderRadius:16, background:c.bg, border:`1px solid ${c.color}22`, padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
-              <div style={{ fontSize:28, marginBottom:6 }}>{c.e}</div>
-              <div style={{ fontSize:10, fontWeight:700, color:c.color, lineHeight:1.25, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{c.label}</div>
-            </div>
+            <button
+              key={c.id}
+              type="button"
+              className="kk-cat-chip"
+              style={{ ['--chip' as string]: c.color }}
+              onClick={() => go("plist", { cat:c.id })}
+            >
+              <div className="kk-cat-emoji">{c.e}</div>
+              <div className="kk-cat-label">{c.label}</div>
+            </button>
             ))
           )}
-          <div onClick={() => go("restaurants")} style={{ flexShrink:0, width:108, borderRadius:16, background:restTileBg, border:"1px solid rgba(255,125,59,.25)", padding:"12px 8px", textAlign:"center", cursor:"pointer" }}>
-            <div style={{ fontSize:28, marginBottom:6 }}>🍽</div>
-            <div style={{ fontSize:10, fontWeight:700, color:"var(--org)", lineHeight:1.25 }}>Рестораны</div>
-          </div>
+          <button type="button" className="kk-cat-chip" style={{ ['--chip' as string]: '#C46A2B' }} onClick={() => go("restaurants")}>
+            <div className="kk-cat-emoji">🍽</div>
+            <div className="kk-cat-label">Рестораны</div>
+          </button>
         </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🍽 Рестораны г. Яван</div>
-          <button onClick={() => go("restaurants")} className="btn" style={{ fontSize:12, color:"var(--org)", background:"transparent" }}>Все →</button>
+        <div className="kk-section-head">
+          <h2>Рестораны г. Яван</h2>
+          <button type="button" onClick={() => go("restaurants")} className="btn text-action">Все →</button>
         </div>
-        <div className="hscroll" style={{ marginBottom:22 }}>
+        <div className="hscroll" style={{ marginBottom:22, gap:12 }}>
           {restaurants.map((r,i) => (
-            <div key={r.id} onClick={() => go("restaurant",{rid:r.id})}
-              style={{ flexShrink:0, width:160, borderRadius:18, overflow:"hidden", background:softFromDarkGrad(r.img, light, '#EA580C'), cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, position:"relative", border: light ? "1px solid var(--b1)" : "none" }}>
-              {!r.open && <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.55)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:"white" }}>🔴 Закрыто</div>}
-              <div style={{ padding:"14px 12px 10px", position:"relative", zIndex:1 }}>
-                <div style={{ fontSize:36, marginBottom:6 }}>{r.emoji}</div>
-                <div className="ub" style={{ fontSize:12, fontWeight:900, color: light ? "var(--t1)" : "white", marginBottom:2, lineHeight:1.3 }}>{r.name}</div>
-                <div style={{ fontSize:10, color: light ? "var(--t2)" : "rgba(255,255,255,.6)", marginBottom:8 }}>{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
-                <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
-                  <span style={{ padding:"2px 7px", borderRadius:7, fontSize:9, fontWeight:800, background: light ? "rgba(12,26,16,.06)" : "rgba(0,0,0,.4)", color: light ? "var(--t2)" : "rgba(255,255,255,.8)" }}>★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
-                </div>
+            <div
+              key={r.id}
+              className="kk-rest-card"
+              style={{ ['--rest' as string]: restAccentColor(r), animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both` }}
+              onClick={() => go("restaurant",{rid:r.id})}
+            >
+              {!r.open && <div style={{ position:"absolute", inset:0, background:"rgba(25,42,33,.55)", zIndex:2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, color:"white" }}>Закрыто</div>}
+              <div className="kk-rest-media">{r.emoji}</div>
+              <div className="kk-rest-body">
+                <div className="kk-rest-name">{r.name}</div>
+                <div className="kk-rest-meta">{restaurantCuisineLabel(r.cuisine, restaurantsReady)}</div>
+                <span className="kk-rest-rate">★ {restaurantRatingLabel(r.rating, restaurantsReady)}</span>
               </div>
             </div>
           ))}
         </div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-          <div className="ub" style={{ fontSize:15, fontWeight:800 }}>🔥 Хиты продаж</div>
-          <button onClick={() => go("hot")} className="btn" style={{ fontSize:12, color:"var(--gr)", background:"transparent" }}>Все →</button>
+        <div className="kk-section-head">
+          <h2>Хиты продаж</h2>
+          <button type="button" onClick={() => go("hot")} className="btn text-action">Все →</button>
         </div>
         <div className="store-prod-grid" style={{ marginBottom:20, alignItems:"stretch" }}>
           {prods.filter(p => p.hot).slice(0,4).map((p,i) => (
@@ -1622,13 +1719,15 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
             </div>
           ))}
         </div>
-        <div onClick={() => go("promos")} style={{ borderRadius:18, background:promoBannerBg, border:"1px solid rgba(59,142,240,.2)", padding:"18px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-          <div>
-            <div className="ub" style={{ fontSize:14, fontWeight:800, marginBottom:4 }}>Акции и скидки</div>
-            <div style={{ fontSize:12, color:"var(--t2)" }}>Флэш-распродажа до 20:00 ⚡</div>
+        <button type="button" className="kk-rest-banner" onClick={() => go("promos")}>
+          <div className="kk-rest-banner-emoji">🏷</div>
+          <div className="kk-rest-banner-copy">
+            <small>АКЦИИ</small>
+            <h3>Акции и скидки</h3>
+            <div className="kk-rest-banner-sub">Специальные предложения на сегодня</div>
           </div>
-          <div style={{ fontSize:40, animation:"float 3s ease-in-out infinite" }}>🏷</div>
-        </div>
+          <div className="kk-rest-banner-go">Смотреть →</div>
+        </button>
       </div>
       <Nav page="home" go={go} user={vipUser}/>
     </div>
@@ -1636,43 +1735,57 @@ const HomePage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const CatalogPage = ({ go, cart, user }) => {
-  const light = false;
   const { prods, restaurants, restaurantsReady } = useLiveCatalog();
   const { rootCats, cats, ready: catsReady } = useStoreCategories();
-  const restBannerBg = softAccentSurface('#EA580C', light, 'linear-gradient(135deg,#1A0808,#3A1010)');
   return (
   <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
     <Header title="Каталог" go={go} cart={cart} user={user}/>
     <div style={{ padding:"16px 18px 100px" }}>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:22 }}>
-        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"var(--org)",to:"hot"},{e:"✨",t:"Новинки",s:"Только что",c:"var(--blue)",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#34D399",to:"promos"}].map((p,i) => (
-          <button key={i} type="button" onClick={() => go(p.to)} className="btn" style={{ background:"var(--l2)", border:"1px solid var(--b1)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, textAlign:"left" }}>
-            <div style={{ fontSize:28, marginBottom:8 }}>{p.e}</div>
-            <div className="ub" style={{ fontSize:13, fontWeight:800, color:p.c, marginBottom:2 }}>{p.t}</div>
-            <div style={{ fontSize:10, color:"var(--t3)" }}>{p.s}</div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+        {[{e:"💸",t:"Акции",s:"До 40%",c:"var(--gr)",to:"promos"},{e:"🔥",t:"Хиты",s:"Топ продаж",c:"#B8860B",to:"hot"},{e:"✨",t:"Новинки",s:"Только что",c:"#2563EB",to:"promos"},{e:"🌿",t:"Органик",s:"Без ГМО",c:"#0a7148",to:"promos"}].map((p,i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => go(p.to)}
+            className="kk-cat-grid-card"
+            style={{ animation:`fadeUp .4s cubic-bezier(.16,1,.3,1) ${i*.05}s both`, ['--chip' as string]: p.c, minHeight: 0, textAlign: 'left' }}
+          >
+            <div className="kk-cat-grid-emoji">{p.e}</div>
+            <div className="kk-cat-grid-name" style={{ color: p.c }}>{p.t}</div>
+            <div className="kk-cat-grid-count">{p.s}</div>
           </button>
         ))}
-        <div onClick={() => go("restaurants")} style={{ background:restBannerBg, border:"1px solid rgba(255,125,59,.25)", borderRadius:16, padding:"14px 12px", cursor:"pointer", animation:"fadeUp .4s cubic-bezier(.16,1,.3,1) .2s both", gridColumn:"span 2" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ fontSize:38 }}>🍽</div>
-            <div style={{ flex:1 }}>
-              <div className="ub" style={{ fontSize:14, fontWeight:800, color:"var(--org)", marginBottom:2 }}>Рестораны г. Яван</div>
-              <div style={{ fontSize:11, color: light ? "var(--t2)" : "rgba(255,255,255,.5)", marginBottom:6 }}>Чайхона, Пицца, Суши, Фаст-фуд</div>
-              <div style={{ display:"flex", gap:8 }}>
-                {restaurants.map(r => (
-                  <span key={r.id} style={{ fontSize:18 }}>{r.emoji}</span>
-                ))}
-              </div>
-            </div>
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontFamily:"Unbounded", fontSize:16, fontWeight:900, color:"var(--org)" }}>{restaurantsReady ? restaurants.length : '…'}</div>
-              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.4)" }}>ресторана</div>
-              <div style={{ marginTop:6, fontSize:11, fontWeight:700, color:"var(--org)" }}>Смотреть →</div>
-            </div>
+      </div>
+
+      <button
+        type="button"
+        className="kk-rest-banner"
+        style={{ marginBottom: 22, animation: 'fadeUp .4s cubic-bezier(.16,1,.3,1) .15s both' }}
+        onClick={() => go('restaurants')}
+      >
+        <div className="kk-rest-banner-emoji">🍽</div>
+        <div className="kk-rest-banner-copy">
+          <small>ДОСТАВКА ЕДЫ</small>
+          <h3>Рестораны г. Яван</h3>
+          <div className="kk-rest-banner-sub">
+            Чайхона · Пицца · Суши · Фаст-фуд
+            <span style={{ marginLeft: 8, opacity: 0.9 }}>
+              {restaurants.map(r => r.emoji).join(' ')}
+            </span>
           </div>
         </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontFamily: '"Noto Serif", Georgia, serif', fontSize: 18, fontWeight: 700 }}>
+            {restaurantsReady ? restaurants.length : '…'}
+          </div>
+          <div style={{ fontSize: 10, opacity: 0.8, marginBottom: 6 }}>ресторана</div>
+          <div className="kk-rest-banner-go">Смотреть →</div>
+        </div>
+      </button>
+
+      <div className="kk-section-head">
+        <h2>Все категории</h2>
       </div>
-      <div className="ub" style={{ fontSize:15, fontWeight:800, marginBottom:14 }}>Все категории</div>
       {!catsReady ? (
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
           {Array.from({ length: 6 }).map((_, i) => (
@@ -1682,27 +1795,28 @@ const CatalogPage = ({ go, cart, user }) => {
       ) : (
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
         {rootCats.map((c,i) => (
-          <div key={c.id} onClick={() => go("plist", { cat:c.id })} className="card" style={{ background:c.bg, cursor:"pointer", animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both`, border: light ? `1px solid ${c.color}28` : undefined }}>
-            <div style={{ padding:"16px 14px" }}>
-              <div style={{ fontSize:36, marginBottom:8 }}>{c.e}</div>
-              <div className="ub" style={{ fontSize:13, fontWeight:800, color: light ? "var(--t1)" : "#fff", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:10, color: light ? "var(--t3)" : "rgba(255,255,255,.5)", marginBottom:10 }}>{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <span style={{ fontSize:11, fontWeight:700, color:c.color }}>Смотреть</span>
-                <Ic n="arr" s={13} c={c.color}/>
-              </div>
-            </div>
-          </div>
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => go("plist", { cat:c.id })}
+            className="kk-cat-grid-card"
+            style={{ ['--chip' as string]: c.color, animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.04}s both` }}
+          >
+            <div className="kk-cat-grid-emoji">{c.e}</div>
+            <div className="kk-cat-grid-name">{c.label}</div>
+            <div className="kk-cat-grid-count">{formatProductCount(productsInCategory(prods, c.id, null, cats).length)}</div>
+            <div className="kk-cat-grid-go">Смотреть →</div>
+          </button>
         ))}
       </div>
       )}
     </div>
-    <Nav page="catalog" go={go}/>
+    <Nav page="catalog" go={go} user={user}/>
   </div>
 );
 };
 const PListPage = ({ go, params, cart, onAdd, onRm, onWish, wished, user }) => {
-  const light = false;
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const { isVip } = resolveUserVip(user, light);
@@ -1884,7 +1998,7 @@ const QtyStepper = ({ qty, onAdd, onRm, size = "md", label }) => {
 };
 
 const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
-  const light = false;
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { cats } = useStoreCategories();
   const p = prods.find(x => x.id == params?.id);
@@ -2099,7 +2213,7 @@ const ProductPage = ({ go, params, cart, onAdd, onRm, onWish, wished }) => {
   );
 };
 const CartPage = ({ go, cart, cartMeta = {}, onAdd, onRm, onDel, cartSyncReady = true, user }) => {
-  const light = false;
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const items = buildCartLineItems(cart, cartMeta, prods);
   const prodItems = items.filter(p => !p.isRest);
@@ -2888,7 +3002,7 @@ function CartPageBoot({ go }: { go: (p: string) => void }) {
   );
 }
 
-const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady }) => {
+const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionReady, cart }) => {
   const apiOrders = useOrders(s => s.orders);
   const fetchOrders = useOrders(s => s.fetchOrders);
   const pendingBonusSyncCount = useMemo(
@@ -3005,7 +3119,8 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     return profileLoyalty.isVip ? th.vip : profileLoyalty.isBasicClient ? th.basic : (th[profileLoyalty.tier.id] || th.bronze)
   })()
   const profileTierId = profileLoyalty.isVip ? 'vip' : profileLoyalty.isBasicClient ? 'basic' : profileLoyalty.tier.id
-  const cardAccent = profileCardAccent(profileTheme);
+  const statusUser = { ...user, vip: profileLoyalty.isVip, level: profileLoyalty.level }
+  const cardLast4 = user.card ? String(user.card).replace(/\D/g, '').slice(-4) || String(user.card).slice(-4) : ''
 
   const debtNow = Math.max(0, Number(user?.debt) || 0)
   // Раздел «Долги» в профиле только если: есть долг из магазина, админ включил раздел, или статус (VIP) сам открывает долг
@@ -3050,124 +3165,102 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
     },
   ];
 
-  return (
-    <div data-store-page data-profile-tier={profileTierId} style={profilePageShell(profileTheme, profileTierId)}>
-      <header style={profileHeaderStyle(profileTheme)}>
-        <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <div className="ub" style={{ flex:1, fontSize:17, fontWeight:900, color: profileTheme.accent }}>Профиль</div>
-          <button onClick={() => go("notifs")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
-            <Ic n="bell" s={17} c="var(--t2)"/>
-            {unreadNotifs > 0 && (
-              <div style={{ position:"absolute", top:6, right:6, minWidth:16, height:16, padding:"0 4px", borderRadius:8, background:"var(--red)", border:"1.5px solid var(--bg)", fontSize:9, fontWeight:800, color:"white", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                {unreadNotifs > 9 ? "9+" : unreadNotifs}
-      </div>
-            )}
-          </button>
-        </div>
-      </header>
+  const statusLabel = profileLoyalty.isVip
+    ? 'VIP'
+    : (profileLoyalty.isBasicClient ? 'Базовый' : (profileLoyalty.tier?.label || 'Клиент'))
+  const initials = (user.name || 'К').split(/\s+/).map(p => p.charAt(0)).join('').slice(0, 2).toUpperCase()
+  const firstName = (user.name || '').split(' ')[0] || user.name || 'Клиент'
 
-      <div style={{ padding:"16px 18px 110px" }}>
-        <div className="card" style={{
-          padding:"16px", marginBottom:14,
-          background: profileTheme.bg,
-          border: `1.5px solid ${profileTheme.border}`,
-          boxShadow: loyalty.isVip ? `0 6px 28px ${profileTheme.glow}` : `0 4px 22px ${profileTheme.glow}`,
-          transition: 'all .4s ease',
-        }}>
-          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
-            <div style={{
-              width:56, height:56, borderRadius:16, flexShrink:0, position:'relative',
-              background: loyalty.isVip
-                ? 'linear-gradient(135deg,#FFD700,#FFB800,#E89E00)'
-                : `linear-gradient(135deg,${profileTheme.accent},${profileTheme.accent}99)`,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              boxShadow: loyalty.isVip ? '0 4px 20px rgba(255,184,0,.45)' : `0 4px 16px ${profileTheme.glow}`,
-            }}>
-              <span style={{ fontFamily:"Unbounded", fontSize:22, fontWeight:900, color: loyalty.isVip ? '#1a1000' : 'var(--bg)' }}>
-                {user.name.charAt(0)}
-              </span>
-              {loyalty.isVip && (
-                <div style={{
-                  position:'absolute', top:-4, right:-4, width:22, height:22, borderRadius:8,
-                  background:'linear-gradient(135deg,#FFD700,#FFB800)', border:'2px solid var(--bg)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:11,
-                  boxShadow:'0 2px 8px rgba(255,184,0,.5)', animation:'crownFloat 2.5s ease-in-out infinite',
-                }}>👑</div>
-              )}
-          </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                <div className="ub" style={{ fontSize:15, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
-          </div>
-              <div style={{ fontSize:12, color:"var(--t2)", marginBottom: user.card ? 2 : 5 }}>{user.phone}</div>
-              {user.card && (
-                <div style={{ marginBottom:5, display:"flex", alignItems:"center", gap:8 }}>
-                  <div style={{ fontSize:11, color:"var(--t3)", display:"flex", alignItems:"center", gap:4, minWidth:0, flex:1, overflow:"hidden" }}>
-                    <Ic n="card" s={11} c="var(--t3)"/>
-                    <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.card}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => setCardQrOpen(true)}
-                    title="QR-код карты"
-                    style={{
-                      flexShrink:0, height:30, padding:"0 10px", borderRadius:10, gap:5,
-                      background:`${profileTheme.accent}18`, border:`1px solid ${profileTheme.border}`,
-                      display:"inline-flex", alignItems:"center", justifyContent:"center",
-                      fontSize:11, fontWeight:800, color:profileTheme.accent,
-                    }}
-                  >
-                    <Ic n="qr" s={14} c={profileTheme.accent}/>
-                    QR
-                  </button>
-                </div>
-              )}
-              <span style={{
-                fontSize:10, fontWeight:800, padding:"3px 10px", borderRadius:20, display:'inline-flex', alignItems:'center', gap:4,
-              }}>
-                <UserStatusBadge user={{ ...user, vip: profileLoyalty.isVip, level: profileLoyalty.level }} size="md" />
-              </span>
-            </div>
+  return (
+    <div className="kk" data-tier={profileTierId} data-store-page data-profile-tier={profileTierId} style={{ maxWidth: 'var(--store-w)', margin: '0 auto' }}>
+      <NationalStoreHeader go={go} cart={cart || {}} user={statusUser} />
+
+      <div className="kk-content">
+        <div className="page-title">
+          <button type="button" className="icon-button back" aria-label="Назад" onClick={() => go('home')}>
+            <Ic n="arrL" s={21} c="currentColor" />
+          </button>
+          <h1>Профиль</h1>
         </div>
-          <div style={{
-            display:"flex", alignItems:"center", justifyContent:"space-between", gap:8,
-            padding:"12px 14px", borderRadius:14, marginBottom:10,
-            background:"linear-gradient(135deg, rgba(0,212,200,.14), rgba(0,212,200,.05))",
-            border:"1px solid rgba(0,212,200,.3)",
-          }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:18 }}>⭐</span>
-              <div>
-                <div style={{ fontSize:13, fontWeight:800, color:"var(--t1)" }}>Бонусы</div>
-                <div style={{ fontSize:10, color:"var(--t3)" }}>1 бонус = 1 сом · магазин и приложение</div>
-              </div>
+
+        <div className="screen-content">
+          <div className="profile-identity">
+            <span className="avatar">{initials}</span>
+            <div>
+              <h1>{firstName}</h1>
+              <small>Клиент КАКАПО · Яван</small>
+              <TierBadge name={statusLabel} vip={profileLoyalty.isVip} />
             </div>
-            <div className="bank-num" style={{ fontSize:22, fontWeight:900, color:profileTheme.accent }} title={bonusBank}>
-              {bonusBank} ⭐
-            </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(2, minmax(0, 1fr))", gap:8 }}>
-            <div style={{ padding:"10px 6px", borderRadius:12, background:"rgba(31,215,96,.08)", border:"1px solid rgba(31,215,96,.2)", textAlign:"center", minWidth:0, overflow:"hidden" }}>
-              <div className="bank-num" style={{ fontSize:16, color:"var(--gr)" }}>{orderCount}</div>
-              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>{orderCount === 1 ? "заказ" : orderCount >= 2 && orderCount <= 4 ? "заказа" : "заказов"}</div>
-              </div>
-            <button
-              type="button"
-              onClick={() => go("wishlist")}
-              className="btn"
-              style={{
-                padding:"10px 6px", borderRadius:12, minWidth:0, overflow:"hidden",
-                background: wishCount > 0 ? "rgba(255,69,69,.08)" : "var(--l3)",
-                border: `1px solid ${wishCount > 0 ? "rgba(255,69,69,.25)" : "var(--b1)"}`,
-                textAlign:"center", cursor:"pointer",
-              }}
-            >
-              <div className="bank-num" style={{ fontSize:16, color: wishCount > 0 ? "var(--red)" : "var(--t2)" }}>{wishCount}</div>
-              <div style={{ fontSize:10, color:"var(--t3)", marginTop:3, lineHeight:1.2 }}>избранное</div>
+            <button type="button" className="icon-button" aria-label="Настройки" onClick={() => go('faq')} style={{ position: 'relative' }}>
+              <Ic n="gear" s={21} c="currentColor" />
+              {unreadNotifs > 0 && (
+                <span className="cart-count" style={{ top: 6, right: 6 }}>{unreadNotifs > 9 ? '9+' : unreadNotifs}</span>
+              )}
             </button>
-              </div>
-              </div>
+          </div>
+
+          <div
+            className="customer-card national"
+            role={user.card ? 'button' : undefined}
+            tabIndex={user.card ? 0 : undefined}
+            onClick={user.card ? () => setCardQrOpen(true) : undefined}
+            onKeyDown={user.card ? (e) => { if (e.key === 'Enter' || e.key === ' ') setCardQrOpen(true) } : undefined}
+          >
+            <div>
+              <span className="eyebrow">КАРТА КЛИЕНТА</span>
+              <h2>{statusLabel}</h2>
+              <span className="card-number">
+                {cardLast4 ? `•••• •••• •••• ${cardLast4}` : '•••• •••• •••• —'}
+              </span>
+            </div>
+            <NationalEmblem />
+            {user.card && (
+              <button
+                type="button"
+                className="qr-button"
+                aria-label="Открыть QR-код карты"
+                onClick={(e) => { e.stopPropagation(); setCardQrOpen(true) }}
+              >
+                <Ic n="qr" s={22} c="currentColor" />
+              </button>
+            )}
+            <span className="card-signature">КАКАПО · ЯВАН</span>
+          </div>
+
+          <button type="button" className="bonus panel" onClick={() => go('vip')}>
+            <span className="bonus-icon">
+              <Ic n="card" s={22} c="currentColor" />
+            </span>
+            <span>
+              <small>Ваши бонусы</small>
+              <b>
+                {bonusBank} <em>баллов</em>
+              </b>
+            </span>
+            <Ic n="arr" s={18} c="currentColor" />
+          </button>
+
+          <div className="stat-grid">
+            <button type="button" className="panel" onClick={() => go('orders')}>
+              <span className="stat-ico"><Ic n="bag" s={22} c="currentColor" /></span>
+              <b>{orderCount}</b>
+              <span>Заказы</span>
+            </button>
+            <button type="button" className="panel" onClick={() => go('wishlist')}>
+              <span className="stat-ico"><Ic n="heart" s={22} c="currentColor" /></span>
+              <b>{wishCount}</b>
+              <span>Избранное</span>
+            </button>
+          </div>
+
+          <div className="panel status-summary">
+            <small>ВАШ СТАТУС</small>
+            <h2>{statusLabel}</h2>
+            <button type="button" className="text-action" onClick={() => go('vip')}>
+              Подробнее о статусе
+              <Ic n="arr" s={16} c="currentColor" />
+            </button>
+          </div>
 
         {cardQrOpen && user.card && (
           <div
@@ -3224,80 +3317,80 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
           </div>
         )}
 
-        <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} />
+        <LoyaltyStatusCard loyalty={profileLoyalty} onVip={() => go("vip")} adminVip={!!user.vip} kit />
 
-        <div className="card" style={{ marginBottom:12, ...cardAccent }}>
-          {menuItems.map((item, i) => (
-            <div
+        <div className="panel menu-panel">
+          {menuItems.map((item) => (
+            <button
               key={item.to}
+              type="button"
+              className="menu-row"
               onClick={() => go(item.to)}
-              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", borderBottom:i < menuItems.length - 1 ? `1px solid ${profileTheme.border}` : "none", cursor:"pointer" }}
             >
-              <div style={{ width:34, height:34, borderRadius:10, background:`${item.c}14`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                <Ic n={item.icon} s={16} c={item.c}/>
-            </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:700 }}>{item.l}</div>
-                {item.s && <div style={{ fontSize:11, color:"var(--t3)", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.s}</div>}
+              <span className="row-icon"><Ic n={item.icon} s={20} c="currentColor" /></span>
+              <span className="row-main">
+                {item.l}
+                {item.s ? <small>{item.s}</small> : null}
+              </span>
+              {item.badge ? (
+                <span className="menu-badge">
+                  {item.icon === 'bell' ? String(item.badge) : item.badge === 'VIP' ? 'VIP' : item.badge === 'долг' ? 'долг' : 'ответ'}
+                </span>
+              ) : null}
+              <Ic n="arr" s={18} c="currentColor" />
+            </button>
+          ))}
         </div>
-              <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                {item.badge ? (
-                  <span style={{ fontSize:10, fontWeight:800, padding:"2px 7px", borderRadius:8, background:item.icon === "bell" ? "rgba(255,69,69,.12)" : item.icon === "crown" ? "rgba(255,184,0,.12)" : item.icon === "card" ? "rgba(255,69,69,.12)" : "rgba(59,142,240,.12)", color:item.icon === "bell" || item.icon === "card" ? "var(--red)" : item.icon === "crown" ? "var(--gd)" : "var(--blue)", border:`1px solid ${item.icon === "bell" || item.icon === "card" ? "rgba(255,69,69,.25)" : item.icon === "crown" ? "rgba(255,184,0,.3)" : "rgba(59,142,240,.25)"}` }}>
-                    {item.icon === "bell" ? String(item.badge) : item.badge === "VIP" ? "VIP" : item.badge === "долг" ? "долг" : "ответ"}
-                  </span>
-                ) : null}
-                <Ic n="arr" s={14} c="var(--t3)"/>
-              </div>
-                </div>
-              ))}
-            </div>
 
-        <div className="card" style={cardAccent}>
+        <div className="panel menu-panel">
           {confirmDelete ? (
-            <div style={{ padding:"14px" }}>
-              <div style={{ fontSize:13, fontWeight:800, color:"var(--red)", marginBottom:8 }}>Удалить аккаунт?</div>
-              <div style={{ fontSize:12, color:"var(--t2)", lineHeight:1.5, marginBottom:14 }}>
+            <div style={{ padding: '14px 1px' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#c62828', marginBottom: 8 }}>Удалить аккаунт?</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 14 }}>
                 Аккаунт попадёт в восстановление на 30 дней — можно вернуть профиль, заказы и бонусы. После этого срока регистрация начнётся заново. Заказы останутся в отчётах админа.
-          </div>
-              <div style={{ display:"flex", gap:8 }}>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   type="button"
                   disabled={deleting}
                   onClick={async () => {
-                    const snapshot = user;
-                    setDeleting(true);
+                    const snapshot = user
+                    setDeleting(true)
                     try {
-                      await deleteClientAccount(snapshot);
-                      clearClientSession();
-                      setUser?.(null);
-                      setConfirmDelete(false);
-                      showToast?.("Аккаунт удалён");
+                      await deleteClientAccount(snapshot)
+                      clearClientSession()
+                      setUser?.(null)
+                      setConfirmDelete(false)
+                      showToast?.('Аккаунт удалён')
                     } catch (e) {
-                      console.error(e);
-                      const msg = e instanceof Error ? e.message : 'Не удалось удалить аккаунт';
-                      showToast?.(msg);
+                      console.error(e)
+                      const msg = e instanceof Error ? e.message : 'Не удалось удалить аккаунт'
+                      showToast?.(msg)
                     } finally {
-                      setDeleting(false);
+                      setDeleting(false)
                     }
                   }}
                   className="btn"
-                  style={{ flex:1, padding:"11px", borderRadius:12, background:"var(--red)", color:"white", fontSize:12, fontWeight:800, opacity:deleting ? 0.7 : 1 }}
+                  style={{ flex: 1, padding: 11, borderRadius: 12, background: '#c62828', color: 'white', fontSize: 12, fontWeight: 800, opacity: deleting ? 0.7 : 1 }}
                 >
-                  {deleting ? "Удаление…" : "Да, удалить"}
+                  {deleting ? 'Удаление…' : 'Да, удалить'}
                 </button>
                 <button
                   type="button"
                   disabled={deleting}
                   onClick={() => setConfirmDelete(false)}
                   className="btn"
-                  style={{ flex:1, padding:"11px", borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", fontSize:12, fontWeight:700, color:"var(--t2)" }}
+                  style={{ flex: 1, padding: 11, borderRadius: 12, background: 'var(--soft)', border: '1px solid var(--line)', fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}
                 >
                   Отмена
                 </button>
-          </div>
-        </div>
+              </div>
+            </div>
           ) : (
-            <div
+            <button
+              type="button"
+              className="menu-row menu-row-danger"
+              style={{ opacity: (Number(user?.debt) || 0) > 0.001 ? 0.65 : 1 }}
               onClick={() => {
                 const debt = Math.max(0, Number(user?.debt) || 0)
                 if (debt > 0.001) {
@@ -3306,33 +3399,27 @@ const ProfilePage = ({ go, user, setUser, onLogout, wished, showToast, sessionRe
                 }
                 setConfirmDelete(true)
               }}
-              style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer", opacity:(Number(user?.debt) || 0) > 0.001 ? .65 : 1 }}
             >
-              <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.08)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <Ic n={(Number(user?.debt) || 0) > 0.001 ? "card" : "trash"} s={16} c="var(--red)"/>
-      </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:"var(--red)" }}>Удалить аккаунт</div>
-                {(Number(user?.debt) || 0) > 0.001 && (
-                  <div style={{ fontSize:10, color:"var(--t3)", marginTop:2 }}>Недоступно, пока есть долг</div>
-                )}
-              </div>
-            </div>
+              <span className="row-icon"><Ic n={(Number(user?.debt) || 0) > 0.001 ? 'card' : 'trash'} s={20} c="currentColor" /></span>
+              <span className="row-main">
+                Удалить аккаунт
+                {(Number(user?.debt) || 0) > 0.001 ? <small>Недоступно, пока есть долг</small> : null}
+              </span>
+            </button>
           )}
         </div>
 
-        <div className="card" style={cardAccent}>
-          <div onClick={() => onLogout?.()} style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 14px", cursor:"pointer" }}>
-            <div style={{ width:34, height:34, borderRadius:10, background:"rgba(255,69,69,.12)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <Ic n="logout" s={16} c="var(--red)"/>
-                </div>
-            <div style={{ flex:1, fontSize:13, fontWeight:700, color:"var(--red)" }}>Выйти из аккаунта</div>
-            </div>
-          </div>
+        <div className="panel menu-panel">
+          <button type="button" className="menu-row menu-row-danger" onClick={() => onLogout?.()}>
+            <span className="row-icon"><Ic n="logout" s={20} c="currentColor" /></span>
+            <span className="row-main">Выйти из аккаунта</span>
+          </button>
+        </div>
 
-        <div style={{ textAlign:"center", marginTop:14, fontSize:10, color:"var(--t3)" }}>КАКАПО · г. Яван</div>
-          </div>
-      <Nav page="profile" go={go} user={user}/>
+        <div style={{ textAlign: 'center', marginTop: 14, fontSize: 10, color: 'var(--muted)' }}>КАКАПО · г. Яван</div>
+        </div>
+      </div>
+      <Nav page="profile" go={go} user={statusUser} />
     </div>
   );
 };
@@ -3416,7 +3503,7 @@ function OrderReviewModal({
   )
 }
 
-const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
+const OrdersPage = ({ go, cart, user, onAdd, onClearCart, showToast, params }) => {
   const apiOrders = useOrders(s => s.orders);
   const { prods, restaurants } = useLiveCatalog();
   const pickups = usePickups();
@@ -3591,13 +3678,17 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
 
   if (selected) return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
-        <div style={{ padding:"14px 18px 13px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => setSelected(null)} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:15, fontWeight:900 }}>Заказ {selected.id}</div><div style={{ fontSize:10, color:"var(--t2)", marginTop:1 }}>{selected.date} · {selected.time}</div></div>
-          <span className="bdg" style={{ background:`${ST[selected.status].c}18`, color:ST[selected.status].c, border:`1px solid ${ST[selected.status].c}30` }}>{ST[selected.status].l}</span>
-        </div>
-      </header>
+      <Header
+        title={`Заказ ${selected.id}`}
+        subtitle={`${selected.date} · ${selected.time}`}
+        onBack={() => setSelected(null)}
+        go={go}
+        cart={cart}
+        user={user}
+      />
+      <div style={{ padding:"12px 18px 0" }}>
+        <span className="bdg" style={{ background:`${ST[selected.status].c}18`, color:ST[selected.status].c, border:`1px solid ${ST[selected.status].c}30` }}>{ST[selected.status].l}</span>
+      </div>
       <div style={{ padding:"16px 18px 100px" }}>
         {selected.status==="assembling" && (
           <div style={{ padding:"16px", borderRadius:16, background:"rgba(155,109,255,.08)", border:"1px solid rgba(155,109,255,.25)", marginBottom:16 }}>
@@ -3727,17 +3818,14 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
 
   return (
     <div data-store-page style={{ minHeight:"100vh", background:"var(--bg)", maxWidth:'var(--store-w)', margin:"0 auto" }}>
-      <header data-store-header style={{ position:"sticky", top:0, zIndex:100, background:"var(--header-bg)", backdropFilter:"blur(24px)", borderBottom:"1px solid var(--b1)" }}>
-        <div style={{ padding:"14px 18px 10px", display:"flex", alignItems:"center", gap:10 }}>
-          <button onClick={() => go("home")} className="btn" style={{ width:38, height:38, borderRadius:12, background:"var(--l3)", border:"1px solid var(--b1)", display:"flex", alignItems:"center", justifyContent:"center" }}><Ic n="arrL" s={17} c="var(--t2)"/></button>
-          <div style={{ flex:1 }}><div className="ub" style={{ fontSize:17, fontWeight:900 }}>Мои заказы</div>
-            <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:2, flexWrap:"wrap" }}>
-              <div style={{ fontSize:10, color:"var(--t2)" }}>{ordersList.length} заказов</div>
-              {user && resolveUserVip(user).isVip && <UserStatusBadge user={user} size="sm" />}
-        </div>
-          </div>
-        </div>
-        <div style={{ padding:"0 16px 10px", display:"flex", flexWrap:"wrap", gap:5 }}>
+      <Header
+        title="Мои заказы"
+        subtitle={`${ordersList.length} заказов`}
+        go={go}
+        cart={cart}
+        user={user}
+      />
+      <div style={{ padding:"0 16px 10px", display:"flex", flexWrap:"wrap", gap:5 }}>
           {ORDER_STATUS_FILTERS.map(f => {
             const on = filter === f.id;
             return (
@@ -3767,8 +3855,7 @@ const OrdersPage = ({ go, user, onAdd, onClearCart, showToast, params }) => {
               </button>
             );
           })}
-        </div>
-      </header>
+      </div>
       {ordersList.some(o => o.status==="delivering" && o.trackable) && filter==="all" && (
         <div onClick={() => setSelected(ordersList.find(o => o.status==="delivering"))} style={{ margin:"14px 18px 0", padding:"12px 16px", borderRadius:16, background:"rgba(59,142,240,.08)", border:"1px solid rgba(59,142,240,.3)", display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--blue)", position:"relative", flexShrink:0 }}><div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"var(--blue)", animation:"ping 1.5s ease-out infinite", opacity:.5 }}/></div>
@@ -3961,7 +4048,7 @@ const ClientReviewsPage = ({ go, user, sessionReady, params }) => {
 };
 
 const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
-  const light = false;
+  const light = true;
   const shortLabel = cat.label.split(" ")[0];
   return (
     <div
@@ -4000,7 +4087,7 @@ const PromoCategoryCard = ({ cat, maxDisc, onClick, animDelay = 0 }) => {
 };
 
 const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catLabel, go }) => {
-  const light = false;
+  const light = true;
   const qty = cart[p.id] || 0;
   const photo = resolveProductPhoto(p, { preferThumb: true });
                 return (
@@ -4071,7 +4158,7 @@ const PromoFlashCard = ({ p, cart, onAdd, onRm, disc, stockLabel, stockPct, catL
 };
 
 const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
-  const light = false;
+  const light = true;
   const { prods, catalogReady, promosReady } = useLiveCatalog();
   const { cats, rootCats, ready: catsReady } = useStoreCategories();
   const apiPromos = usePromos(s => s.promos) || [];
@@ -4137,16 +4224,7 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
   if (promosBoot) {
     return (
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
-          <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
-            <div style={{ flex: 1 }}>
-              <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
-              <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>Загрузка…</div>
-            </div>
-            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-          </div>
-        </header>
+        <Header title="Акции" subtitle="Загрузка…" go={go} cart={cart} user={user} />
         <div style={{ textAlign: "center", padding: "72px 24px 110px" }}>
           <div style={{ fontSize: 52, marginBottom: 16, animation: "float 3s ease-in-out infinite" }}>🏷️</div>
           <div className="ub" style={{ fontSize: 17, fontWeight: 800, marginBottom: 8 }}>Загрузка акций…</div>
@@ -4161,19 +4239,14 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
     const { cat, items } = activeGroup;
     return (
       <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-        <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
-          <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => setSelectedCat(null)} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Ic n="arrL" s={17} c="var(--t2)"/>
-            </button>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: cat.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{cat.e}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="ub" style={{ fontSize: 15, fontWeight: 800 }}>{cat.label}</div>
-              <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 2 }}>Только акционные · {formatProductCount(items.length)}</div>
-                </div>
-            <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-            </div>
-        </header>
+        <Header
+          title={cat.label}
+          subtitle={`Только акционные · ${formatProductCount(items.length)}`}
+          onBack={() => setSelectedCat(null)}
+          go={go}
+          cart={cart}
+          user={user}
+        />
         <div style={{ padding: "14px 18px 110px" }}>
           {items.length === 0 ? (
             <div style={{ textAlign: "center", padding: "52px 22px" }}>
@@ -4199,21 +4272,13 @@ const PromosPage = ({ go, cart, onAdd, onRm, onWish, wished = {}, user }) => {
 
   return (
     <div data-store-page style={{ minHeight: "100vh", background: "var(--bg)", maxWidth:'var(--store-w)', margin: "0 auto" }}>
-      <header data-store-header style={{ position: "sticky", top: 0, zIndex: 100, background: "var(--header-bg)", backdropFilter: "blur(24px)", borderBottom: "1px solid var(--b1)" }}>
-        <div style={{ padding: "13px 18px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,var(--gr3),var(--gr))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Unbounded", fontSize: 17, fontWeight: 900, color: "var(--bg)", flexShrink: 0 }}>K</div>
-          <div style={{ flex: 1 }}>
-            <div className="ub" style={{ fontSize: 16, fontWeight: 900 }}>Акции</div>
-            <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 2 }}>
-              {saleProds.length ? `${saleProds.length} товаров со скидкой` : "Сейчас нет акционных товаров"}
-            </div>
-          </div>
-          <button onClick={() => go("search")} className="btn" style={{ width: 38, height: 38, borderRadius: 12, background: "var(--l3)", border: "1px solid var(--b1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Ic n="search" s={17} c="var(--t2)"/>
-                  </button>
-          <CartHeaderButton count={totalQty} qtyNum={totalQtyNum} onClick={() => go("cart")} isVip={isVip} />
-                </div>
-      </header>
+      <Header
+        title="Акции"
+        subtitle={saleProds.length ? `${saleProds.length} товаров со скидкой` : "Сейчас нет акционных товаров"}
+        go={go}
+        cart={cart}
+        user={user}
+      />
 
       <div style={{ padding: "14px 18px 110px" }}>
         {saleProds.length === 0 ? (
@@ -4343,7 +4408,7 @@ const WishlistPage = ({ go, cart, onAdd, onRm, onWish, wished, user }) => {
 };
 
 const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
-  const light = false;
+  const light = true;
   const { prods, catalogReady } = useLiveCatalog();
   const { isVip } = resolveUserVip(user, light);
   const [query, setQuery] = useState("");
@@ -4441,7 +4506,7 @@ const SearchPage = ({ go, cart, onAdd, onRm, user }) => {
 };
 
 const FAQPage = ({ go }) => {
-  const light = false;
+  const light = true;
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState("");
   const support = useSupportContacts();
@@ -5273,7 +5338,7 @@ const VIPPage = ({ go, user, setUser }) => {
     [spentTotal, orderCount, user?.level, user?.vip, user?.loyaltyPeriod, user?.levelAssignMode, user?.levelValidUntil, user?.levelLockedPeriod, user?.vipUntil],
   );
   const vipUser = user ? { ...user, vip: loyalty.isVip } : null;
-  const light = false;
+  const light = true;
   const { isVip, theme, tier } = resolveUserVip(vipUser, light)
   const showVipSupport =
     resolveAdminVipActive(user?.vip, user?.loyaltyPeriod, user?.vipUntil) ||
@@ -5513,7 +5578,7 @@ const VIPPage = ({ go, user, setUser }) => {
   );
 };
 const AboutPage = ({ go, user }) => {
-  const light = false;
+  const light = true;
   const [tab, setTab] = useState("about");
   const support = useSupportContacts();
   const [sent, setSent] = useState(false);
@@ -6242,7 +6307,7 @@ const AddressesPage = ({ go, user }) => {
   );
 };
 const ReferralPage = ({ go, user }) => {
-  const light = false;
+  const light = true;
   const [copied, setCopied] = useState(false);
   const welcomeBonus = getRegistrationWelcomeBonus();
   const code = user?.card
@@ -6431,7 +6496,6 @@ const ChatPage = ({ go, user }) => {
 
 
 const RestaurantsPage = ({go, cart, onAdd}) => {
-  const light = false;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -6468,39 +6532,40 @@ const RestaurantsPage = ({go, cart, onAdd}) => {
       </header>
 
       <div style={{padding:'14px 18px 100px'}}>
-        <div style={{borderRadius:20,overflow:'hidden',marginBottom:20,background:softAccentSurface('#129B45', light, 'linear-gradient(135deg,#0A1A06,#14300F)'),border:'1px solid rgba(31,215,96,.2)',padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <div>
-            <div style={{fontFamily:'Unbounded',fontSize:14,fontWeight:900,color:'var(--gr)',marginBottom:4}}>Рестораны г. Яван</div>
-            <div style={{fontSize:12,color:'var(--t2)',marginBottom:8}}>Заказывай еду из любимых мест · Один курьер</div>
-            <div style={{display:'flex',gap:8}}>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(31,215,96,.12)',color:'var(--gr)',border:'1px solid rgba(31,215,96,.25)'}}>{restaurants.length} ресторана</span>
-              <span style={{padding:'3px 10px',borderRadius:8,fontSize:11,fontWeight:700,background:'rgba(255,69,69,.1)',color:'var(--red)',border:'1px solid rgba(255,69,69,.25)'}}>{restaurants.filter(x=>x.open).length} открыто</span>
+        <div className="kk-rest-banner" style={{ marginBottom: 20 }}>
+          <div className="kk-rest-banner-emoji">🍽</div>
+          <div className="kk-rest-banner-copy">
+            <small>ДОСТАВКА ЕДЫ</small>
+            <h3>Рестораны г. Яван</h3>
+            <div className="kk-rest-banner-sub">Заказывай еду из любимых мест · Один курьер</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'color-mix(in srgb, #fff 16%, transparent)', border: '1px solid color-mix(in srgb, var(--trim) 45%, transparent)' }}>{restaurants.length} ресторана</span>
+              <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: 'color-mix(in srgb, #fff 16%, transparent)', border: '1px solid color-mix(in srgb, var(--trim) 45%, transparent)' }}>{restaurants.filter(x=>x.open).length} открыто</span>
             </div>
           </div>
-          <div style={{fontSize:48,animation:'float 3s ease-in-out infinite'}}>🍽</div>
         </div>
 
-        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
           {filtered.map((r,i)=>(
-            <div key={r.id} onClick={()=>go('restaurant',{rid:r.id})} className="card" style={{cursor:'pointer',animation:`fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`,opacity:r.open?1:.7}}>
-              <div style={{height:130,background:softFromDarkGrad(r.img, light, '#EA580C'),display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 18px',position:'relative',overflow:'hidden'}}>
-                {!light && <div style={{position:'absolute',inset:0,opacity:.04,background:'repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,1) 8px,rgba(255,255,255,1) 9px)'}}/>}
-                <div>
-                  <div style={{fontFamily:'Unbounded',fontSize:18,fontWeight:900,color:light?'var(--t1)':'white',marginBottom:4,textShadow:light?'none':'0 2px 8px rgba(0,0,0,.5)'}}>{r.name}</div>
-                  <div style={{fontSize:12,color:light?'var(--t2)':'rgba(255,255,255,.7)',marginBottom:8}}>{restaurantsReady ? r.cuisine : '…'}</div>
-                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    {r.tags.map((t,j)=><span key={j} style={{padding:'3px 8px',borderRadius:8,fontSize:10,fontWeight:700,background:light?'rgba(12,26,16,.06)':'rgba(255,255,255,.15)',color:light?'var(--t2)':'white'}}>{t}</span>)}
+            <div
+              key={r.id}
+              onClick={()=>go('restaurant',{rid:r.id})}
+              className="kk-rest-card"
+              style={{ width: '100%', cursor: 'pointer', opacity: r.open ? 1 : 0.72, animation: `fadeUp .45s cubic-bezier(.16,1,.3,1) ${i*.07}s both`, ['--rest' as string]: restAccentColor(r) }}
+            >
+              <div className="kk-rest-media" style={{ height: 120, justifyContent: 'space-between', display: 'flex', alignItems: 'center', padding: '16px 18px', fontSize: 52 }}>
+                <div style={{ textAlign: 'left' }}>
+                  <div className="kk-rest-name" style={{ fontSize: 18, minHeight: 0, marginBottom: 4 }}>{r.name}</div>
+                  <div className="kk-rest-meta" style={{ marginBottom: 8 }}>{restaurantsReady ? r.cuisine : '…'}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {r.tags.map((t,j)=><span key={j} style={{ padding: '3px 8px', borderRadius: 8, fontSize: 10, fontWeight: 700, background: 'rgba(12,26,16,.06)', color: 'var(--t2)' }}>{t}</span>)}
                   </div>
                 </div>
-                <div style={{fontSize:56,animation:'float 3s ease-in-out infinite',filter:light?'none':'drop-shadow(0 4px 12px rgba(0,0,0,.5))'}}>{r.emoji}</div>
-                {!r.open&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'white'}}>🔴 Закрыто</div>}
+                <span>{r.emoji}</span>
+                {!r.open && <div style={{ position: 'absolute', inset: 0, background: 'rgba(25,42,33,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: 'white' }}>Закрыто</div>}
               </div>
-              <div style={{padding:'12px 16px',display:'flex',alignItems:'center'}}>
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{color:'var(--gd)',fontSize:14}}>★</span>
-                  <span style={{fontFamily:'Unbounded',fontSize:13,fontWeight:800}}>{restaurantsReady ? r.rating : '…'}</span>
-                  <span style={{fontSize:11,color:'var(--t3)'}}>({restaurantsReady ? (Number(r.reviews) || 0) : '…'})</span>
-                </div>
+              <div className="kk-rest-body" style={{ display: 'flex', alignItems: 'center' }}>
+                <span className="kk-rest-rate">★ {restaurantsReady ? r.rating : '…'} <span style={{ fontWeight: 600, color: 'var(--t3)' }}>({restaurantsReady ? (Number(r.reviews) || 0) : '…'})</span></span>
               </div>
             </div>
           ))}
@@ -6599,7 +6664,7 @@ function PublicReviewsSheet({
 }
 
 const RestaurantPage = ({go, params, cart, onAdd, onRm}) => {
-  const light = false;
+  const light = true;
   const { restaurants, prods, restaurantsReady } = useLiveCatalog();
   const r = restaurants.find(x => x.id === (params && params.rid)) || restaurants[0];
   const [activeCat, setActiveCat] = useState(ALL_REST_MENU);
@@ -6818,6 +6883,16 @@ const Page404 = ({ go }) => (
 );
 
 export default function KakapoApp() {
+  useEffect(() => {
+    const root = document.documentElement
+    root.setAttribute('data-theme', 'light')
+    root.style.colorScheme = 'light'
+    return () => {
+      root.removeAttribute('data-theme')
+      root.style.colorScheme = ''
+    }
+  }, [])
+
   return (
     <LiveCatalogProvider fallbackProds={PRODS} fallbackRests={RESTAURANTS}>
       <AppNavigationBoundary>
@@ -7308,11 +7383,16 @@ function KakapoAppInner() {
     }
   };
 
+  const statusTierId = resolveStatusLookId(displayUser)
+
   return (
     <>
       <style>{CSS}</style>
       <Toast msg={toast} isVip={isVipUser}/>
-      <div className={`store-shell${isVipUser ? ' store-vip' : ''}`}>
+      <div
+        className={`store-shell kk${isVipUser ? ' store-vip' : ''}`}
+        data-tier={statusTierId}
+      >
         {render()}
       </div>
     </>
